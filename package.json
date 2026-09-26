@@ -19,15 +19,20 @@
   },
   "dependencies": {
     "bonjour-service": "^1.4.4",
+    "naive-ui": "^2.45.3",
     "vue": "^3.5.43"
   },
   "devDependencies": {
+    "@iconify-json/ri": "^1.2.10",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.2",
     "@vitejs/plugin-vue": "^6.0.9",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "tailwindcss": "^4.3.3",
     "typescript": "~5.9.3",
+    "unplugin-icons": "^24.0.0",
     "vue-tsc": "^3.3.11"
   }
 }

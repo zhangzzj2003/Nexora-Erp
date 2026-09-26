@@ -9,7 +9,7 @@
     "noEmit": true,
     "isolatedModules": true,
     "jsx": "preserve",
-    "types": ["vite/client"]
+    "types": ["vite/client", "unplugin-icons/types/vue"]
   },
   "include": ["src/renderer/src/**/*.ts", "src/renderer/src/**/*.vue", "src/shared/**/*.ts"]
 }

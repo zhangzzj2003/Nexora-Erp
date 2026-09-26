@@ -1,3 +1,8 @@
+/* 保留现有表单与排版样式，跳过 Tailwind 的全局重置。 */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
 /* 工作台以清晰的资料层级为主，所有操作保留可见焦点和禁用状态。 */
 :root {
   font-family: Inter, "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
@@ -18,12 +23,16 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 238px minmax(0, 1fr); }
 .sidebar { background: #111d35; color: #f6f8fc; display: flex; flex-direction: column; padding: 30px 17px 22px; }
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 12px; letter-spacing: .15em; }
-.brand-mark { width: 35px; height: 35px; display: grid; place-items: center; border-radius: 10px; background: #79d6ce; color: #10213c; font-size: 21px; font-weight: 900; }
-.brand strong { display: block; font-size: 15px; }
-.brand small { display: block; margin-top: 4px; color: #aebfd5; letter-spacing: .03em; font-size: 10px; }
+/* 放大完整品牌标识，让渐变图形与文字在工作台侧栏保持同一视觉权重。 */
+.brand-mark { width: 48px; height: 48px; display: grid; place-items: center; flex: none; border-radius: 12px; padding: 1px; background: #fff; }
+.brand-mark img, .onboard-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.brand strong { display: block; font-size: 17px; }
+.brand small { display: block; margin-top: 4px; color: #aebfd5; letter-spacing: .03em; font-size: 11px; }
 .side-group { margin-top: 54px; }
 .side-label { padding: 0 15px; color: #8da1bb; font-size: 11px; font-weight: 700; letter-spacing: .14em; }
-.nav-item { display: block; width: 100%; margin: 5px 0; border: 0; border-radius: 9px; padding: 13px 15px; background: none; color: #b8c6d9; text-align: left; font-size: 14px; }
+/* 导航图标只辅助文字，固定尺寸以免不同 SVG 改变侧栏行高。 */
+.nav-item { display: flex; align-items: center; gap: 11px; width: 100%; margin: 5px 0; border: 0; border-radius: 9px; padding: 13px 15px; background: none; color: #b8c6d9; text-align: left; font-size: 14px; }
+.nav-icon { width: 18px; height: 18px; flex: none; }
 .nav-item:hover { background: #1d304f; color: #fff; }
 .nav-item.active { background: #223b5b; color: #8de2d8; font-weight: 700; box-shadow: inset 3px 0 #70d8cc; }
 .sidebar-bottom { margin-top: auto; padding: 20px 12px 2px; color: #a7bad1; font-size: 12px; }
@@ -110,10 +119,10 @@ legend { margin-bottom: 9px; color: #46546b; font-size: 12px; font-weight: 700; 
 
 /* 首次启动用浅蓝色的连接画布，与登录后的深色业务工作台形成清晰阶段感。 */
 .onboarding { min-height: 100vh; display: flex; flex-direction: column; color: #0b2347; background: radial-gradient(circle at 83% 24%, #dceeff 0, transparent 28%), linear-gradient(145deg, #f6fbff 0%, #e9f3ff 55%, #f7fbff 100%); }
-.onboard-top { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #d9e7f6; padding: 0 clamp(26px, 4vw, 68px); background: rgba(255,255,255,.68); }
-.onboard-logo { display: flex; align-items: center; gap: 11px; letter-spacing: .09em; font-size: 17px; }
-.onboard-logo small { color: #3b73b9; font-size: 12px; }
-.onboard-mark { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 9px; background: #0969e8; color: #fff; font-size: 20px; font-weight: 900; box-shadow: 0 6px 16px #327df84a; }
+.onboard-top { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #d9e7f6; padding: 0 clamp(26px, 4vw, 68px); background: rgba(255,255,255,.68); }
+.onboard-logo { display: flex; align-items: center; gap: 14px; white-space: nowrap; letter-spacing: .09em; font-size: 22px; }
+.onboard-logo small { color: #3b73b9; font-size: 14px; }
+.onboard-mark { width: 52px; height: 52px; display: grid; place-items: center; flex: none; border-radius: 12px; padding: 1px; background: #fff; box-shadow: 0 6px 16px #327df84a; }
 .onboard-top-note { color: #7694b8; font-size: 12px; white-space: nowrap; }
 .onboard-main { width: min(1320px, 100%); flex: 1; margin: 0 auto; padding: clamp(27px, 5vh, 64px) clamp(24px, 4vw, 68px) 46px; position: relative; }
 .onboard-main::before { content: ''; position: absolute; right: 5%; top: 12px; width: 260px; height: 150px; background-image: linear-gradient(#9dc6f237 1px, transparent 1px), linear-gradient(90deg, #9dc6f237 1px, transparent 1px); background-size: 18px 18px; mask-image: linear-gradient(to left, black, transparent); pointer-events: none; }
@@ -133,6 +142,8 @@ legend { margin-bottom: 9px; color: #46546b; font-size: 12px; font-weight: 700; 
 .choice-card.featured { border: 2px solid #2381f9; background: linear-gradient(155deg, #f0f8ff, #fff 60%); }
 .choice-index { color: #6a90bc; font: 700 11px "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; }
 .choice-symbol { width: 82px; height: 82px; display: grid; place-items: center; margin: 25px auto 20px; border: 1px solid #c6e3ff; border-radius: 23px; background: linear-gradient(145deg, #e6f4ff, #cfe6ff); color: #0b70e9; font-size: 52px; line-height: 1; font-weight: 300; box-shadow: 0 11px 20px #2a7be11f; }
+/* SVG 继承卡片颜色，但不继承旧字符图形的字号。 */
+.choice-symbol svg { width: 42px; height: 42px; }
 .choice-card.featured .choice-symbol { background: #086ef0; color: white; box-shadow: 0 11px 24px #1976e859; }
 .choice-card strong { display: block; font-size: 23px; text-align: center; letter-spacing: -.025em; }
 .choice-card > span:nth-last-of-type(1) { display: block; margin: 11px 0 23px; color: #7288a7; font-size: 13px; line-height: 1.6; text-align: center; }
@@ -144,6 +155,7 @@ legend { margin-bottom: 9px; color: #46546b; font-size: 12px; font-weight: 700; 
 .panel-heading h2 { margin: 0; font-size: 21px; }
 .panel-heading p { margin: 6px 0 0; color: #7990ad; font-size: 12px; line-height: 1.5; }
 .panel-icon { width: 45px; height: 45px; display: grid; flex: none; place-items: center; border-radius: 13px; background: #e5f2ff; color: #116ff0; font-size: 27px; }
+.panel-icon svg { width: 25px; height: 25px; }
 .onboard-form { display: grid; gap: 18px; }
 .onboard-form .panel-heading { margin-bottom: 5px; }
 .onboard-form label { color: #2a4a77; font-size: 13px; }
@@ -196,12 +208,14 @@ legend { margin-bottom: 9px; color: #46546b; font-size: 12px; font-weight: 700; 
 .ready-primary { text-align: center; }
 .ready-primary .onboard-actions { justify-content: center; }
 .ready-symbol { width: 76px; height: 76px; display: grid; place-items: center; margin: 8px auto 22px; border-radius: 50%; background: #19b982; color: white; font-size: 42px; font-weight: 700; box-shadow: 0 8px 22px #1dbb8352; }
+.ready-symbol svg { width: 38px; height: 38px; }
 .ready-primary h2 { margin: 9px 0; font-size: 28px; }
 .ready-primary > p:not(.onboard-kicker) { color: #6f87a4; font-size: 13px; line-height: 1.6; }
 .offline-panel { max-width: 650px; margin: 0 auto; text-align: center; }
 .offline-panel .onboard-actions { justify-content: center; }
 .offline-panel p { color: #748ba7; font-size: 13px; line-height: 1.6; }
 .offline-symbol { width: 64px; height: 64px; display: grid; place-items: center; margin: 0 auto 20px; border-radius: 50%; background: #fff2db; color: #c68319; font-size: 36px; font-weight: 700; }
+.offline-symbol svg { width: 32px; height: 32px; }
 .onboard-footer { display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid #d8e7f6; padding: 17px clamp(24px, 4vw, 68px); background: #ffffff8c; color: #8ea6c3; font-size: 11px; }
 .auth-switch { margin-top: 22px; padding: 0; }
 @keyframes scan-turn { to { transform: rotate(360deg); } }
@@ -231,12 +245,15 @@ legend { margin-bottom: 9px; color: #46546b; font-size: 12px; font-weight: 700; 
   .choice-grid, .onboard-columns { grid-template-columns: 1fr; }
   .choice-card { min-height: 230px; }
   .choice-symbol { margin: 14px auto; width: 60px; height: 60px; font-size: 38px; }
+  .choice-symbol svg { width: 32px; height: 32px; }
   .scan-panel { grid-template-columns: 1fr; text-align: center; }
   .scan-visual { margin: 25px 0; }
   .onboard-footer { display: block; text-align: center; }
   .onboard-footer span { display: block; margin: 3px 0; }
 }
 @media (max-width: 560px) {
+  /* 窄窗口优先完整显示放大后的品牌标识，避免右侧说明与它重叠。 */
+  .onboard-top-note { display: none; }
   .account { display: block; min-width: 90px; }
   .account .text-button { margin-top: 8px; }
   .summary-grid, .form-grid { grid-template-columns: 1fr; }

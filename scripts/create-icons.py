@@ -1,28 +1,32 @@
-"""生成 Nexora 内部安装包使用的桌面图标。"""
+"""由选定的 Nexus + Aurora 标志生成桌面安装包图标。"""
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCES = ROOT / "resources"
+SOURCE = RESOURCES / "nexora-nexus-aurora-logo.png"
 
 
 def make_icon() -> Image.Image:
-    # 在 2048 像素画布上绘制，缩小时线条和圆角依然平滑。
-    image = Image.new("RGBA", (2048, 2048), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((96, 96, 1952, 1952), radius=440, fill="#0B69DF")
-    draw.rounded_rectangle((118, 118, 1930, 1930), radius=424, outline="#6FC3FF", width=16)
-    top = [(1024, 425), (1500, 690), (1024, 965), (548, 690)]
-    left = [(548, 748), (990, 1000), (990, 1570), (548, 1320)]
-    right = [(1058, 1000), (1500, 748), (1500, 1320), (1058, 1570)]
-    draw.polygon(top, fill="#E8F7FF")
-    draw.polygon(left, fill="#FFFFFF")
-    draw.polygon(right, fill="#90D9FF")
-    draw.line([(1024, 1015), (1024, 1570)], fill="#0B69DF", width=32)
-    return image.resize((1024, 1024), Image.Resampling.LANCZOS)
+    with Image.open(SOURCE) as source:
+        logo = source.convert("RGBA")
+
+    # 生成图边缘有极低透明度的散点；清除后按可见内容裁切，保证小尺寸图标清晰。
+    alpha = logo.getchannel("A").point(lambda value: 0 if value < 16 else value)
+    logo.putalpha(alpha)
+    bounds = alpha.getbbox()
+    if bounds is None:
+        raise ValueError("标志图片没有可见内容")
+    logo = logo.crop(bounds)
+
+    # 四周留白，确保 macOS Dock、Windows 桌面和托盘中都不会贴边。
+    logo.thumbnail((800, 800), Image.Resampling.LANCZOS)
+    icon = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    icon.alpha_composite(logo, ((1024 - logo.width) // 2, (1024 - logo.height) // 2))
+    return icon
 
 
 def main() -> None:

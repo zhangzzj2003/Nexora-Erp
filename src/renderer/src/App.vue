@@ -1,10 +1,33 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { NButton, NConfigProvider, dateZhCN, zhCN } from 'naive-ui'
+import type { GlobalThemeOverrides } from 'naive-ui'
+// 应用内品牌标记与安装包图标共用第一版 Nexus + Aurora 标志。
+import nexoraLogo from '../../../resources/icon.png'
+// 从 Remix Icon 的 ri 图标集按需导入，构建时会把 SVG 打包进应用。
+import IconArrowRightUpLine from '~icons/ri/arrow-right-up-line'
+import IconRadarLine from '~icons/ri/radar-line'
+import IconServerLine from '~icons/ri/server-line'
+import IconHistoryLine from '~icons/ri/history-line'
+import IconAddLine from '~icons/ri/add-line'
+import IconCheckboxCircleLine from '~icons/ri/checkbox-circle-line'
+import IconErrorWarningLine from '~icons/ri/error-warning-line'
+import IconRefreshLine from '~icons/ri/refresh-line'
+import IconStackLine from '~icons/ri/stack-line'
+import IconArchiveLine from '~icons/ri/archive-line'
+import IconFileList3Line from '~icons/ri/file-list-3-line'
+import IconTeamLine from '~icons/ri/team-line'
+import IconSettings3Line from '~icons/ri/settings-3-line'
 import type { Material, Movement, Permission, Receipt, Role, Stock, Supplier, User } from '../../shared/erp-api'
 import type { ConnectionCandidate, DiscoveryResult, HostStatus, ServerProfile } from '../../shared/desktop-api'
 
 type Screen = 'loading' | 'welcome' | 'manual' | 'scan' | 'results' | 'create' | 'trust' | 'ready' | 'offline' | 'setup' | 'login' | 'app'
 type Tab = 'stock' | 'catalog' | 'receipts' | 'users' | 'settings'
+
+// 让新增的 Naive UI 控件沿用工作台现有的青绿色主色。
+const naiveThemeOverrides: GlobalThemeOverrides = {
+  common: { primaryColor: '#237d7a', primaryColorHover: '#1d6c69', primaryColorPressed: '#195d5a' }
+}
 
 const screen = ref<Screen>('loading')
 const activeTab = ref<Tab>('stock')
@@ -48,10 +71,11 @@ let scanTimer: ReturnType<typeof setInterval> | null = null
 let unsubscribeDiscovery: (() => void) | null = null
 
 const can = (permission: string): boolean => user.value?.permissions.includes(permission) ?? false
+// 导航权限仍按原规则计算；图标与文字绑定，避免图标单独承载含义。
 const visibleTabs = computed(() => [
-  ...(can('inventory.view') ? [{ key: 'stock' as const, label: '库存总览' }, { key: 'catalog' as const, label: '基础资料' }, { key: 'receipts' as const, label: '采购入库' }] : []),
-  ...(can('users.manage') ? [{ key: 'users' as const, label: '用户权限' }] : []),
-  { key: 'settings' as const, label: '连接与服务' }
+  ...(can('inventory.view') ? [{ key: 'stock' as const, label: '库存总览', icon: IconStackLine }, { key: 'catalog' as const, label: '基础资料', icon: IconArchiveLine }, { key: 'receipts' as const, label: '采购入库', icon: IconFileList3Line }] : []),
+  ...(can('users.manage') ? [{ key: 'users' as const, label: '用户权限', icon: IconTeamLine }] : []),
+  { key: 'settings' as const, label: '连接与服务', icon: IconSettings3Line }
 ])
 
 function displayError(cause: unknown): string {
@@ -443,8 +467,10 @@ onUnmounted(() => { void stopScan() })
 </script>
 
 <template>
+  <!-- 统一设置 Naive UI 中文环境；现有页面可逐步使用组件。 -->
+  <NConfigProvider :locale="zhCN" :date-locale="dateZhCN" :theme-overrides="naiveThemeOverrides">
   <div v-if="screen !== 'app' && screen !== 'login' && screen !== 'setup'" class="onboarding">
-    <header class="onboard-top"><div class="onboard-logo"><span class="onboard-mark">N</span><strong>NEXORA <small>ERP</small></strong></div><span class="onboard-top-note">企业运营工作台 <span v-if="version">· v{{ version }}</span></span></header>
+    <header class="onboard-top"><div class="onboard-logo"><span class="onboard-mark"><img :src="nexoraLogo" alt="" /></span><strong>NEXORA <small>ERP</small></strong></div><span class="onboard-top-note">企业运营工作台 <span v-if="version">· v{{ version }}</span></span></header>
     <main class="onboard-main">
       <div class="onboard-hero">
         <p class="onboard-kicker">NEXORA · CONNECT</p>
@@ -457,36 +483,38 @@ onUnmounted(() => { void stopScan() })
       <section v-if="screen === 'loading'" class="onboard-panel loading-panel"><div class="scan-orbit"></div><h2>正在检查上次连接…</h2></section>
 
       <section v-else-if="screen === 'welcome'" class="choice-grid" aria-label="启动方式">
-        <button class="choice-card" type="button" @click="go('manual')"><span class="choice-index">01 / CONNECT</span><span class="choice-symbol">↗</span><strong>连接服务端</strong><span>知道地址时直接填写，也可以选择最近使用过的服务端。</span><em>填写连接信息 <span aria-hidden="true">→</span></em></button>
-        <button class="choice-card featured" type="button" @click="startScan"><span class="choice-index">02 / DISCOVER</span><span class="choice-symbol radar-symbol">◎</span><strong>扫描局域网</strong><span>自动发现同一网络中的服务端，再核对身份并连接。</span><em>开始扫描 <span aria-hidden="true">→</span></em></button>
-        <button class="choice-card" type="button" @click="go('create')"><span class="choice-index">03 / HOST</span><span class="choice-symbol">＋</span><strong>新建服务端</strong><span>在这台电脑上创建服务端，供团队在局域网中使用。</span><em>开始创建 <span aria-hidden="true">→</span></em></button>
+        <!-- 启动方式保留文字说明，Remix Icon 只作为辅助视觉标记。 -->
+        <button class="choice-card" type="button" @click="go('manual')"><span class="choice-index">01 / CONNECT</span><span class="choice-symbol"><IconArrowRightUpLine aria-hidden="true" /></span><strong>连接服务端</strong><span>知道地址时直接填写，也可以选择最近使用过的服务端。</span><em>填写连接信息 <span aria-hidden="true">→</span></em></button>
+        <button class="choice-card featured" type="button" @click="startScan"><span class="choice-index">02 / DISCOVER</span><span class="choice-symbol radar-symbol"><IconRadarLine aria-hidden="true" /></span><strong>扫描局域网</strong><span>自动发现同一网络中的服务端，再核对身份并连接。</span><em>开始扫描 <span aria-hidden="true">→</span></em></button>
+        <button class="choice-card" type="button" @click="go('create')"><span class="choice-index">03 / HOST</span><span class="choice-symbol"><IconServerLine aria-hidden="true" /></span><strong>新建服务端</strong><span>在这台电脑上创建服务端，供团队在局域网中使用。</span><em>开始创建 <span aria-hidden="true">→</span></em></button>
       </section>
 
       <section v-else-if="screen === 'manual'" class="onboard-columns">
-        <form class="onboard-panel onboard-form" @submit.prevent="connectManual"><div class="panel-heading"><span class="panel-icon">↗</span><div><h2>服务端地址</h2><p>只支持本机和局域网地址，连接将使用 HTTPS。</p></div></div><label>IP 地址或主机名<input v-model.trim="manualForm.address" required placeholder="例如 192.168.1.100" autocomplete="off" /></label><label>端口<input v-model.number="manualForm.port" type="number" min="1" max="65535" required /></label><div class="onboard-actions"><button class="secondary" type="button" @click="go('welcome')">返回首页</button><button class="primary" type="submit" :disabled="busy">{{ busy ? '正在检查…' : '检查并连接' }}</button></div></form>
-        <div class="onboard-panel"><div class="panel-heading"><span class="panel-icon">◷</span><div><h2>最近连接</h2><p>仅保存地址和已核对的证书，不保存密码。</p></div></div><div v-if="!recentServers.length" class="onboard-empty">还没有连接记录。可以填写地址，或扫描局域网。</div><button v-for="entry in recentServers" :key="entry.id" class="server-row" type="button" :disabled="busy" @click="connectSaved(entry)"><span><strong>{{ entry.name }}</strong><small>{{ entry.host }}:{{ entry.port }}</small></span><span class="server-row-action">连接 →</span></button></div>
+        <form class="onboard-panel onboard-form" @submit.prevent="connectManual"><div class="panel-heading"><span class="panel-icon"><IconArrowRightUpLine aria-hidden="true" /></span><div><h2>服务端地址</h2><p>只支持本机和局域网地址，连接将使用 HTTPS。</p></div></div><label>IP 地址或主机名<input v-model.trim="manualForm.address" required placeholder="例如 192.168.1.100" autocomplete="off" /></label><label>端口<input v-model.number="manualForm.port" type="number" min="1" max="65535" required /></label><div class="onboard-actions"><button class="secondary" type="button" @click="go('welcome')">返回首页</button><button class="primary" type="submit" :disabled="busy">{{ busy ? '正在检查…' : '检查并连接' }}</button></div></form>
+        <div class="onboard-panel"><div class="panel-heading"><span class="panel-icon"><IconHistoryLine aria-hidden="true" /></span><div><h2>最近连接</h2><p>仅保存地址和已核对的证书，不保存密码。</p></div></div><div v-if="!recentServers.length" class="onboard-empty">还没有连接记录。可以填写地址，或扫描局域网。</div><button v-for="entry in recentServers" :key="entry.id" class="server-row" type="button" :disabled="busy" @click="connectSaved(entry)"><span><strong>{{ entry.name }}</strong><small>{{ entry.host }}:{{ entry.port }}</small></span><span class="server-row-action">连接 →</span></button></div>
       </section>
 
       <section v-else-if="screen === 'scan'" class="onboard-panel scan-panel"><div class="scan-visual"><div class="scan-orbit"><span class="scan-core">N</span></div></div><div class="scan-copy"><p class="onboard-kicker">LIVE DISCOVERY</p><h2>已扫描 {{ scanSeconds }} 秒</h2><p>发现 {{ discoveries.length }} 个可用服务端。结果会随着网络变化更新。</p><div class="scan-live"><span class="status-dot"></span>{{ scanning ? '正在发现' : '已暂停' }}</div></div><div class="onboard-actions scan-actions"><button class="secondary" type="button" @click="go('welcome')">返回首页</button><button class="secondary" type="button" @click="showResults">暂停并查看结果</button><button class="primary" type="button" @click="startScan">重新扫描</button></div></section>
 
-      <section v-else-if="screen === 'results'" class="onboard-panel"><div class="panel-heading"><span class="panel-icon">◎</span><div><h2>发现 {{ discoveries.length }} 个服务端</h2><p>选择在线服务端，下一步核对证书指纹。</p></div></div><div v-if="!discoveries.length" class="onboard-empty">当前没有发现可用服务端。请确认两台电脑在同一局域网，或手动填写地址。</div><button v-for="entry in discoveries" :key="entry.id" class="server-row" type="button" :disabled="!entry.online || busy" @click="pickDiscovered(entry)"><span><strong>{{ entry.name }}</strong><small>{{ entry.host }}:{{ entry.port }} · v{{ entry.version }}</small></span><span :class="entry.online ? 'online' : 'offline'">{{ entry.online ? '在线 · 连接 →' : '离线' }}</span></button><div class="onboard-actions"><button class="secondary" type="button" @click="go('manual')">手动填写</button><button class="primary" type="button" @click="startScan">重新扫描</button></div></section>
+      <section v-else-if="screen === 'results'" class="onboard-panel"><div class="panel-heading"><span class="panel-icon"><IconRadarLine aria-hidden="true" /></span><div><h2>发现 {{ discoveries.length }} 个服务端</h2><p>选择在线服务端，下一步核对证书指纹。</p></div></div><div v-if="!discoveries.length" class="onboard-empty">当前没有发现可用服务端。请确认两台电脑在同一局域网，或手动填写地址。</div><button v-for="entry in discoveries" :key="entry.id" class="server-row" type="button" :disabled="!entry.online || busy" @click="pickDiscovered(entry)"><span><strong>{{ entry.name }}</strong><small>{{ entry.host }}:{{ entry.port }} · v{{ entry.version }}</small></span><span :class="entry.online ? 'online' : 'offline'">{{ entry.online ? '在线 · 连接 →' : '离线' }}</span></button><div class="onboard-actions"><button class="secondary" type="button" @click="go('manual')">手动填写</button><button class="primary" type="button" @click="startScan">重新扫描</button></div></section>
 
-      <section v-else-if="screen === 'create'" class="onboard-columns create-columns"><div v-if="host.configured" class="onboard-panel"><div class="panel-heading"><span class="panel-icon">▣</span><div><h2>此电脑已有服务端</h2><p>一个电脑只创建一个本机实例。你可以继续使用已有服务端。</p></div></div><div class="onboard-actions"><button class="secondary" type="button" @click="go('welcome')">返回首页</button><button class="primary" type="button" :disabled="busy" @click="restartLocalHost">{{ host.running ? '连接本机服务' : '启动本机服务' }}</button></div></div><form v-else class="onboard-panel onboard-form" @submit.prevent="createLocalHost"><div class="panel-heading"><span class="panel-icon">＋</span><div><h2>本机服务配置</h2><p>第一版使用 SQLite，每台电脑只创建一个本机实例。</p></div></div><div class="form-grid"><label>实例名称<input v-model.trim="hostForm.name" required maxlength="80" placeholder="例如 总公司 ERP" /></label><label>服务端口<input v-model.number="hostForm.port" type="number" min="1" max="65535" required /></label></div><label>数据目录<div class="path-picker"><input v-model.trim="hostForm.dataDir" required placeholder="选择 SQLite 数据保存位置" /><button class="secondary" type="button" @click="chooseDataDir">选择</button></div></label><div class="form-grid"><label>首位管理员账号<input v-model.trim="hostForm.username" required minlength="3" maxlength="40" autocomplete="username" /></label><span class="form-hint">已有数据库会原样保留；已有管理员请使用原账号登录。</span></div><div class="form-grid"><label>管理员密码<input v-model="hostForm.password" type="password" required minlength="12" maxlength="128" autocomplete="new-password" placeholder="至少 12 位" /></label><label>确认密码<input v-model="hostForm.confirm" type="password" required minlength="12" autocomplete="new-password" /></label></div><div class="onboard-actions"><button class="secondary" type="button" @click="go('welcome')">返回首页</button><button class="primary" type="submit" :disabled="busy">{{ busy ? '正在创建服务端…' : '创建并启动' }}</button></div></form><aside class="onboard-panel setup-summary"><p class="onboard-kicker">DEPLOYMENT SUMMARY</p><h2>这台电脑将成为服务端</h2><dl><div><dt>业务数据库</dt><dd>SQLite</dd></div><div><dt>访问方式</dt><dd>局域网 HTTPS</dd></div><div><dt>后台运行</dt><dd>登录期间由托盘保持</dd></div><div><dt>外部客户端</dt><dd>需核对证书指纹并登录</dd></div></dl><p class="summary-note">服务端数据集中保存在此电脑。客户端断网后不能继续编辑或自动同步。</p></aside></section>
+      <section v-else-if="screen === 'create'" class="onboard-columns create-columns"><div v-if="host.configured" class="onboard-panel"><div class="panel-heading"><span class="panel-icon"><IconServerLine aria-hidden="true" /></span><div><h2>此电脑已有服务端</h2><p>一个电脑只创建一个本机实例。你可以继续使用已有服务端。</p></div></div><div class="onboard-actions"><button class="secondary" type="button" @click="go('welcome')">返回首页</button><button class="primary" type="button" :disabled="busy" @click="restartLocalHost">{{ host.running ? '连接本机服务' : '启动本机服务' }}</button></div></div><form v-else class="onboard-panel onboard-form" @submit.prevent="createLocalHost"><div class="panel-heading"><span class="panel-icon"><IconAddLine aria-hidden="true" /></span><div><h2>本机服务配置</h2><p>第一版使用 SQLite，每台电脑只创建一个本机实例。</p></div></div><div class="form-grid"><label>实例名称<input v-model.trim="hostForm.name" required maxlength="80" placeholder="例如 总公司 ERP" /></label><label>服务端口<input v-model.number="hostForm.port" type="number" min="1" max="65535" required /></label></div><label>数据目录<div class="path-picker"><input v-model.trim="hostForm.dataDir" required placeholder="选择 SQLite 数据保存位置" /><button class="secondary" type="button" @click="chooseDataDir">选择</button></div></label><div class="form-grid"><label>首位管理员账号<input v-model.trim="hostForm.username" required minlength="3" maxlength="40" autocomplete="username" /></label><span class="form-hint">已有数据库会原样保留；已有管理员请使用原账号登录。</span></div><div class="form-grid"><label>管理员密码<input v-model="hostForm.password" type="password" required minlength="12" maxlength="128" autocomplete="new-password" placeholder="至少 12 位" /></label><label>确认密码<input v-model="hostForm.confirm" type="password" required minlength="12" autocomplete="new-password" /></label></div><div class="onboard-actions"><button class="secondary" type="button" @click="go('welcome')">返回首页</button><button class="primary" type="submit" :disabled="busy">{{ busy ? '正在创建服务端…' : '创建并启动' }}</button></div></form><aside class="onboard-panel setup-summary"><p class="onboard-kicker">DEPLOYMENT SUMMARY</p><h2>这台电脑将成为服务端</h2><dl><div><dt>业务数据库</dt><dd>SQLite</dd></div><div><dt>访问方式</dt><dd>局域网 HTTPS</dd></div><div><dt>后台运行</dt><dd>登录期间由托盘保持</dd></div><div><dt>外部客户端</dt><dd>需核对证书指纹并登录</dd></div></dl><p class="summary-note">服务端数据集中保存在此电脑。客户端断网后不能继续编辑或自动同步。</p></aside></section>
 
       <section v-else-if="screen === 'trust' && candidate" class="onboard-panel trust-panel"><span class="trust-icon">◇</span><h2>{{ candidate.changed ? '服务端证书已变化' : '首次连接，需要确认身份' }}</h2><p>请到服务端电脑的“服务端已就绪”页面，核对以下完整 SHA-256 指纹。不要只凭本页面显示的名称判断身份。</p><div class="fingerprint">{{ candidate.fingerprint }}</div><p class="muted">{{ candidate.name }} · {{ candidate.host }}:{{ candidate.port }}</p><label class="check trust-check"><input v-model="trustChecked" type="checkbox" />我已通过服务端电脑或可信渠道核对完整指纹</label><div class="onboard-actions"><button class="secondary" type="button" @click="go('manual')">取消</button><button class="primary" type="button" :disabled="!trustChecked || busy" @click="approveTrust">确认身份并连接</button></div></section>
 
-      <section v-else-if="screen === 'ready' && server" class="onboard-columns ready-columns"><div class="onboard-panel ready-primary"><div class="ready-symbol">✓</div><p class="onboard-kicker">CONNECTION READY</p><h2>{{ server.isLocal ? '本机服务已启动' : '连接已建立' }}</h2><p>使用服务端账号登录后，就可以进入 ERP 工作台。</p><div class="onboard-actions"><button class="primary" type="button" @click="go('login')">进入登录 →</button><button class="secondary" type="button" @click="switchServer">切换服务端</button></div></div><div class="onboard-panel"><div class="panel-heading"><span class="panel-icon">▣</span><div><h2>当前服务端</h2><p>连接信息与身份核验</p></div></div><dl class="server-details"><div><dt>名称</dt><dd>{{ server.name }}</dd></div><div><dt>地址</dt><dd>{{ server.host }}:{{ server.port }}</dd></div><div><dt>版本</dt><dd>v{{ server.version }}</dd></div><div><dt>状态</dt><dd class="online">运行中</dd></div></dl><template v-if="server.isLocal"><p class="fingerprint-label">请将此指纹提供给需要连接的团队成员核对：</p><div class="fingerprint compact">{{ server.fingerprint }}</div></template></div></section>
+      <section v-else-if="screen === 'ready' && server" class="onboard-columns ready-columns"><div class="onboard-panel ready-primary"><div class="ready-symbol"><IconCheckboxCircleLine aria-hidden="true" /></div><p class="onboard-kicker">CONNECTION READY</p><h2>{{ server.isLocal ? '本机服务已启动' : '连接已建立' }}</h2><p>使用服务端账号登录后，就可以进入 ERP 工作台。</p><div class="onboard-actions"><button class="primary" type="button" @click="go('login')">进入登录 →</button><button class="secondary" type="button" @click="switchServer">切换服务端</button></div></div><div class="onboard-panel"><div class="panel-heading"><span class="panel-icon"><IconServerLine aria-hidden="true" /></span><div><h2>当前服务端</h2><p>连接信息与身份核验</p></div></div><dl class="server-details"><div><dt>名称</dt><dd>{{ server.name }}</dd></div><div><dt>地址</dt><dd>{{ server.host }}:{{ server.port }}</dd></div><div><dt>版本</dt><dd>v{{ server.version }}</dd></div><div><dt>状态</dt><dd class="online">运行中</dd></div></dl><template v-if="server.isLocal"><p class="fingerprint-label">请将此指纹提供给需要连接的团队成员核对：</p><div class="fingerprint compact">{{ server.fingerprint }}</div></template></div></section>
 
-      <section v-else-if="screen === 'offline'" class="onboard-panel offline-panel"><span class="offline-symbol">!</span><h2>{{ server?.name || '服务端' }} · 暂时无法连接</h2><p>服务端可能未启动、网络不可达或证书发生变化。重新连接前请确认服务端身份。</p><div class="onboard-actions"><button class="primary" type="button" :disabled="busy" @click="checkConnection">重试连接</button><button v-if="host.configured && !host.running" class="secondary" type="button" :disabled="busy" @click="restartLocalHost">启动本机服务</button><button class="secondary" type="button" @click="switchServer">切换服务端</button></div></section>
+      <section v-else-if="screen === 'offline'" class="onboard-panel offline-panel"><span class="offline-symbol"><IconErrorWarningLine aria-hidden="true" /></span><h2>{{ server?.name || '服务端' }} · 暂时无法连接</h2><p>服务端可能未启动、网络不可达或证书发生变化。重新连接前请确认服务端身份。</p><div class="onboard-actions"><button class="primary" type="button" :disabled="busy" @click="checkConnection">重试连接</button><button v-if="host.configured && !host.running" class="secondary" type="button" :disabled="busy" @click="restartLocalHost">启动本机服务</button><button class="secondary" type="button" @click="switchServer">切换服务端</button></div></section>
     </main>
     <footer class="onboard-footer"><span>联光 ERP · 让业务流转有据可查</span><span>局域网内连接 · 账号权限由服务端管理</span></footer>
   </div>
   <div v-else class="app-shell">
     <aside class="sidebar">
-      <div class="brand"><span class="brand-mark">N</span><div><strong>NEXORA</strong><small>联光 ERP · {{ server?.isLocal ? '本机服务' : '团队工作台' }}</small></div></div>
+      <div class="brand"><span class="brand-mark"><img :src="nexoraLogo" alt="" /></span><div><strong>NEXORA</strong><small>联光 ERP · {{ server?.isLocal ? '本机服务' : '团队工作台' }}</small></div></div>
       <div v-if="screen === 'app'" class="side-group">
         <p class="side-label">工作台</p>
-        <button v-for="item in visibleTabs" :key="item.key" class="nav-item" :class="{ active: activeTab === item.key }" type="button" @click="activeTab = item.key">{{ item.label }}</button>
+        <!-- 导航图标随可见标签一起生成，不改变现有权限判断。 -->
+        <button v-for="item in visibleTabs" :key="item.key" class="nav-item" :class="{ active: activeTab === item.key }" type="button" @click="activeTab = item.key"><component :is="item.icon" class="nav-icon" aria-hidden="true" />{{ item.label }}</button>
       </div>
       <div class="sidebar-bottom"><span class="status-dot"></span> {{ server?.name || 'Nexora ERP' }} <small v-if="version">v{{ version }}</small></div>
     </aside>
@@ -515,7 +543,14 @@ onUnmounted(() => { void stopScan() })
       <template v-else-if="screen === 'app'">
         <section v-if="activeTab === 'stock'" class="stack">
           <div class="summary-grid"><div class="metric"><span>物料种类</span><strong>{{ materials.length }}</strong></div><div class="metric"><span>已确认入库单</span><strong>{{ receipts.filter(item => item.status === 'posted').length }}</strong></div><div class="metric"><span>库存流水</span><strong>{{ movements.length }}</strong></div></div>
-          <div class="card"><div class="section-heading"><div><p class="eyebrow">INVENTORY</p><h2>当前库存</h2></div><button class="text-button" type="button" :disabled="busy" @click="perform(refreshData, '数据已刷新。')">刷新</button></div><div class="table-wrap"><table><thead><tr><th>物料编码</th><th>物料名称</th><th>数量</th></tr></thead><tbody><tr v-for="item in stock" :key="item.id"><td class="mono">{{ item.sku }}</td><td>{{ item.name }}</td><td><strong>{{ item.quantity }}</strong> {{ item.unit }}</td></tr><tr v-if="!stock.length"><td colspan="3" class="muted">暂无物料，先到基础资料中添加。</td></tr></tbody></table></div></div>
+          <div class="card">
+            <div class="section-heading">
+              <div><p class="eyebrow">INVENTORY</p><h2>当前库存</h2></div>
+              <!-- 用 Naive UI 按钮接入现有刷新操作，并以 Tailwind 工具类避免窄屏挤压。 -->
+              <NButton text type="primary" class="shrink-0" :disabled="busy" @click="perform(refreshData, '数据已刷新。')"><template #icon><IconRefreshLine aria-hidden="true" /></template>刷新</NButton>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>物料编码</th><th>物料名称</th><th>数量</th></tr></thead><tbody><tr v-for="item in stock" :key="item.id"><td class="mono">{{ item.sku }}</td><td>{{ item.name }}</td><td><strong>{{ item.quantity }}</strong> {{ item.unit }}</td></tr><tr v-if="!stock.length"><td colspan="3" class="muted">暂无物料，先到基础资料中添加。</td></tr></tbody></table></div>
+          </div>
           <div class="card"><div class="section-heading"><div><p class="eyebrow">AUDIT TRAIL</p><h2>入库流水</h2></div></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>物料</th><th>入库数量</th><th>来源</th></tr></thead><tbody><tr v-for="item in movements" :key="item.id"><td>{{ localTime(item.created_at) }}</td><td>{{ item.material_name }} <small class="mono">{{ item.sku }}</small></td><td>+{{ item.quantity }} {{ item.unit }}</td><td>入库单 #{{ item.receipt_id }}</td></tr><tr v-if="!movements.length"><td colspan="4" class="muted">确认入库单后，这里会显示库存流水。</td></tr></tbody></table></div></div>
         </section>
 
@@ -564,4 +599,5 @@ onUnmounted(() => { void stopScan() })
       </template>
     </main>
   </div>
+  </NConfigProvider>
 </template>
