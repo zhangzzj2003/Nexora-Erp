@@ -8,7 +8,7 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
-import { NModal } from 'naive-ui'
+import { NModal, NSwitch } from 'naive-ui'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
@@ -111,7 +111,11 @@ const filteredRecords = computed(() =>
               max="1000000000"
               step="0.0001"
               required /></label
-          ><AppButton
+          >
+          <label>税率（%）<AppInput v-model="line.tax_rate" inputmode="decimal" placeholder="0" :disabled="busy" /></label>
+          <label>折扣率（%）<AppInput v-model="line.discount_rate" inputmode="decimal" placeholder="0" :disabled="busy" /></label>
+          <label>报价含税<NSwitch v-model:value="line.includes_tax" :disabled="busy" /></label>
+<AppButton
             type="button"
             :disabled="purchaseForm.lines.length === 1"
             @click="purchaseForm.lines.splice(index, 1)"
@@ -127,7 +131,7 @@ const filteredRecords = computed(() =>
               purchaseForm.lines.push({
                 material_id: 0,
                 quantity: '1',
-                unit_price: '0'
+                unit_price: '0', tax_rate: '0', discount_rate: '0', includes_tax: false
               })
             "
             variant="secondary"

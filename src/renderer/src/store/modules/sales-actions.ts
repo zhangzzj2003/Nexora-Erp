@@ -59,7 +59,7 @@ export function createSalesActions(
         lines: salesForm.value.lines.map((line) => ({
           material_id: line.material_id,
           quantity: line.quantity,
-          unit_price: line.unit_price
+          unit_price: line.unit_price, tax_rate: line.tax_rate, discount_rate: line.discount_rate, includes_tax: line.includes_tax
         }))
       })
       salesForm.value = {

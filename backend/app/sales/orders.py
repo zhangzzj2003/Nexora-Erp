@@ -31,6 +31,8 @@ from app.sales.customer_scope import require_customer, protect_amount
 UserRu = aliased(User)
 UserU = aliased(User)
 
+from app.finance.trade_terms import settlement_price, save_terms, terms_data
+
 router = APIRouter(prefix="/api/v1")
 
 
@@ -152,6 +154,7 @@ def sales_order_data(db: Session, order_id: int) -> dict:
         lines.append(
             {
                 **dict(item),
+                **terms_data(db, 'sales', item['id']),
                 "shipped_quantity": str(shipped),
                 "returned_quantity": str(returned),
                 "net_delivered_quantity": str(shipped - returned),
@@ -321,17 +324,11 @@ def create_sales_order(payload: SalesOrderInput, user: dict = Depends(require("s
             ),
         )
         db.add(SalesOrderOwner(order_id=cursor.id, owner_id=profile.owner_id or user['id']))
-        db.add_all(
-            [
-                SalesOrderLine(
-                    sales_order_id=cursor.id,
-                    material_id=line.material_id,
-                    quantity=str(line.quantity),
-                    unit_price=str(line.unit_price),
-                )
-                for line in payload.lines
-            ]
-        )
+        for line in payload.lines:
+            item = add_model(db, SalesOrderLine(sales_order_id=cursor.id, material_id=line.material_id,
+                quantity=str(line.quantity), unit_price=settlement_price(line)))
+            save_terms(db, 'sales', item.id, line)
+        db.flush()
         return protect_amount(db, sales_order_data(db, cursor.id), user, cursor.id)
 
 

@@ -1051,3 +1051,80 @@ class CustomerChange(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+# 扩展表保留原业务单据结构，税价与核算维度按保存时的值留存。
+class TradeLineTerms(Base):
+    __tablename__ = 'trade_line_terms'
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    line_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    quoted_price: Mapped[str] = mapped_column(Text, nullable=False)
+    tax_rate: Mapped[str] = mapped_column(Text, nullable=False)
+    discount_rate: Mapped[str] = mapped_column(Text, nullable=False)
+    includes_tax: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class JournalAuxiliary(Base):
+    __tablename__ = 'journal_auxiliaries'
+    line_id: Mapped[int] = mapped_column(ForeignKey('journal_lines.id', ondelete='CASCADE'), primary_key=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey('customers.id'))
+    supplier_id: Mapped[int | None] = mapped_column(ForeignKey('suppliers.id'))
+    department: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    project: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    labels_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class PartyOpening(Base):
+    __tablename__ = 'party_openings'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    party_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    effective_date: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    ledger_account_id: Mapped[int] = mapped_column(ForeignKey('ledger_accounts.id'), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class PartyOpeningPayment(Base):
+    __tablename__ = 'party_opening_payments'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    opening_id: Mapped[int] = mapped_column(ForeignKey('party_openings.id'), nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class BankStatement(Base):
+    __tablename__ = 'bank_statements'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bank_account: Mapped[str] = mapped_column(Text, nullable=False)
+    statement_date: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class BankMatch(Base):
+    __tablename__ = 'bank_matches'
+    statement_id: Mapped[int] = mapped_column(ForeignKey('bank_statements.id'), primary_key=True)
+    payment_id: Mapped[int] = mapped_column(ForeignKey('payment_records.id'), nullable=False, unique=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class FinanceToolAudit(Base):
+    __tablename__ = 'finance_tool_audits'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    record_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))

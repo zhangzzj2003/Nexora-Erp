@@ -16,6 +16,9 @@ export interface Permission { code: string; label: string; group_path: Permissio
 export interface Role { code: string; label: string; is_builtin: boolean; permissions: string[] }
 // 分页列表返回筛选后的总数与有效页码，其他业务的选项列表仍使用原接口。
 export interface PageQuery { query: string; page: number; page_size: number }
+export interface TradeTermsInput { tax_rate?: string; discount_rate?: string; includes_tax?: boolean }
+export type FinanceToolAction = 'openings' | 'create_opening' | 'confirm_opening' | 'cancel_opening' | 'settle_opening' | 'banks' | 'import_bank' | 'match_bank' | 'unmatch_bank' | 'reconcile' | 'statements' | 'auxiliary' | 'history'
+export interface FinanceToolResult { rows: TableRow[]; snapshot_id: string; columns: {key: string; title: string}[]; totals: Record<string,string | boolean> }
 export interface PageResult<T> { items: T[]; total: number; page: number; page_size: number }
 
 export interface SupplierMaterial { supplier_id: number; material_id: number }
@@ -64,7 +67,7 @@ export interface LedgerAccountInput {
 }
 export type JournalStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'posted' | 'cancelled'
 export type JournalAction = 'submit' | 'approve' | 'reject' | 'post' | 'cancel'
-export interface JournalLineInput { account_id: number; summary: string; debit: string; credit: string }
+export interface JournalLineInput { customer_id?: number | null; supplier_id?: number | null; department?: string; project?: string; account_id: number; summary: string; debit: string; credit: string }
 export interface JournalInput { reference: string; journal_date: string; note: string; reason: string; lines: JournalLineInput[] }
 export interface JournalLine extends JournalLineInput {
   id: number; journal_id: number; position: number; account_code: string; account_name: string
@@ -89,6 +92,7 @@ export interface ProfitTransferBalance {
 }
 export interface ProfitTransferExcludedCost { account_id: number; code: string; name: string; balance: string }
 export interface ProfitTransferEvidence {
+  snapshot_id?: string
   period_id: number; start_date: string; end_date: string; policy_version: number; target_account_id: number | null
   cost_account_ids: number[]; fingerprint: string; currency: 'CNY'; time_basis: 'UTC'
   rows: ProfitTransferBalance[]; lines: Pick<JournalLineInput, 'account_id' | 'debit' | 'credit'>[]
@@ -98,6 +102,7 @@ export interface ProfitTransferEvidence {
   opening_sources: { line_id: number; opening_balance_id: number; account_id: number; debit: string; credit: string }[]
 }
 export interface ProfitTransferPreview {
+  snapshot_id?: string
   period: AccountingPeriod; policy_version: number; evidence: ProfitTransferEvidence; fingerprint: string
   can_generate: boolean; blockers: string[]; warnings: string[]; journal_id: number | null; journal_status: JournalStatus | null
 }
@@ -109,6 +114,7 @@ export type BusinessJournalRole = 'inventory' | 'payable' | 'receivable' | 'inco
 export type BusinessJournalMapping = Partial<Record<BusinessJournalRole, number>>
 export interface BusinessJournalPolicy { version: number; start_date: string; mapping: BusinessJournalMapping; changed_by?: number; created_at?: string }
 export interface BusinessJournalEvidence {
+  snapshot_id?: string
   key: string; source_type: string; source_id: number; label: string; source_date: string; fingerprint: string
   roles: Partial<Record<BusinessJournalRole, string>>; blockers: string[]; warnings: string[]
   labels: Record<string, string>
@@ -935,7 +941,7 @@ export interface ReportResult {
 }
 
 // 每个数据集只允许服务端固定白名单查询；默认每页 20，最多 100。
-export type TableDataset = 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
+export type TableDataset = 'businessSources' | 'businessPolicyHistory' | 'profitPolicyHistory' | 'financeCustomers' | 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
 export interface TableQuery extends PageQuery {
   snapshot_id?: string; snapshot_path?: string
   dataset: TableDataset; sort?: string; descending?: boolean
@@ -945,6 +951,7 @@ export type TableRow = Record<string, unknown>
 
 export interface ErpOperations {
   snapshotCsv: { input: { snapshot_id: string }; output: { csv: string } }
+  financeTools: { input: { action: FinanceToolAction; payload: Record<string, unknown> }; output: FinanceToolResult }
   queryTable: { input: TableQuery; output: PageResult<TableRow> & { metadata?: Record<string, unknown> | null } }
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
@@ -1029,7 +1036,7 @@ export interface ErpOperations {
   generateBusinessJournal: { input: BusinessJournalGenerateInput; output: Journal }
   profitTransferOptions: { input: undefined; output: ProfitTransferOptions }
   profitTransferPolicyChanges: { input: undefined; output: FinanceMetadataChange<ProfitTransferPolicy>[] }
-  profitTransferPreview: { input: { id: number }; output: ProfitTransferPreview }
+  profitTransferPreview: { input: { id: number; paged?: boolean }; output: ProfitTransferPreview }
   saveProfitTransferPolicy: { input: ProfitTransferPolicy & { reason: string }; output: ProfitTransferPolicy }
   generateProfitTransfer: { input: ProfitTransferGenerateInput; output: Journal }
   openingBalances: { input: undefined; output: OpeningBalance[] }
@@ -1038,7 +1045,7 @@ export interface ErpOperations {
   updateOpeningBalance: { input: OpeningBalanceInput & { id: number; version: number }; output: OpeningBalance }
   changeOpeningBalanceStatus: { input: { id: number; version: number; action: OpeningBalanceAction; reason: string }; output: OpeningBalance }
   openingBalanceChanges: { input: { id: number }; output: OpeningBalanceChange[] }
-  journalDetail: { input: { id: number }; output: Journal }
+  journalDetail: { input: { id: number; paged?: boolean }; output: Journal }
   ledgerReportOptions: { input: undefined; output: LedgerAccount[] }
   queryLedgerReport: { input: LedgerReportQuery; output: LedgerReportResult }
   journalOptions: { input: undefined; output: { accounts: LedgerAccount[]; periods: AccountingPeriod[] } }
@@ -1103,11 +1110,11 @@ export interface ErpOperations {
   approvePurchaseRequest: { input: { requestId: number }; output: PurchaseRequest }
   rejectPurchaseRequest: { input: { requestId: number; reason: string }; output: PurchaseRequest }
   cancelPurchaseRequest: { input: { requestId: number }; output: PurchaseRequest }
-  createPurchaseOrder: { input: { supplier_id: number; purchase_request_id?: number; reference: string; lines: { material_id: number; purchase_request_line_id?: number; quantity: string; unit_price: string }[] }; output: PurchaseOrder }
+  createPurchaseOrder: { input: { supplier_id: number; purchase_request_id?: number; reference: string; lines: { material_id: number; purchase_request_line_id?: number; quantity: string; unit_price: string; tax_rate?: string; discount_rate?: string; includes_tax?: boolean }[] }; output: PurchaseOrder }
   confirmPurchaseOrder: { input: { orderId: number }; output: PurchaseOrder }
   cancelPurchaseOrder: { input: { orderId: number }; output: PurchaseOrder }
   salesOrders: { input: undefined; output: SalesOrder[] }
-  createSalesOrder: { input: { customer_id: number; reference: string; lines: { material_id: number; quantity: string; unit_price: string }[] }; output: SalesOrder }
+  createSalesOrder: { input: { customer_id: number; reference: string; lines: { material_id: number; quantity: string; unit_price: string; tax_rate?: string; discount_rate?: string; includes_tax?: boolean }[] }; output: SalesOrder }
   confirmSalesOrder: { input: { orderId: number }; output: SalesOrder }
   cancelSalesOrder: { input: { orderId: number }; output: SalesOrder }
   shipments: { input: undefined; output: Shipment[] }

@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 46:
+        if version > 47:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1495,3 +1495,12 @@ def migrate() -> None:
             db.executemany("INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)",
                 [('admin','customer.view'),('seller','customer.view'),('admin','sales_amount.all'),('finance','sales_amount.all')])
             db.execute("PRAGMA user_version = 46")
+
+        if version < 47:
+            # 仅结构迁移使用底层 DDL；业务读写仍走 ORM 会话。
+            from sqlalchemy.schema import CreateTable
+            from sqlalchemy.dialects import sqlite
+            from app.core.models import Base
+            for name in ('trade_line_terms','journal_auxiliaries','party_openings','party_opening_payments','bank_statements','bank_matches','finance_tool_audits'):
+                db.execute(str(CreateTable(Base.metadata.tables[name], if_not_exists=True).compile(dialect=sqlite.dialect())))
+            db.execute('PRAGMA user_version = 47')

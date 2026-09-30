@@ -213,3 +213,5 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 客户档案权限与共享订单分离；客户资料维护、版本审计、独立订单负责商务和金额脱敏规则见 [客户归属说明](../docs/customer-ownership.md)。本轮数据库第 46 版与客户端需同步升级；统一测试及构建安排在全部任务实现之后，当前不标为已验收。
 
 统一列表分页方案见 `docs/table-pagination.md`（当前开发分支待统一验证）。保存后仅重新读取当前打开列表，报表快照分页与导出使用同一授权范围。
+
+财务核对模块 `finance/tools.py` 提供往来期初、银行匹配、辅助核算及管理报表，边界见 `docs/finance-completion.md`。

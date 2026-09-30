@@ -246,6 +246,9 @@ export const workspaceRouteGroups = [
       },
       // 页面职责拆分，查看权限和服务端写操作权限继续保持原有边界。
       {
+        key: 'financeTools', path: '/workspace/finance-tools', label: '财务核对', permission: 'finance.view', icon: 'file'
+      },
+      {
         key: 'financePayments',
         path: '/workspace/payment-records',
         label: '收付款记录',

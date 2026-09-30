@@ -98,10 +98,10 @@ async function generate(): Promise<void> {
         <p class="muted">本年利润使用贷方方向的权益科目。启用日期保存后固定；生产成本、在制品不能未经核对纳入损益。</p>
         <div class="form-grid">
           <label>启用期间开始日期<WorkspaceSelect v-model="configuration.start_date" :options="startOptions" required aria-label="启用期间开始日期" :disabled="configuration.version > 0 || busy" /></label>
-          <label>本年利润科目<WorkspaceSelect :model-value="configuration.target_account_id ?? 0" :options="targetOptions" required aria-label="本年利润科目" :disabled="busy" @update:model-value="value => { configuration.target_account_id = value }" /></label>
+          <label>本年利润科目<WorkspaceSelect remote-dataset="ledgerAccounts" :remote-filters="{category:'equity',normal_balance:'credit',is_active:true}" :model-value="configuration.target_account_id ?? 0" :options="targetOptions" required aria-label="本年利润科目" :disabled="busy" @update:model-value="value => { configuration.target_account_id = value }" /></label>
           <label>配置依据 / 原因<AppInput v-model.trim="configuration.reason" required maxlength="200" :disabled="busy" /></label>
         </div>
-        <WorkspaceTable title="成本科目范围" :columns="costColumns" :data="costs" :min-table-width="620">
+        <WorkspaceTable title="成本科目范围" dataset="ledgerAccounts" :query-filters="{category:'cost'}" :columns="costColumns" :data="costs" :min-table-width="620">
           <template #cell-scope="{ row }"><NCheckbox :checked="configuration.cost_account_ids.includes(row.id)" :disabled="busy || (!row.is_active && !configuration.cost_account_ids.includes(row.id))" @update:checked="value => includeCost(row.id, value)">{{ row.is_active ? '纳入结转' : '已停用，可移出范围' }}</NCheckbox></template>
           <template #empty>暂无成本类科目。收入、费用仍会统一纳管。</template>
         </WorkspaceTable>
@@ -122,7 +122,7 @@ async function generate(): Promise<void> {
         <div class="form-actions"><AppButton variant="primary" type="submit" :disabled="!preview.can_generate || busy || connectionLost || loading">{{ busy ? '正在生成…' : '生成损益结转草稿' }}</AppButton><AppButton variant="secondary" type="button" :disabled="loading || busy || connectionLost" @click="loadProfitTransferPreview(periodId)">重新核对余额</AppButton></div>
       </form>
     </template>
-    <NCollapse v-if="changes.length"><AppCollapseItem name="history" :title="`结转配置历史（${changes.length} 次）`"><WorkspaceTable title="结转配置审计" :columns="historyColumns" :data="historyRows" :min-table-width="1100" /></AppCollapseItem></NCollapse>
+    <NCollapse ><AppCollapseItem name="history" :title="`结转配置历史（${changes.length} 次）`"><WorkspaceTable title="结转配置审计" dataset="profitPolicyHistory" :columns="historyColumns" :data="historyRows" :min-table-width="1100" /></AppCollapseItem></NCollapse>
   </section>
 </template>
 

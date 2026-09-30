@@ -79,18 +79,18 @@ async function generate(): Promise<void> {
         <label>配置依据 / 原因<AppInput v-model.trim="configuration.reason" required maxlength="200" :disabled="busy" /></label></div>
       <WorkspaceTable title="科目映射" :columns="roleColumns" :data="policyRows" :min-table-width="560">
         <template #cell-role="{ row }">{{ row.label }}</template>
-        <template #cell-account="{ row }"><WorkspaceSelect :model-value="configuration.mapping[row.role as BusinessJournalRole] ?? 0" :options="accountOptions" :aria-label="`${row.label}科目`" :disabled="busy" @update:model-value="value => { configuration.mapping[row.role as BusinessJournalRole] = value }" /></template>
+        <template #cell-account="{ row }"><WorkspaceSelect remote-dataset="ledgerAccounts" :model-value="configuration.mapping[row.role as BusinessJournalRole] ?? 0" :options="accountOptions" :aria-label="`${row.label}科目`" :disabled="busy" @update:model-value="value => { configuration.mapping[row.role as BusinessJournalRole] = value }" /></template>
       </WorkspaceTable>
       <div class="form-actions"><AppButton variant="primary" type="submit" :disabled="busy || connectionLost || loading">{{ busy ? '正在保存…' : '保存配置' }}</AppButton><AppButton type="button" variant="secondary" :disabled="busy" @click="configure = false">返回来源</AppButton></div>
     </form>
-    <WorkspaceTable title="业务来源" :columns="columns" :data="rows" :min-table-width="920">
+    <WorkspaceTable title="业务来源" dataset="businessSources" :query="query" :query-filters="{state:filter}" :columns="columns" :data="rows" :min-table-width="920">
       <template #filters><label>搜索来源<AppInput v-model="query" placeholder="单据类别、来源号或凭证号" /></label><label>来源状态<WorkspaceSelect v-model="filter" :options="filterOptions" aria-label="来源状态" /></label></template>
       <template #cell-key="{ row }">{{ row.label }} #{{ row.source_id }}</template><template #cell-amount="{ row }">{{ row.blockers.some((item: string) => item.includes('核价') || item.includes('单价')) ? '待核价' : `¥${businessTotal(row)}` }}</template>
       <template #cell-state="{ row }"><span v-if="row.journal_id">{{ journalStatusLabels[row.journal_status as keyof typeof journalStatusLabels] }} · 记-{{ row.journal_id }}</span><span v-else-if="row.blockers.length">{{ row.blockers.join('；') }}</span><span v-else>{{ row.no_amount ? '分位净额为零' : '可生成草稿' }}</span></template>
       <template #cell-actions="{ row }"><div class="ledger-actions"><AppButton variant="text" :disabled="loading" @click="open(row)">核对来源</AppButton><AppButton v-if="row.journal_id" variant="text" @click="emit('openJournal', row.journal_id)">查看凭证</AppButton><AppButton v-else-if="can('business_journal.generate')" variant="text" :disabled="!row.can_generate || busy || connectionLost || loading" @click="open(row)">生成草稿</AppButton></div></template>
       <template #empty>{{ loading ? '正在读取业务来源…' : query || filter ? '没有匹配的业务来源。可切换到全部来源查看。' : '暂无已确认的业务来源。' }}</template>
     </WorkspaceTable>
-    <NCollapse v-if="changes.length"><AppCollapseItem name="history" :title="`科目配置历史（${changes.length} 次）`"><WorkspaceTable title="配置审计" :columns="changeColumns" :data="changeRows" :min-table-width="760" /></AppCollapseItem></NCollapse>
+    <NCollapse ><AppCollapseItem name="history" :title="`科目配置历史（${changes.length} 次）`"><WorkspaceTable title="配置审计" dataset="businessPolicyHistory" :columns="changeColumns" :data="changeRows" :min-table-width="760" /></AppCollapseItem></NCollapse>
     <NModal :show="selected !== null" preset="card" :title="selected ? `${selected.label} #${selected.source_id} · 来源核对` : ''" :mask-closable="!busy" :style="{ width: 'min(1050px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }" @update:show="value => { if (!value) selected = null }">
       <div v-if="selected" class="stack">
         <BusinessSourceEvidence :source="selected" :mapping="options?.policy.mapping" :accounts="options?.accounts" />

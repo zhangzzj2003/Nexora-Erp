@@ -5,6 +5,7 @@ import type { AppState } from '../state'
 export function createTableActions(state: AppState) {
   function hydrateDataset(dataset: TableDataset, rows: TableRow[], metadata?: Record<string, unknown> | null): void {
     switch (dataset) {
+      case 'businessSources': state.businessJournalSources.value = rows as unknown as typeof state.businessJournalSources.value; break
       case 'inventoryValuationMaterials':
         state.inventoryValuation.value = { ...(state.inventoryValuation.value ?? {currency: 'CNY', materials: [], movements: [], unpriced_movement_ids: []}), ...metadata, materials: rows } as unknown as typeof state.inventoryValuation.value; break
       case 'inventoryValuationMovements':

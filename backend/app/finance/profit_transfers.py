@@ -225,9 +225,13 @@ def policy_changes(_: dict = Depends(require('profit_transfer.view'))) -> list[d
 
 
 @router.get('/periods/{period_id}')
-def preview(period_id: int = Path(gt=0), _: dict = Depends(require('profit_transfer.view'))) -> dict:
+def preview(period_id: int = Path(gt=0), paged: bool = False, user: dict = Depends(require('profit_transfer.view'))) -> dict:
     with orm_session() as db:
-        return precheck(db, get_record(db, AccountingPeriod, period_id))
+        result=precheck(db,get_record(db,AccountingPeriod,period_id))
+        if paged:
+            from app.query.snapshots import snapshot_metadata
+            result['evidence']=snapshot_metadata(result['evidence'],user,('rows','sources','opening_sources','excluded_cost_accounts'))
+        return result
 
 
 @router.post('/generate', status_code=201)

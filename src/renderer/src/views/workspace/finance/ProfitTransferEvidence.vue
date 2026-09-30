@@ -23,27 +23,27 @@ const targetLine = computed(() => props.evidence.lines.find(item => item.account
   <div class="stack profit-transfer-evidence">
     <p>{{ evidence.start_date }} 至 {{ evidence.end_date }} · 人民币 · UTC · 科目配置版本 {{ evidence.policy_version }}</p>
     <p>待结转净额：{{ evidence.net_profit }} 元（盈利为正，亏损为负）。这是累计待结余额，包含正式期初及历史已过账凭证，不能作为本期利润表。</p>
-    <WorkspaceTable title="损益科目与清零分录" :columns="balances" :data="evidence.rows" :min-table-width="720">
+    <WorkspaceTable title="损益科目与清零分录" :columns="balances" :snapshot-id="evidence.snapshot_id" snapshot-path="rows" :data="evidence.rows" :min-table-width="720">
       <template #cell-account="{ row }">{{ row.code }} · {{ row.name }}</template>
       <template #empty>纳管损益科目余额均为零。</template>
     </WorkspaceTable>
     <p v-if="evidence.target_account">转入 {{ evidence.target_account.code }} · {{ evidence.target_account.name }}：借方 {{ targetLine?.debit ?? '0.00' }} 元 / 贷方 {{ targetLine?.credit ?? '0.00' }} 元。净额为零时不生成本年利润分录。</p>
     <NCollapse>
-      <AppCollapseItem name="source" :title="`已过账来源（${evidence.sources.length} 条分录）与正式期初`">
+      <AppCollapseItem name="source" :title="`已过账来源（${(evidence.sources.length || evidence.snapshot_id)} 条分录）与正式期初`">
         <div class="stack">
-          <WorkspaceTable title="损益凭证来源" :columns="sources" :data="evidence.sources" :min-table-width="900">
+          <WorkspaceTable title="损益凭证来源" :columns="sources" :snapshot-id="evidence.snapshot_id" snapshot-path="sources" :data="evidence.sources" :min-table-width="900">
             <template #cell-journal_id="{ row }"><AppButton v-if="canOpenJournal" variant="text" @click="emit('openJournal', row.journal_id)">记-{{ row.journal_id }}</AppButton><span v-else>记-{{ row.journal_id }}</span></template>
             <template #empty>没有损益已过账来源。</template>
           </WorkspaceTable>
-          <WorkspaceTable title="正式期初来源" :columns="opening" :data="evidence.opening_sources" :min-table-width="640">
+          <WorkspaceTable title="正式期初来源" :columns="opening" :snapshot-id="evidence.snapshot_id" snapshot-path="opening_sources" :data="evidence.opening_sources" :min-table-width="640">
             <template #cell-opening_balance_id="{ row }">期初-{{ row.opening_balance_id }}</template>
             <template #empty>没有纳入本次结转的正式期初损益余额。</template>
           </WorkspaceTable>
         </div>
       </AppCollapseItem>
-      <AppCollapseItem v-if="evidence.excluded_cost_accounts.length" name="excluded" :title="`未纳管成本余额（${evidence.excluded_cost_accounts.length} 个科目）`">
+      <AppCollapseItem v-if="(evidence.excluded_cost_accounts.length || evidence.snapshot_id)" name="excluded" :title="`未纳管成本余额（${(evidence.excluded_cost_accounts.length || evidence.snapshot_id)} 个科目）`">
         <p class="muted">这些科目保留余额，不参与本次结转。生产成本及在制品应按公司的成本核算规则处理。</p>
-        <WorkspaceTable title="保留的成本余额" :columns="excluded" :data="evidence.excluded_cost_accounts" :min-table-width="640" />
+        <WorkspaceTable title="保留的成本余额" :columns="excluded" :snapshot-id="evidence.snapshot_id" snapshot-path="excluded_cost_accounts" :data="evidence.excluded_cost_accounts" :min-table-width="640" />
       </AppCollapseItem>
     </NCollapse>
   </div>

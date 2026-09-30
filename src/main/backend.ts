@@ -255,7 +255,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'businessJournalSources': return { method: 'GET', path: '/api/v1/finance/business-journals' }
     case 'profitTransferOptions': return { method: 'GET', path: '/api/v1/finance/profit-transfers/policy' }
     case 'profitTransferPolicyChanges': return { method: 'GET', path: '/api/v1/finance/profit-transfers/policy/changes' }
-    case 'profitTransferPreview': return { method: 'GET', path: `/api/v1/finance/profit-transfers/periods/${positiveId(payload, 'id')}` }
+    case 'profitTransferPreview': return { method: 'GET', path: `/api/v1/finance/profit-transfers/periods/${positiveId(payload, 'id')}?paged=${payload && typeof payload === 'object' && 'paged' in payload && payload.paged === true}` }
     case 'saveProfitTransferPolicy': {
       const { version, start_date, target_account_id, cost_account_ids, reason } = payload as ErpOperations['saveProfitTransferPolicy']['input']
       return { method: 'PUT', path: '/api/v1/finance/profit-transfers/policy', body: { version, start_date, target_account_id, cost_account_ids, reason } }
@@ -290,7 +290,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       if (!['submit','approve','reject','confirm','cancel','reverse'].includes(command)) throw new Error('不允许的期初状态操作')
       return { method: 'POST', path: `/api/v1/finance/opening-balances/${positiveId(payload, 'id')}/${command}`, body: { version, reason } }
     }
-    case 'journalDetail': return { method: 'GET', path: `/api/v1/finance/journals/${positiveId(payload, 'id')}` }
+    case 'journalDetail': return { method: 'GET', path: `/api/v1/finance/journals/${positiveId(payload, 'id')}?paged=${payload && typeof payload === 'object' && 'paged' in payload && payload.paged === true}` }
     case 'ledgerReportOptions': return { method: 'GET', path: '/api/v1/finance/ledger-reports/options' }
     case 'queryLedgerReport': {
       const { kind, from_date, to_date, account_id } = payload as ErpOperations['queryLedgerReport']['input']
@@ -316,6 +316,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: `/api/v1/finance/journals/${id}/reverse`, body: { version, reference, journal_date, reason } }
     }
     case 'paymentRecords': return { method: 'GET', path: '/api/v1/finance/payment-records' }
+    case 'financeTools': return { method: 'POST', path: '/api/v1/finance/tools', body: payload }
     case 'createPaymentRecord': return { method: 'POST', path: '/api/v1/finance/payment-records', body: payload }
     case 'reversePaymentRecord': return {
       method: 'POST', path: `/api/v1/finance/payment-records/${positiveId(payload, 'paymentId')}/reverse`,

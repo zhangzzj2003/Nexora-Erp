@@ -47,6 +47,10 @@ class VersionInput(ReasonInput):
 
 class JournalLineInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    customer_id: int | None = Field(default=None, gt=0, strict=True)
+    supplier_id: int | None = Field(default=None, gt=0, strict=True)
+    department: str = Field(default="", max_length=80)
+    project: str = Field(default="", max_length=80)
     account_id: int = Field(gt=0, strict=True)
     summary: str = Field(min_length=1, max_length=200)
     debit: str
@@ -146,7 +150,8 @@ def lines_for(db: Session, journal_id: int) -> list[JournalLine]:
 
 def snapshot(db: Session, record: Journal) -> dict:
     result = model_data(record)
-    result["lines"] = [model_data(line) for line in lines_for(db, record.id)]
+    from app.finance.auxiliary import auxiliary_data
+    result["lines"] = [{**model_data(line), **auxiliary_data(db,line.id)} for line in lines_for(db, record.id)]
     result["total_debit"] = (
         f'{sum(Decimal(line["debit"]) for line in result["lines"]):.2f}'
     )
@@ -227,7 +232,7 @@ def save_lines(db: Session, record: Journal, inputs: list[JournalLineInput]) -> 
         raise HTTPException(409, "分录须使用已存在且启用的科目")
     for position, line in enumerate(inputs, 1):
         account = accounts[line.account_id]
-        db.add(
+        item = add_model(db,
             JournalLine(
                 journal_id=record.id,
                 position=position,
@@ -241,6 +246,8 @@ def save_lines(db: Session, record: Journal, inputs: list[JournalLineInput]) -> 
                 credit=line.credit,
             )
         )
+        from app.finance.auxiliary import save_auxiliary
+        save_auxiliary(db, item.id, line)
     db.flush()
 
 
@@ -509,7 +516,9 @@ def reverse(
                 fields.update(
                     journal_id=record.id, debit=source.credit, credit=source.debit
                 )
-                db.add(JournalLine(**fields))
+                item = add_model(db, JournalLine(**fields))
+                from app.finance.auxiliary import copy_auxiliary
+                copy_auxiliary(db, source.id, item.id)
             db.flush()
             audit(db, record, None, "create", data.reason, user["id"])
             # 原凭证不改金额或状态；只有冲销凭证经过独立审核并过账后才抵销。
@@ -520,10 +529,15 @@ def reverse(
 
 @router.get("/{journal_id}")
 def journal_detail(
-    journal_id: int = Path(gt=0), _: dict = Depends(require("journal.view"))
+    journal_id: int = Path(gt=0), paged: bool = False, user: dict = Depends(require("journal.view"))
 ) -> dict:
     with orm_session() as db:
-        return view(db, get_journal(db, journal_id))
+        result=view(db,get_journal(db,journal_id))
+        if paged:
+            from app.query.snapshots import snapshot_metadata
+            if result.get('business_source'):result['business_source']['evidence']=snapshot_metadata(result['business_source']['evidence'],user,('movements','business','records'))
+            if result.get('profit_transfer'):result['profit_transfer']['evidence']=snapshot_metadata(result['profit_transfer']['evidence'],user,('rows','sources','opening_sources','excluded_cost_accounts'))
+        return result
 
 
 @router.get("/{journal_id}/changes")

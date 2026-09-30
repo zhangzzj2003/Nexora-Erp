@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.orm import orm_session, add_model
 from app.core.models import (
@@ -26,6 +26,8 @@ from app.purchase.returns import returned_quantity as purchase_returned_quantity
 from app.purchase.requests import ordered_quantity
 from app.access.security import require
 
+from app.finance.trade_terms import settlement_price, save_terms, terms_data
+
 router = APIRouter(prefix="/api/v1")
 
 
@@ -34,6 +36,9 @@ class PurchaseOrderLineInput(BaseModel):
     purchase_request_line_id: int | None = Field(default=None, gt=0)
     quantity: Decimal
     unit_price: Decimal
+    tax_rate: Decimal = Field(default=Decimal(0), ge=0, le=100, decimal_places=2)
+    discount_rate: Decimal = Field(default=Decimal(0), ge=0, le=100, decimal_places=2)
+    includes_tax: bool = False
 
     @field_validator("quantity")
     @classmethod
@@ -153,6 +158,7 @@ def order_data(db: Session, order_id: int) -> dict:
         lines.append(
             {
                 **dict(entry),
+                **terms_data(db, 'purchase', entry['id']),
                 "received_quantity": str(received),
                 "returned_quantity": str(returned),
                 "net_received_quantity": str(received - returned),
@@ -371,9 +377,10 @@ def create_purchase_order(
                     purchase_order_id=cursor.id,
                     material_id=line.material_id,
                     quantity=str(line.quantity),
-                    unit_price=str(line.unit_price),
+                    unit_price=settlement_price(line),
                 ),
             ).id
+            save_terms(db, 'purchase', line_id, line)
             if line.purchase_request_line_id is not None:
                 add_model(
                     db,

@@ -32,5 +32,5 @@ def protect_amount(db: Session, record: dict, user: dict, order_id: int) -> dict
                   owner_version=owner.version if owner else 1)
     if not visible:
         result['total_amount'] = None
-        result['lines'] = [dict(line, unit_price=None, line_total=None) for line in record.get('lines', [])]
+        result['lines'] = [dict(line, unit_price=None, line_total=None, quoted_price=None, tax_rate=None, discount_rate=None) for line in record.get('lines', [])]
     return result

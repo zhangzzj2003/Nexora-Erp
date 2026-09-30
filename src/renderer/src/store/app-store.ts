@@ -177,6 +177,7 @@ function createAppStore() {
   watch(() => `${user.value?.id}:${user.value?.permissions.join('|')}`, () => {
     // 跨账号不保留客户联系人、商务价格或编辑草稿；同账号切换页面仍保留草稿。
     state.customerForm.value = { name: '' }
+    state.financeToolResult.value = null
     state.customerEdit.value = null
     state.customerHistory.value = []
     state.customers.value = []

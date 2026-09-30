@@ -86,6 +86,7 @@ export function createAppState() {
   const error = ref('')
   const busy = ref(false)
   const user = ref<User | null>(null)
+  const financeToolResult = ref<import('../../../shared/erp-api').FinanceToolResult | null>(null)
   const dataRevision = ref(0)
   const stockSummary = ref({ material_count: 0, posted_receipt_count: 0, movement_count: 0 })
   const periodClosingHistoryId = ref(0)
@@ -202,7 +203,7 @@ export function createAppState() {
   const purchaseForm = ref({
     supplier_id: 0,
     reference: '',
-    lines: [{ material_id: 0, quantity: '1', unit_price: '0' }]
+    lines: [{ material_id: 0, quantity: '1', unit_price: '0', tax_rate: '0', discount_rate: '0', includes_tax: false }]
   })
   const purchaseRequestForm = ref({
     requestId: null as number | null,
@@ -326,7 +327,7 @@ export function createAppState() {
   const salesForm = ref({
     customer_id: 0,
     reference: '',
-    lines: [{ material_id: 0, quantity: '1', unit_price: '0' }]
+    lines: [{ material_id: 0, quantity: '1', unit_price: '0', tax_rate: '0', discount_rate: '0', includes_tax: false }]
   })
   const shipmentForm = ref({
     sales_order_id: 0,
@@ -403,6 +404,7 @@ export function createAppState() {
   )
 
   return {
+    financeToolResult,
     screen,
     openedRouteKeys,
     expandedGroupKey,

@@ -83,6 +83,7 @@ const editColumns = [
   { key: 'summary', title: '摘要', width: '260' },
   { key: 'debit', title: '借方（元）', width: '160' },
   { key: 'credit', title: '贷方（元）', width: '160' },
+  { key: 'auxiliary', title: '辅助核算', width: '250' },
   { key: 'actions', title: '操作', width: '90' }
 ]
 const lineNumber = (row: JournalLineInput): number => form.value.lines.indexOf(row) + 1
@@ -342,6 +343,7 @@ async function confirm(): Promise<void> {
               pattern="[0-9]{1,12}(\.[0-9]{1,2})?"
               :disabled="busy"
           /></template>
+          <template #cell-auxiliary="{ row }"><label>客户编号<AppInput v-model.number="row.customer_id" type="number" min="1" :disabled="busy" /></label><label>供应商编号<AppInput v-model.number="row.supplier_id" type="number" min="1" :disabled="busy" /></label><label>部门<AppInput v-model.trim="row.department" maxlength="80" :disabled="busy" /></label><label>项目<AppInput v-model.trim="row.project" maxlength="80" :disabled="busy" /></label></template>
           <template #cell-actions="{ row }"
             ><AppButton
               type="button"

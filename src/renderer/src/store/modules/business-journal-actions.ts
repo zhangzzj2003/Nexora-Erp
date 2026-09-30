@@ -22,12 +22,12 @@ export function createBusinessJournalActions(state: AppState, perform: (action: 
     clear(); state.businessJournalLoading.value = true
     try {
       const [sources, options, changes] = await Promise.all([
-        window.nexora.callApi('businessJournalSources', undefined),
+        window.nexora.callApi('queryTable', { dataset:'businessSources',page:1,page_size:20,query:'' }),
         window.nexora.callApi('businessJournalOptions', undefined),
-        window.nexora.callApi('businessJournalPolicyChanges', undefined)
+        Promise.resolve([])
       ])
       if (current !== ticket || !can('business_journal.view')) return false
-      state.businessJournalSources.value = sources
+      state.businessJournalSources.value = sources.items as unknown as typeof state.businessJournalSources.value
       state.businessJournalOptions.value = options
       state.businessJournalPolicyChanges.value = changes
       return true

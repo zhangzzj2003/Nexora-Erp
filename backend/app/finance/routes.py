@@ -287,6 +287,9 @@ def reverse_payment_record(payment_id: int, payload: ReversalInput,
         original = db.get(PaymentRecord, payment_id)
         if original is None:
             raise HTTPException(404, '收付款记录不存在')
+        from app.core.models import BankMatch
+        if db.scalar(select(BankMatch.statement_id).where(BankMatch.payment_id==payment_id)):
+            raise HTTPException(409, '此收付款已完成银行对账，请先解除匹配并记录原因')
         if original.action == 'reversal':
             raise HTTPException(409, '冲销记录不能再次冲销')
         if db.scalar(select(PaymentRecord.id).where(PaymentRecord.reverses_id == payment_id).limit(1)) is not None:

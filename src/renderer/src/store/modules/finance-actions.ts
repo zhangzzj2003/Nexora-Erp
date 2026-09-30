@@ -31,5 +31,22 @@ export function createFinanceActions(
     }, `收付款记录 #${paymentId} 已冲销，原记录已保留。`)
   }
 
-  return { createPaymentRecord, reversePaymentRecord }
+  async function runFinanceTool(action: import('../../../../shared/erp-api').FinanceToolAction, payload: Record<string, unknown>): Promise<void> {
+    if (!window.nexora) return
+    const owner = state.user.value?.id
+    await perform(async () => {
+      const result = await window.nexora!.callApi('financeTools', { action, payload })
+      // 账号变化后不能把旧账户的财务结果填回页面。
+      if (owner === state.user.value?.id) state.financeToolResult.value = result
+    }, '财务处理完成，查询结果已保留。')
+  }
+  async function exportFinanceTool(): Promise<void> {
+    const result = state.financeToolResult.value
+    if (!window.nexora || !result) return
+    await perform(async () => {
+      const { csv } = await window.nexora!.callApi('snapshotCsv', { snapshot_id: result.snapshot_id })
+      await window.nexora!.saveReportCsv('财务核对.csv', csv)
+    }, '财务核对结果已导出。')
+  }
+  return { createPaymentRecord, reversePaymentRecord, runFinanceTool, exportFinanceTool }
 }

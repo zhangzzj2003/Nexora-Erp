@@ -24,7 +24,7 @@ export function createProfitTransferActions(state: AppState, perform: (action: (
     state.profitTransferLoading.value = true
     try {
       if (id !== undefined) {
-        const preview = await window.nexora.callApi('profitTransferPreview', { id })
+        const preview = await window.nexora.callApi('profitTransferPreview', { id, paged:true })
         if (current !== ticket || !can('profit_transfer.view')) return false
         state.profitTransferPreview.value = preview
       } else {
@@ -32,7 +32,7 @@ export function createProfitTransferActions(state: AppState, perform: (action: (
         state.profitTransferPolicyChanges.value = []
         const [options, changes] = await Promise.all([
           window.nexora.callApi('profitTransferOptions', undefined),
-          window.nexora.callApi('profitTransferPolicyChanges', undefined)
+          Promise.resolve([])
         ])
         if (current !== ticket || !can('profit_transfer.view')) return false
         state.profitTransferOptions.value = options
