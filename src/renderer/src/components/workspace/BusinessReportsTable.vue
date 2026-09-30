@@ -38,7 +38,7 @@ onMounted(() => { void run() })
 </script>
 
 <template>
-  <WorkspaceTable
+  <WorkspaceTable :snapshot-id="result?.snapshot_id"
     :show-title="false"
     :title="title"
     :columns="result?.columns ?? []"
@@ -62,7 +62,7 @@ onMounted(() => { void run() })
           :options="[...kinds.map((item) => ({ label: item.label, value: item.value }))]"
       /></label>
       <label v-if="domain === 'purchase'"
-        >供应商<WorkspaceSelect
+        >供应商<WorkspaceSelect remote-dataset="suppliers"
           v-model="query.supplier_id"
           :options="[
             { label: '全部供应商', value: null },
@@ -70,7 +70,7 @@ onMounted(() => { void run() })
           ]"
       /></label>
       <label v-if="domain === 'inventory' || query.kind === 'receiving_returns'"
-        >仓库<WorkspaceSelect
+        >仓库<WorkspaceSelect remote-dataset="warehouses"
           v-model="query.warehouse_id"
           :options="[
             { label: '全部仓库', value: null },
@@ -78,7 +78,7 @@ onMounted(() => { void run() })
           ]"
       /></label>
       <label
-        >物料<WorkspaceSelect
+        >物料<WorkspaceSelect remote-dataset="materials"
           v-model="query.material_id"
           :options="[
             { label: '全部物料', value: null },

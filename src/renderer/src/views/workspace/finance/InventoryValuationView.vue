@@ -76,7 +76,7 @@ async function submitPrice(): Promise<void> {
 <template>
   <section class="stack">
     <!-- 页面说明随主标题展示，刷新和核价按钮共用筛选工具栏。 -->
-    <WorkspaceTable :show-title="false" title="库存计价" :columns="columns" :data="materials">
+    <WorkspaceTable dataset="inventoryValuationMaterials" :query="search" :show-title="false" title="库存计价" :columns="columns" :data="materials">
       <template #actions>
         <AppButton
           :disabled="busy"
@@ -130,7 +130,7 @@ async function submitPrice(): Promise<void> {
             <div class="form-grid">
               <label
                 >入库流水<WorkspaceSelect
-                  v-model="inventoryCostForm.movement_id"
+                  remote-dataset="inventoryValuationMovements" v-model="inventoryCostForm.movement_id"
                   required
                   :options="[
                     { label: '选择待核价流水', value: 0, disabled: true },
@@ -188,7 +188,7 @@ async function submitPrice(): Promise<void> {
         item.amount === null ? '待核价' : `¥${item.amount}`
       }}</template>
     </WorkspaceTable>
-    <WorkspaceTable
+    <WorkspaceTable dataset="inventoryValuationMovements"
       title="待核价来源"
       description="历史无价入库、赠品及其他没有成本依据的入库需要人工核价。"
       :columns="sourceColumns"
@@ -199,7 +199,7 @@ async function submitPrice(): Promise<void> {
       <template #cell-quantity="{ row: item }">{{ item.quantity }}</template>
       <template #cell-source="{ row: item }">{{ item.source_type }} #{{ item.source_id }}</template>
     </WorkspaceTable>
-    <WorkspaceTable
+    <WorkspaceTable dataset="inventoryCostInputs"
       title="核价修订历史"
       description="最新一条核价生效，历史记录仍可追溯。"
       :columns="historyColumns"

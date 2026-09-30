@@ -11,7 +11,7 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { displayError, localTime } from '../../../utils/formatters'
 
 type Change = FinanceMetadataChange<LedgerAccount | AccountingPeriod>
-const props = defineProps<{ load: () => Promise<Change[]> }>()
+const props = defineProps<{ recordId?: number; dataset?: 'ledgerAccountHistory' | 'periodHistory'; load: () => Promise<Change[]> }>()
 const rows = ref<Change[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -39,11 +39,11 @@ function description(item: Change): string {
     parts.push(after.is_active ? '启用科目' : '停用科目')
   return `${parts.join('；')}（版本 ${before.version} → ${after.version}）`
 }
-onMounted(reload)
+onMounted(() => { if (!props.recordId) void reload() })
 </script>
 
 <template>
-  <WorkspaceTable
+  <WorkspaceTable :dataset="recordId ? dataset : undefined" :query-filters="dataset === 'ledgerAccountHistory' ? { account_id: recordId || null } : { period_id: recordId || null }"
     title="资料变更记录"
     :show-title="false"
     :columns="columns"

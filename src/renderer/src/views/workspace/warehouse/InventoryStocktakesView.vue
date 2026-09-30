@@ -70,7 +70,7 @@ async function submitCreate(): Promise<void> {
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >盘点仓库<WorkspaceSelect
+            >盘点仓库<WorkspaceSelect remote-dataset="warehouses"
               v-model="stocktakeForm.warehouse_id"
               required
               :options="[
@@ -85,7 +85,7 @@ async function submitCreate(): Promise<void> {
         </p>
         <div v-for="(line, index) in stocktakeForm.lines" :key="index" class="line-row">
           <label
-            >物料<WorkspaceSelect
+            >物料<WorkspaceSelect remote-dataset="materials"
               v-model="line.material_id"
               required
               :options="[
@@ -135,7 +135,7 @@ async function submitCreate(): Promise<void> {
       </form>
     </NModal>
     <!-- 单据列表与台账共用表格，原有权限检查和冲销明细完整保留。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="stocktakes" :query="query"
       :show-title="false"
       title="库存盘点"
       :columns="columns"

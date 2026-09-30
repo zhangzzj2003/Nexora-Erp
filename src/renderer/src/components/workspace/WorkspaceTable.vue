@@ -7,10 +7,14 @@ VxeUI.setI18n('zh-CN', zhCN)
 </script>
 
 <script setup lang="ts" generic="TRow extends object">
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import VxeColumn from 'vxe-table/es/column'
 import VxeTable from 'vxe-table/es/table'
 import 'vxe-table/es/table/style.css'
+import { storeToRefs } from 'pinia'
+import { usePiniaAppStore } from '../../store/app-store'
+import { usePagedQuery } from '../../composables/use-paged-query'
+import type { TableDataset, TableRow } from '../../../../shared/erp-api'
 import WorkspacePagination from './WorkspacePagination.vue'
 import { tableScrollbarMetrics } from '../../utils/table-scrollbar'
 
@@ -22,6 +26,11 @@ interface WorkspaceTableColumn {
 
 const props = withDefaults(defineProps<{
   title: string
+  snapshotId?: string
+  snapshotPath?: string
+  dataset?: TableDataset
+  query?: string
+  queryFilters?: Record<string, string | number | boolean | null>
   // 主列表可隐藏重复标题，保留页面顶部品牌标题及表格无障碍名称。
   showTitle?: boolean
   description?: string
@@ -36,6 +45,9 @@ const props = withDefaults(defineProps<{
 }>(), {
   showTitle: true,
   description: '',
+  query: '',
+  snapshotPath: 'rows',
+  queryFilters: () => ({}),
   columns: () => [],
   data: () => [],
   emptyText: '暂无数据',
@@ -45,6 +57,37 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{ pageChange: [page: number, pageSize: number] }>()
+
+// 服务端列表只读当前页；未保存的表单行在本地分页，不提前写成业务单据。
+const store = usePiniaAppStore()
+const { dataRevision } = storeToRefs(store)
+const remote = usePagedQuery<TRow>(async params => {
+  if (!props.dataset && !props.snapshotId) throw new Error('没有指定表格数据集')
+  const result = await store.queryDataset({ ...params, dataset: props.snapshotId ? 'snapshot' : props.dataset!, snapshot_id: props.snapshotId, snapshot_path: props.snapshotPath, filters: props.queryFilters })
+  return { ...result, items: result.items as unknown as TRow[] }
+}, result => {
+  // 只有最新查询才更新共享快照，避免慢搜索覆盖当前操作对象。
+  if (props.dataset) store.hydrateDataset(props.dataset, result.items as unknown as TableRow[], result.metadata)
+})
+const localPage = ref(1)
+const localSize = ref(20)
+const tableLoading = computed(() => (props.dataset || props.snapshotId) ? remote.loading.value : props.loading)
+const tableError = computed(() => (props.dataset || props.snapshotId) ? remote.error.value : props.error)
+const tableRows = computed(() => (props.dataset || props.snapshotId) ? remote.rows.value : props.pagination ? props.data : props.data.slice((localPage.value - 1) * localSize.value, localPage.value * localSize.value))
+const tablePagination = computed(() => (props.dataset || props.snapshotId)
+  ? { page: remote.page.value, pageSize: remote.pageSize.value, total: remote.total.value }
+  : props.pagination ?? { page: localPage.value, pageSize: localSize.value, total: props.data.length })
+function changePage(page: number, size: number): void {
+  if (props.dataset || props.snapshotId) void remote.load(page, size)
+  else if (props.pagination) emit('pageChange', page, size)
+  else { localPage.value = page; localSize.value = size }
+}
+watch(() => [props.dataset, props.snapshotId, props.snapshotPath, props.query, props.queryFilters, dataRevision?.value], () => {
+  if ((props.dataset || props.snapshotId) && typeof window !== 'undefined' && window.nexora) remote.search(props.query)
+}, { deep: true, immediate: true })
+watch(() => props.data.length, length => {
+  localPage.value = Math.min(localPage.value, Math.max(1, Math.ceil(length / localSize.value)))
+})
 
 const scrollContainer = ref<HTMLElement | null>(null)
 const scrollMax = ref(0)
@@ -130,15 +173,15 @@ defineSlots<{
       <slot name="beforeTable" />
     </div>
     <div ref="scrollContainer" class="table-wrap" @scroll.passive="syncScrollPosition">
-      <span v-if="loading" class="workspace-table-status" role="status">正在加载…</span>
-      <VxeTable class="workspace-vxe-table" :aria-label="title" :aria-busy="loading" :data="error ? [] : data" :loading="loading" :style="{ minWidth: `${minTableWidth}px` }">
+      <span v-if="tableLoading" class="workspace-table-status" role="status">正在加载…</span>
+      <VxeTable class="workspace-vxe-table" :aria-label="title" :aria-busy="tableLoading" :data="tableError ? [] : tableRows" :loading="tableLoading" :style="{ minWidth: `${minTableWidth}px` }">
         <VxeColumn v-for="column in columns" :key="column.key" :field="column.key" :title="column.title" :width="column.width">
           <template v-if="$slots[`cell-${column.key}`]" #default="{ row }">
             <slot :name="`cell-${column.key}`" :row="row" />
           </template>
         </VxeColumn>
         <template #empty>
-          <div v-if="!loading" class="workspace-table-empty" :class="{ 'is-error': error }" :role="error ? 'alert' : 'status'">
+          <div v-if="!tableLoading" class="workspace-table-empty" :class="{ 'is-error': tableError }" :role="tableError ? 'alert' : 'status'">
             <span class="workspace-table-empty-icon" aria-hidden="true">
               <svg viewBox="0 0 40 40" fill="none">
                 <rect x="6" y="7" width="28" height="26" rx="4" stroke="currentColor" stroke-width="1.8" />
@@ -146,10 +189,10 @@ defineSlots<{
               </svg>
             </span>
             <div class="workspace-table-empty-copy">
-              <template v-if="error">
+              <template v-if="tableError">
                 <strong>数据加载失败</strong>
-                <span>{{ error }}</span>
-                <slot name="errorActions" />
+                <span>{{ tableError }}</span>
+                <slot name="errorActions"><button v-if="dataset || snapshotId" type="button" @click="remote.load()">重新加载</button></slot>
               </template>
               <slot v-else name="empty">{{ emptyText }}</slot>
             </div>
@@ -160,8 +203,8 @@ defineSlots<{
     </div>
     <input v-if="scrollMax > 0" class="workspace-table-scrollbar" type="range" min="0" :max="scrollMax" :value="scrollPosition"
       :style="{ '--scroll-thumb-width': `${scrollThumbWidth}px` }" :aria-label="`${title}表格横向滚动`" @input="scrollFromControl" />
-    <footer v-if="pagination || $slots.footer" class="workspace-table-footer">
-      <WorkspacePagination v-if="pagination" v-bind="pagination" :disabled="loading || pagination.disabled" @change="(page, size) => emit('pageChange', page, size)" />
+    <footer v-if="tablePagination || $slots.footer" class="workspace-table-footer">
+      <WorkspacePagination v-bind="tablePagination" :disabled="tableLoading || props.pagination?.disabled" @change="changePage" />
       <slot name="footer" />
     </footer>
   </section>

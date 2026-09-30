@@ -103,7 +103,7 @@ const filteredEntries = computed(() =>
 <template>
   <section class="stack">
     <!-- 成本金额与冲销记录复用共享表格，核价规则保持原样。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="productionCostOrders" :query="costQuery"
       :show-title="false"
       title="生产成本"
       :columns="costColumns"
@@ -174,7 +174,7 @@ const filteredEntries = computed(() =>
           工单全部报工后，材料、人工和制造费用按合格入库数量分摊到每个完工批次。不合格品消耗也由合格成品承担。结算保存快照；更正来源前须先冲销结算。
         </p>
         <label
-          >生产工单<WorkspaceSelect
+          >生产工单<WorkspaceSelect remote-dataset="productionCostOrders"
             v-model="productionSettlementForm.work_order_id"
             :options="settlementOptions"
             :disabled="busy"
@@ -275,7 +275,7 @@ const filteredEntries = computed(() =>
         <form @submit.prevent="recordProductionCharge">
           <div class="form-grid">
             <label
-              >生产工单<WorkspaceSelect
+              >生产工单<WorkspaceSelect remote-dataset="productionCostOrders"
                 v-model="productionChargeForm.work_order_id"
                 required
                 :options="[
@@ -326,7 +326,7 @@ const filteredEntries = computed(() =>
         </form>
       </div>
     </div>
-    <WorkspaceTable
+    <WorkspaceTable dataset="productionMaterialSources"
       title="当前领料成本来源"
       :columns="sourceColumns"
       :data="productionCostReport?.material_sources ?? []"
@@ -343,7 +343,7 @@ const filteredEntries = computed(() =>
         · 金额 ¥{{ item.amount }}
       </template>
     </WorkspaceTable>
-    <WorkspaceTable
+    <WorkspaceTable dataset="productionCostSettlements"
       title="完工成本结算历史"
       :columns="settlementColumns"
       :data="productionCostSettlements"
@@ -419,7 +419,7 @@ const filteredEntries = computed(() =>
       </template>
     </WorkspaceTable>
     <!-- 成本金额与冲销记录复用共享表格，核价规则保持原样。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="productionCostEntries" :query="entryQuery"
       title="成本记录与冲销"
       :columns="recordColumns"
       :data="filteredEntries"

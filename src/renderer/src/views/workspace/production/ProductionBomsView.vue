@@ -75,7 +75,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >成品物料<WorkspaceSelect
+            >成品物料<WorkspaceSelect remote-dataset="materials"
               v-model="bomForm.product_material_id"
               required
               :options="[
@@ -98,7 +98,7 @@ const filteredRecords = computed(() =>
         <h3>组件用量</h3>
         <div v-for="(line, index) in bomForm.lines" :key="index" class="line-row">
           <label
-            >组件物料<WorkspaceSelect
+            >组件物料<WorkspaceSelect remote-dataset="materials"
               v-model="line.component_material_id"
               required
               :options="[
@@ -138,7 +138,7 @@ const filteredRecords = computed(() =>
       </form>
     </NModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="boms" :query="recordQuery"
       :show-title="false"
       title="生产 BOM"
       :data="filteredRecords"

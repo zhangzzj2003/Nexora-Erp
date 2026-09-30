@@ -79,6 +79,7 @@ export function createWarehouseActions(
     await perform(async () => {
       // 复制当前筛选条件，避免跨进程发送 Vue 响应式代理对象。
       ledgerResult.value = await window.nexora!.callApi('inventoryLedger', {
+        paged: true,
         ...ledgerQuery.value,
         from_date: ledgerQuery.value.from_date || null,
         to_date: ledgerQuery.value.to_date || null

@@ -50,6 +50,7 @@ export interface PeriodClosingEvidence {
   profit_transfer?: { required: boolean; residuals: ProfitTransferBalance[]; policy: ProfitTransferPolicy; journal_id: number | null; excluded_cost_accounts?: ProfitTransferExcludedCost[] }
 }
 export interface PeriodClosingRecord {
+  snapshot_id?: string
   id: number; period_id: number; period_version: number; action: 'close' | 'reopen'
   evidence: PeriodClosingEvidence | { previous_closing_id: number; period: AccountingPeriod }
   reason: string; created_by: number; created_by_name: string; created_at: string
@@ -132,6 +133,7 @@ export interface OpeningBalance extends Omit<Journal, 'journal_date' | 'status' 
 }
 export interface OpeningBalanceChange extends FinanceMetadataChange<Omit<OpeningBalance, 'period_code' | 'created_by_name' | 'author_ids'>> { action: OpeningBalanceAction | 'create' | 'update' }
 export interface LedgerReportQuery {
+  paged?: boolean
   kind: 'trial_balance' | 'account_ledger'; from_date: string; to_date: string; account_id: number | null
 }
 export interface LedgerReportTotals {
@@ -139,6 +141,7 @@ export interface LedgerReportTotals {
   closing_debit: string; closing_credit: string; balanced?: boolean; code?: string; name?: string
 }
 export interface LedgerReportResult {
+  snapshot_id?: string
   kind: LedgerReportQuery['kind']; filters: LedgerReportQuery
   columns: { key: string; title: string }[]; rows: Record<string, string>[]
   totals: LedgerReportTotals; periods: AccountingPeriod[]; generated_at: string; csv: string
@@ -902,8 +905,10 @@ export interface LedgerRow {
   created_by_name: string | null
   balance_quantity: string
 }
-export interface LedgerResult { groups: LedgerGroup[]; rows: LedgerRow[] }
+export interface LedgerResult {
+  snapshot_id?: string groups: LedgerGroup[]; rows: LedgerRow[] }
 export interface LedgerQuery {
+  paged?: boolean
   warehouse_id: number | null
   material_id: number | null
   from_date: string | null
@@ -913,6 +918,7 @@ export interface LedgerQuery {
 
 export type ReportKind = 'purchase_requests' | 'purchase_orders' | 'receiving_returns' | 'inventory_balance' | 'stock_flow'
 export interface ReportQuery {
+  paged?: boolean
   kind: ReportKind
   warehouse_id: number | null
   material_id: number | null
@@ -921,13 +927,25 @@ export interface ReportQuery {
   to_date: string | null
 }
 export interface ReportResult {
+  snapshot_id?: string
   kind: ReportKind
   columns: { key: string; title: string }[]
   rows: Record<string, string>[]
   csv: string
 }
 
+// 每个数据集只允许服务端固定白名单查询；默认每页 20，最多 100。
+export type TableDataset = 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
+export interface TableQuery extends PageQuery {
+  snapshot_id?: string; snapshot_path?: string
+  dataset: TableDataset; sort?: string; descending?: boolean
+  filters?: Record<string, string | number | boolean | null>
+}
+export type TableRow = Record<string, unknown>
+
 export interface ErpOperations {
+  snapshotCsv: { input: { snapshot_id: string }; output: { csv: string } }
+  queryTable: { input: TableQuery; output: PageResult<TableRow> & { metadata?: Record<string, unknown> | null } }
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
   login: { input: { username: string; password: string }; output: User }

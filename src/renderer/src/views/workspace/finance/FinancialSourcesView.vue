@@ -20,8 +20,8 @@ const sourceColumns = [
 </script>
 
 <template>
-  <section v-if="receivablesPayables" class="stack">
-    <WorkspaceTable
+  <section class="stack">
+    <WorkspaceTable dataset="financialSources"
       :show-title="false"
       title="应收应付来源"
       :columns="sourceColumns"

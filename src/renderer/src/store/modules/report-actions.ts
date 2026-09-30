@@ -14,7 +14,7 @@ export function createReportActions(
     const query = domain === 'purchase' ? purchaseReportQuery : inventoryReportQuery
     const result = domain === 'purchase' ? purchaseReportResult : inventoryReportResult
     await perform(async () => {
-      const filters: ReportQuery = { ...query.value,
+      const filters: ReportQuery = { ...query.value, paged: true,
         from_date: query.value.from_date || null,
         to_date: query.value.to_date || null }
       result.value = await window.nexora!.callApi('queryReport', filters)
@@ -28,7 +28,8 @@ export function createReportActions(
     let saved = false
     await perform(async () => {
       const fileName = `${result.kind}-${new Date().toISOString().slice(0, 10)}.csv`
-      saved = Boolean(await window.nexora!.saveReportCsv(fileName, result.csv))
+      const csv = result.snapshot_id ? (await window.nexora!.callApi('snapshotCsv', { snapshot_id: result.snapshot_id })).csv : result.csv
+      saved = Boolean(await window.nexora!.saveReportCsv(fileName, csv))
     }, 'CSV 已保存。')
     if (!saved && notice.value === 'CSV 已保存。') notice.value = ''
   }

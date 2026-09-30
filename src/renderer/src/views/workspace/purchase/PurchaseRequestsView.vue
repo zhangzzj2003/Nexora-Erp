@@ -55,7 +55,7 @@ async function save(): Promise<void> {
 <template>
   <section class="stack">
     <!-- 列表保留操作与筛选，页面标题在卡片外统一显示。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="purchaseRequests" :query="query"
       :show-title="false"
       :data="filtered"
       title="采购申请"
@@ -102,7 +102,7 @@ async function save(): Promise<void> {
             </div>
             <div v-for="(line, index) in purchaseRequestForm.lines" :key="index" class="line-row">
               <label
-                >物料<WorkspaceSelect
+                >物料<WorkspaceSelect remote-dataset="materials"
                   v-model="line.material_id"
                   required
                   :options="[
@@ -164,7 +164,7 @@ async function save(): Promise<void> {
             <h3>申请 #{{ selectedRequest.id }} 转采购订单</h3>
             <div class="form-grid">
               <label
-                >供应商<WorkspaceSelect
+                >供应商<WorkspaceSelect remote-dataset="suppliers"
                   v-model="requestConversionForm.supplier_id"
                   required
                   :options="[

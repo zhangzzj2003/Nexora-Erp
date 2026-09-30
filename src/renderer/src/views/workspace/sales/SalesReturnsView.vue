@@ -76,7 +76,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >原出库单<WorkspaceSelect
+            >原出库单<WorkspaceSelect remote-dataset="shipments"
               v-model="salesReturnForm.shipment_id"
               required
               @change="chooseSalesReturnShipment"
@@ -101,7 +101,7 @@ const filteredRecords = computed(() =>
                   }))
               ]" /></label
           ><label
-            >退回仓库<WorkspaceSelect
+            >退回仓库<WorkspaceSelect remote-dataset="warehouses"
               v-model="salesReturnForm.warehouse_id"
               required
               :options="[
@@ -157,7 +157,7 @@ const filteredRecords = computed(() =>
       </form>
     </NModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="salesReturns" :query="recordQuery"
       :show-title="false"
       title="销售退货"
       :data="filteredRecords"

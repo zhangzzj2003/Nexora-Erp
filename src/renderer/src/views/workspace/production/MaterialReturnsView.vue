@@ -76,7 +76,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >原领料单<WorkspaceSelect
+            >原领料单<WorkspaceSelect remote-dataset="materialIssues"
               v-model="materialReturnForm.material_issue_id"
               required
               @change="selectReturnIssue(materialReturnForm.material_issue_id)"
@@ -156,7 +156,7 @@ const filteredRecords = computed(() =>
       </form>
     </NModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="materialReturns" :query="recordQuery"
       :show-title="false"
       title="生产退料"
       :data="filteredRecords"

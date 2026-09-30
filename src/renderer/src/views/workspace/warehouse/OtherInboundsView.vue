@@ -35,7 +35,7 @@ async function submitCreate(): Promise<void> {
 
 <template>
   <section class="stack">
-    <WorkspaceTable
+    <WorkspaceTable dataset="otherInbounds" :query="query"
       :show-title="false"
       :data="filtered"
       title="其他入库"
@@ -74,7 +74,7 @@ async function submitCreate(): Promise<void> {
             <h3>非采购来源入库</h3>
             <div class="form-grid">
               <label
-                >仓库<WorkspaceSelect
+                >仓库<WorkspaceSelect remote-dataset="warehouses"
                   v-model="otherInboundForm.warehouse_id"
                   required
                   :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]"
@@ -98,7 +98,7 @@ async function submitCreate(): Promise<void> {
             </div>
             <div v-for="(line, index) in otherInboundForm.lines" :key="index" class="line-row">
               <label
-                >物料<WorkspaceSelect
+                >物料<WorkspaceSelect remote-dataset="materials"
                   v-model="line.material_id"
                   required
                   :options="[

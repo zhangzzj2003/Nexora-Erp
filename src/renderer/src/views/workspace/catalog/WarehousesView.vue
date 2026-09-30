@@ -42,7 +42,7 @@ async function save(): Promise<void> {
 <template>
   <section class="stack catalog-page">
     <!-- 主标题和说明统一由工作台外壳展示。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="warehouses" :query="query"
       :show-title="false"
       :data="filtered"
       title="仓库列表"

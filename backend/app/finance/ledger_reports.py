@@ -36,6 +36,7 @@ BALANCE_KEYS = (
 
 
 class LedgerReportQuery(BaseModel):
+    paged: bool = False
     model_config = ConfigDict(extra="forbid")
     kind: Literal["trial_balance", "account_ledger"]
     from_date: str
@@ -213,12 +214,12 @@ def account_ledger(db: Session, filters: LedgerReportQuery) -> tuple[list[dict],
 
 
 @router.get("/options")
-def options(_: dict = Depends(require("journal.view"))) -> list[dict]:
+def options(user: dict = Depends(require("journal.view"))) -> list[dict]:
     with orm_session() as db:
         return [
             snapshot(account)
             for account in db.scalars(
-                select(LedgerAccount).order_by(LedgerAccount.code)
+                select(LedgerAccount).order_by(LedgerAccount.code).limit(100)
             )
         ]
 
@@ -234,7 +235,7 @@ def confirmed_opening_lines(db: Session):
 
 @router.post("/query")
 def query_report(
-    filters: LedgerReportQuery, _: dict = Depends(require("journal.view"))
+    filters: LedgerReportQuery, user: dict = Depends(require("journal.view"))
 ) -> dict:
     with orm_session() as db:
         record = active_opening(db)
@@ -302,7 +303,7 @@ def query_report(
         ["合计", "期初借方", "期初贷方", "本期借方", "本期贷方", "期末借方", "期末贷方"]
     )
     writer.writerow(["人民币", *(totals[key] for key in BALANCE_KEYS)])
-    return dict(
+    result = dict(
         kind=filters.kind,
         filters=filters.model_dump(),
         columns=columns,
@@ -313,3 +314,8 @@ def query_report(
         opening_balance=opening,
         csv="\ufeff" + output.getvalue(),
     )
+
+    if filters.paged:
+        from app.query.snapshots import snapshot_metadata
+        return snapshot_metadata(result,user,('rows','opening_balance.lines','opening_balance.changes'))
+    return result

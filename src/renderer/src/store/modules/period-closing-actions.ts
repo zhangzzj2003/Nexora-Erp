@@ -26,7 +26,9 @@ export function createPeriodClosingActions(state: AppState, perform: (action: ()
         if (request !== ticket || !can('accounting_period.closing_view')) return false
         state.periodClosingCheck.value = result
       } else {
-        const result = await window.nexora.callApi('periodClosingHistory', { id })
+        state.periodClosingHistoryId.value = id
+        const page = await window.nexora.callApi('queryTable', { dataset: 'periodClosingHistory', query: '', page: 1, page_size: 20, filters: { period_id: id } })
+        const result = page.items as unknown as typeof state.periodClosingHistory.value
         if (request !== ticket || !can('accounting_period.closing_view')) return false
         state.periodClosingHistory.value = result
       }

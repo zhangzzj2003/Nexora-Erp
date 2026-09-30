@@ -69,14 +69,14 @@ async function submitCreate(): Promise<void> {
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >来源仓库<WorkspaceSelect
+            >来源仓库<WorkspaceSelect remote-dataset="warehouses"
               v-model="transferForm.from_warehouse_id"
               required
               :options="[
                 ...warehouses.map((item) => ({ label: item.name.trim(), value: item.id }))
               ]" /></label
           ><label
-            >目标仓库<WorkspaceSelect
+            >目标仓库<WorkspaceSelect remote-dataset="warehouses"
               v-model="transferForm.to_warehouse_id"
               required
               :options="[
@@ -92,7 +92,7 @@ async function submitCreate(): Promise<void> {
         <h3>调拨明细</h3>
         <div v-for="(line, index) in transferForm.lines" :key="index" class="line-row">
           <label
-            >物料<WorkspaceSelect
+            >物料<WorkspaceSelect remote-dataset="materials"
               v-model="line.material_id"
               required
               :options="[
@@ -137,7 +137,7 @@ async function submitCreate(): Promise<void> {
       </form>
     </NModal>
     <!-- 单据列表与台账共用表格，原有权限检查和冲销明细完整保留。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="transfers" :query="query"
       :show-title="false"
       title="仓库调拨"
       :columns="columns"

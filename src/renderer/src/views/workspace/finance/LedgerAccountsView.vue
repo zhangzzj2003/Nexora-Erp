@@ -50,7 +50,7 @@ async function save(): Promise<void> {
 
 <template>
   <section class="stack ledger-metadata-page">
-    <WorkspaceTable
+    <WorkspaceTable dataset="ledgerAccounts" :query="query"
       title="总账科目"
       :show-title="false"
       :columns="columns"
@@ -186,7 +186,7 @@ async function save(): Promise<void> {
       <MetadataHistory
         v-if="history"
         :key="history.id"
-        :load="() => loadLedgerAccountChanges(history!.id)"
+        :record-id="history!.id" dataset="ledgerAccountHistory" :load="() => loadLedgerAccountChanges(history!.id)"
       />
     </NModal>
   </section>

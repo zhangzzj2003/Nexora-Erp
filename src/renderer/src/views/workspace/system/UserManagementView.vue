@@ -163,23 +163,12 @@ const filteredUsers = computed(() =>
         </div>
         <fieldset :disabled="busy">
           <legend>分配角色</legend>
-          <div class="role-picker">
-            <NCheckbox
-              v-for="role in roles"
-              :key="role.code"
-              class="check"
-              :disabled="busy"
-              :checked="profile.roles.includes(role.code)"
-              @update:checked="
-                (checked) => {
-                  profile.roles = checked
-                    ? [...profile.roles, role.code]
-                    : profile.roles.filter((code) => code !== role.code)
-                }
-              "
-              >{{ role.label }}</NCheckbox
-            >
-          </div>
+          <!-- 角色名单也分页读取，勾选保存在草稿中，翻页不会丢失已选角色。 -->
+          <WorkspaceTable dataset="roles" title="可分配角色" :columns="[{ key: 'label', title: '角色' }, { key: 'choice', title: '选择' }]" :data="roles">
+            <template #cell-choice="{ row: role }">
+              <NCheckbox :disabled="busy" :checked="profile.roles.includes(role.code)" @update:checked="checked => { profile.roles = checked ? [...profile.roles, role.code] : profile.roles.filter(code => code !== role.code) }">{{ role.label }}</NCheckbox>
+            </template>
+          </WorkspaceTable>
         </fieldset>
         <p class="muted">用户资料可稍后补齐；填写工号时须保持唯一，至少分配一个角色。</p>
         <div class="form-actions">
@@ -231,7 +220,7 @@ const filteredUsers = computed(() =>
         </div>
       </form>
     </NModal>
-    <WorkspaceTable
+    <WorkspaceTable dataset="users" :query="userQuery"
       :show-title="false"
       title="用户管理"
       :columns="userColumns"

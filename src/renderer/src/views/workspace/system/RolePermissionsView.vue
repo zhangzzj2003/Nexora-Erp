@@ -62,7 +62,7 @@ async function submitRole(): Promise<void> {
 
 <template>
   <section class="stack">
-    <WorkspaceTable
+    <WorkspaceTable dataset="roles" :query="search"
       :show-title="false"
       :data="visibleRoles"
       title="职务与权限"

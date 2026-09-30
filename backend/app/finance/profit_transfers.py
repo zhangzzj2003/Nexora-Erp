@@ -171,7 +171,7 @@ def options(_: dict = Depends(require('profit_transfer.view'))) -> dict:
     with orm_session() as db:
         return dict(policy=policy_data(db.get(ProfitTransferPolicy, 1)),
             accounts=[{**model_data(item), 'is_active': bool(item.is_active)}
-                for item in db.scalars(select(LedgerAccount).order_by(LedgerAccount.code))],
+                for item in db.scalars(select(LedgerAccount).order_by(LedgerAccount.code).limit(100))],
             periods=[snapshot(item) for item in db.scalars(select(AccountingPeriod).order_by(AccountingPeriod.start_date.desc()))])
 
 

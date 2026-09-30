@@ -63,7 +63,7 @@ function supplierNames(id: number): string {
 <template>
   <section class="stack catalog-page">
     <!-- 主标题和说明统一由工作台外壳展示。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="materials" :query="query"
       :show-title="false"
       title="物料列表"
       :columns="columns"

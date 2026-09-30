@@ -7,7 +7,7 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { displayError, localTime } from '../../../utils/formatters'
 import { journalActionLabels, journalStatusLabels } from './journal-display'
 
-const props = defineProps<{ load: () => Promise<JournalChange[]> }>()
+const props = defineProps<{ recordId?: number; load: () => Promise<JournalChange[]> }>()
 const rows = ref<JournalChange[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -30,11 +30,11 @@ async function reload(): Promise<void> {
     loading.value = false
   }
 }
-onMounted(reload)
+onMounted(() => { if (!props.recordId) void reload() })
 </script>
 
 <template>
-  <WorkspaceTable
+  <WorkspaceTable :dataset="recordId ? 'journalHistory' : undefined" :query-filters="{ journal_id: recordId || null }"
     title="凭证操作记录"
     :show-title="false"
     :data="rows"

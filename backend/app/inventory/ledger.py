@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/v1")
 
 
 class LedgerQuery(BaseModel):
+    paged: bool = False
     warehouse_id: int | None = Field(default=None, gt=0)
     material_id: int | None = Field(default=None, gt=0)
     from_date: date | None = None
@@ -24,7 +25,7 @@ class LedgerQuery(BaseModel):
 
 @router.post("/inventory-ledger/query")
 def query_ledger(filters: LedgerQuery,
-                 _: dict = Depends(require("inventory.view"))) -> dict:
+                 user: dict = Depends(require("inventory.view"))) -> dict:
     if filters.from_date and filters.to_date and filters.to_date < filters.from_date:
         raise HTTPException(422, "结束日期不能早于开始日期")
     with orm_session() as db:
@@ -72,4 +73,8 @@ def query_ledger(filters: LedgerQuery,
         for group in groups.values():
             group["closing_quantity"] = str(group["opening_quantity"] + group["closing_quantity"])
             group["opening_quantity"] = str(group["opening_quantity"])
-        return {"groups": list(groups.values()), "rows": rows}
+        result = {"groups": list(groups.values()), "rows": rows}
+        if filters.paged:
+            from app.query.snapshots import snapshot_metadata
+            return snapshot_metadata(result,user,('groups','rows'))
+        return result

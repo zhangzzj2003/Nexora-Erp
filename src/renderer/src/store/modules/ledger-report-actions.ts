@@ -42,7 +42,7 @@ export function createLedgerReportActions(state: AppState) {
     const { kind, from_date, to_date, account_id } = state.ledgerReportQuery.value
     state.ledgerReportLoading.value = true
     try {
-      const result = await window.nexora!.callApi('queryLedgerReport', { kind, from_date, to_date, account_id })
+      const result = await window.nexora!.callApi('queryLedgerReport', { kind, from_date, to_date, account_id, paged: true })
       if (ticket === queryTicket && allowed()) state.ledgerReportResult.value = result
     } catch (cause) {
       if (ticket === queryTicket) state.ledgerReportError.value = displayError(cause)
@@ -68,8 +68,9 @@ export function createLedgerReportActions(state: AppState) {
     const result = state.ledgerReportResult.value
     if (!result || !allowed() || !connected()) return
     try {
+      const csv = result.snapshot_id ? (await window.nexora!.callApi('snapshotCsv', { snapshot_id: result.snapshot_id })).csv : result.csv
       const saved = await window.nexora!.saveReportCsv(
-        `${result.kind}-${result.filters.from_date}-${result.filters.to_date}.csv`, result.csv)
+        `${result.kind}-${result.filters.from_date}-${result.filters.to_date}.csv`, csv)
       if (saved && allowed()) state.notice.value = '总账报表 CSV 已保存。'
     } catch (cause) { state.ledgerReportError.value = displayError(cause) }
   }

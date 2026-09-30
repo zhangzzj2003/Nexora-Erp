@@ -47,6 +47,7 @@ import { createBusinessJournalActions } from './modules/business-journal-actions
 import { createProfitTransferActions } from './modules/profit-transfer-actions'
 import { createLedgerReportActions } from './modules/ledger-report-actions'
 import { createValuationActions } from './modules/valuation-actions'
+import { createTableActions } from './modules/table-actions'
 import { createSalesActions } from './modules/sales-actions'
 import { createProductionActions } from './modules/production-actions'
 import { createMenuActions } from './modules/menu-actions'
@@ -173,6 +174,26 @@ function createAppStore() {
     openedRouteKeys.value = result.opened
     if (result.active !== activeTab.value) navigateToRoute(result.active)
   }
+  watch(() => `${user.value?.id}:${user.value?.permissions.join('|')}`, () => {
+    // 跨账号不保留客户联系人、商务价格或编辑草稿；同账号切换页面仍保留草稿。
+    state.customerForm.value = { name: '' }
+    state.customerEdit.value = null
+    state.customerHistory.value = []
+    state.customers.value = []
+    state.salesOrders.value = []
+    state.salesReturns.value = []
+    state.salesForm.value = { customer_id: 0, reference: '', lines: [{ material_id: 0, quantity: '1', unit_price: '0' }] }
+    state.paymentRecords.value = []
+    state.financeAccounts.value = []
+    state.journals.value = []
+    state.openingBalances.value = []
+    state.periodClosingHistory.value = []
+    state.customerHistory.value = []
+    state.inventoryValuation.value = null
+    state.receivablesPayables.value = null
+    state.productionCostReport.value = null
+    state.dataRevision.value += 1
+  }, { flush: 'sync' })
   const { refreshData, loadPermissions } = createDataLoader(state, can, syncWorkspaceRoute)
   const connectionActions = createConnectionActions(state, refreshData)
   const { checkConnection, stopScan, monitorConnection } = connectionActions
@@ -214,6 +235,7 @@ function createAppStore() {
   const ledgerReportActions = createLedgerReportActions(state)
   const valuationActions = createValuationActions(state, perform)
 
+  const tableActions = createTableActions(state)
   const salesActions = createSalesActions(state, perform)
 
   const productionActions = createProductionActions(
@@ -276,6 +298,7 @@ function createAppStore() {
     ...ledgerReportActions,
     ...valuationActions,
     ...salesActions,
+    ...tableActions,
     ...productionActions,
     ...accessActions,
     ...menuActions,

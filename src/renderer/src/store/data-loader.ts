@@ -101,154 +101,48 @@ export function createDataLoader(
     syncWorkspaceRoute()
     await loadPermissions()
     state.menuIcons.value = await window.nexora.callApi('menuIcons', undefined)
-    // 页面只显示当前角色可访问的入口；数据访问仍以服务端授权为准。
-    if (can('inventory.view')) {
-      ;[
-        materials.value,
-        suppliers.value,
-        supplierMaterials.value,
-        stock.value,
-        receipts.value,
-        movements.value,
-        warehouses.value,
-        transfers.value,
-        purchaseOrders.value,
-        stocktakes.value,
-        purchaseReturns.value
-      ] = await Promise.all([
-        window.nexora.callApi('materials', undefined),
-        window.nexora.callApi('suppliers', undefined),
-        window.nexora.callApi('supplierMaterials', undefined),
-        window.nexora.callApi(
-          'stock',
-          selectedWarehouseId.value
-            ? { warehouseId: selectedWarehouseId.value }
-            : undefined
-        ),
-        window.nexora.callApi('receipts', undefined),
-        window.nexora.callApi('movements', undefined),
-        window.nexora.callApi('warehouses', undefined),
-        window.nexora.callApi('transfers', undefined),
-        window.nexora.callApi('purchaseOrders', undefined),
-        window.nexora.callApi('stocktakes', undefined),
-        window.nexora.callApi('purchaseReturns', undefined)
-      ])
-    }
-    purchaseRequests.value = can('purchase_request.view')
-      ? await window.nexora.callApi('purchaseRequests', undefined)
-      : []
-    goodsReceipts.value = can('purchase_receiving.view')
-      ? await window.nexora.callApi('goodsReceipts', undefined)
-      : []
-    otherInbounds.value = can('other_inbound.view')
-      ? await window.nexora.callApi('otherInbounds', undefined)
-      : []
-    warehouseOutbounds.value = can('other_outbound.view')
-      ? await window.nexora.callApi('warehouseOutbounds', undefined)
-      : []
-    stockAdjustments.value = can('adjustment.view')
-      ? await window.nexora.callApi('stockAdjustments', undefined)
-      : []
-    if (can('inventory_valuation.view')) {
-      ;[inventoryValuation.value, inventoryCostInputs.value] = await Promise.all([
-        window.nexora.callApi('inventoryValuation', undefined),
-        window.nexora.callApi('inventoryCostInputs', undefined)
-      ])
-    } else {
-      inventoryValuation.value = null
-      inventoryCostInputs.value = []
-    }
-    customers.value = can('customer.view') || can('customer.manage')
-      ? await window.nexora.callApi('customers', undefined) : []
-    if (can('sales.view')) {
-      ;[
-        salesOrders.value,
-        shipments.value,
-        salesReturns.value
-      ] = await Promise.all([
-        window.nexora.callApi('salesOrders', undefined),
-        window.nexora.callApi('shipments', undefined),
-        window.nexora.callApi('salesReturns', undefined)
-      ])
-    }
-    if (can('finance.view') && can('sales_amount.all')) {
-      // 单次服务端快照避免并发收付款时来源、余额和记录短暂不一致。
-      const overview = await window.nexora.callApi('financeOverview', undefined)
-      receivablesPayables.value = overview.report
-      financeAccounts.value = overview.accounts
-      paymentRecords.value = overview.payments
-    } else {
-      receivablesPayables.value = null
-      financeAccounts.value = []
-      paymentRecords.value = []
-    }
-    openingBalances.value = can('opening_balance.view') ? await window.nexora.callApi('openingBalances', undefined) : []
-    journals.value = can('journal.view') ? await window.nexora.callApi('journals', undefined) : []
-    ledgerAccounts.value = can('ledger_account.view')
-      ? await window.nexora.callApi('ledgerAccounts', undefined) : []
-    accountingPeriods.value = can('accounting_period.view')
-      ? await window.nexora.callApi('accountingPeriods', undefined) : []
-    if (can('production.view')) {
-      ;[
-        boms.value,
-        workOrders.value,
-        materialIssues.value,
-        materialReturns.value,
-        productionCompletions.value
-      ] = await Promise.all([
-        window.nexora.callApi('boms', undefined),
-        window.nexora.callApi('workOrders', undefined),
-        window.nexora.callApi('materialIssues', undefined),
-        window.nexora.callApi('materialReturns', undefined),
-        window.nexora.callApi('productionCompletions', undefined)
-      ])
-      // 刷新列表时保留尚未提交的质检输入，避免其他业务操作意外清空填写内容。
-      const previousInspections = inspectionDrafts.value
-      inspectionDrafts.value = Object.fromEntries(
-        productionCompletions.value
-          .filter((item) => item.status === 'draft')
-          .map((item) => [
-            item.id,
-            previousInspections[item.id] ?? {
-              accepted_quantity: item.reported_quantity,
-              qc_note: ''
-            }
-          ])
-      )
-    } else {
-      boms.value = []
-      workOrders.value = []
-      materialIssues.value = []
-      materialReturns.value = []
-      productionCompletions.value = []
-      inspectionDrafts.value = {}
-    }
-    productionCostReport.value = can('production_cost.view')
-      ? await window.nexora.callApi('productionCosts', undefined)
-      : null
-    productionCostSettlements.value = can('production_cost.view')
-      ? await window.nexora.callApi('productionCostSettlements', undefined)
-      : []
-    if (can('users.manage')) {
-      ;[roles.value, users.value] = await Promise.all([
-        window.nexora.callApi('roles', undefined),
-        window.nexora.callApi('users', undefined)
-      ])
-      roleDrafts.value = Object.fromEntries(
-        users.value.map((entry) => [entry.id, [...entry.roles]])
-      )
-      rolePermissionDrafts.value = Object.fromEntries(
-        roles.value.map((entry) => [entry.code, [...entry.permissions]])
-      )
-      roleLabelDrafts.value = Object.fromEntries(
-        roles.value.map((entry) => [entry.code, entry.label])
-      )
-    } else {
-      permissions.value = []
-      permissionLabelDrafts.value = {}
-      roles.value = []
-      users.value = []
-    }
+    // 保存后只失效有界快照，由当前打开的表格重新分页查询；不重新拉取全公司业务。
+    materials.value = []
+    suppliers.value = []
+    supplierMaterials.value = []
+    stock.value = []
+    receipts.value = []
+    movements.value = []
+    warehouses.value = []
+    transfers.value = []
+    purchaseOrders.value = []
+    stocktakes.value = []
+    purchaseReturns.value = []
+    purchaseRequests.value = []
+    goodsReceipts.value = []
+    otherInbounds.value = []
+    warehouseOutbounds.value = []
+    stockAdjustments.value = []
+    customers.value = []
+    salesOrders.value = []
+    shipments.value = []
+    salesReturns.value = []
+    openingBalances.value = []
+    journals.value = []
+    ledgerAccounts.value = []
+    accountingPeriods.value = []
+    boms.value = []
+    workOrders.value = []
+    materialIssues.value = []
+    materialReturns.value = []
+    productionCompletions.value = []
+    productionCostSettlements.value = []
+    paymentRecords.value = []
+    financeAccounts.value = []
+    inventoryCostInputs.value = []
+    roles.value = []
+    users.value = []
+    inventoryValuation.value = null
+    receivablesPayables.value = null
+    productionCostReport.value = null
+    // 刷新版本触发当前挂载页面查询；未打开页面不产生业务请求。
+    state.dataRevision.value += 1
+
   }
   return { refreshData, loadPermissions }
 }

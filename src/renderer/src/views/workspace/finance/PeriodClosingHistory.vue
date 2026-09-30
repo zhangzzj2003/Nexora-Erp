@@ -10,9 +10,15 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { financialSource, localTime } from '../../../utils/formatters'
 
-const { periodClosingHistory: records } = storeToRefs(usePiniaAppStore())
+const { periodClosingHistory: records, periodClosingHistoryId } = storeToRefs(usePiniaAppStore())
 const selected = ref<PeriodClosingRecord | null>(null)
 const evidence = computed(() => selected.value && 'ledger' in selected.value.evidence ? selected.value.evidence : null)
+// 只有打开某次记录时才读取其完整证据快照，嵌套表格继续按快照分页。
+async function selectEvidence(record: PeriodClosingRecord): Promise<void> {
+  if (!window.nexora) return
+  const result = await window.nexora.callApi('queryTable', { dataset: 'closingEvidence', query: '', page: 1, page_size: 1, filters: { id: record.id } })
+  selected.value = result.items[0] as unknown as PeriodClosingRecord
+}
 const columns = [ { key: 'id', title: '记录号' }, { key: 'action', title: '操作' },
   { key: 'period_version', title: '期间版本' }, { key: 'created_at', title: '时间' },
   { key: 'created_by_name', title: '操作者' }, { key: 'reason', title: '依据 / 原因' }, { key: 'actions', title: '证据' } ]
@@ -42,27 +48,27 @@ const movementNames: Record<string, string> = { receipt: '采购入库', receipt
 
 <template>
   <div class="stack period-closing-history">
-    <WorkspaceTable title="结账与重开记录" :columns="columns" :data="records" :min-table-width="900">
+    <WorkspaceTable dataset="periodClosingHistory" :query-filters="{ period_id: periodClosingHistoryId }" title="结账与重开记录" :columns="columns" :data="records" :min-table-width="900">
       <template #cell-action="{ row }">{{ row.action === 'close' ? '结账' : '重开' }}</template>
       <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
-      <template #cell-actions="{ row }"><AppButton v-if="row.action === 'close'" @click="selected = row" variant="text" type="button">查看余额快照</AppButton><span v-else class="muted">保留原结账</span></template>
+      <template #cell-actions="{ row }"><AppButton v-if="row.action === 'close'" @click="selectEvidence(row)" variant="text" type="button">查看余额快照</AppButton><span v-else class="muted">保留原结账</span></template>
       <template #empty>暂无结账记录。结账后保存余额、来源与操作者，不覆盖原记录。</template>
     </WorkspaceTable>
     <template v-if="evidence">
       <p>结账记录 {{ selected?.id }} · {{ evidence.period.start_date }} 至 {{ evidence.period.end_date }} · 保存于 {{ localTime(selected?.created_at ?? '') }}</p>
       <p class="muted">这是当次结账保存的证据。重开或后续业务不会覆盖它；金额按人民币，业务时间按 UTC。{{ evidence.opening_balance_id ? `正式期初来源：期初-${evidence.opening_balance_id}` : '当次没有正式期初来源。' }}</p>
-      <WorkspaceTable title="总账余额快照（元）" :columns="balanceColumns" :data="evidence.ledger.rows" :min-table-width="920" />
+      <WorkspaceTable :snapshot-id="selected?.snapshot_id" snapshot-path="evidence.ledger.rows" title="总账余额快照（元）" :columns="balanceColumns" :data="evidence.ledger.rows" :min-table-width="920" />
       <p v-if="evidence.profit_transfer">损益结转检查：{{ evidence.profit_transfer.required ? '已纳管，损益余额已清零' : '沿用历史范围或没有待结损益' }}；配置版本 {{ evidence.profit_transfer.policy.version }}；{{ evidence.profit_transfer.journal_id ? `结转凭证记-${evidence.profit_transfer.journal_id}` : '没有有效生成结转凭证' }}。</p>
-      <WorkspaceTable title="库存余额快照" :columns="inventoryColumns" :data="evidence.inventory.materials" :min-table-width="760" />
-      <WorkspaceTable title="库存金额来源" :columns="movementColumns" :data="evidence.inventory.movements" :min-table-width="960"><template #cell-source_type="{ row }">{{ movementNames[row.source_type] ?? '库存流水' }}</template></WorkspaceTable>
+      <WorkspaceTable :snapshot-id="selected?.snapshot_id" snapshot-path="evidence.inventory.materials" title="库存余额快照" :columns="inventoryColumns" :data="evidence.inventory.materials" :min-table-width="760" />
+      <WorkspaceTable :snapshot-id="selected?.snapshot_id" snapshot-path="evidence.inventory.movements" title="库存金额来源" :columns="movementColumns" :data="evidence.inventory.movements" :min-table-width="960"><template #cell-source_type="{ row }">{{ movementNames[row.source_type] ?? '库存流水' }}</template></WorkspaceTable>
       <p>业务应收来源净额 {{ evidence.business_sources.receivable_amount }} 元；应付来源净额 {{ evidence.business_sources.payable_amount }} 元；无价来源 {{ evidence.business_sources.unpriced_count }} 笔。收付款记录 {{ evidence.payments.length }} 笔，已过账凭证 {{ evidence.posted_journal_ids.length }} 张。</p>
       <NCollapse><AppCollapseItem name="sources" title="往来、收付款与凭证来源明细"><div class="stack">
-        <WorkspaceTable title="往来来源快照" :columns="businessColumns" :data="evidence.business_sources.entries" :min-table-width="940">
+        <WorkspaceTable :snapshot-id="selected?.snapshot_id" snapshot-path="evidence.business_sources.entries" title="往来来源快照" :columns="businessColumns" :data="evidence.business_sources.entries" :min-table-width="940">
           <template #cell-kind="{ row }">{{ row.kind === 'receivable' ? '应收' : '应付' }}</template>
           <template #cell-source="{ row }">{{ financialSource(row) }}</template>
           <template #cell-amount="{ row }">{{ row.amount ?? '待核价' }}</template>
         </WorkspaceTable>
-        <WorkspaceTable title="收付款记录快照" :columns="paymentColumns" :data="evidence.payments" :min-table-width="940">
+        <WorkspaceTable :snapshot-id="selected?.snapshot_id" snapshot-path="evidence.payments" title="收付款记录快照" :columns="paymentColumns" :data="evidence.payments" :min-table-width="940">
           <template #cell-kind="{ row }">{{ row.kind === 'receivable' ? '应收' : '应付' }}</template>
           <template #cell-action="{ row }">{{ row.action === 'settlement' ? '收付款' : row.action === 'refund' ? '退款' : '冲销' }}</template>
         </WorkspaceTable>

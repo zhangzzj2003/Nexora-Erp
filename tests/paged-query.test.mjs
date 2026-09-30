@@ -55,3 +55,13 @@ test('搜索防抖并回到第一页，输入变化立即拒绝旧结果', async
     await Promise.resolve()
   } finally { scope.stop() }
 })
+
+// 接受回调同样只收到最新一页，旧查询不能污染用于按钮操作的共享数据。
+test('分页结果接受回调忽略乱序旧页', async () => {
+  const pending = []; const accepted = []; const scope = effectScope()
+  const state = scope.run(() => usePagedQuery(() => new Promise(resolve => pending.push(resolve)), result => accepted.push(result.items)))
+  const old = state.load(1); const current = state.load(2)
+  pending[1]({ items: [{id: 2}], total: 2, page: 2, page_size: 1 }); await current
+  pending[0]({ items: [{id: 1}], total: 2, page: 1, page_size: 1 }); await old
+  assert.deepEqual(accepted, [[{id: 2}]]); scope.stop()
+})

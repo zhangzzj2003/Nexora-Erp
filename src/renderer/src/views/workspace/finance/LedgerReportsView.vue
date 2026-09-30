@@ -122,7 +122,7 @@ onMounted(() => {
 <template>
   <section class="stack ledger-reports-page">
     <form @submit.prevent="queryLedgerReport">
-      <WorkspaceTable
+      <WorkspaceTable :snapshot-id="result?.snapshot_id"
         class="ledger-report-table"
         title="总账报表"
         :show-title="false"
@@ -143,7 +143,7 @@ onMounted(() => {
               ]"
           /></label>
           <label v-if="query.kind === 'account_ledger'"
-            >科目<WorkspaceSelect
+            >科目<WorkspaceSelect remote-dataset="ledgerAccounts"
               v-model="query.account_id"
               required
               :options="[
@@ -374,6 +374,7 @@ onMounted(() => {
           class="ledger-report-table"
           title="凭证分录"
           :columns="journalColumns"
+          dataset="journalLines" :query-filters="{ journal_id: journal.id }"
           :data="journal.lines"
           :min-table-width="800"
           ><template #cell-account_name="{ row }"
@@ -382,7 +383,7 @@ onMounted(() => {
         >
         <JournalHistory
           :key="`${journal.id}:${journal.version}`"
-          :load="() => loadJournalChanges(journal!.id)"
+          :record-id="journal!.id" :load="() => loadJournalChanges(journal!.id)"
         />
       </div>
     </NModal>
@@ -410,6 +411,7 @@ onMounted(() => {
         <WorkspaceTable
           title="启用科目余额"
           :columns="journalColumns"
+          :snapshot-id="result.snapshot_id" snapshot-path="opening_balance.lines"
           :data="result.opening_balance.lines"
           :min-table-width="800"
           ><template #cell-account_name="{ row }"
@@ -418,7 +420,7 @@ onMounted(() => {
         >
         <OpeningHistory
           :key="`${result.opening_balance.id}:${result.opening_balance.version}`"
-          :load="async () => result!.opening_balance!.changes"
+          :snapshot-id="result.snapshot_id" snapshot-path="opening_balance.changes" :load="async () => result!.opening_balance!.changes"
         />
       </div>
     </NModal>

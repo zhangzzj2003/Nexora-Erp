@@ -115,7 +115,7 @@ def get_policy(_: dict = Depends(require('business_journal.view'))) -> dict:
     with orm_session() as db:
         return dict(policy=policy_data(db.get(BusinessJournalPolicy, 1)), roles=ROLE_LABELS,
             accounts=[{**model_data(item), 'is_active': bool(item.is_active)}
-                for item in db.scalars(select(LedgerAccount).order_by(LedgerAccount.code))])
+                for item in db.scalars(select(LedgerAccount).order_by(LedgerAccount.code).limit(100))])
 
 
 @router.put('/policy')

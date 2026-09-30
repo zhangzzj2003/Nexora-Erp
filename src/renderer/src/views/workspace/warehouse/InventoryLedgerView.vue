@@ -53,7 +53,7 @@ onMounted(() => { void runLedgerQuery() })
 
 <template>
   <section class="stack">
-    <WorkspaceTable
+    <WorkspaceTable :snapshot-id="ledgerResult.snapshot_id"
       :show-title="false"
       :data="ledgerResult.rows"
       title="库存台账"
@@ -64,7 +64,7 @@ onMounted(() => { void runLedgerQuery() })
     >
       <template #filters>
         <label
-          >仓库<WorkspaceSelect
+          >仓库<WorkspaceSelect remote-dataset="warehouses"
             v-model="ledgerQuery.warehouse_id"
             :options="[
               { label: '全部仓库', value: null },
@@ -72,7 +72,7 @@ onMounted(() => { void runLedgerQuery() })
             ]"
         /></label>
         <label
-          >物料<WorkspaceSelect
+          >物料<WorkspaceSelect remote-dataset="materials"
             v-model="ledgerQuery.material_id"
             :options="[
               { label: '全部物料', value: null },
@@ -159,8 +159,8 @@ onMounted(() => { void runLedgerQuery() })
       </template>
     </WorkspaceTable>
     <!-- 先筛选再查看流水与汇总，避免期初期末把查询入口挤到页面下方。 -->
-    <WorkspaceTable
-      v-if="!ledgerError && ledgerResult.groups.length"
+    <WorkspaceTable :snapshot-id="ledgerResult.snapshot_id" snapshot-path="groups"
+      v-if="!ledgerError && (ledgerResult.snapshot_id || ledgerResult.groups.length)"
       title="期初期末"
       :columns="groupColumns"
       :data="ledgerResult.groups"

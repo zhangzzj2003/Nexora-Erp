@@ -20,6 +20,7 @@ const { can, createCustomer, updateCustomer, loadCustomerHistory } = store
 const customerOpen = ref(false)
 const customerQuery = ref('')
 const historyOpen = ref(false)
+const historyCustomerId = ref(0)
 const admin = computed(() => user.value?.roles.includes('admin') ?? false)
 // 只用页面可见的档案填充草稿，转交必须由服务端再次检查管理员和版本。
 function editCustomer(row: Customer): void {
@@ -48,7 +49,7 @@ async function submitCustomer(): Promise<void> {
 <template>
   <section class="stack">
     <!-- 主标题由工作台提供，客户列表独立于销售单据。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="customers" :query="customerQuery"
       :show-title="false"
       title="客户资料"
       :columns="customerColumns"
@@ -93,7 +94,7 @@ async function submitCustomer(): Promise<void> {
       <template #cell-status="{ row }">{{ row.is_active ? '启用' : '停用' }}</template>
       <template #cell-actions="{ row }">
         <AppButton v-if="can('customer.manage')" :disabled="busy || connectionLost" @click="editCustomer(row)" size="small">编辑 / 转交</AppButton>
-        <AppButton :disabled="busy || connectionLost" @click="historyOpen = true; loadCustomerHistory(row.id)" size="small">修改记录</AppButton>
+        <AppButton :disabled="busy || connectionLost" @click="historyCustomerId = row.id; historyOpen = true" size="small">修改记录</AppButton>
       </template>
       <template #empty>{{ customerQuery ? '没有匹配的客户。' : '暂无客户，请先新增。' }}</template>
     </WorkspaceTable>
@@ -106,7 +107,7 @@ async function submitCustomer(): Promise<void> {
       </form>
     </NModal>
     <NModal v-model:show="historyOpen" preset="card" title="客户修改记录" :style="{ width: 'min(860px, calc(100vw - 32px))' }">
-      <WorkspaceTable title="修改记录" :data="customerHistory" :columns="[{key:'action',title:'操作'},{key:'reason',title:'原因'},{key:'changed_by',title:'操作人编号'},{key:'created_at',title:'时间'}]" />
+      <WorkspaceTable v-if="historyCustomerId" dataset="customerHistory" :query-filters="{ customer_id: historyCustomerId }" title="修改记录" :data="customerHistory" :columns="[{key:'action',title:'操作'},{key:'reason',title:'原因'},{key:'changed_by',title:'操作人编号'},{key:'created_at',title:'时间'}]" />
     </NModal>
 
   </section>

@@ -17,6 +17,6 @@ const active = computed({ get: () => model.value.is_active !== false, set: (valu
   <label>联系电话<AppInput v-model.trim="model.phone" maxlength="40" :disabled="disabled" /></label>
   <label>地址<AppInput v-model.trim="model.address" maxlength="300" :disabled="disabled" /></label>
   <label>备注<AppInput v-model.trim="model.note" maxlength="500" :disabled="disabled" /></label>
-  <label v-if="admin">负责商务<WorkspaceSelect v-model="owner" :options="ownerOptions" :disabled="disabled" /></label>
+  <label v-if="admin">负责商务<WorkspaceSelect v-model="owner" remote-dataset="users" :options="ownerOptions" :disabled="disabled" /></label>
   <label>客户启用<NSwitch v-model:value="active" :disabled="disabled" /></label>
 </template>

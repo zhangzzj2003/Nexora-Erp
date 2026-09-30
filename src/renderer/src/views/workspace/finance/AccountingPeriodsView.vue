@@ -65,7 +65,7 @@ async function confirmClosing(): Promise<void> {
 
 <template>
   <section class="stack ledger-metadata-page">
-    <WorkspaceTable
+    <WorkspaceTable dataset="accountingPeriods" :query="query"
       title="会计期间"
       :show-title="false"
       :columns="columns"
@@ -194,7 +194,7 @@ async function confirmClosing(): Promise<void> {
       <MetadataHistory
         v-if="history"
         :key="history.id"
-        :load="() => loadAccountingPeriodChanges(history!.id)"
+        :record-id="history!.id" dataset="periodHistory" :load="() => loadAccountingPeriodChanges(history!.id)"
       />
     </NModal>
     <NModal :show="closingTarget !== null" preset="card" :title="`${closingTarget?.code ?? ''} · ${closingMode === 'close' ? '结账检查' : closingMode === 'reopen' ? '重开期间' : '结账记录'}`" :mask-closable="!busy" :style="{ width: 'min(1180px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }" @update:show="value => { if (!value) closingTarget = null }">

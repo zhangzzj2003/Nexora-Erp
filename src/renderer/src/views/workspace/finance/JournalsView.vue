@@ -144,7 +144,7 @@ async function confirm(): Promise<void> {
     <div v-if="(showBusiness && can('business_journal.view')) || (showProfit && can('profit_transfer.view'))" class="ledger-actions"><AppButton variant="secondary" @click="showBusiness = false; showProfit = false">返回总账凭证</AppButton></div>
     <BusinessJournalPanel v-if="showBusiness && can('business_journal.view')" @open-journal="id => { showBusiness = false; detailId = id }" />
     <ProfitTransferPanel v-else-if="showProfit && can('profit_transfer.view')" @open-journal="id => { showProfit = false; detailId = id }" />
-    <WorkspaceTable v-else
+    <WorkspaceTable dataset="journals" :query="query" v-else
       class="journal-list-table"
       title="总账凭证"
       :show-title="false"
@@ -303,7 +303,7 @@ async function confirm(): Promise<void> {
         >
           <template #cell-position="{ row }">{{ lineNumber(row) }}</template>
           <template #cell-account_id="{ row }"
-            ><WorkspaceSelect
+            ><WorkspaceSelect remote-dataset="ledgerAccounts"
               v-model="row.account_id"
               :aria-label="`第 ${lineNumber(row)} 行科目`"
               required
@@ -473,7 +473,7 @@ async function confirm(): Promise<void> {
             >查看冲销凭证记-{{ detail.reversal_journal_id }}</AppButton
           >（{{ relatedStatus(detail.reversal_journal_id) }}）；冲销凭证过账后才抵销原凭证。
         </p>
-        <WorkspaceTable
+        <WorkspaceTable dataset="journalLines" :query-filters="{ journal_id: detail.id }"
           title="凭证分录"
           :columns="lineColumns"
           :data="detail.lines"
@@ -486,7 +486,7 @@ async function confirm(): Promise<void> {
         <NCollapse v-if="detail.profit_transfer"><AppCollapseItem name="profit" title="生成时的损益余额、凭证来源与结转范围"><ProfitTransferEvidence :evidence="detail.profit_transfer.evidence" :can-open-journal="can('journal.view')" @open-journal="id => { detailId = id }" /></AppCollapseItem></NCollapse>
         <JournalHistory
           :key="`${detail.id}:${detail.version}`"
-          :load="() => loadJournalChanges(detail!.id)"
+          :record-id="detail!.id" :load="() => loadJournalChanges(detail!.id)"
         />
       </div>
     </NModal>

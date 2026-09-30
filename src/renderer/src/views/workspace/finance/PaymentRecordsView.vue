@@ -75,7 +75,7 @@ const filteredPayments = computed(() =>
               ]"
           /></label>
           <label
-            >关联订单<WorkspaceSelect
+            >关联订单<WorkspaceSelect remote-dataset="financeAccounts" :remote-filters="{ kind: paymentForm.kind }"
               v-model="paymentForm.order_id"
               required
               :options="[
@@ -128,7 +128,7 @@ const filteredPayments = computed(() =>
         </div>
         <AppButton
           type="submit"
-          :disabled="busy || connectionLost || !financeAccounts.length"
+          :disabled="busy || connectionLost"
           variant="primary"
         >
           登记收付款
@@ -136,7 +136,7 @@ const filteredPayments = computed(() =>
       </form>
     </NModal>
     <!-- 冲销入口仍按原记录和反向记录判断，列表筛选不影响防重复冲销。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="paymentRecords" :query="paymentQuery"
       :show-title="false"
       title="收付款与冲销记录"
       :columns="paymentColumns"

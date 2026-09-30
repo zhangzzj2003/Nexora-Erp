@@ -30,7 +30,7 @@ const filteredRecords = computed(() =>
 <template>
   <section class="stack">
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="receipts" :query="recordQuery"
       :show-title="false"
       title="采购入库"
       :data="filteredRecords"

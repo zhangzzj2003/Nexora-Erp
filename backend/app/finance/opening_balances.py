@@ -226,7 +226,7 @@ def list_openings(_: dict = Depends(require("opening_balance.view"))) -> list[di
 def options(_: dict = Depends(require("opening_balance.create"))) -> dict:
     with orm_session() as db:
         period = db.scalar(
-            select(AccountingPeriod).order_by(AccountingPeriod.start_date).limit(1)
+            select(AccountingPeriod).order_by(AccountingPeriod.start_date).limit(100).limit(1)
         )
         return dict(
             accounts=[
@@ -234,7 +234,7 @@ def options(_: dict = Depends(require("opening_balance.create"))) -> dict:
                 for a in db.scalars(
                     select(LedgerAccount)
                     .where(LedgerAccount.is_active == 1)
-                    .order_by(LedgerAccount.code)
+                    .order_by(LedgerAccount.code).limit(100)
                 )
             ],
             period=model_data(period) if period is not None else None,

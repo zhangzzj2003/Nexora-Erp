@@ -42,6 +42,7 @@ ReportKind = Literal[
 
 
 class ReportQuery(BaseModel):
+    paged: bool = False
     kind: ReportKind
     warehouse_id: int | None = Field(default=None, gt=0)
     material_id: int | None = Field(default=None, gt=0)
@@ -387,4 +388,8 @@ def query_report(filters: ReportQuery, user: dict = Depends(current_user)) -> di
     for row in rows:
         writer.writerow([csv_value(row.get(column["key"], "")) for column in columns])
     # 列表和导出来自同一快照，前端保存当前响应中的 CSV 即可。
-    return {"kind": filters.kind, "columns": columns, "rows": rows, "csv": "\ufeff" + output.getvalue()}
+    result = {"kind": filters.kind, "columns": columns, "rows": rows, "csv": "\ufeff" + output.getvalue()}
+    if filters.paged:
+        from app.query.snapshots import snapshot_metadata
+        return snapshot_metadata(result,user,('rows',))
+    return result

@@ -86,6 +86,9 @@ export function createAppState() {
   const error = ref('')
   const busy = ref(false)
   const user = ref<User | null>(null)
+  const dataRevision = ref(0)
+  const stockSummary = ref({ material_count: 0, posted_receipt_count: 0, movement_count: 0 })
+  const periodClosingHistoryId = ref(0)
   const username = ref('')
   const password = ref('')
   const materials = ref<Material[]>([])
@@ -408,6 +411,9 @@ export function createAppState() {
     error,
     busy,
     user,
+    dataRevision,
+    stockSummary,
+    periodClosingHistoryId,
     username,
     password,
     materials,

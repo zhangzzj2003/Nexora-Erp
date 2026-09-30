@@ -89,7 +89,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >客户<WorkspaceSelect
+            >客户<WorkspaceSelect remote-dataset="customers"
               v-model="salesForm.customer_id"
               required
               :options="[
@@ -110,7 +110,7 @@ const filteredRecords = computed(() =>
         <h3>销售明细</h3>
         <div v-for="(line, index) in salesForm.lines" :key="index" class="line-row">
           <label
-            >物料<WorkspaceSelect
+            >物料<WorkspaceSelect remote-dataset="materials"
               v-model="line.material_id"
               required
               :options="[
@@ -169,7 +169,7 @@ const filteredRecords = computed(() =>
       </form>
     </NModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="salesOrders" :query="recordQuery"
       :show-title="false"
       title="销售订单"
       :data="filteredRecords"
@@ -267,7 +267,7 @@ const filteredRecords = computed(() =>
 
     <NModal :show="transferDraft !== null" @update:show="value => { if (!value && !busy) transferDraft = null }" preset="card" title="转交订单负责商务" :style="{ width: 'min(560px, calc(100vw - 32px))' }">
       <form v-if="transferDraft" class="inline-form" @submit.prevent="saveTransfer">
-        <label>负责商务<WorkspaceSelect v-model="transferDraft.owner_id" :options="(users || []).filter(person => person.is_active).map(person => ({value: person.id, label: person.full_name || person.username}))" required /></label>
+        <label>负责商务<WorkspaceSelect remote-dataset="users" v-model="transferDraft.owner_id" :options="(users || []).filter(person => person.is_active).map(person => ({value: person.id, label: person.full_name || person.username}))" required /></label>
         <label>转交原因<AppInput v-model.trim="transferDraft.reason" required maxlength="200" /></label>
         <AppButton type="submit" variant="primary" :disabled="busy || connectionLost">确认转交</AppButton>
       </form>

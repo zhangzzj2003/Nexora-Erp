@@ -71,7 +71,7 @@ const materialQuery = ref('')
 const boundQuery = ref('')
 const materialId = ref(0)
 const selectedSupplier = computed(() =>
-  suppliers.value.find((item) => item.id === selectedId.value)
+  rows.value.find((item) => item.id === selectedId.value)
 )
 const boundIds = computed(
   () =>
@@ -214,7 +214,7 @@ async function submitBinding(): Promise<void> {
       >
       <template #empty>{{ query ? '没有匹配的供应商。' : '暂无供应商，请先新增。' }}</template>
     </WorkspaceTable>
-    <WorkspaceTable
+    <WorkspaceTable dataset="boundMaterials" :query="boundQuery" :query-filters="{ supplier_id: selectedId }"
       :data="boundMaterials"
       v-if="selectedSupplier"
       :title="`${selectedSupplier.name} · 供货物料`"

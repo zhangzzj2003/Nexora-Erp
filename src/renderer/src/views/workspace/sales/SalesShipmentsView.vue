@@ -76,7 +76,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >销售订单<WorkspaceSelect
+            >销售订单<WorkspaceSelect remote-dataset="salesOrders"
               v-model="shipmentForm.sales_order_id"
               required
               @change="chooseShipmentOrder"
@@ -90,7 +90,7 @@ const filteredRecords = computed(() =>
                   }))
               ]" /></label
           ><label
-            >出库仓库<WorkspaceSelect
+            >出库仓库<WorkspaceSelect remote-dataset="warehouses"
               v-model="shipmentForm.warehouse_id"
               required
               :options="[
@@ -103,7 +103,7 @@ const filteredRecords = computed(() =>
         <p class="muted">确认出库时将从所选仓库扣减库存，并再次核对销售订单剩余数量。</p>
         <div v-for="(line, index) in shipmentForm.lines" :key="index" class="line-row">
           <label
-            >物料<WorkspaceSelect
+            >物料<WorkspaceSelect remote-dataset="materials"
               v-model="line.material_id"
               required
               :options="[
@@ -154,7 +154,7 @@ const filteredRecords = computed(() =>
       </form>
     </NModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="shipments" :query="recordQuery"
       :show-title="false"
       title="销售出库"
       :data="filteredRecords"

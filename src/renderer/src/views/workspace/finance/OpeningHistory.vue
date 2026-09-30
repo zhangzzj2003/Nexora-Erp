@@ -6,7 +6,7 @@ import type { OpeningBalanceChange } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { displayError, localTime } from '../../../utils/formatters'
 import { openingActionLabels, openingStatusLabels } from './opening-display'
-const props = defineProps<{ load: () => Promise<OpeningBalanceChange[]> }>()
+const props = defineProps<{ snapshotId?: string; snapshotPath?: string; recordId?: number; load: () => Promise<OpeningBalanceChange[]> }>()
 const rows = ref<OpeningBalanceChange[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -29,10 +29,10 @@ async function reload(): Promise<void> {
     loading.value = false
   }
 }
-onMounted(reload)
+onMounted(() => { if (!props.recordId && !props.snapshotId) void reload() })
 </script>
 <template>
-  <WorkspaceTable
+  <WorkspaceTable :snapshot-id="snapshotId" :snapshot-path="snapshotPath" :dataset="recordId ? 'openingHistory' : undefined" :query-filters="{ opening_balance_id: recordId || null }"
     title="期初操作记录"
     :show-title="false"
     :data="rows"

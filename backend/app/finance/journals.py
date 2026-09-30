@@ -281,7 +281,7 @@ def journal_options(_: dict = Depends(require("journal.create"))) -> dict:
                 for a in db.scalars(
                     select(LedgerAccount)
                     .where(LedgerAccount.is_active == 1)
-                    .order_by(LedgerAccount.code)
+                    .order_by(LedgerAccount.code).limit(100)
                 )
             ],
             "periods": [
@@ -289,7 +289,7 @@ def journal_options(_: dict = Depends(require("journal.create"))) -> dict:
                 for p in db.scalars(
                     select(AccountingPeriod)
                     .where(AccountingPeriod.status == "open")
-                    .order_by(AccountingPeriod.start_date)
+                    .order_by(AccountingPeriod.start_date).limit(100)
                 )
             ],
         }

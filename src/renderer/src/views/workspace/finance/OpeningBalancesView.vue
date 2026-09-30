@@ -148,7 +148,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
 
 <template>
   <section class="stack ledger-metadata-page opening-balances-page">
-    <WorkspaceTable
+    <WorkspaceTable dataset="openingBalances" :query="query"
       class="journal-list-table"
       title="期初余额"
       :show-title="false"
@@ -299,7 +299,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
         >
           <template #cell-position="{ row }">{{ number(row) }}</template>
           <template #cell-account_id="{ row }"
-            ><WorkspaceSelect
+            ><WorkspaceSelect remote-dataset="ledgerAccounts"
               v-model="row.account_id"
               :aria-label="`第 ${number(row)} 行科目`"
               required
@@ -435,7 +435,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
           {{ detail.period_code }} · 建单人 {{ detail.created_by_name }} · 版本 {{ detail.version }}
         </p>
         <p v-if="detail.note">备注：{{ detail.note }}</p>
-        <WorkspaceTable
+        <WorkspaceTable dataset="openingLines" :query-filters="{ opening_balance_id: detail.id }"
           title="科目期初余额"
           :columns="lines"
           :data="detail.lines"
@@ -445,7 +445,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
           ><template #empty>此方案为全部科目零余额。</template></WorkspaceTable
         ><OpeningHistory
           :key="`${detail.id}:${detail.version}`"
-          :load="() => loadOpeningBalanceChanges(detail!.id)"
+          :record-id="detail!.id" :load="() => loadOpeningBalanceChanges(detail!.id)"
         />
       </div>
     </NModal>

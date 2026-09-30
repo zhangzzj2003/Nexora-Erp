@@ -156,7 +156,7 @@ const filteredRecords = computed(() =>
       </form>
     </NModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="purchaseReturns" :query="recordQuery"
       :show-title="false"
       title="采购退货"
       :data="filteredRecords"

@@ -35,7 +35,7 @@ async function submitCreate(): Promise<void> {
 <template>
   <section class="stack">
     <!-- 列表保留操作与筛选，页面标题在卡片外统一显示。 -->
-    <WorkspaceTable
+    <WorkspaceTable dataset="goodsReceipts" :query="query"
       :show-title="false"
       :data="filtered"
       title="采购收货"
@@ -89,7 +89,7 @@ async function submitCreate(): Promise<void> {
                   ]"
               /></label>
               <label
-                >目标仓库<WorkspaceSelect
+                >目标仓库<WorkspaceSelect remote-dataset="warehouses"
                   v-model="goodsReceiptForm.warehouse_id"
                   required
                   :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]"

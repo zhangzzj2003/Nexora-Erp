@@ -2,7 +2,7 @@ import { onScopeDispose, ref, shallowRef } from 'vue'
 import type { PageQuery, PageResult } from '../../../shared/erp-api'
 
 // 每个页面独立保存查询状态；序号保证慢请求不会覆盖更新的搜索结果。
-export function usePagedQuery<T>(request: (query: PageQuery) => Promise<PageResult<T>>) {
+export function usePagedQuery<T>(request: (query: PageQuery) => Promise<PageResult<T>>, accept?: (result: PageResult<T> & { metadata?: Record<string, unknown> | null }) => void) {
   const rows = shallowRef<T[]>([])
   const total = ref(0)
   const page = ref(1)
@@ -21,6 +21,7 @@ export function usePagedQuery<T>(request: (query: PageQuery) => Promise<PageResu
     try {
       const result = await request({ query: keyword, page: targetPage, page_size: targetSize })
       if (current !== version) return
+      accept?.(result)
       rows.value = result.items
       total.value = result.total
       page.value = result.page
@@ -36,6 +37,8 @@ export function usePagedQuery<T>(request: (query: PageQuery) => Promise<PageResu
 
   function search(value: string): void {
     // 输入变化立即使旧响应失效，稍后再发请求，避免逐字请求与结果闪回。
+    rows.value = []
+    total.value = 0
     keyword = value.trim()
     ++version
     clearTimeout(timer)

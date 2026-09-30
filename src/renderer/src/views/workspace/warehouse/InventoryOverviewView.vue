@@ -11,6 +11,7 @@ const {
   busy,
   materials,
   stock,
+  stockSummary,
   movements,
   receipts,
   warehouses,
@@ -24,10 +25,10 @@ const columns = [{ key: 'sku', title: '物料编码' }, { key: 'name', title: '�
 
 <template>
   <section class="stack">
-    <WorkspaceTable :show-title="false" title="库存总览" :columns="columns" :data="stock">
+    <WorkspaceTable dataset="stock" :query-filters="{ warehouse_id: selectedWarehouseId || null }" :show-title="false" title="库存总览" :columns="columns" :data="stock">
       <template #filters>
         <label
-          >仓库<WorkspaceSelect
+          >仓库<WorkspaceSelect remote-dataset="warehouses"
             v-model="selectedWarehouseId"
             :disabled="busy"
             @change="perform(refreshData, '库存已切换。')"
@@ -47,14 +48,14 @@ const columns = [{ key: 'sku', title: '物料编码' }, { key: 'name', title: '�
       <template #beforeTable>
         <div class="summary-grid">
           <div class="metric">
-            <span>物料种类</span><strong>{{ materials.length }}</strong>
+            <span>物料种类</span><strong>{{ stockSummary.material_count }}</strong>
           </div>
           <div class="metric">
             <span>已确认入库单</span
-            ><strong>{{ receipts.filter((item) => item.status === 'posted').length }}</strong>
+            ><strong>{{ stockSummary.posted_receipt_count }}</strong>
           </div>
           <div class="metric">
-            <span>库存流水</span><strong>{{ movements.length }}</strong>
+            <span>库存流水</span><strong>{{ stockSummary.movement_count }}</strong>
           </div>
         </div>
       </template>
