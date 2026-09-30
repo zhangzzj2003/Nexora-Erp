@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.orm import orm_session, add_model
 from app.core.models import (
     Customer,
+    SalesOrderOwner,
     Material,
     SalesOrder,
     SalesOrderLine,
@@ -25,22 +26,12 @@ from app.inventory.warehouse import TransferLineInput, balance, require_warehous
 from app.purchase.orders import PurchaseOrderLineInput
 from app.sales.returns import returned_quantity
 from app.access.security import require
+from app.sales.customer_scope import require_customer, protect_amount
 
 UserRu = aliased(User)
 UserU = aliased(User)
 
 router = APIRouter(prefix="/api/v1")
-
-
-class CustomerInput(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-
-    @field_validator("name")
-    @classmethod
-    def trim_name(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("客户名称不能为空")
-        return value.strip()
 
 
 class SalesOrderInput(BaseModel):
@@ -295,29 +286,8 @@ def update_order_shipment_status(db: Session, order_id: int) -> None:
     db.execute(update(SalesOrder).where((SalesOrder.id == order_id)).values(status=status))
 
 
-@router.get("/customers")
-def list_customers(_: dict = Depends(require("sales.view"))) -> list[dict]:
-    with orm_session() as db:
-        return [
-            dict(row)
-            for row in db.execute(
-                select(Customer.id, Customer.name).select_from(Customer).order_by(Customer.name)
-            ).mappings()
-        ]
-
-
-@router.post("/customers", status_code=201)
-def create_customer(payload: CustomerInput, _: dict = Depends(require("customer.manage"))) -> dict:
-    with orm_session(write=True) as db:
-        try:
-            cursor = add_model(db, Customer(name=payload.name))
-        except IntegrityError:
-            raise HTTPException(409, "客户名称已存在") from None
-        return {"id": cursor.id, "name": payload.name}
-
-
 @router.get("/sales-orders")
-def list_sales_orders(_: dict = Depends(require("sales.view"))) -> list[dict]:
+def list_sales_orders(user: dict = Depends(require("sales.view"))) -> list[dict]:
     with orm_session() as db:
         ids = [
             row
@@ -325,7 +295,7 @@ def list_sales_orders(_: dict = Depends(require("sales.view"))) -> list[dict]:
                 select(SalesOrder.id).select_from(SalesOrder).order_by(SalesOrder.id.desc())
             )
         ]
-        return [sales_order_data(db, order_id) for order_id in ids]
+        return [protect_amount(db, sales_order_data(db, order_id), user, order_id) for order_id in ids]
 
 
 @router.post("/sales-orders", status_code=201)
@@ -333,14 +303,8 @@ def create_sales_order(payload: SalesOrderInput, user: dict = Depends(require("s
     if len({line.material_id for line in payload.lines}) != len(payload.lines):
         raise HTTPException(422, "一张销售订单不能重复选择同一物料")
     with orm_session(write=True) as db:
-        if (
-            not db.execute(
-                select(literal(1)).select_from(Customer).where((Customer.id == payload.customer_id))
-            )
-            .mappings()
-            .first()
-        ):
-            raise HTTPException(422, "客户不存在")
+        # 客户资料仍私有；公司同事通过已存在订单办理后续，不借新建单访问他人客户。
+        profile = require_customer(db, payload.customer_id, user, active=True)
         for line in payload.lines:
             if (
                 not db.execute(
@@ -356,6 +320,7 @@ def create_sales_order(payload: SalesOrderInput, user: dict = Depends(require("s
                 customer_id=payload.customer_id, reference=payload.reference.strip(), created_by=user["id"]
             ),
         )
+        db.add(SalesOrderOwner(order_id=cursor.id, owner_id=profile.owner_id or user['id']))
         db.add_all(
             [
                 SalesOrderLine(
@@ -367,7 +332,7 @@ def create_sales_order(payload: SalesOrderInput, user: dict = Depends(require("s
                 for line in payload.lines
             ]
         )
-        return sales_order_data(db, cursor.id)
+        return protect_amount(db, sales_order_data(db, cursor.id), user, cursor.id)
 
 
 @router.post("/sales-orders/{order_id}/confirm")
@@ -387,7 +352,7 @@ def confirm_sales_order(order_id: int, user: dict = Depends(require("sales_order
             .where((SalesOrder.id == order_id))
             .values(status="confirmed", confirmed_by=user["id"], confirmed_at=func.current_timestamp())
         )
-        return sales_order_data(db, order_id)
+        return protect_amount(db, sales_order_data(db, order_id), user, order_id)
 
 
 @router.post("/sales-orders/{order_id}/cancel")
@@ -408,7 +373,7 @@ def cancel_sales_order(order_id: int, user: dict = Depends(require("sales_order.
             .where((SalesOrder.id == order_id))
             .values(status="cancelled", cancelled_by=user["id"], cancelled_at=func.current_timestamp())
         )
-        return sales_order_data(db, order_id)
+        return protect_amount(db, sales_order_data(db, order_id), user, order_id)
 
 
 @router.get("/shipments")

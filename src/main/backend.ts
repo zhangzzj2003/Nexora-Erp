@@ -159,6 +159,10 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'suppliers': return { method: 'GET', path: '/api/v1/suppliers' }
     case 'createSupplier': return { method: 'POST', path: '/api/v1/suppliers', body: payload }
     case 'customers': return { method: 'GET', path: '/api/v1/customers' }
+    // 资料修改和订单移交使用固定白名单路径，编号必须为正整数。
+    case 'updateCustomer': return { method: 'PUT', path: `/api/v1/customers/${positiveId(payload, 'id')}`, body: payload }
+    case 'customerHistory': return { method: 'GET', path: `/api/v1/customers/${positiveId(payload, 'id')}/history` }
+    case 'transferSalesOwner': return { method: 'PUT', path: `/api/v1/customers/orders/${positiveId(payload, 'orderId')}/owner`, body: payload }
     case 'createCustomer': return { method: 'POST', path: '/api/v1/customers', body: payload }
     case 'materials': return { method: 'GET', path: '/api/v1/materials' }
     case 'createMaterial': return { method: 'POST', path: '/api/v1/materials', body: payload }

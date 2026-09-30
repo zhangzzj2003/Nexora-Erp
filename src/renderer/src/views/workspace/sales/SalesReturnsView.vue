@@ -213,7 +213,7 @@ const filteredRecords = computed(() =>
       <template #cell-details="{ row: item }">
         <div class="workspace-record-lines">
           <span v-for="line in item.lines" :key="line.id">
-            {{ line.material_name }} × {{ line.quantity }} {{ line.unit }} · ¥{{ line.line_total }}
+            {{ line.material_name }} × {{ line.quantity }} {{ line.unit }} <span v-if="item.amount_visible">· ¥{{ line.line_total }}</span>
           </span>
         </div>
       </template>

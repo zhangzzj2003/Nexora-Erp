@@ -119,7 +119,7 @@ export const workspaceRouteGroups = [
         key: 'customers',
         path: '/workspace/customers',
         label: '客户资料',
-        permission: 'sales.view',
+        permission: 'customer.view',
         icon: 'team'
       },
       {

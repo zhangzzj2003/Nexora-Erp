@@ -11,6 +11,8 @@ export function createSalesActions(
     salesReturnReversalReasons,
     shipmentReversalReasons,
     customerForm,
+    customerEdit,
+    customerHistory,
     salesForm,
     shipmentForm,
     salesReturnForm
@@ -20,10 +22,31 @@ export function createSalesActions(
     if (!window.nexora) return
     await perform(async () => {
       await window.nexora!.callApi('createCustomer', {
-        name: customerForm.value.name
+        ...customerForm.value
       })
       customerForm.value = { name: '' }
     }, '客户已创建。')
+  }
+
+  async function updateCustomer(): Promise<void> {
+    if (!window.nexora || !customerEdit.value) return
+    await perform(async () => {
+      await window.nexora!.callApi('updateCustomer', { ...customerEdit.value! })
+      customerEdit.value = null
+    }, '客户资料已更新；历史订单归属保持原记录。')
+  }
+
+  async function loadCustomerHistory(id: number): Promise<void> {
+    if (!window.nexora) return
+    customerHistory.value = []
+    await perform(async () => {
+      customerHistory.value = await window.nexora!.callApi('customerHistory', { id })
+    }, '客户修改记录已读取。')
+  }
+
+  async function transferSalesOwner(orderId: number, owner_id: number, version: number, reason: string): Promise<void> {
+    if (!window.nexora) return
+    await perform(() => window.nexora!.callApi('transferSalesOwner', { orderId, owner_id, version, reason }), '订单负责商务已转交。')
   }
 
   async function createSalesOrder(): Promise<void> {
@@ -184,6 +207,9 @@ export function createSalesActions(
 
   return {
     createCustomer,
+    updateCustomer,
+    loadCustomerHistory,
+    transferSalesOwner,
     createSalesOrder,
     confirmSalesOrder,
     cancelSalesOrder,

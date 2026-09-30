@@ -39,7 +39,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 45:
+        if version > 46:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1465,3 +1465,33 @@ def migrate() -> None:
             db.executemany("INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)",
                 [(role, code) for role in ('admin','finance') for code, _ in operations])
             db.execute("PRAGMA user_version = 45")
+
+
+        if version < 46:
+            # 老客户待管理员分配；历史订单保留创建商务，避免客户转交扩大金额访问范围。
+            if not db.in_transaction:
+                db.execute("BEGIN IMMEDIATE")
+            db.execute("""CREATE TABLE IF NOT EXISTS customer_profiles (
+                customer_id INTEGER PRIMARY KEY REFERENCES customers(id), owner_id INTEGER REFERENCES users(id),
+                contact_name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
+                address TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+                version INTEGER NOT NULL DEFAULT 1 CHECK(version>0))""")
+            db.execute("INSERT OR IGNORE INTO customer_profiles(customer_id) SELECT id FROM customers")
+            db.execute("CREATE INDEX IF NOT EXISTS customer_profiles_owner ON customer_profiles(owner_id,customer_id)")
+            db.execute("""CREATE TABLE IF NOT EXISTS sales_order_owners (
+                order_id INTEGER PRIMARY KEY REFERENCES sales_orders(id), owner_id INTEGER REFERENCES users(id),
+                version INTEGER NOT NULL DEFAULT 1 CHECK(version>0))""")
+            db.execute("INSERT OR IGNORE INTO sales_order_owners(order_id,owner_id) SELECT id,created_by FROM sales_orders")
+            db.execute("CREATE INDEX IF NOT EXISTS sales_order_owners_owner ON sales_order_owners(owner_id,order_id)")
+            db.execute("""CREATE TABLE IF NOT EXISTS customer_changes (
+                id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id),
+                order_id INTEGER REFERENCES sales_orders(id), action TEXT NOT NULL,
+                before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+            for code,label,group in [('customer.view','查看本人客户资料','sales.customer'),
+                                     ('sales_amount.all','查看全部销售金额','sales.sales')]:
+                db.execute("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,?)",(code,label,group))
+            db.executemany("INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)",
+                [('admin','customer.view'),('seller','customer.view'),('admin','sales_amount.all'),('finance','sales_amount.all')])
+            db.execute("PRAGMA user_version = 46")

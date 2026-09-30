@@ -17,19 +17,31 @@ const {
   error,
   notice,
   busy,
+  connectionLost,
   materials,
   customers,
   salesOrders,
+  users,
+  user,
   salesForm,
   can,
   localTime,
   navigateToRoute,
   createSalesOrder,
   confirmSalesOrder,
-  cancelSalesOrder
+  cancelSalesOrder,
+  transferSalesOwner
 } = useAppStore()
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
+// 订单独立转交，不借客户档案转交改变历史金额访问权限。
+const transferDraft = ref<{ orderId: number; owner_id: number; version: number; reason: string } | null>(null)
+async function saveTransfer(): Promise<void> {
+  if (!transferDraft.value) return
+  const draft = transferDraft.value
+  await transferSalesOwner(draft.orderId, draft.owner_id, draft.version, draft.reason)
+  if (!error.value) transferDraft.value = null
+}
 const createOpen = ref(false)
 async function submitCreate(): Promise<void> {
   await submitCreateDialog(createSalesOrder, { busy, error, notice }, createOpen)
@@ -189,7 +201,7 @@ const filteredRecords = computed(() =>
             {{ localTime(item.created_at) }} · 创建人
             {{ item.created_by_name }}
             <span v-if="item.reference">· {{ item.reference }}</span>
-            · 总额 ¥{{ item.total_amount }}
+            <span v-if="item.amount_visible">· 总额 ¥{{ item.total_amount }}</span><span v-else>· 金额无权限查看</span>
           </p>
         </div>
       </template>
@@ -211,12 +223,14 @@ const filteredRecords = computed(() =>
           <span v-for="line in item.lines" :key="line.id">
             {{ line.material_name }} · 已出库 {{ line.shipped_quantity }}/{{ line.quantity }} · 已退
             {{ line.returned_quantity }} · 净交付 {{ line.net_delivered_quantity }}
-            {{ line.unit }} · ¥{{ line.unit_price }}/{{ line.unit }}
+            {{ line.unit }} <span v-if="item.amount_visible">· ¥{{ line.unit_price }}/{{ line.unit }}</span>
           </span>
         </div>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
+          <AppButton v-if="user?.roles.includes('admin')" :disabled="busy" size="small" @click="transferDraft = { orderId: item.id, owner_id: item.owner_id || 0, version: item.owner_version, reason: '' }">转交商务</AppButton>
+
           <AppButton
             v-if="item.status === 'draft' && can('sales_order.confirm')"
             type="button"
@@ -250,5 +264,13 @@ const filteredRecords = computed(() =>
         </span>
       </template>
     </WorkspaceTable>
+
+    <NModal :show="transferDraft !== null" @update:show="value => { if (!value && !busy) transferDraft = null }" preset="card" title="转交订单负责商务" :style="{ width: 'min(560px, calc(100vw - 32px))' }">
+      <form v-if="transferDraft" class="inline-form" @submit.prevent="saveTransfer">
+        <label>负责商务<WorkspaceSelect v-model="transferDraft.owner_id" :options="(users || []).filter(person => person.is_active).map(person => ({value: person.id, label: person.full_name || person.username}))" required /></label>
+        <label>转交原因<AppInput v-model.trim="transferDraft.reason" required maxlength="200" /></label>
+        <AppButton type="submit" variant="primary" :disabled="busy || connectionLost">确认转交</AppButton>
+      </form>
+    </NModal>
   </section>
 </template>

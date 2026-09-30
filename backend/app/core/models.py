@@ -1018,3 +1018,36 @@ class StockAdjustmentReversal(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
+# 客户归属与订单负责商务独立保存，代办或转交客户不会改写历史订单权限。
+class CustomerProfile(Base):
+    __tablename__ = 'customer_profiles'
+    customer_id: Mapped[int] = mapped_column(ForeignKey('customers.id'), primary_key=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    contact_name: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    phone: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    address: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    is_active: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+
+
+class SalesOrderOwner(Base):
+    __tablename__ = 'sales_order_owners'
+    order_id: Mapped[int] = mapped_column(ForeignKey('sales_orders.id'), primary_key=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+
+
+class CustomerChange(Base):
+    __tablename__ = 'customer_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey('customers.id'), nullable=False)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey('sales_orders.id'))
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))

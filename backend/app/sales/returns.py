@@ -26,6 +26,7 @@ from app.core.models import (
 )
 from app.inventory.warehouse import balance, require_warehouse
 from app.access.security import require
+from app.sales.customer_scope import protect_amount
 
 UserRu = aliased(User)
 UserU = aliased(User)
@@ -202,8 +203,14 @@ def sales_return_data(db: Session, return_id: int) -> dict:
     return {**dict(row), "lines": lines, "total_amount": str(total)}
 
 
+def public_return(db: Session, return_id: int, user: dict) -> dict:
+    # 退货沿用原订单金额权限，仓库确认的返回值也不能泄露原单价。
+    record = sales_return_data(db, return_id)
+    return protect_amount(db, record, user, record['sales_order_id'])
+
+
 @router.get("/sales-returns")
-def list_sales_returns(_: dict = Depends(require("sales.view"))) -> list[dict]:
+def list_sales_returns(user: dict = Depends(require("sales.view"))) -> list[dict]:
     with orm_session() as db:
         ids = [
             row
@@ -211,7 +218,7 @@ def list_sales_returns(_: dict = Depends(require("sales.view"))) -> list[dict]:
                 select(SalesReturn.id).select_from(SalesReturn).order_by(SalesReturn.id.desc())
             )
         ]
-        return [sales_return_data(db, return_id) for return_id in ids]
+        return [public_return(db, return_id, user) for return_id in ids]
 
 
 @router.post("/sales-returns", status_code=201)
@@ -244,7 +251,7 @@ def create_sales_return(
                 for line in payload.lines
             ]
         )
-        return sales_return_data(db, cursor.id)
+        return public_return(db, cursor.id, user)
 
 
 @router.post("/sales-returns/{return_id}/post")
@@ -309,7 +316,7 @@ def post_sales_return(return_id: int, user: dict = Depends(require("sales_return
             .where((SalesReturn.id == return_id))
             .values(status="posted", posted_by=user["id"], posted_at=func.current_timestamp())
         )
-        return sales_return_data(db, return_id)
+        return public_return(db, return_id, user)
 
 
 @router.post("/sales-returns/{return_id}/cancel")
@@ -331,7 +338,7 @@ def cancel_sales_return(return_id: int, user: dict = Depends(require("sales_retu
             .where((SalesReturn.id == return_id))
             .values(status="cancelled", cancelled_by=user["id"], cancelled_at=func.current_timestamp())
         )
-        return sales_return_data(db, return_id)
+        return public_return(db, return_id, user)
 
 
 @router.post("/sales-returns/{return_id}/reverse", status_code=201)
@@ -394,4 +401,4 @@ def reverse_sales_return(
                     created_by=user["id"],
                 ),
             )
-        return sales_return_data(db, return_id)
+        return public_return(db, return_id, user)

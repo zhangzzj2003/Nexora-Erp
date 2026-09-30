@@ -3,6 +3,8 @@ import type { MenuIconSetting } from '../../../shared/menu-icons'
 import type {
   Bom,
   Customer,
+  CustomerInput,
+  CustomerChange,
   FinanceAccount,
   LedgerAccount,
   Journal,
@@ -315,7 +317,9 @@ export function createAppState() {
     lines: [{ material_id: 0, counted_quantity: '0' }]
   })
   const stocktakeReversalReasons = ref<Record<number, string>>({})
-  const customerForm = ref({ name: '' })
+  const customerForm = ref<CustomerInput>({ name: '' })
+  const customerHistory = ref<CustomerChange[]>([])
+  const customerEdit = ref<(CustomerInput & { id: number; version: number; reason: string }) | null>(null)
   const salesForm = ref({
     customer_id: 0,
     reference: '',
@@ -527,6 +531,8 @@ export function createAppState() {
     stocktakeForm,
     stocktakeReversalReasons,
     customerForm,
+    customerEdit,
+    customerHistory,
     salesForm,
     shipmentForm,
     salesReturnForm,

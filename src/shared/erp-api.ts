@@ -20,14 +20,17 @@ export interface PageResult<T> { items: T[]; total: number; page: number; page_s
 
 export interface SupplierMaterial { supplier_id: number; material_id: number }
 export interface Supplier { id: number; name: string }
-export interface Customer { id: number; name: string }
-export interface Material { id: number; sku: string; name: string; unit: string }
-export interface Warehouse { id: number; code: string; name: string }
-export type LedgerCategory = 'asset' | 'liability' | 'equity' | 'income' | 'expense' | 'cost'
-export interface LedgerAccount {
-  id: number; code: string; name: string; category: LedgerCategory
-  normal_balance: 'debit' | 'credit'; is_active: boolean; version: number
-  created_by: number; created_at: string
+// 客户负责人和修改版本由服务端维护，订单负责人不会随客户自动转交。
+export interface CustomerInput {
+  name: string; contact_name?: string; phone?: string; address?: string; note?: string
+  owner_id?: number | null; is_active?: boolean
+}
+export interface Customer {
+  id: number; name: string; owner_id: number | null; owner_name: string
+  contact_name: string; phone: string; address: string; note: string; is_active: boolean | number; version: number
+}
+export interface CustomerChange {
+  id: number; action: string; reason: string; changed_by: number; created_at: string
 }
 export interface AccountingPeriod {
   id: number; code: string; name: string; start_date: string; end_date: string
@@ -706,12 +709,12 @@ export interface ProductionCostReport {
 }
 // 销售订单剩余量由已确认的出库单计算，草稿不会预先扣减。
 export interface SalesOrderLine extends ReceiptLine {
-  unit_price: string
+  unit_price: string | null
   shipped_quantity: string
   returned_quantity: string
   net_delivered_quantity: string
   remaining_quantity: string
-  line_total: string
+  line_total: string | null
 }
 export interface SalesOrder {
   id: number
@@ -727,7 +730,10 @@ export interface SalesOrder {
   confirmed_at: string | null
   cancelled_at: string | null
   lines: SalesOrderLine[]
-  total_amount: string
+  total_amount: string | null
+  amount_visible: boolean
+  owner_id: number | null
+  owner_version: number
 }
 export interface Shipment {
   id: number
@@ -758,8 +764,8 @@ export interface ShipmentLine extends ReceiptLine {
 // 退货明细固定关联原出库行，金额沿用原销售单价，由服务端计算。
 export interface SalesReturnLine extends ReceiptLine {
   shipment_line_id: number
-  unit_price: string
-  line_total: string
+  unit_price: string | null
+  line_total: string | null
 }
 export interface SalesReturn {
   id: number
@@ -783,7 +789,10 @@ export interface SalesReturn {
   reversed_by_name: string | null
   reversed_at: string | null
   lines: SalesReturnLine[]
-  total_amount: string
+  total_amount: string | null
+  amount_visible: boolean
+  owner_id: number | null
+  owner_version: number
 }
 // 调拨单沿用单据的状态与明细结构，同时明确记录两个仓库。
 export interface Transfer extends Omit<Receipt, 'supplier_id' | 'supplier_name' | 'warehouse_id' | 'warehouse_name'> {
@@ -952,7 +961,10 @@ export interface ErpOperations {
   unbindSupplierMaterial: { input: { supplierId: number; materialId: number }; output: void }
   createSupplier: { input: { name: string }; output: Supplier }
   customers: { input: undefined; output: Customer[] }
-  createCustomer: { input: { name: string }; output: Customer }
+  createCustomer: { input: CustomerInput; output: Customer }
+  updateCustomer: { input: CustomerInput & { id: number; version: number; reason: string }; output: Customer }
+  customerHistory: { input: { id: number }; output: CustomerChange[] }
+  transferSalesOwner: { input: { orderId: number; owner_id: number; version: number; reason: string }; output: { order_id: number; owner_id: number; version: number } }
   materials: { input: undefined; output: Material[] }
   createMaterial: { input: { sku: string; name: string; unit: string }; output: Material }
   warehouses: { input: undefined; output: Warehouse[] }

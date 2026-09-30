@@ -158,20 +158,20 @@ export function createDataLoader(
       inventoryValuation.value = null
       inventoryCostInputs.value = []
     }
+    customers.value = can('customer.view') || can('customer.manage')
+      ? await window.nexora.callApi('customers', undefined) : []
     if (can('sales.view')) {
       ;[
-        customers.value,
         salesOrders.value,
         shipments.value,
         salesReturns.value
       ] = await Promise.all([
-        window.nexora.callApi('customers', undefined),
         window.nexora.callApi('salesOrders', undefined),
         window.nexora.callApi('shipments', undefined),
         window.nexora.callApi('salesReturns', undefined)
       ])
     }
-    if (can('finance.view')) {
+    if (can('finance.view') && can('sales_amount.all')) {
       // 单次服务端快照避免并发收付款时来源、余额和记录短暂不一致。
       const overview = await window.nexora.callApi('financeOverview', undefined)
       receivablesPayables.value = overview.report

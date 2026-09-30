@@ -80,3 +80,5 @@
 `finance/BusinessJournalPanel.vue` 在总账凭证页提供来源搜索、科目配置、缺价与生成核对；`BusinessSourceEvidence.vue` 展示服务端金额、库存流水、订单及登记证据，并在凭证详情读取生成快照。加载与写操作统一由 Pinia 的 `business-journal-actions.ts` 管理；换号撤权清理、迟到响应丢弃、失败保留输入，新增表单与操作复用工作台公共控件。
 
 `finance/ProfitTransferPanel.vue` 在同一总账凭证页提供损益结转范围配置、期间预览与草稿生成；`ProfitTransferEvidence.vue` 展示逐科目清零、累计待结净额、已过账凭证及正式期初来源，详情沿用生成快照。`profit-transfer-actions.ts` 管理 Pinia 快照、迟到请求与撤权清理；配置失败保留输入，成本复选框与证据折叠复用 Naive UI 和公共封装。业务凭证来源折叠也沿用 `AppCollapseItem`，符合主线统一控件检查。
+
+客户页支持负责人、联系人、电话、地址、备注、编辑、停用和修改记录；管理员可转交客户或独立转交订单。共享订单保留协作信息，销售价格与金额依据服务端 `amount_visible` 显示。归属规则见 [客户归属说明](../../../../../docs/customer-ownership.md)，当前开发分支待统一验证。
