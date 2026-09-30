@@ -62,6 +62,11 @@ class TableSpec:
 
 # 可查询资源由服务端白名单声明，绝不接受任意表名、SQL、字段表达式或函数路径。
 SPECS = {
+    'planningPolicies':TableSpec(m.MaterialPlanningPolicy,'production.view'),
+    'workCenters':TableSpec(m.WorkCenter,'production.view'),
+    'productionSchedules':TableSpec(m.ProductionSchedule,'production.view'),
+    'qualityDispositions':TableSpec(m.QualityDisposition,'production.view'),
+    'productionPlanAudits':TableSpec(m.ProductionPlanAudit,'production.view'),
     'inventoryLots':TableSpec(m.InventoryLot,'trace.view'),
     'salesOrderLines':TableSpec(m.SalesOrderLine,'sales.view',parent='sales_order_id'),
     'businessPolicyHistory':TableSpec(m.BusinessJournalPolicyChange,'business_journal.view'),
@@ -224,7 +229,7 @@ def query_table(payload: TableQuery, user: dict = Depends(current_user)) -> dict
             from app.query.snapshots import snapshot_metadata
             result={field:getattr(record,field) for field in ('id','period_id','period_version','action','reason','created_by','created_at')}
             result.update(evidence=json.loads(record.snapshot_json),created_by_name=db.get(m.User,record.created_by).username)
-            paths=('evidence.ledger.rows','evidence.inventory.materials','evidence.inventory.movements','evidence.business_sources.entries','evidence.payments')
+            paths=('evidence.ledger.rows','evidence.inventory.materials','evidence.inventory.movements','evidence.business_sources.entries','evidence.payments','evidence.production_wip.rows')
             return {'items':[snapshot_metadata(result,user,paths)],'total':1,'page':1,'page_size':1}
     if payload.dataset=='snapshot':
         from app.query.snapshots import read_snapshot

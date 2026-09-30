@@ -1166,3 +1166,63 @@ class TraceAudit(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+# 计划、质量处置与成本去向独立留痕，避免把不合格品计入可用成品。
+class MaterialPlanningPolicy(Base):
+    __tablename__='material_planning_policies'
+    material_id: Mapped[int]=mapped_column(ForeignKey('materials.id'),primary_key=True)
+    warehouse_id: Mapped[int]=mapped_column(ForeignKey('warehouses.id'),primary_key=True)
+    safety_quantity: Mapped[str]=mapped_column(Text,nullable=False)
+    lead_days: Mapped[int]=mapped_column(Integer,nullable=False)
+    version: Mapped[int]=mapped_column(Integer,nullable=False)
+
+
+class WorkCenter(Base):
+    __tablename__='work_centers'
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    name: Mapped[str]=mapped_column(Text,nullable=False,unique=True)
+    is_active: Mapped[int]=mapped_column(Integer,nullable=False)
+
+
+class ProductionSchedule(Base):
+    __tablename__='production_schedules'
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    work_order_id: Mapped[int]=mapped_column(ForeignKey('work_orders.id'),nullable=False)
+    center_id: Mapped[int]=mapped_column(ForeignKey('work_centers.id'),nullable=False)
+    operation: Mapped[str]=mapped_column(Text,nullable=False)
+    starts_at: Mapped[str]=mapped_column(Text,nullable=False)
+    ends_at: Mapped[str]=mapped_column(Text,nullable=False)
+    status: Mapped[str]=mapped_column(Text,nullable=False)
+    version: Mapped[int]=mapped_column(Integer,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey('users.id'),nullable=False)
+    created_at: Mapped[str]=mapped_column(Text,nullable=False,server_default=text('CURRENT_TIMESTAMP'))
+
+
+class QualityDisposition(Base):
+    __tablename__='quality_dispositions'
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    completion_id: Mapped[int]=mapped_column(ForeignKey('production_completions.id'),nullable=False)
+    kind: Mapped[str]=mapped_column(Text,nullable=False)
+    quantity: Mapped[str]=mapped_column(Text,nullable=False)
+    rework_order_id: Mapped[int | None]=mapped_column(ForeignKey('work_orders.id'))
+    reason: Mapped[str]=mapped_column(Text,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey('users.id'),nullable=False)
+    created_at: Mapped[str]=mapped_column(Text,nullable=False,server_default=text('CURRENT_TIMESTAMP'))
+
+
+class ProductionQualityCost(Base):
+    __tablename__='production_quality_costs'
+    settlement_id: Mapped[int]=mapped_column(ForeignKey('production_cost_settlements.id'),primary_key=True)
+    disposition_id: Mapped[int]=mapped_column(ForeignKey('quality_dispositions.id'),primary_key=True)
+    amount: Mapped[str]=mapped_column(Text,nullable=False)
+
+
+class ProductionPlanAudit(Base):
+    __tablename__='production_plan_audits'
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    kind: Mapped[str]=mapped_column(Text,nullable=False)
+    record_id: Mapped[int]=mapped_column(Integer,nullable=False)
+    evidence_json: Mapped[str]=mapped_column(Text,nullable=False)
+    reason: Mapped[str]=mapped_column(Text,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey('users.id'),nullable=False)
+    created_at: Mapped[str]=mapped_column(Text,nullable=False,server_default=text('CURRENT_TIMESTAMP'))

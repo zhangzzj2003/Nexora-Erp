@@ -54,7 +54,9 @@ def settlement_data(session: Session, settlement_id: int) -> dict:
     charges = session.scalars(select(ProductionCostEntry).join(ProductionSettlementCharge,
         ProductionSettlementCharge.entry_id == ProductionCostEntry.id).where(
             ProductionSettlementCharge.settlement_id == settlement_id).order_by(ProductionCostEntry.id))
-    return {**model_data(settlement), 'created_by_name': session.get(User, settlement.created_by).username,
+    from app.core.models import ProductionQualityCost, QualityDisposition
+    quality_costs=[{**model_data(row),'kind':item.kind,'quantity':item.quantity,'rework_order_id':item.rework_order_id} for row,item in session.execute(select(ProductionQualityCost,QualityDisposition).join(QualityDisposition,QualityDisposition.id==ProductionQualityCost.disposition_id).where(ProductionQualityCost.settlement_id==settlement_id))]
+    return {'quality_costs':quality_costs, **model_data(settlement), 'created_by_name': session.get(User, settlement.created_by).username,
         'status': 'reversed' if reversal is not None else 'active',
         'reversal_id': reversal.id if reversal is not None else None,
         'reversal_reason': reversal.reason if reversal is not None else None,
@@ -106,8 +108,9 @@ def settle_cost(payload: SettlementInput,
         accepted = sum((Decimal(row.accepted_quantity) for row, _ in completions), Decimal(0))
         for _, movement_id in completions:
             ensure_movement_unlocked(session, movement_id)
-        if accepted <= 0:
-            raise HTTPException(409, '没有合格完工入库，不能将成本分摊到成品')
+        from app.production.quality_costs import quality_allocations, carried_cost
+        quality,inventory_amount=quality_allocations(session,order.id,Decimal(summary['total_amount']))
+        # 全不合格仍可结算，成本必须有报废或返工去向，不能虚增成品库存。
         if session.scalar(select(ProductionCostSettlement.id).where(
             ProductionCostSettlement.work_order_id == order.id, ProductionCostSettlement.reference == payload.reference)) is not None:
             raise HTTPException(409, '同一工单不能重复使用结算依据编号')
@@ -123,12 +126,15 @@ def settle_cost(payload: SettlementInput,
         for completion, movement_id in completions:
             quantity = Decimal(completion.accepted_quantity)
             cumulative_quantity += quantity
-            cumulative_amount = Decimal(money(Decimal(settlement.total_amount) * cumulative_quantity / accepted))
+            cumulative_amount = Decimal(money(inventory_amount * cumulative_quantity / accepted))
             # 累计分摊处理尾分，所有批次精确相加到结算总额。
             session.add(ProductionCostAllocation(settlement_id=settlement.id, completion_id=completion.id,
                 movement_id=movement_id, quantity=str(quantity), amount=money(cumulative_amount - allocated)))
             allocated = cumulative_amount
-        dependencies: set[tuple[str, int]] = set()
+        from app.core.models import ProductionQualityCost
+        session.add_all([ProductionQualityCost(settlement_id=settlement.id,disposition_id=item.id,amount=money(value)) for item,value in quality])
+        _,parents=carried_cost(session,order.id)
+        dependencies: set[tuple[str, int]] = {('settlement',identifier) for identifier in parents}
         for source in report['material_sources']:
             if source['work_order_id'] != order.id:
                 continue

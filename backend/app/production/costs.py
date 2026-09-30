@@ -145,9 +145,13 @@ def cost_report(session: Session) -> dict:
         fees = {kind: sum((Decimal(item['amount']) for item in entries
             if item['work_order_id'] == order.id and item['status'] == 'active' and item['kind'] == kind), Decimal(0))
             for kind in ('labor', 'overhead')}
+        from app.production.quality_costs import carried_cost
+        carried,parents=carried_cost(session,order.id)
+        if carried is None:unpriced+=1
+        else:known+=carried
         settlement = active_settlement(session, order.id)
         summary = {'work_order_id': order.id, 'product_name': product_name, 'work_order_status': order.status,
-            'known_material_amount': money(known), 'labor_amount': money(fees['labor']),
+            'carried_amount':money(carried or Decimal(0)), 'known_material_amount': money(known), 'labor_amount': money(fees['labor']),
             'overhead_amount': money(fees['overhead']),
             'total_amount': None if unpriced else money(known + fees['labor'] + fees['overhead']),
             'unpriced_issue_count': unpriced, 'settlement_id': settlement['id'] if settlement else None}

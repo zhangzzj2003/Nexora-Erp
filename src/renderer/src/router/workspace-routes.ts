@@ -273,6 +273,9 @@ export const workspaceRouteGroups = [
     label: '生产管理',
     routes: [
       {
+        key:'productionPlanning',path:'/workspace/production-planning',label:'生产计划与质量',permission:'production.view',icon:'file'
+      },
+      {
         key: 'boms',
         path: '/workspace/boms',
         label: '生产 BOM',

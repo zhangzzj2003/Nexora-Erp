@@ -88,3 +88,5 @@
 `finance/FinanceToolsView.vue` 为财务核对入口；税价输入仍在采购和销售建单页，辅助维度在手工凭证分录录入。
 
 `warehouse/TraceabilityView.vue` 展示单据关系、批次来源并维护工单销售需求分配。
+
+`production/ProductionPlanningView.vue` 为物料计划、工作中心排程、不合格品处置与在制成本查询入口。

@@ -334,7 +334,16 @@ export function createProductionActions(
       delete settlementReversalReasons.value[settlementId]
     }, '成本结算已冲销，可更正来源后重新结算，原快照仍保留。')
   }
+  async function runProductionTool(action:import('../../../../shared/erp-api').ProductionToolAction,payload:Record<string,unknown>):Promise<void>{
+    if(!window.nexora)return
+    const owner=state.user.value?.id
+    await perform(async()=>{
+      const result=await window.nexora!.callApi('productionTools',{action,payload})
+      if(owner===state.user.value?.id)state.productionToolResult.value=result
+    },'生产计划或质量处理已完成。')
+  }
   return {
+    runProductionTool,
     createBom,
     activateBom,
     retireBom,

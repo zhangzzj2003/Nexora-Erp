@@ -75,7 +75,9 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
     if business['unpriced_count']:
         warnings.append('应收应付有历史无价来源；库存核价不能替代往来单价或业务对账')
     warnings.append('结账固定现有总账和业务证据；业务及损益结转草稿须单独生成、审核和过账，不自动生成法定财务报表')
-    evidence = dict(period=snapshot(period), currency='CNY', time_basis='UTC',
+    from app.production.planning import wip
+    production_wip=wip(db,period.end_date)
+    evidence = dict(production_wip=production_wip,period=snapshot(period), currency='CNY', time_basis='UTC',
         opening_balance_id=opening.id if opening and opening.status == 'confirmed' else None,
         profit_transfer=transfer,
         ledger=dict(rows=rows, totals=totals), inventory=valuation, business_sources=business,

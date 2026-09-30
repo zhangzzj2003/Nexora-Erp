@@ -99,9 +99,15 @@ def query_trace(payload:TraceQuery,user:dict=Depends(require('trace.view'))):
             if kind=='work_order':
                 for alloc in db.scalars(select(m.SalesWorkAllocation).where(m.SalesWorkAllocation.work_order_id==identifier)):
                     sales=db.get(m.SalesOrderLine,alloc.sales_order_line_id);link(parent,('sales_order',sales.sales_order_id),alloc.quantity,'对应销售需求')
-                for child_kind,child_model in [('material_issue',m.MaterialIssue),('material_return',m.MaterialReturn),('production_completion',m.ProductionCompletion)]:
+                for child_kind,child_model in [('material_issue',m.MaterialIssue),('production_completion',m.ProductionCompletion)]:
                     for child in db.scalars(select(child_model).where(child_model.work_order_id==identifier)):link(parent,(child_kind,child.id),getattr(child,'accepted_quantity',''),'生产单据')
-            if kind in ('material_issue','material_return','production_completion'):link(parent,('work_order',row.work_order_id),'','工单来源')
+            if kind=='material_return':link(parent,('material_issue',row.material_issue_id),'','原领料单')
+            if kind=='material_issue':
+                for child in db.scalars(select(m.MaterialReturn).where(m.MaterialReturn.material_issue_id==identifier)):link(parent,('material_return',child.id),'','生产退料')
+            if kind in ('material_issue','production_completion'):link(parent,('work_order',row.work_order_id),'','工单来源')
+            if kind=='production_completion':
+                for child in db.scalars(select(m.QualityDisposition).where(m.QualityDisposition.completion_id==identifier)):
+                    if child.rework_order_id:link(parent,('work_order',child.rework_order_id),child.quantity,'不合格品返工')
             if kind=='shipment':
                 link(parent,('sales_order',row.sales_order_id),'','订单来源')
                 for returned in db.scalars(select(m.SalesReturn).where(m.SalesReturn.shipment_id==identifier)):link(parent,('sales_return',returned.id),'','出库退货')

@@ -318,6 +318,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'paymentRecords': return { method: 'GET', path: '/api/v1/finance/payment-records' }
     case 'queryTrace': return { method:'POST', path:'/api/v1/trace/query',body:payload }
     case 'allocateSalesWork': return { method:'PUT',path:'/api/v1/trace/allocations',body:payload }
+    case 'productionTools': return {method:'POST',path:'/api/v1/production/tools',body:payload}
     case 'financeTools': return { method: 'POST', path: '/api/v1/finance/tools', body: payload }
     case 'createPaymentRecord': return { method: 'POST', path: '/api/v1/finance/payment-records', body: payload }
     case 'reversePaymentRecord': return {

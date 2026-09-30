@@ -17,6 +17,7 @@ export interface Role { code: string; label: string; is_builtin: boolean; permis
 // 分页列表返回筛选后的总数与有效页码，其他业务的选项列表仍使用原接口。
 export interface PageQuery { query: string; page: number; page_size: number }
 export interface TradeTermsInput { tax_rate?: string; discount_rate?: string; includes_tax?: boolean }
+export type ProductionToolAction = 'mrp'|'create_request'|'policy'|'create_center'|'schedule'|'cancel_schedule'|'quality'|'wip'
 export type FinanceToolAction = 'openings' | 'create_opening' | 'confirm_opening' | 'cancel_opening' | 'settle_opening' | 'banks' | 'import_bank' | 'match_bank' | 'unmatch_bank' | 'reconcile' | 'statements' | 'auxiliary' | 'history'
 export interface FinanceToolResult { rows: TableRow[]; snapshot_id: string; columns: {key: string; title: string}[]; totals: Record<string,string | boolean> }
 export interface PageResult<T> { items: T[]; total: number; page: number; page_size: number }
@@ -941,7 +942,7 @@ export interface ReportResult {
 }
 
 // 每个数据集只允许服务端固定白名单查询；默认每页 20，最多 100。
-export type TableDataset = 'inventoryLots' | 'salesOrderLines' | 'businessSources' | 'businessPolicyHistory' | 'profitPolicyHistory' | 'financeCustomers' | 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
+export type TableDataset = 'planningPolicies' | 'workCenters' | 'productionSchedules' | 'qualityDispositions' | 'productionPlanAudits' | 'inventoryLots' | 'salesOrderLines' | 'businessSources' | 'businessPolicyHistory' | 'profitPolicyHistory' | 'financeCustomers' | 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
 export interface TableQuery extends PageQuery {
   snapshot_id?: string; snapshot_path?: string
   dataset: TableDataset; sort?: string; descending?: boolean
@@ -951,6 +952,7 @@ export type TableRow = Record<string, unknown>
 
 export interface ErpOperations {
   snapshotCsv: { input: { snapshot_id: string }; output: { csv: string } }
+  productionTools: {input:{action:ProductionToolAction;payload:Record<string,unknown>};output:FinanceToolResult}
   financeTools: { input: { action: FinanceToolAction; payload: Record<string, unknown> }; output: FinanceToolResult }
   queryTrace: { input: {kind:'sales_order'|'work_order'|'shipment'|'lot'|'receipt'; id:number}; output: {snapshot_id:string; nodes:TableRow[]; edges:TableRow[]; totals:{nodes:number;edges:number}} }
   allocateSalesWork: { input: {work_order_id:number;lines:{sales_order_line_id:number;quantity:string}[];reason:string}; output:{work_order_id:number;allocated_quantity:string} }

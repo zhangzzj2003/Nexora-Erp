@@ -400,6 +400,9 @@ def reverse_completion(
         if row["status"] != "posted":
             raise HTTPException(409, "只有已确认的完工单可以冲销")
         ensure_unsettled(db, row["work_order_id"])
+        from app.core.models import QualityDisposition
+        if db.scalar(select(QualityDisposition.id).where(QualityDisposition.completion_id==completion_id).limit(1)):
+            raise HTTPException(409,"完工单已有不合格品处置，不能冲销原报工")
         if (
             db.execute(
                 select(literal(1))

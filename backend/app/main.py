@@ -36,6 +36,7 @@ from app.production.work_orders import router as work_orders_router
 from app.production.material_issues import router as material_issues_router
 from app.production.material_returns import router as material_returns_router
 from app.production.completions import router as production_completions_router
+from app.production.tools import router as production_tools_router
 from app.production.costs import router as production_costs_router
 from app.production.settlements import router as production_settlements_router
 from app.finance.tools import router as finance_tools_router
@@ -96,7 +97,7 @@ for router in (
     warehouse_inbounds_router, warehouse_outbounds_router,
     purchase_router, purchase_requests_router, goods_receipts_router,
     purchase_returns_router, customers_router, sales_router, sales_returns_router,
-    production_router, work_orders_router, material_issues_router,
+    production_tools_router, production_router, work_orders_router, material_issues_router,
     material_returns_router, production_completions_router, production_costs_router, production_settlements_router,
     finance_tools_router, finance_router, finance_ledger_router, journals_router, ledger_reports_router, opening_balances_router, period_closing_router, business_journals_router, profit_transfers_router, reports_router,
 ):
