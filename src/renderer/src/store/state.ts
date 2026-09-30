@@ -87,6 +87,7 @@ export function createAppState() {
   const busy = ref(false)
   const user = ref<User | null>(null)
   const financeToolResult = ref<import('../../../shared/erp-api').FinanceToolResult | null>(null)
+  const traceResult = ref<import('../../../shared/erp-api').ErpOperations['queryTrace']['output'] | null>(null)
   const dataRevision = ref(0)
   const stockSummary = ref({ material_count: 0, posted_receipt_count: 0, movement_count: 0 })
   const periodClosingHistoryId = ref(0)
@@ -404,6 +405,7 @@ export function createAppState() {
   )
 
   return {
+    traceResult,
     financeToolResult,
     screen,
     openedRouteKeys,

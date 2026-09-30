@@ -1128,3 +1128,41 @@ class FinanceToolAudit(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+# 每一步保持自己的单号；数量关系与库存批次连接整个履约链。
+class SalesWorkAllocation(Base):
+    __tablename__ = 'sales_work_allocations'
+    work_order_id: Mapped[int] = mapped_column(ForeignKey('work_orders.id'), primary_key=True)
+    sales_order_line_id: Mapped[int] = mapped_column(ForeignKey('sales_order_lines.id'), primary_key=True)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class InventoryLot(Base):
+    __tablename__ = 'inventory_lots'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey('materials.id'), nullable=False)
+    origin_movement_id: Mapped[int | None] = mapped_column(ForeignKey('stock_movements.id'))
+    legacy_warehouse_id: Mapped[int | None] = mapped_column(ForeignKey('warehouses.id'))
+    legacy_quantity: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'0'"))
+    basis: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class MovementLot(Base):
+    __tablename__ = 'movement_lots'
+    movement_id: Mapped[int] = mapped_column(ForeignKey('stock_movements.id'), primary_key=True)
+    lot_id: Mapped[int] = mapped_column(ForeignKey('inventory_lots.id'), primary_key=True)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class TraceAudit(Base):
+    __tablename__ = 'trace_audits'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey('work_orders.id'), nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))

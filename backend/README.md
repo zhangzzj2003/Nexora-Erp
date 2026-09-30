@@ -215,3 +215,5 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 统一列表分页方案见 `docs/table-pagination.md`（当前开发分支待统一验证）。保存后仅重新读取当前打开列表，报表快照分页与导出使用同一授权范围。
 
 财务核对模块 `finance/tools.py` 提供往来期初、银行匹配、辅助核算及管理报表，边界见 `docs/finance-completion.md`。
+
+`inventory/lots.py` 在库存写事务中记录系统批次，`inventory/trace.py` 提供履约关联与溯源查询。系统 FIFO 与物理拣货边界见 `docs/document-traceability.md`。

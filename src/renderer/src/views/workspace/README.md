@@ -86,3 +86,5 @@
 统一列表分页方案见 `docs/table-pagination.md`（当前开发分支待统一验证）。保存后仅重新读取当前打开列表，报表快照分页与导出使用同一授权范围。
 
 `finance/FinanceToolsView.vue` 为财务核对入口；税价输入仍在采购和销售建单页，辅助维度在手工凭证分录录入。
+
+`warehouse/TraceabilityView.vue` 展示单据关系、批次来源并维护工单销售需求分配。

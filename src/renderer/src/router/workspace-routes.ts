@@ -52,6 +52,9 @@ export const workspaceRouteGroups = [
         icon: 'archive'
       },
       {
+        key:'trace',path:'/workspace/trace',label:'单据与批次溯源',permission:'trace.view',icon:'history'
+      },
+      {
         key: 'stock',
         path: '/workspace/stock',
         label: '库存总览',

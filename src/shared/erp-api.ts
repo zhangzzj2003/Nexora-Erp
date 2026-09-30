@@ -941,7 +941,7 @@ export interface ReportResult {
 }
 
 // 每个数据集只允许服务端固定白名单查询；默认每页 20，最多 100。
-export type TableDataset = 'businessSources' | 'businessPolicyHistory' | 'profitPolicyHistory' | 'financeCustomers' | 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
+export type TableDataset = 'inventoryLots' | 'salesOrderLines' | 'businessSources' | 'businessPolicyHistory' | 'profitPolicyHistory' | 'financeCustomers' | 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
 export interface TableQuery extends PageQuery {
   snapshot_id?: string; snapshot_path?: string
   dataset: TableDataset; sort?: string; descending?: boolean
@@ -952,6 +952,8 @@ export type TableRow = Record<string, unknown>
 export interface ErpOperations {
   snapshotCsv: { input: { snapshot_id: string }; output: { csv: string } }
   financeTools: { input: { action: FinanceToolAction; payload: Record<string, unknown> }; output: FinanceToolResult }
+  queryTrace: { input: {kind:'sales_order'|'work_order'|'shipment'|'lot'|'receipt'; id:number}; output: {snapshot_id:string; nodes:TableRow[]; edges:TableRow[]; totals:{nodes:number;edges:number}} }
+  allocateSalesWork: { input: {work_order_id:number;lines:{sales_order_line_id:number;quantity:string}[];reason:string}; output:{work_order_id:number;allocated_quantity:string} }
   queryTable: { input: TableQuery; output: PageResult<TableRow> & { metadata?: Record<string, unknown> | null } }
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }

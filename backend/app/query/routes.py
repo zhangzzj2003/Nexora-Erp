@@ -62,6 +62,8 @@ class TableSpec:
 
 # 可查询资源由服务端白名单声明，绝不接受任意表名、SQL、字段表达式或函数路径。
 SPECS = {
+    'inventoryLots':TableSpec(m.InventoryLot,'trace.view'),
+    'salesOrderLines':TableSpec(m.SalesOrderLine,'sales.view',parent='sales_order_id'),
     'businessPolicyHistory':TableSpec(m.BusinessJournalPolicyChange,'business_journal.view'),
     'profitPolicyHistory':TableSpec(m.ProfitTransferPolicyChange,'profit_transfer.view'),
     'financeCustomers': TableSpec(m.Customer, 'finance.view'),
@@ -145,6 +147,9 @@ def serialize(db: Session, spec: TableSpec, key, user: dict, dataset: str) -> di
         return {field:getattr(row,field) for field in ('id','period_id','period_version','action','reason','created_by','created_at')} | {'evidence':{},'created_by_name':db.get(m.User,row.created_by).username}
     if dataset=='customerHistory' and not is_admin(user):
         return {field:getattr(row,field) for field in ('id','action','reason','changed_by','created_at')}
+    if dataset=='salesOrderLines':
+        material=db.get(m.Material,row.material_id)
+        return {'id':row.id,'sales_order_id':row.sales_order_id,'material_id':row.material_id,'sku':material.sku,'name':material.name,'quantity':row.quantity}
     result=model_data(row)
     if dataset.endswith('History'):
         result['before']=json.loads(result.pop('before_json')) if result.get('before_json') else None
@@ -284,7 +289,7 @@ def query_table(payload: TableQuery, user: dict = Depends(current_user)) -> dict
             if value is None: continue
             if name=='warehouse_id' and payload.dataset=='stock': continue
             if name=='supplier_id' and payload.dataset=='boundMaterials': continue
-            if name not in model.__table__.columns or name not in {'id','warehouse_id','material_id','customer_id','supplier_id','status','category','normal_balance','is_active','customer_id','journal_id','opening_balance_id','account_id','period_id','work_order_id','owner_id','code','source_type'}:
+            if name not in model.__table__.columns or name not in {'id','warehouse_id','material_id','customer_id','supplier_id','status','category','normal_balance','is_active','customer_id','journal_id','opening_balance_id','sales_order_id','account_id','period_id','work_order_id','owner_id','code','source_type'}:
                 raise HTTPException(422,'不支持的筛选字段')
             stmt=stmt.where(getattr(model,name)==value)
         if payload.query.strip():

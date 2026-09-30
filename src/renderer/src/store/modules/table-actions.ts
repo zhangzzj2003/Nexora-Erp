@@ -76,5 +76,17 @@ export function createTableActions(state: AppState) {
       throw new Error('账号或数据范围已变化，请重新查询。')
     return result
   }
-  return { queryDataset, hydrateDataset }
+  async function queryTrace(input: import('../../../../shared/erp-api').ErpOperations['queryTrace']['input']): Promise<void> {
+    if(!window.nexora)return
+    const owner=state.user.value?.id
+    state.traceResult.value=null
+    const result=await window.nexora.callApi('queryTrace',input)
+    if(owner===state.user.value?.id)state.traceResult.value=result
+  }
+  async function allocateSalesWork(input: import('../../../../shared/erp-api').ErpOperations['allocateSalesWork']['input']):Promise<void>{
+    if(!window.nexora)return
+    await window.nexora.callApi('allocateSalesWork',input)
+    state.dataRevision.value++
+  }
+  return { queryDataset, hydrateDataset, queryTrace, allocateSalesWork }
 }

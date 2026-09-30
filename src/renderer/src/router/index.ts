@@ -9,6 +9,7 @@ const workspaceRouteComponents = {
   home: () => import('../views/workspace/home/HomeDashboardView.vue'),
   otherInbounds: () => import('../views/workspace/warehouse/OtherInboundsView.vue'),
   warehouseOutbounds: () => import('../views/workspace/warehouse/WarehouseOutboundsView.vue'),
+  trace:()=>import('../views/workspace/warehouse/TraceabilityView.vue'),
   stock: () => import('../views/workspace/warehouse/InventoryOverviewView.vue'),
   inventoryLedger: () => import('../views/workspace/warehouse/InventoryLedgerView.vue'),
   transfers: () => import('../views/workspace/warehouse/WarehouseTransfersView.vue'),

@@ -316,6 +316,8 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: `/api/v1/finance/journals/${id}/reverse`, body: { version, reference, journal_date, reason } }
     }
     case 'paymentRecords': return { method: 'GET', path: '/api/v1/finance/payment-records' }
+    case 'queryTrace': return { method:'POST', path:'/api/v1/trace/query',body:payload }
+    case 'allocateSalesWork': return { method:'PUT',path:'/api/v1/trace/allocations',body:payload }
     case 'financeTools': return { method: 'POST', path: '/api/v1/finance/tools', body: payload }
     case 'createPaymentRecord': return { method: 'POST', path: '/api/v1/finance/payment-records', body: payload }
     case 'reversePaymentRecord': return {

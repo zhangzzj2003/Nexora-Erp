@@ -47,9 +47,14 @@ def orm_session(*, write: bool = False) -> Iterator[Session]:
             if write:
                 from app.core.period_lock import write_boundary, validate_appended_dates
                 boundary, heads = write_boundary(session)
+                from sqlalchemy import select, func
+                from app.core.models import StockMovement
+                movement_head=session.scalar(select(func.max(StockMovement.id))) or 0
             yield session
             if write:
                 session.flush()
+                from app.inventory.lots import record_movements
+                record_movements(session,movement_head)
                 validate_appended_dates(session, boundary, heads)
                 from app.finance.business_journals import validate_posted_sources
                 validate_posted_sources(session)

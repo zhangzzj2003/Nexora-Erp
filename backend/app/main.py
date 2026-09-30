@@ -48,6 +48,7 @@ from app.finance.period_closing import router as period_closing_router
 from app.finance.business_journals import router as business_journals_router
 from app.finance.profit_transfers import router as profit_transfers_router
 from app.reports.routes import router as reports_router
+from app.inventory.trace import router as trace_router
 from app.query.routes import router as table_query_router
 from app.service.routes import router as service_router
 
@@ -90,7 +91,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Nexora ERP API", version="0.1.0", lifespan=lifespan)
 # 路由只在这里组装；各功能目录负责自己的参数校验与业务接口。
 for router in (
-    service_router, access_router, menu_router, table_query_router, catalog_router, receipts_router,
+    trace_router, service_router, access_router, menu_router, table_query_router, catalog_router, receipts_router,
     inventory_router, stock_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
     warehouse_inbounds_router, warehouse_outbounds_router,
     purchase_router, purchase_requests_router, goods_receipts_router,
