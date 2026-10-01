@@ -16,22 +16,32 @@
   .summary-note, .fingerprint, .trust-icon, .panel-icon, .choice-symbol
 ) {
   transition-property: background-color, color, border-color, box-shadow;
-  transition-duration: .38s;
+  transition-duration: var(--theme-color-duration, .38s);
   transition-timing-function: ease-in-out;
 }
 
 /* 入场和悬停使用的变形过渡与主题颜色过渡并存。 */
 :root[data-theme] .choice-card {
   transition-property: background-color, color, border-color, box-shadow, transform;
-  transition-duration: .38s, .38s, .38s, .38s, .3s;
+  transition-duration: var(--theme-color-duration, .38s), var(--theme-color-duration, .38s), var(--theme-color-duration, .38s), var(--theme-color-duration, .38s), .3s;
 }
 
 /* 侧栏进入工作台的水平位移动画不能被主题颜色过渡覆盖。 */
 :root[data-theme] .sidebar {
   transition-property: transform, background-color, color, border-color, box-shadow;
-  transition-duration: .36s, .38s, .38s, .38s, .38s;
+  transition-duration: .36s, var(--theme-color-duration, .38s), var(--theme-color-duration, .38s), var(--theme-color-duration, .38s), var(--theme-color-duration, .38s);
   transition-timing-function: cubic-bezier(.22, 1, .36, 1), ease-in-out, ease-in-out, ease-in-out, ease-in-out;
 }
+
+/* 圆形快照直接捕获最终主题色，避免与颜色渐变叠加；侧栏与悬停的位移仍保留。 */
+:root[data-theme-transition='circle'] { --theme-color-duration: 0s; }
+:root[data-theme-transition='circle']::view-transition-group(root),
+:root[data-theme-transition='circle']::view-transition-old(root),
+:root[data-theme-transition='circle']::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+:root[data-theme-transition='circle']::view-transition-old(root) { z-index: 1; }
+:root[data-theme-transition='circle']::view-transition-new(root) { z-index: 2147483646; }
+:root[data-theme-transition='circle'][data-theme='dark']::view-transition-old(root) { z-index: 2147483646; }
+:root[data-theme-transition='circle'][data-theme='dark']::view-transition-new(root) { z-index: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   :root[data-theme],

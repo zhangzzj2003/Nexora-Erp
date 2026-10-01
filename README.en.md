@@ -6,6 +6,8 @@ A desktop ERP for internal operations, connecting purchasing, warehousing, sales
 
 The desktop uses an integrated title bar across onboarding, login and the workspace. macOS retains native traffic lights at the upper left; Windows retains native window controls at the upper right. Branding and theme switching share the top row; page tabs occupy a separate fixed row below it, to the right of the sidebar. Empty title bar areas drag the window and Windows controls follow the app theme. Browser previews and Linux retain their native window frame, and closing a window retains the existing tray behavior.
 
+Theme buttons morph between moon and sun and use a 450 ms circular transition: entering dark mode contracts the old light snapshot; entering light mode reveals the new snapshot from the click position. Keyboard activation uses the button center. Title bar and sidebar buttons share the same state, including rapid clicks. Unsupported snapshots, reduced motion and capture failures fall back to a direct theme update. The motion is adapted from Vben; see [third-party notices](docs/third-party-notices.md).
+
 The project is in an **internal trial phase for one company, multiple warehouses and online LAN clients**. Windows and macOS clients access centralized server data over HTTPS. Disconnected clients cannot submit changes. Documentation and the website are bilingual; the application UI remains Chinese. Website code is prepared; GitHub Pages is not enabled yet.
 
 ## Project features

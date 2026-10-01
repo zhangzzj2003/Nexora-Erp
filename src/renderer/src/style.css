@@ -84,9 +84,6 @@ button.sidebar-account-card:hover::before, button.sidebar-account-card:focus-vis
 .sidebar-account-row .theme-toggle { flex: none; margin-right: 2px; color: #c8e6e4; }
 .sidebar-account-row .theme-toggle:hover { color: #fff; background: #1d304f; }
 .theme-toggle svg { width: 17px; height: 17px; }
-.theme-icon-enter-active, .theme-icon-leave-active { transition: opacity .15s ease, transform .15s ease; }
-.theme-icon-enter-from { opacity: 0; transform: rotate(-45deg) scale(.7); }
-.theme-icon-leave-to { opacity: 0; transform: rotate(45deg) scale(.7); }
 .sidebar-account-menu { position: absolute; z-index: 5; right: 0; bottom: calc(100% + 5px); left: 0; border: 1px solid #446178; border-radius: 10px; padding: 5px; background: #1b2b45; box-shadow: 0 12px 25px rgba(0, 0, 0, .25); }
 .account-menu-enter-active, .account-menu-leave-active { transition: opacity .16s ease, transform .16s ease; }
 .account-menu-enter-from, .account-menu-leave-to { opacity: 0; transform: translateY(5px); }
@@ -329,7 +326,7 @@ button.server-row small { margin-top: 5px; color: #7893b3; font-size: 12px; }
 @keyframes choice-rise { from { opacity: 0; translate: 0 22px; } to { opacity: 1; translate: 0 0; } }
 @media (prefers-reduced-motion: reduce) {
   .scan-orbit, .scan-core { animation: none; }
-  .app-shell, .sidebar-slide-enter-active, .sidebar-slide-leave-active, button.side-category, .category-chevron, .nav-panel, .nav-list, button.sidebar-account-card::before, .account-menu-enter-active, .account-menu-leave-active, .theme-icon-enter-active, .theme-icon-leave-active { transition: none; }
+  .app-shell, .sidebar-slide-enter-active, .sidebar-slide-leave-active, button.side-category, .category-chevron, .nav-panel, .nav-list, button.sidebar-account-card::before, .account-menu-enter-active, .account-menu-leave-active { transition: none; }
 }
 
 @media (max-width: 1080px) {

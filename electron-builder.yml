@@ -4,6 +4,8 @@ directories:
   output: release
 files:
   - out/**/*
+  # 主题动效适配了 Vben 的 MIT 实现，安装包同步保留许可全文。
+  - docs/third-party-notices.md
   - resources/tray.png
   # 与标准尺寸图标放在同一目录，供高清屏自动选择。
   - resources/tray@2x.png
