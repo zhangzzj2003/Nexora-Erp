@@ -14,10 +14,14 @@ export interface ThemeTransitionEnvironment {
 }
 
 export function themeCircleFrames(origin: ThemeOrigin, width: number, height: number): string[] {
-  const radius = Math.hypot(Math.max(origin.x, width - origin.x), Math.max(origin.y, height - origin.y))
-  const frames = [`circle(0px at ${origin.x}px ${origin.y}px)`, `circle(${radius}px at ${origin.x}px ${origin.y}px)`]
-  // 始终揭开新画面，避免深色从远处边缘出现、被误认为圆心偏移。
-  return frames
+  // 高分屏上快照的合成裁剪可能把 px 当作物理像素，导致圆心、半径缩小，
+  // 而暂停动画截图又显示正常；统一用百分比，让浏览器按快照自身尺寸换算。
+  const center = `${origin.x / width * 100}% ${origin.y / height * 100}%`
+  // CSS circle 的百分比半径以「对角线 / √2」为基准，并非宽度或高度。
+  // 多覆盖一个 CSS 像素，确保最远角的抗锯齿边缘也展开完毕后才释放快照。
+  const radius = Math.hypot(Math.max(origin.x, width - origin.x), Math.max(origin.y, height - origin.y)) + 1
+  const radiusPercent = radius / (Math.hypot(width, height) / Math.SQRT2) * 100
+  return [`circle(0% at ${center})`, `circle(${radiusPercent}% at ${center})`]
 }
 
 export function themeToggleOrigin(event: Pick<MouseEvent, 'clientX' | 'clientY' | 'detail'>,

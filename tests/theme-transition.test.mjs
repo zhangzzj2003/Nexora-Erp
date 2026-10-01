@@ -32,11 +32,32 @@ function setup({ supported = true, reducedMotion = false, manual = false, fail, 
   return { motion, root, calls, snapshots, writes, animation: () => animation, dark: () => dark }
 }
 
-test('两个主题方向都从圆心展开并覆盖最远角', () => {
-  const origin = { x: 0, y: 0 }
-  assert.deepEqual(themeCircleFrames(origin, 800, 600), ['circle(0px at 0px 0px)', 'circle(1000px at 0px 0px)'])
-  const frames = themeCircleFrames({ x: 700, y: 500 }, 800, 600)
-  assert.ok(frames[1].includes(String(Math.hypot(700, 500))))
+test('百分比圆形在横竖窗口与不同像素密度下都从按钮展开、覆盖全部角落', () => {
+  // 按 CSS 百分比规则还原物理裁剪区域，避免暂停截图掩盖合成阶段的 px 缩放问题。
+  for (const [width, height] of [[800, 600], [1120, 720], [600, 1000], [3580, 2332]]) {
+    for (const origin of [{ x: width - 29, y: 24 }, { x: 20, y: 24 }, { x: width / 2, y: height / 2 }]) {
+      const frames = themeCircleFrames(origin, width, height)
+      for (const density of [1, 1.25, 2, 3]) {
+        const physicalWidth = width * density, physicalHeight = height * density
+        const circles = frames.map(frame => {
+          const match = /^circle\(([\d.]+)% at ([\d.]+)% ([\d.]+)%\)$/.exec(frame)
+          assert.ok(match, '圆心和半径必须全部使用百分比，不能混入 px')
+          return {
+            radius: Number(match[1]) / 100 * Math.hypot(physicalWidth, physicalHeight) / Math.SQRT2,
+            x: Number(match[2]) / 100 * physicalWidth, y: Number(match[3]) / 100 * physicalHeight
+          }
+        })
+        assert.equal(circles[0].radius, 0)
+        for (const circle of circles) {
+          assert.ok(Math.abs(circle.x - origin.x * density) < 1e-6)
+          assert.ok(Math.abs(circle.y - origin.y * density) < 1e-6)
+        }
+        for (const x of [0, physicalWidth]) for (const y of [0, physicalHeight]) {
+          assert.ok(circles[1].radius > Math.hypot(x - circles[1].x, y - circles[1].y))
+        }
+      }
+    }
+  }
 })
 test('鼠标以点击坐标为圆心，键盘以按钮中心为圆心', () => {
   const rect = { left: 100, top: 20, width: 32, height: 32 }
@@ -56,7 +77,7 @@ test('明暗切换使用正确快照、450ms节奏，结束释放样式', async 
   await s.motion.toggle()
   assert.equal(s.dark(), false)
   assert.equal(s.calls[1].options.pseudoElement, '::view-transition-new(root)')
-  assert.match(s.calls[1].frames.clipPath[0], /400px 300px/)
+  assert.equal(s.calls[1].frames.clipPath[0], 'circle(0% at 50% 50%)')
   assert.deepEqual(s.root.dataset, {})
 })
 for (const options of [{ supported: false }, { reducedMotion: true }]) {
@@ -95,7 +116,7 @@ test('未开始的连续点击保留奇偶结果和最后点击圆心', async ()
   assert.equal(s.calls.length, 0)
   await Promise.all([s.motion.toggle(), s.motion.toggle(), s.motion.toggle({ x: 7, y: 8 })])
   assert.equal(s.dark(), true)
-  assert.match(s.calls[0].frames.clipPath[0], /7px 8px/)
+  assert.equal(s.calls[0].frames.clipPath[0], themeCircleFrames({ x: 7, y: 8 }, 800, 600)[0])
 })
 test('快照等待期间的连续点击取消旧请求，迟到回调不能覆盖最后主题', async () => {
   const s = setup({ manual: true, timeoutMs: 5 })
@@ -141,7 +162,7 @@ test('圆形未完全展开时不能释放快照或恢复颜色过渡', async ()
   await tick()
   assert.equal(s.root.dataset.themeTransition, 'circle')
   assert.equal(s.calls.length, 1)
-  assert.match(s.calls[0].frames.clipPath[0], /^circle\(0px at 780px 20px\)$/)
+  assert.equal(s.calls[0].frames.clipPath[0], themeCircleFrames({ x: 780, y: 20 }, 800, 600)[0])
   // 等待的动画句柄由模拟浏览器返回，完成前不允许快照结束。
   s.animation().end.resolve()
   await request
