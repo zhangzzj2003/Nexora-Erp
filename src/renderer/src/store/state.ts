@@ -55,6 +55,7 @@ import type {
   LedgerResult,
   LedgerQuery,
   Material,
+  MaterialCategory,
   MaterialIssue,
   MaterialReturn,
   Movement,
@@ -154,6 +155,8 @@ export function createAppState() {
   const user = ref<User | null>(null)
   const username = ref('')
   const password = ref('')
+  // 分类目录与物料快照一同读取，供各页面复用。
+  const materialCategories = ref<MaterialCategory[]>([])
   const materials = ref<Material[]>([])
   const supplierMaterials = ref<SupplierMaterial[]>([])
   const suppliers = ref<Supplier[]>([])
@@ -507,6 +510,7 @@ export function createAppState() {
     username,
     password,
     materials,
+    materialCategories,
     suppliers,
     supplierMaterials,
     stock,

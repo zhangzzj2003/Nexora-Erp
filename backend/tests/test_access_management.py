@@ -137,6 +137,8 @@ def test_legacy_permission_codes_gain_labels(monkeypatch, tmp_path, remove_v39_s
     monkeypatch.setenv("NEXORA_DB_PATH", str(path))
     with sqlite3.connect(path) as db:
         # 模拟 v24 旧库：权限表只有代码，迁移须保留已有角色关联所用的代码。
+        # 物料参数升级依赖旧版基础表，最小权限夹具补上空的历史物料表。
+        db.execute("CREATE TABLE materials (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, unit TEXT)")
         db.execute("CREATE TABLE permissions (code TEXT PRIMARY KEY)")
         # 旧权限库的最小角色关联表，供新版权限种子验证升级路径。
         db.execute("CREATE TABLE role_permissions (role_code TEXT, permission_code TEXT)")
@@ -145,7 +147,7 @@ def test_legacy_permission_codes_gain_labels(monkeypatch, tmp_path, remove_v39_s
         db.execute("PRAGMA user_version = 24")
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 53
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 54
         labels = dict(db.execute("SELECT code, label FROM permissions").fetchall())
         assert labels["bom.activate"] == "启用生产物料清单版本"
         assert labels["future.view"] == "未命名权限"
@@ -277,6 +279,6 @@ def test_code_labels_are_repaired_without_overwriting_custom_names(monkeypatch, 
 
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 53
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 54
         assert db.execute("SELECT role_code, permission_code FROM role_permissions ORDER BY 1, 2").fetchall() == grants
         assert db.execute("SELECT label FROM permissions WHERE code = 'inventory.view'").fetchone()[0] == "查看仓库实时库存"

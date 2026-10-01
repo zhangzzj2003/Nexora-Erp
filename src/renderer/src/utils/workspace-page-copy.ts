@@ -15,7 +15,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   afterSales: '关联原出库办理退货、换货或维修；方案独立审核，客户物品保管与公司库存分开，交付与收费保留证据。',
   shipments: '按销售订单分批出库，确认后扣减库存并记录应收来源。',
   warehouses: '默认主仓库以及已被业务单据引用的仓库不能删除。',
-  catalog: '请按规格建立独立物料编码，同一规格无需为不同供应商重复建档。',
+  catalog: '按类别自动生成物料编码，分别维护规格与生产参数；同一物料可绑定多家供应商。',
   customers: '集中查询和新增客户资料，销售订单使用同一份客户名单。',
   suppliers: '选择“供货物料”管理供应商与现有物料的绑定。',
   menuManagement: '为导航分组和页面选择图标；保存后当前侧栏立即更新，其他客户端重新登录或刷新数据后生效。',

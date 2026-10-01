@@ -249,10 +249,10 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==53
+        assert db.execute('PRAGMA user_version').fetchone()[0]==54
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
-    assert len(Base.metadata.tables)==127
+    assert len(Base.metadata.tables)==129
 
 
 def test_exchange_cancelled_during_processing_has_a_complete_correction_path(erp):

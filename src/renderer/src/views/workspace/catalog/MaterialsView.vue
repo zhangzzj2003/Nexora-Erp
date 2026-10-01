@@ -3,50 +3,59 @@
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
-import { computed, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal, NPopconfirm } from 'naive-ui'
 import type { Material } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { useLocalPagination } from '../../../composables/use-local-pagination'
 import { usePiniaAppStore } from '../../../store/app-store'
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+import MaterialEditor from './MaterialEditor.vue'
+import { materialDraft, materialInput, materialCategoryLabel, matchesMaterial } from './material-form'
 import './catalog.css'
 
 const store = usePiniaAppStore()
-const { busy, connectionLost, materials, suppliers, supplierMaterials } = storeToRefs(store)
-const { can, saveMaterial, deleteMaterial } = store
+const { busy, connectionLost, materials, materialCategories, suppliers, supplierMaterials } = storeToRefs(store)
+const { can, loadMaterial, saveMaterial, deleteMaterial } = store
 const query = ref('')
 const editingId = ref<number | undefined>()
 const showForm = ref(false)
-const form = reactive({ sku: '', name: '', unit: '件' })
-const filtered = computed(() =>
-  materials.value.filter((item) =>
-    [item.sku, item.name, item.unit]
-      .join(' ')
-      .toLowerCase()
-      .includes(query.value.trim().toLowerCase())
-  )
-)
+// 草稿不引用表格行，取消编辑或保存失败都不会改动共享物料快照。
+const form = ref(materialDraft())
+const categoryFilter = ref('')
+const categoryOptions = computed(() => [
+  { value: '', label: '全部分类' }, { value: 'unclassified', label: '未分类' },
+  ...materialCategories.value.flatMap(group => group.children.map(child => ({
+    value: child.code, label: `${group.name} / ${child.name}`
+  })))
+])
+const filtered = computed(() => materials.value.filter(item =>
+  matchesMaterial(item, query.value, categoryFilter.value, materialCategories.value)))
+const filterKey = computed(() => JSON.stringify([query.value, categoryFilter.value]))
 // 总数按搜索结果计算；分页仅影响本页展示，不裁剪共享物料资料。
-const { rows, total, page, pageSize, changePage } = useLocalPagination(filtered, query)
+const { rows, total, page, pageSize, changePage } = useLocalPagination(filtered, filterKey)
 // 物料页只声明列和业务单元格，统一由公共组件创建 vxe 表格。
 const columns = [
   { key: 'sku', title: '物料编码' },
-  { key: 'name', title: '名称（可包含规格型号）' },
+  { key: 'name', title: '物料名称' },
+  { key: 'category', title: '物料分类' },
+  { key: 'specification', title: '规格型号 / 封装' },
+  { key: 'brand', title: '品牌 / 制造商料号' },
   { key: 'unit', title: '单位' },
   { key: 'suppliers', title: '供应商' },
   { key: 'actions', title: '操作' }
 ]
-function edit(item?: Material): void {
-  editingId.value = item?.id
-  Object.assign(
-    form,
-    item ? { sku: item.sku, name: item.name, unit: item.unit } : { sku: '', name: '', unit: '件' }
-  )
+async function edit(item?: Material): Promise<void> {
+  // 列表可能来自另一客户端修改前的快照，编辑前读取最新资料与版本。
+  const latest = item ? await loadMaterial(item.id) : undefined
+  if (item && !latest) return
+  editingId.value = latest?.id
+  form.value = materialDraft(latest)
   showForm.value = true
 }
 async function save(): Promise<void> {
-  if (await saveMaterial({ ...form }, editingId.value)) showForm.value = false
+  if (await saveMaterial(materialInput(form.value, !!editingId.value), editingId.value)) showForm.value = false
 }
 function supplierNames(id: number): string {
   const ids = new Set(
@@ -73,7 +82,7 @@ function supplierNames(id: number): string {
       :data="rows"
       :pagination="{ page, pageSize, total }"
       @page-change="changePage"
-      :min-table-width="680"
+      :min-table-width="1280"
     >
       <template #actions>
         <AppButton
@@ -87,47 +96,34 @@ function supplierNames(id: number): string {
       </template>
       <template #filters>
         <label class="catalog-search"
-          >搜索物料<AppInput v-model="query" placeholder="输入名称或编码搜索"
+          >搜索物料<AppInput v-model="query" placeholder="名称、编码、规格、封装或制造商料号"
         /></label>
+        <label class="material-category-filter">物料分类<WorkspaceSelect v-model="categoryFilter" :options="categoryOptions" aria-label="筛选物料分类" /></label>
       </template>
       <template #beforeTable>
         <NModal
           v-model:show="showForm"
           preset="card"
           :mask-closable="!busy"
+          :closable="!busy"
+          :close-on-esc="!busy"
           :style="{
             width: 'min(900px, calc(100vw - 32px))',
             maxHeight: 'calc(100vh - 48px)',
             overflowY: 'auto'
           }"
         >
-          <form
-            v-if="showForm && can('catalog.manage')"
-            class="catalog-editor"
-            @submit.prevent="save"
-          >
-            <h3>{{ editingId ? '编辑物料' : '新增物料' }}</h3>
-            <div class="form-grid">
-              <label>物料编码<AppInput v-model.trim="form.sku" required maxlength="40" /></label>
-              <label
-                >名称（可包含规格型号）<AppInput v-model.trim="form.name" required maxlength="120"
-              /></label>
-              <label>单位<AppInput v-model.trim="form.unit" required maxlength="20" /></label>
-            </div>
-            <div class="form-actions">
-              <AppButton :disabled="busy || connectionLost" variant="primary" type="submit"
-                >保存</AppButton
-              ><AppButton
-                type="button"
-                :disabled="busy"
-                @click="showForm = false"
-                variant="secondary"
-                >取消</AppButton
-              >
-            </div>
-          </form>
+          <!-- 原生表单校验与中文分组在编辑器中，页面只连接状态和保存动作。 -->
+          <MaterialEditor
+            v-if="showForm && can('catalog.manage')" :form="form" :categories="materialCategories"
+            :editing="!!editingId" :busy="busy" :disconnected="connectionLost"
+            @save="save" @cancel="showForm = false"
+          />
         </NModal>
       </template>
+      <template #cell-category="{ row }">{{ materialCategoryLabel(row.category_code, materialCategories) }}</template>
+      <template #cell-specification="{ row }"><div>{{ row.specification || '未填写' }}</div><span class="material-hint">{{ row.package }}</span></template>
+      <template #cell-brand="{ row }"><div>{{ row.brand || '未填写' }}</div><span class="material-hint">{{ row.manufacturer_part_number }}</span></template>
       <template #cell-suppliers="{ row }">{{ supplierNames(row.id) }}</template>
       <template #cell-actions="{ row }">
         <div class="catalog-actions" v-if="can('catalog.manage')">
@@ -152,7 +148,7 @@ function supplierNames(id: number): string {
           </NPopconfirm>
         </div>
       </template>
-      <template #empty>{{ query ? '没有匹配的物料。' : '暂无物料，请先新增。' }}</template>
+      <template #empty>{{ query || categoryFilter ? '没有匹配的物料。' : '暂无物料，请先新增。' }}</template>
     </WorkspaceTable>
   </section>
 </template>

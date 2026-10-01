@@ -1,6 +1,7 @@
 """本地 SQLite 连接与版本迁移。"""
 
 import os
+import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -39,7 +40,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 53:
+        if version > 54:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -1868,3 +1869,37 @@ def migrate() -> None:
                 [('planner', 'equipment.' + action) for action in ('view','manage','create','submit','execute','cancel')] +
                 [('warehouse', 'equipment.view'), ('warehouse', 'equipment.execute')])
             db.execute('PRAGMA user_version = 53')
+
+        if version < 54:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            # 只增加空资料列，保留旧物料 ID、编码、供货关系与库存/业务外键。
+            db.execute("ALTER TABLE materials ADD COLUMN category_code TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN specification TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN package TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN brand TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN manufacturer_part_number TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN electrical_value TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN tolerance TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN rated_voltage TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN rated_power TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN temperature_range TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN compliance TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE materials ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+            db.execute('ALTER TABLE materials ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK(version>0)')
+            db.execute('CREATE TABLE material_code_sequences (prefix TEXT PRIMARY KEY, last_number INTEGER NOT NULL CHECK(last_number BETWEEN 0 AND 999999))')
+            db.execute("""CREATE TABLE material_changes (
+                id INTEGER PRIMARY KEY, material_id INTEGER NOT NULL, sku TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('create','update','delete')),
+                before_json TEXT, after_json TEXT, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+            db.execute('CREATE INDEX material_change_history ON material_changes(material_id,id)')
+            # 从旧库同格式编码初始化流水；不改历史物料，也不猜测其所属类别。
+            from app.catalog.material_rules import CATEGORY_CODES
+            for row in db.execute('SELECT sku FROM materials').fetchall():
+                match = re.fullmatch(r'([A-Z]{2}-[A-Z]{2})-(\d{6})', row['sku'])
+                if match and match[1] in CATEGORY_CODES:
+                    db.execute("INSERT INTO material_code_sequences(prefix,last_number) VALUES (?,?) ON CONFLICT(prefix) DO UPDATE SET last_number=MAX(last_number,excluded.last_number)",
+                               (match[1], int(match[2])))
+            db.execute('PRAGMA user_version = 54')

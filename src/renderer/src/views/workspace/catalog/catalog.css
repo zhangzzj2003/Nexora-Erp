@@ -3,3 +3,12 @@
 .catalog-editor { display: grid; gap: 16px; }
 .catalog-editor h3 { margin: 0; }
 .catalog-page .catalog-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+/* 弹窗按资料分组，小屏保持单列并允许内容滚动，底部动作不挤占输入区域。 */
+.material-section { display: block; margin: 0; padding: 16px; border: 1px solid var(--workspace-field-border); border-radius: 12px; min-width: 0; }
+.material-section .form-grid { width: 100%; }
+.material-section legend { padding: 0 8px; font-weight: 600; }
+.material-hint { margin: 0; color: var(--workspace-field-muted); font-size: 12px; font-weight: 400; line-height: 1.6; }
+.material-editor .material-wide { grid-column: 1 / -1; }
+.material-category-filter { display: grid; gap: 8px; width: min(100%, 320px); }
+@media (max-width: 600px) { .material-editor .form-grid { grid-template-columns: minmax(0, 1fr); } .material-section { padding: 12px; } }

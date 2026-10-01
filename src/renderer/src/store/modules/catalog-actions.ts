@@ -1,5 +1,6 @@
-import type { Material, Supplier } from '../../../../shared/erp-api'
+import type { Material, MaterialInput, Supplier } from '../../../../shared/erp-api'
 import type { AppState } from '../state'
+import { displayError } from '../../utils/formatters.ts'
 
 // 基础资料操作独立维护；写入后由统一入口刷新服务端快照。
 export function createCatalogActions(
@@ -7,6 +8,30 @@ export function createCatalogActions(
   perform: (action: () => Promise<unknown>, success: string) => Promise<void>
 ) {
   const { materialForm, supplierForm } = state
+
+  async function loadMaterial(id: number): Promise<Material | undefined> {
+    if (!window.nexora || !state.user.value || state.busy.value) return undefined
+    if (state.connectionLost.value) {
+      state.error.value = '服务端连接已中断，恢复连接后才能加载物料。'
+      return undefined
+    }
+    const user = state.user.value
+    const server = state.server.value
+    state.busy.value = true
+    state.error.value = ''
+    try {
+      // 单条查询不触发全业务刷新；切换账号、实例或断线后的迟到结果不打开编辑器。
+      const latest = await window.nexora.callApi('materialDetail', { id })
+      if (state.user.value !== user || state.server.value !== server || state.connectionLost.value) return undefined
+      state.materials.value = state.materials.value.map(item => item.id === id ? latest : item)
+      return latest
+    } catch (cause) {
+      if (state.user.value === user && state.server.value === server) state.error.value = displayError(cause)
+      return undefined
+    } finally {
+      state.busy.value = false
+    }
+  }
 
   async function createMaterial(): Promise<void> {
     if (!window.nexora) return
@@ -27,11 +52,15 @@ export function createCatalogActions(
     }, '供应商已保存。')
   }
 
-  async function saveMaterial(data: Omit<Material, 'id'>, id?: number): Promise<boolean> {
+  async function saveMaterial(data: MaterialInput, id?: number): Promise<boolean> {
     if (!window.nexora) return false
     let saved = false
     await perform(async () => {
-      if (id) await window.nexora!.callApi('updateMaterial', { ...data, id })
+      // 编辑必须携带快照版本；失败时保留草稿，重新打开可读取服务端最新版本。
+      if (id) {
+        if (!data.version) throw new Error('请重新打开物料编辑窗口以读取最新版本。')
+        await window.nexora!.callApi('updateMaterial', { ...data, version: data.version, id })
+      }
       else await window.nexora!.callApi('createMaterial', { ...data })
       saved = true
     }, '物料已保存。')
@@ -66,5 +95,5 @@ export function createCatalogActions(
     }), bound ? '物料已绑定。' : '已解除物料绑定。')
   }
 
-  return { createMaterial, createSupplier, saveMaterial, deleteMaterial, saveSupplier, deleteSupplier, setSupplierMaterial }
+  return { loadMaterial, createMaterial, createSupplier, saveMaterial, deleteMaterial, saveSupplier, deleteSupplier, setSupplierMaterial }
 }

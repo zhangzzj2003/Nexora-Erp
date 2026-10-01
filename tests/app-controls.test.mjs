@@ -50,6 +50,10 @@ test('公共按钮保留提交类型、禁用/加载保护以及图标和读屏�
   assert.match(text, /maxlength="100"/)
   assert.match(text, /pattern="\[0-9\]\+"/)
   assert.match(text, /\sdisabled(?:\s|>)/)
+  // 系统编码需要可以选中复制但不能输入，必须传给 NInput 的正式只读属性。
+  const readonly = await render(AppInput, { modelValue: 'EL-SR-000001', readonly: true })
+  assert.match(readonly.match(/<input\b[^>]*>/)?.[0] ?? '', /\sreadonly(?:\s|>)/)
+  assert.doesNotMatch(readonly.match(/<input\b[^>]*>/)?.[0] ?? '', /\sdisabled(?:\s|>)/)
 })
 
 test('页面统一使用公共控件，只保留选择校验代理和表格专用滚动条', () => {

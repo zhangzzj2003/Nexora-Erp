@@ -59,3 +59,5 @@ Requires Node.js 22.12+ and Python 3.11+. Setup, architecture, business constrai
 - [中文开发文档](docs/development.zh-CN.md)
 
 Run `npm run docs:build` to generate a local HTML website and bilingual guide. GitHub Pages configuration is included, with hosting intentionally not enabled yet. Installer artifacts go to `release/` and remain unsigned/unnotarized; see the guide for commands.
+
+Material management now includes production details, fixed categories and server-generated category codes. See [material catalog rules (Chinese)](docs/material-catalog.md). Upgrade both client and server.

@@ -9,7 +9,7 @@
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库及冲销 |
 | `warehouse/` | `WarehouseTransfersView.vue` | 建立、确认及冲销仓库调拨 |
 | `warehouse/` | `InventoryStocktakesView.vue` | 建立、确认及冲销库存盘点 |
-| `catalog/` | `MaterialsView.vue` | 物料列表、搜索、本地分页、增删改及关联供应商展示；沿用 `/workspace/catalog` 地址 |
+| `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，`material-form.ts` 管理草稿与搜索；展示关联供应商；沿用 `/workspace/catalog` 地址 |
 | `catalog/` | `SuppliersView.vue` | 供应商增删改查及供货物料绑定、解绑 |
 | `catalog/` | `CustomersView.vue` | 客户搜索与新增；销售查看权限可浏览，客户管理权限可新增 |
 | `catalog/` | `WarehousesView.vue` | 仓库增删改查，默认主仓库禁止删除 |

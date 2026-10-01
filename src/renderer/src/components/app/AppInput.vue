@@ -13,15 +13,17 @@ const props = withDefaults(
     modelModifiers?: InputModifiers
     type?: 'text' | 'password' | 'number' | 'tel' | 'search'
     disabled?: boolean
+    readonly?: boolean
   }>(),
-  { type: 'text', disabled: false }
+  { type: 'text', disabled: false, readonly: false }
 )
 const emit = defineEmits<{ 'update:modelValue': [value: T] }>()
 const attrs = useAttrs()
 // useAttrs 不提供响应式依赖；每次渲染重新读取，订单切换后 min/max 等限制才能同步更新。
 function nativeInputProps(): InputHTMLAttributes {
   const { class: _class, style: _style, ...native } = attrs
-  // Naive UI 负责密码显示/隐藏；数字和电话仍保留浏览器校验及键盘语义。
+  // Naive UI 负责密码显示/隐藏；只读状态由其正式属性传递，避免覆盖原生 input-props。
+  // 数字和电话仍保留浏览器校验及键盘语义。
   return {
     ...native,
     ...(props.type === 'number' || props.type === 'tel' || props.type === 'search'
@@ -43,6 +45,7 @@ function update(value: string): void {
     :value="modelValue == null ? '' : String(modelValue)"
     :type="type === 'password' ? 'password' : 'text'"
     :disabled="disabled"
+    :readonly="readonly"
     :input-props="nativeInputProps()"
     :placeholder="($attrs.placeholder as string | undefined) ?? ''"
     :maxlength="$attrs.maxlength as number | string | undefined"

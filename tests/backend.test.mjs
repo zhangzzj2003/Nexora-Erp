@@ -1,3 +1,4 @@
+import { materialDraft, materialInput } from '../src/renderer/src/views/workspace/catalog/material-form.ts'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { callBackend, getBackendHealth, retainedSessionToken } from '../src/main/backend.ts'
@@ -271,12 +272,15 @@ test('基础资料接口限定路径和正整数编号', async (t) => {
   const calls = []
   t.mock.method(globalThis, 'fetch', async (url, init) => {
     calls.push([new URL(url).pathname, init.method])
-    return new Response(JSON.stringify({ token: 'test-token', user: { id: 1 } }), { status: 200 })
+    return new Response(JSON.stringify(new URL(url).pathname === '/api/v1/materials/2' && init.method === 'PUT'
+      ? { ...materialInput(materialDraft(), false), id: 2, sku: 'R', name: '电阻', version: 1 }
+      : { token: 'test-token', user: { id: 1 } }), { status: 200 })
   })
   await callBackend('login', {})
   for (const [entity, resource] of [['Material', 'materials'], ['Supplier', 'suppliers'], ['Warehouse', 'warehouses']]) {
     for (const [verb, method] of [['update', 'PUT'], ['delete', 'DELETE']]) {
-      await callBackend(verb + entity, { id: 2 })
+      await callBackend(verb + entity, entity === 'Material' && verb === 'update'
+        ? { id: 2, name: '电阻', unit: '件', version: 1 } : { id: 2 })
       assert.deepEqual(calls.at(-1), [`/api/v1/${resource}/2`, method])
       await assert.rejects(callBackend(verb + entity, { id: '../users' }), /记录编号无效/)
     }

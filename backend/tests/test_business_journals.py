@@ -162,7 +162,7 @@ def test_cosmetic_master_rename_keeps_posted_economic_snapshot(business):
     received = receipt(erp); request('POST', f'receipts/{received["id"]}/post')
     row = post(client, generate(client, f'receipt:{received["id"]}'), reviewer)
     old_name = row['business_source']['evidence']['labels'][f'material:{erp[4][0]}']
-    request('PUT', f'materials/{erp[4][0]}', dict(sku='ORM-0', name='更名物料',unit='件'))
+    request('PUT', f'materials/{erp[4][0]}', dict(sku='ORM-0', name='更名物料',unit='件',version=1))
     current = source(client, f'receipt:{received["id"]}')
     assert current['fingerprint'] == row['business_source']['evidence']['fingerprint']
     assert current['labels'][f'material:{erp[4][0]}'] != old_name
@@ -345,5 +345,5 @@ def test_v43_upgrade_atomic_failure_and_idempotent_retry(business, remove_transf
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 53
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 54
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'business_journal.%'").fetchone()[0] == 3

@@ -582,6 +582,41 @@ class Material(Base):
     unit: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
+    # 旧档案不猜测分类或参数，迁移后逐步补齐；版本用于防止编辑覆盖。
+    category_code: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    specification: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    package: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    brand: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    manufacturer_part_number: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    electrical_value: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    tolerance: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    rated_voltage: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    rated_power: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    temperature_range: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    compliance: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    notes: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+
+
+class MaterialCodeSequence(Base):
+    # 永久保留各子类流水，删除档案不会重置编号。
+    __tablename__ = 'material_code_sequences'
+    prefix: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class MaterialChange(Base):
+    __tablename__ = 'material_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    material_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    sku: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
 
 class Role(Base):
     __tablename__ = 'roles'

@@ -326,12 +326,12 @@ def test_v49_upgrade_is_idempotent_preserves_business_and_models(seeded,remove_c
         db.execute('PRAGMA user_version=49')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 53
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 54
         assert db.execute('SELECT * FROM customers ORDER BY id').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE role_code='seller' AND permission_code='crm.view'").fetchone()[0] == 1
         assert not db.execute("SELECT 1 FROM role_permissions WHERE role_code='seller' AND permission_code='crm_quote.review'").fetchone()
-        assert len(Base.metadata.tables) == 127
+        assert len(Base.metadata.tables) == 129
 
 
 def test_crm_upgrade_failure_rolls_back_schema_and_permissions(seeded,remove_crm_schema,monkeypatch):

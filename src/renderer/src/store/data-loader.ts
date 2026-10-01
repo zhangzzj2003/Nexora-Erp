@@ -9,6 +9,7 @@ export function createDataLoader(
   const {
     user,
     materials,
+    materialCategories,
     suppliers,
     supplierMaterials,
     stock,
@@ -109,6 +110,7 @@ export function createDataLoader(
     if (can('inventory.view')) {
       ;[
         materials.value,
+        materialCategories.value,
         suppliers.value,
         supplierMaterials.value,
         stock.value,
@@ -121,6 +123,7 @@ export function createDataLoader(
         purchaseReturns.value
       ] = await Promise.all([
         window.nexora.callApi('materials', undefined),
+        window.nexora.callApi('materialCategories', undefined),
         window.nexora.callApi('suppliers', undefined),
         window.nexora.callApi('supplierMaterials', undefined),
         window.nexora.callApi(

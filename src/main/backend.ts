@@ -1,3 +1,4 @@
+import { materialBody, validateMaterialResult } from '../shared/material-validation.ts'
 import type { BackendHealth } from '../shared/desktop-api'
 import type { ErpOperations } from '../shared/erp-api'
 import {validateDashboardResult} from '../shared/dashboard-api.ts'
@@ -321,12 +322,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       method: 'POST', path: `/api/v1/users/${positiveId(payload, 'userId')}/reset-password`,
       body: { password: (payload as { password: unknown }).password }
     }
-    case 'updateMaterial': return { method: 'PUT', path: `/api/v1/materials/${positiveId(payload, 'id')}`, body: payload }
+    case 'updateMaterial': return { method: 'PUT', path: `/api/v1/materials/${positiveId(payload, 'id')}`, body: materialBody(payload, true) }
     case 'deleteMaterial': return { method: 'DELETE', path: `/api/v1/materials/${positiveId(payload, 'id')}` }
     case 'updateSupplier': return { method: 'PUT', path: `/api/v1/suppliers/${positiveId(payload, 'id')}`, body: payload }
     case 'deleteSupplier': return { method: 'DELETE', path: `/api/v1/suppliers/${positiveId(payload, 'id')}` }
     case 'updateWarehouse': return { method: 'PUT', path: `/api/v1/warehouses/${positiveId(payload, 'id')}`, body: payload }
     case 'deleteWarehouse': return { method: 'DELETE', path: `/api/v1/warehouses/${positiveId(payload, 'id')}` }
+    // 只允许固定分类目录地址，客户端不能指定外部资源。
+    case 'materialCategories': return { method: 'GET', path: '/api/v1/material-categories' }
+    case 'materialDetail': return { method: 'GET', path: `/api/v1/materials/${positiveId(payload, 'id')}` }
     case 'supplierMaterials': return { method: 'GET', path: '/api/v1/supplier-materials' }
     case 'bindSupplierMaterial': return { method: 'PUT', path: `/api/v1/suppliers/${positiveId(payload, 'supplierId')}/materials/${positiveId(payload, 'materialId')}` }
     case 'unbindSupplierMaterial': return { method: 'DELETE', path: `/api/v1/suppliers/${positiveId(payload, 'supplierId')}/materials/${positiveId(payload, 'materialId')}` }
@@ -337,7 +341,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'customers': return { method: 'GET', path: '/api/v1/customers' }
     case 'createCustomer': return { method: 'POST', path: '/api/v1/customers', body: payload }
     case 'materials': return { method: 'GET', path: '/api/v1/materials' }
-    case 'createMaterial': return { method: 'POST', path: '/api/v1/materials', body: payload }
+    case 'createMaterial': return { method: 'POST', path: '/api/v1/materials', body: materialBody(payload, false) }
     case 'warehouses': return { method: 'GET', path: '/api/v1/warehouses' }
     case 'otherInbounds': return { method: 'GET', path: '/api/v1/warehouse-inbounds' }
     case 'createOtherInbound': return { method: 'POST', path: '/api/v1/warehouse-inbounds', body: payload }
@@ -741,6 +745,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   if (action === 'logout' || action === 'changePassword') sessionToken = null
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
   validateEquipmentResult(action,data)
+  validateMaterialResult(action, data)
   return data
 }
 

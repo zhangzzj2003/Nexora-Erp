@@ -22,7 +22,7 @@ def create(client, resource, payload):
 
 
 @pytest.mark.parametrize("resource,original,updated", [
-    ("materials", {"sku": "R-1", "name": "电阻 10k", "unit": "件"}, {"sku": "R-2", "name": "电阻 20k", "unit": "个"}),
+    ("materials", {"sku": "R-1", "name": "电阻 10k", "unit": "件"}, {"sku": "R-1", "name": "电阻 20k", "unit": "个"}),
     ("suppliers", {"name": "甲厂"}, {"name": "乙厂"}),
     ("warehouses", {"code": "EAST", "name": "东仓"}, {"code": "WEST", "name": "西仓"}),
 ])
@@ -31,10 +31,21 @@ def test_crud_validation_and_conflicts(client, resource, original, updated):
     path = f"/api/v1/{resource}/{record}"
     assert client.post(f"/api/v1/{resource}", json=original).status_code == 409
     assert client.put(path, json={**updated, "name": "   "}).status_code == 422
-    assert client.put(path, json=updated).json() == {"id": record, **updated}
-    other = create(client, resource, original)
-    assert client.put(f"/api/v1/{resource}/{other}", json=updated).status_code == 409
-    assert {"id": record, **updated} in client.get(f"/api/v1/{resource}").json()
+    if resource == 'materials':
+        response = client.put(path, json={**updated, 'version': 1})
+        assert response.status_code == 200, response.text
+        expected = response.json()
+        assert expected['version'] == 2
+        assert all(expected[key] == value for key, value in updated.items())
+        # 编码固定，不能靠更名或改类覆盖另一个物料档案。
+        other = create(client, resource, {**original, 'sku': 'OTHER'})
+        assert client.put(f"/api/v1/{resource}/{other}", json={**updated, 'version': 1}).status_code == 409
+    else:
+        expected = {"id": record, **updated}
+        assert client.put(path, json=updated).json() == expected
+        other = create(client, resource, original)
+        assert client.put(f"/api/v1/{resource}/{other}", json=updated).status_code == 409
+    assert expected in client.get(f"/api/v1/{resource}").json()
     assert client.delete(path).status_code == 204
     assert client.delete(path).status_code == 404
     assert client.put(path, json=updated).status_code == 404
@@ -136,7 +147,7 @@ def test_v27_migration_preserves_existing_materials(client, remove_v39_schema):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 53
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 54
         assert db.execute("SELECT name FROM materials WHERE id = ?", (material,)).fetchone()[0] == "旧物料"
         assert db.execute("SELECT COUNT(*) FROM supplier_materials").fetchone()[0] == 0
 
