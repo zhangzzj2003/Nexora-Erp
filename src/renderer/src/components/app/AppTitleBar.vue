@@ -3,10 +3,13 @@ import { onMounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { nexoraLogo } from '../../assets/brand'
 import { useThemeStore } from '../../store/theme-store'
+import { usePiniaAppStore } from '../../store/app-store'
+import WorkspaceTitleNavigation from '../workspace/WorkspaceTitleNavigation.vue'
 import ThemeToggle from './ThemeToggle.vue'
 
 defineProps<{ platform: string }>()
 const { themeMode } = storeToRefs(useThemeStore())
+const { screen } = storeToRefs(usePiniaAppStore())
 
 function syncWindowTheme(): void {
   // 原生控件主题同步失败要保留诊断信息，不能阻止页面主题切换。
@@ -26,7 +29,8 @@ watch(themeMode, syncWindowTheme)
         <img :src="nexoraLogo" alt="" />
         <strong>NEXORA <span>ERP</span></strong>
       </div>
-      <div class="app-titlebar-caption"><span class="app-titlebar-note">企业运营工作台</span></div>
+      <!-- 工作台目录替代固定标语；引导与登录阶段保留可拖动空白。 -->
+      <div class="app-titlebar-caption"><WorkspaceTitleNavigation v-if="screen === 'app'" /></div>
       <div class="app-titlebar-actions"><ThemeToggle /></div>
     </div>
   </header>
@@ -40,14 +44,12 @@ watch(themeMode, syncWindowTheme)
 .app-titlebar-brand { display: flex; flex: none; align-items: center; gap: 9px; white-space: nowrap; font-size: 13px; letter-spacing: .05em; }
 .app-titlebar-brand img { width: 27px; height: 27px; object-fit: contain; }
 .app-titlebar-brand span { font-size: 11px; color: #237d7a; }
-.app-titlebar-caption { flex: 1; min-width: 0; }
-.app-titlebar-note { font-size: 12px; color: #718399; }
+.app-titlebar-caption { flex: 1; min-width: 0; display: flex; }
 /* 主题按钮不参与拖动；页面标签另占内容区的第二行。 */
 .app-titlebar-actions { -webkit-app-region: no-drag; }
 .app-titlebar-actions { flex: none; display: flex; align-items: center; }
 :root[data-theme='dark'] .app-titlebar { background: #111d32; color: #e6edf8; border-color: #33445f; }
 :root[data-theme='dark'] .app-titlebar-brand span { color: #68cbc2; }
-:root[data-theme='dark'] .app-titlebar-note { color: #a6b5cb; }
 @media (max-width: 900px) {
   .app-titlebar-safe-area { gap: 10px; }
   .app-titlebar-brand strong { display: none; }

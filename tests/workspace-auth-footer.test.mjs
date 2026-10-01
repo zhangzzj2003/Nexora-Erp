@@ -70,6 +70,8 @@ test('侧栏底部显示当前用户、角色和退出，服务端身份交给�
   assert.match(card, /@focusout="closeWhenFocusLeaves"/)
   assert.match(card, /@keydown\.esc\.stop="closeOnEscape"/)
   assert.match(card, /v-if="menuOpen"[\s\S]*?@click="logout"/)
+  // 左下角主题入口已移除；顶部入口保留，账号菜单不会重新塞入重复开关。
+  assert.doesNotMatch(card, /ThemeToggle/)
   assert.match(shell, /class="account-identity"[\s\S]*?user\.username[\s\S]*?accountRole/)
   assert.match(shell, /v-if="user" class="account"[\s\S]*?@click="logout"/)
   assert.match(css, /\.account \{ display: none;/)

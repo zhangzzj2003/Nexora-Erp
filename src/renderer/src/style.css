@@ -68,7 +68,7 @@ button.nav-item { display: flex; align-items: center; gap: 11px; width: 100%; ma
 button.nav-item:hover { background: #1d304f; color: #fff; }
 button.nav-item.active { background: #223b5b; color: #8de2d8; font-weight: 700; box-shadow: inset 3px 0 #70d8cc; }
 .sidebar-bottom { margin-top: auto; border-top: 1px solid #293a54; padding: 13px 4px 0; color: #a7bad1; font-size: 12px; }
-/* 参考紧凑账号栏：头像和身份贴齐导航内容，右侧留给主题开关。 */
+/* 账号栏只展示头像和身份，主题开关统一放在窗口顶部。 */
 .sidebar-account { position: relative; min-width: 0; }
 .sidebar-account-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
 button.sidebar-account-card { position: relative; isolation: isolate; display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; min-height: 51px; overflow: hidden; border: 0; border-radius: 9px; padding: 6px; background: transparent; color: #f6f8fc; text-align: left; }
@@ -81,8 +81,6 @@ button.sidebar-account-card:hover::before, button.sidebar-account-card:focus-vis
 .sidebar-account-identity strong, .sidebar-account-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-account-identity strong { font-size: 12px; line-height: 1.2; }
 .sidebar-account-identity small { color: #adc3d6; font-size: 10px; line-height: 1.25; }
-.sidebar-account-row .theme-toggle { flex: none; margin-right: 2px; color: #c8e6e4; }
-.sidebar-account-row .theme-toggle:hover { color: #fff; background: #1d304f; }
 .theme-toggle svg { width: 17px; height: 17px; }
 .sidebar-account-menu { position: absolute; z-index: 5; right: 0; bottom: calc(100% + 5px); left: 0; border: 1px solid #446178; border-radius: 10px; padding: 5px; background: #1b2b45; box-shadow: 0 12px 25px rgba(0, 0, 0, .25); }
 .account-menu-enter-active, .account-menu-leave-active { transition: opacity .16s ease, transform .16s ease; }

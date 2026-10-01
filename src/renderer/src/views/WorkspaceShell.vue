@@ -7,6 +7,8 @@ import { useAppStore } from '../store/app-store'
 import WorkspaceSidebar from '../components/workspace/WorkspaceSidebar.vue'
 import ThemeToggle from '../components/app/ThemeToggle.vue'
 import WorkspaceTabs from '../components/workspace/WorkspaceTabs.vue'
+import WorkspaceTitleNavigation from '../components/workspace/WorkspaceTitleNavigation.vue'
+import { usesIntegratedTitleBar } from '../../../shared/window-chrome'
 import AppStatusFooter from '../components/app/AppStatusFooter.vue'
 import AuthView from './AuthView.vue'
 import { nexoraLogo } from '../assets/brand'
@@ -16,6 +18,7 @@ import { workspacePageDescriptions } from '../utils/workspace-page-copy'
 const {
   screen,
   activeTab,
+  workspacePageVersion,
   expandedGroupKey,
   busy,
   user,
@@ -36,6 +39,8 @@ const {
 
 // 登录、初始化和工作台共用内容区域与底栏。
 const isAuthScreen = computed(() => screen.value === 'setup' || screen.value === 'login')
+// 浏览器和 Linux 没有融合标题栏，仍在内容顶部提供统一导航与主题入口。
+const integratedTitleBar = usesIntegratedTitleBar(window.nexora?.platform)
 // 窄窗口与侧栏账号卡片共用角色名称规则，避免同一用户显示两种称呼。
 const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], roles.value))
 </script>
@@ -48,6 +53,9 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
     </Transition>
 
     <main class="content">
+      <header v-if="screen === 'app' && !integratedTitleBar" class="workspace-browser-toolbar">
+        <WorkspaceTitleNavigation /><ThemeToggle />
+      </header>
       <!-- 标签独占标题栏下方、侧栏右侧的一行，不随业务内容滚动。 -->
       <WorkspaceTabs v-if="screen === 'app'" class="workspace-page-tabs" />
       <div class="content-body" :class="{ 'auth-screen': isAuthScreen }">
@@ -77,7 +85,7 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
             <!-- 侧栏在窄窗口收起时，顶部保留账号和退出操作。 -->
             <span class="account-identity"
               >{{ user.username }}<small>{{ accountRole }}</small></span
-            ><ThemeToggle /><AppButton type="button" @click="logout" variant="text">
+            ><AppButton type="button" :disabled="busy" @click="logout" variant="text">
               退出登录
             </AppButton>
           </div>
@@ -86,7 +94,7 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
         <AuthView v-if="isAuthScreen" />
         <template v-else-if="screen === 'app' && activeRouteAllowed">
           <!-- 工作台页面由 Vue Router 装载；权限守卫和服务端鉴权共同约束访问。 -->
-          <RouterView />
+          <RouterView :key="`${activeTab}-${workspacePageVersion}`" />
         </template>
       </div>
       <AppStatusFooter />
@@ -95,6 +103,7 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
 </template>
 
 <style scoped>
+.workspace-browser-toolbar { display: flex; align-items: center; gap: 12px; flex: none; height: 48px; padding: 0 12px; border-bottom: 1px solid var(--workspace-field-border); }
 /* 标签栏脱离内容区的内边距布局，首个标签贴近侧栏边缘。 */
 .workspace-page-tabs {
   flex: none;

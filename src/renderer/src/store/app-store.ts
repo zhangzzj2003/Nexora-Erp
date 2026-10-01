@@ -33,6 +33,7 @@ import { scrollActiveTabIntoView } from '../utils/workspace-tab-strip'
 
 import { createAppState } from './state'
 import { createDataLoader } from './data-loader'
+import { createWorkspaceRefresh } from './workspace-refresh'
 import { createConnectionActions } from './connection-actions'
 import { createCatalogActions } from './modules/catalog-actions'
 import { createPurchaseActions } from './modules/purchase-actions'
@@ -183,6 +184,32 @@ function createAppStore() {
     if (result.active !== activeTab.value) navigateToRoute(result.active)
   }
   const { refreshData, loadPermissions } = createDataLoader(state, can, syncWorkspaceRoute)
+  const workspacePageVersion = ref(0)
+  const refreshingWorkspace = ref(false)
+  const workspaceRefresh = createWorkspaceRefresh({
+    context: () => screen.value === 'app' && user.value && activeRouteAllowed.value ? {
+      session: `${state.server.value?.id ?? ''}:${state.server.value?.fingerprint ?? ''}:${user.value.id}`,
+      path: workspaceRouter.currentRoute.value.fullPath
+    } : undefined,
+    blocked: () => busy.value || connectionLost.value || !window.nexora,
+    setLoading: (loading) => {
+      // 刷新期间沿用全局忙碌状态，业务按钮不会和同一批读取并发提交。
+      refreshingWorkspace.value = loading
+      busy.value = loading
+    },
+    reloadData: async () => {
+      error.value = ''
+      notice.value = ''
+      await refreshData()
+    },
+    remountPage: async () => {
+      // 共享列表已重新读取；重建页面使独立分页和首页统计也重新加载。
+      workspacePageVersion.value += 1
+      await nextTick()
+    },
+    reportError: (cause) => { error.value = displayError(cause) }
+  })
+  const refreshWorkspacePage = workspaceRefresh.refresh
   const connectionActions = createConnectionActions(state, refreshData)
   const { checkConnection, stopScan, monitorConnection } = connectionActions
 
@@ -269,6 +296,7 @@ function createAppStore() {
 
   function dispose(): void {
     initialized = false
+    workspaceRefresh.dispose()
     void stopScan()
     if (healthTimer) clearInterval(healthTimer)
     healthTimer = null
@@ -279,6 +307,9 @@ function createAppStore() {
   return {
     ...state,
     activeTab,
+    workspacePageVersion,
+    refreshingWorkspace,
+    refreshWorkspacePage,
     ...connectionActions,
     ...catalogActions,
     ...purchaseActions,

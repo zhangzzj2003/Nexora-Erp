@@ -42,7 +42,8 @@ const {
           <dd class="mono">{{ server?.fingerprint }}</dd>
         </div>
       </dl>
-      <AppButton type="button" @click="switchServer" variant="secondary"> 切换服务端 </AppButton>
+      <!-- 读取或提交期间不切换实例，避免旧实例的响应落入新会话。 -->
+      <AppButton type="button" :disabled="busy" @click="switchServer" variant="secondary"> 切换服务端 </AppButton>
     </div>
     <div class="card">
       <div class="section-heading">

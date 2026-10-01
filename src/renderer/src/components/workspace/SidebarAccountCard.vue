@@ -6,9 +6,8 @@ import { useAppStore } from '../../store/app-store'
 import IconUser3Line from '~icons/ri/user-3-line'
 import IconLogoutBoxRLine from '~icons/ri/logout-box-r-line'
 import { accountRoleText } from '../../utils/account-role'
-import ThemeToggle from '../app/ThemeToggle.vue'
 
-const { user, roles, logout } = useAppStore()
+const { user, roles, busy, logout } = useAppStore()
 const card = ref<HTMLElement | null>(null)
 const menuOpen = ref(false)
 
@@ -57,12 +56,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeWhenClick
           <small :title="roleText">{{ roleText }}</small>
         </span>
       </AppButton>
-      <!-- 主题图标独立于账号菜单，可直接操作且不影响退出登录入口。 -->
-      <ThemeToggle />
+      <!-- 主题入口已统一放在顶部，账号卡片只保留身份和退出菜单。 -->
     </div>
     <Transition name="account-menu">
       <div v-if="menuOpen" id="sidebar-account-menu" class="sidebar-account-menu">
-        <AppButton type="button" @click="logout" variant="plain">
+        <AppButton type="button" :disabled="busy" @click="logout" variant="plain">
           <IconLogoutBoxRLine aria-hidden="true" />退出登录
         </AppButton>
       </div>

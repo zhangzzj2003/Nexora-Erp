@@ -390,6 +390,11 @@ export function routeByKey(key: WorkspaceRouteKey): WorkspaceRoute {
   return workspaceRoutes.find((route) => route.key === key)!
 }
 
+export function routeGroupByKey(key: WorkspaceRouteKey) {
+  // 顶部目录与侧栏共用分类定义，页面移动分类后不需要维护第二份路径文案。
+  return workspaceRouteGroups.find((group) => group.routes.some((route) => route.key === key))!
+}
+
 // 页面栏保存本次登录打开过的页面顺序，同一页面只出现一次。
 export function openRoute(
   opened: readonly WorkspaceRouteKey[],

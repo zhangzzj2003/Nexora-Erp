@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { createMemoryHistory } from 'vue-router'
 import { createWorkspaceRouter, installWorkspaceAccessGuard } from '../src/renderer/src/router/index.ts'
 import {
-  canVisitRoute, nextExpandedGroup, resolveWorkspaceRoute, routeByKey, visibleRouteGroups, workspaceRoutes
+  canVisitRoute, nextExpandedGroup, resolveWorkspaceRoute, routeByKey, routeGroupByKey, visibleRouteGroups, workspaceRoutes
 } from '../src/renderer/src/router/workspace-routes.ts'
 
 test('每个工作台页面只有一个路由，且都对应实际页面', () => {
@@ -16,9 +16,18 @@ test('每个工作台页面只有一个路由，且都对应实际页面', () =>
   assert.equal(workspaceRoutes.length, 50)
   assert.deepEqual(new Set(registered.map(route => route.name)), new Set(workspaceRoutes.map(route => route.key)))
   assert.ok(registered.every((route) => route.components?.default))
-  assert.match(shell, /<RouterView \/>/)
+  assert.match(shell, /<RouterView :key="`\$\{activeTab\}-\$\{workspacePageVersion\}`" \/>/)
   assert.equal(new Set(workspaceRoutes.map(route => route.path)).size, workspaceRoutes.length)
   assert.ok(workspaceRoutes.every(route => route.path.startsWith('/workspace/')))
+})
+
+test('顶部目录与侧栏从同一分类定义定位所有业务页', () => {
+  assert.equal(routeGroupByKey('goodsReceipts').label, '采购管理')
+  assert.equal(routeGroupByKey('suppliers').label, '基础资料')
+  assert.equal(routeGroupByKey('home').label, '工作台')
+  for (const route of workspaceRoutes) {
+    assert.ok(routeGroupByKey(route.key).routes.some((entry) => entry === route))
+  }
 })
 
 test('侧栏按查看权限分类，隐藏空分类及未授权页面', () => {
