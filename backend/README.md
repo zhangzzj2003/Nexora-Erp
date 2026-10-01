@@ -219,3 +219,5 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 `inventory/lots.py` 在库存写事务中记录系统批次，`inventory/trace.py` 提供履约关联与溯源查询。系统 FIFO 与物理拣货边界见 `docs/document-traceability.md`。
 
 `production/planning.py` 负责物料缺口及在制成本口径，`production/tools.py` 负责计划参数、排程和质量处置；`quality_costs.py` 维护不合格品成本去向。范围见 `docs/production-quality.md`。
+
+`purchase/approvals.py` 维护分级规则、提交快照、节点审批和代审；配置边界见 `docs/purchase-approval.md`。

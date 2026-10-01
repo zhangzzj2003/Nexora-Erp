@@ -338,11 +338,15 @@ export interface GoodsReceipt {
   lines: GoodsReceiptLine[]
 }
 // 申请的已转数量包含未取消的订单草稿，由服务端在写事务内核算。
+export interface PurchaseApprovalStage {request_id:number;round:number;position:number;role_code:string;approver_id:number|null;status:string;reviewed_by:number|null;reviewed_at:string|null}
+export interface PurchaseApprovalRule {department:string;minimum:string;maximum:string|null;steps:{role_code:string;approver_id:number|null}[]}
+export interface PurchaseApprovalPolicy {version:number;enabled:boolean;rules:PurchaseApprovalRule[]}
 export interface PurchaseRequestLine extends ReceiptLine {
   ordered_quantity: string
   remaining_quantity: string
 }
 export interface PurchaseRequest {
+  department:string; estimated_total:string; version:number; approval_round:number; policy_version:number; approval_steps:PurchaseApprovalStage[]
   id: number
   reference: string
   note: string
@@ -942,7 +946,7 @@ export interface ReportResult {
 }
 
 // 每个数据集只允许服务端固定白名单查询；默认每页 20，最多 100。
-export type TableDataset = 'planningPolicies' | 'workCenters' | 'productionSchedules' | 'qualityDispositions' | 'productionPlanAudits' | 'inventoryLots' | 'salesOrderLines' | 'businessSources' | 'businessPolicyHistory' | 'profitPolicyHistory' | 'financeCustomers' | 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
+export type TableDataset = 'purchaseApprovalHistory' | 'purchaseApprovalStages' | 'planningPolicies' | 'workCenters' | 'productionSchedules' | 'qualityDispositions' | 'productionPlanAudits' | 'inventoryLots' | 'salesOrderLines' | 'businessSources' | 'businessPolicyHistory' | 'profitPolicyHistory' | 'financeCustomers' | 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
 export interface TableQuery extends PageQuery {
   snapshot_id?: string; snapshot_path?: string
   dataset: TableDataset; sort?: string; descending?: boolean
@@ -953,6 +957,9 @@ export type TableRow = Record<string, unknown>
 export interface ErpOperations {
   snapshotCsv: { input: { snapshot_id: string }; output: { csv: string } }
   productionTools: {input:{action:ProductionToolAction;payload:Record<string,unknown>};output:FinanceToolResult}
+  purchaseApprovalPolicy:{input:undefined;output:PurchaseApprovalPolicy}
+  savePurchaseApprovalPolicy:{input:PurchaseApprovalPolicy & {reason:string};output:PurchaseApprovalPolicy}
+  delegatePurchaseApproval:{input:{request_id:number;approver_id:number;profile_version:number;reason:string};output:Record<string,unknown>}
   financeTools: { input: { action: FinanceToolAction; payload: Record<string, unknown> }; output: FinanceToolResult }
   queryTrace: { input: {kind:'sales_order'|'work_order'|'shipment'|'lot'|'receipt'; id:number}; output: {snapshot_id:string; nodes:TableRow[]; edges:TableRow[]; totals:{nodes:number;edges:number}} }
   allocateSalesWork: { input: {work_order_id:number;lines:{sales_order_line_id:number;quantity:string}[];reason:string}; output:{work_order_id:number;allocated_quantity:string} }
@@ -1108,8 +1115,8 @@ export interface ErpOperations {
   reversePurchaseReturn: { input: { returnId: number; reason: string }; output: PurchaseReturn }
   purchaseOrders: { input: undefined; output: PurchaseOrder[] }
   purchaseRequests: { input: undefined; output: PurchaseRequest[] }
-  createPurchaseRequest: { input: { reference: string; note: string; lines: { material_id: number; quantity: string }[] }; output: PurchaseRequest }
-  updatePurchaseRequest: { input: { requestId: number; reference: string; note: string; lines: { material_id: number; quantity: string }[] }; output: PurchaseRequest }
+  createPurchaseRequest: { input: { reference: string; note: string; department?:string;estimated_total?:string;version?:number; lines: { material_id: number; quantity: string }[] }; output: PurchaseRequest }
+  updatePurchaseRequest: { input: { requestId: number; reference: string; note: string;department?:string;estimated_total?:string;version?:number; lines: { material_id: number; quantity: string }[] }; output: PurchaseRequest }
   submitPurchaseRequest: { input: { requestId: number }; output: PurchaseRequest }
   approvePurchaseRequest: { input: { requestId: number }; output: PurchaseRequest }
   rejectPurchaseRequest: { input: { requestId: number; reason: string }; output: PurchaseRequest }

@@ -90,3 +90,5 @@
 `warehouse/TraceabilityView.vue` 展示单据关系、批次来源并维护工单销售需求分配。
 
 `production/ProductionPlanningView.vue` 为物料计划、工作中心排程、不合格品处置与在制成本查询入口。
+
+`purchase/PurchaseApprovalsView.vue` 为采购分级审批配置、代审及审计入口。

@@ -1226,3 +1226,44 @@ class ProductionPlanAudit(Base):
     reason: Mapped[str]=mapped_column(Text,nullable=False)
     created_by: Mapped[int]=mapped_column(ForeignKey('users.id'),nullable=False)
     created_at: Mapped[str]=mapped_column(Text,nullable=False,server_default=text('CURRENT_TIMESTAMP'))
+
+# 提交时固定审批规则及节点，避免配置变化改写在途审批。
+class PurchaseApprovalPolicy(Base):
+    __tablename__='purchase_approval_policies'
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    version: Mapped[int]=mapped_column(Integer,nullable=False)
+    enabled: Mapped[int]=mapped_column(Integer,nullable=False)
+    rules_json: Mapped[str]=mapped_column(Text,nullable=False)
+
+
+class PurchaseRequestProfile(Base):
+    __tablename__='purchase_request_profiles'
+    request_id: Mapped[int]=mapped_column(ForeignKey('purchase_requests.id'),primary_key=True)
+    department: Mapped[str]=mapped_column(Text,nullable=False)
+    estimated_total: Mapped[str]=mapped_column(Text,nullable=False)
+    version: Mapped[int]=mapped_column(Integer,nullable=False)
+    approval_round: Mapped[int]=mapped_column(Integer,nullable=False,server_default=text('0'))
+    policy_version: Mapped[int]=mapped_column(Integer,nullable=False,server_default=text('0'))
+
+
+class PurchaseApprovalStage(Base):
+    __tablename__='purchase_approval_stages'
+    request_id: Mapped[int]=mapped_column(ForeignKey('purchase_requests.id'),primary_key=True)
+    round: Mapped[int]=mapped_column(Integer,primary_key=True)
+    position: Mapped[int]=mapped_column(Integer,primary_key=True)
+    role_code: Mapped[str]=mapped_column(ForeignKey('roles.code'),nullable=False)
+    approver_id: Mapped[int | None]=mapped_column(ForeignKey('users.id'))
+    status: Mapped[str]=mapped_column(Text,nullable=False)
+    reviewed_by: Mapped[int | None]=mapped_column(ForeignKey('users.id'))
+    reviewed_at: Mapped[str | None]=mapped_column(Text)
+
+
+class PurchaseApprovalAudit(Base):
+    __tablename__='purchase_approval_audits'
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    request_id: Mapped[int | None]=mapped_column(ForeignKey('purchase_requests.id'))
+    action: Mapped[str]=mapped_column(Text,nullable=False)
+    evidence_json: Mapped[str]=mapped_column(Text,nullable=False)
+    reason: Mapped[str]=mapped_column(Text,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey('users.id'),nullable=False)
+    created_at: Mapped[str]=mapped_column(Text,nullable=False,server_default=text('CURRENT_TIMESTAMP'))

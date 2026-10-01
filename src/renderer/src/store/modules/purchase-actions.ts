@@ -60,18 +60,18 @@ export function createPurchaseActions(
   function editPurchaseRequest(requestId?: number): void {
     const request = purchaseRequests.value.find((item) => item.id === requestId)
     purchaseRequestForm.value = request ? {
-      requestId: request.id,
+      requestId: request.id,department:request.department,estimated_total:request.estimated_total,version:request.version,
       reference: request.reference,
       note: request.note,
       lines: request.lines.map((line) => ({ material_id: line.material_id, quantity: line.quantity }))
-    } : { requestId: null, reference: '', note: '', lines: [{ material_id: 0, quantity: '1' }] }
+    } : { requestId: null,department:'',estimated_total:'0.00',version:1,reference: '', note: '', lines: [{ material_id: 0, quantity: '1' }] }
   }
 
   async function savePurchaseRequest(): Promise<void> {
     if (!window.nexora) return
-    const { requestId, reference, note, lines } = purchaseRequestForm.value
+    const { requestId, reference, note, lines,department,estimated_total,version } = purchaseRequestForm.value
     await perform(async () => {
-      const payload = { reference, note, lines: lines.map((line) => ({ ...line })) }
+      const payload = { reference, note,department,estimated_total,version,lines: lines.map((line) => ({ ...line })) }
       if (requestId) await window.nexora!.callApi('updatePurchaseRequest', { requestId, ...payload })
       else await window.nexora!.callApi('createPurchaseRequest', payload)
       editPurchaseRequest()
@@ -85,7 +85,7 @@ export function createPurchaseActions(
 
   async function approvePurchaseRequest(requestId: number): Promise<void> {
     if (!window.nexora) return
-    await perform(() => window.nexora!.callApi('approvePurchaseRequest', { requestId }), `采购申请 #${requestId} 已批准。`)
+    await perform(() => window.nexora!.callApi('approvePurchaseRequest', { requestId }), `采购申请 #${requestId} 的当前审批节点已处理。`)
   }
 
   async function rejectPurchaseRequest(requestId: number): Promise<void> {
@@ -298,7 +298,20 @@ export function createPurchaseActions(
     }, `采购退货单 #${returnId} 已冲销，原仓库存与应付已追加更正记录。`)
   }
 
+  async function loadPurchaseApprovalPolicy():Promise<void>{
+    if(!window.nexora)return
+    await perform(async()=>{state.purchaseApprovalPolicy.value=await window.nexora!.callApi('purchaseApprovalPolicy',undefined)},'审批规则已读取。')
+  }
+  async function savePurchaseApprovalPolicy(input:import('../../../../shared/erp-api').PurchaseApprovalPolicy & {reason:string}):Promise<void>{
+    if(!window.nexora)return
+    await perform(async()=>{state.purchaseApprovalPolicy.value=await window.nexora!.callApi('savePurchaseApprovalPolicy',input)},'审批规则已保存，已提交申请保留原审批链。')
+  }
+  async function delegatePurchaseApproval(input:import('../../../../shared/erp-api').ErpOperations['delegatePurchaseApproval']['input']):Promise<void>{
+    if(!window.nexora)return
+    await perform(()=>window.nexora!.callApi('delegatePurchaseApproval',input),'采购申请已指定临时代审。')
+  }
   return {
+    loadPurchaseApprovalPolicy,savePurchaseApprovalPolicy,delegatePurchaseApproval,
     chooseGoodsReceiptOrder,
     createGoodsReceipt,
     confirmGoodsReceipt,

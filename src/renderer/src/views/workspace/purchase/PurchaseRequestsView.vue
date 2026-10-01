@@ -93,6 +93,7 @@ async function save(): Promise<void> {
           >
             <h3>{{ purchaseRequestForm.requestId ? '修改采购申请' : '新建采购申请' }}</h3>
             <div class="form-grid">
+              <label>申请部门<AppInput v-model.trim="purchaseRequestForm.department" maxlength="80" /></label><label>预计总金额（元）<AppInput v-model="purchaseRequestForm.estimated_total" inputmode="decimal" required /></label>
               <label
                 >参考单号<AppInput v-model.trim="purchaseRequestForm.reference" maxlength="100"
               /></label>

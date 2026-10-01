@@ -62,6 +62,8 @@ class TableSpec:
 
 # 可查询资源由服务端白名单声明，绝不接受任意表名、SQL、字段表达式或函数路径。
 SPECS = {
+    'purchaseApprovalHistory':TableSpec(m.PurchaseApprovalAudit,'purchase_request.view'),
+    'purchaseApprovalStages':TableSpec(m.PurchaseApprovalStage,'purchase_request.view',parent='request_id'),
     'planningPolicies':TableSpec(m.MaterialPlanningPolicy,'production.view'),
     'workCenters':TableSpec(m.WorkCenter,'production.view'),
     'productionSchedules':TableSpec(m.ProductionSchedule,'production.view'),
@@ -294,7 +296,7 @@ def query_table(payload: TableQuery, user: dict = Depends(current_user)) -> dict
             if value is None: continue
             if name=='warehouse_id' and payload.dataset=='stock': continue
             if name=='supplier_id' and payload.dataset=='boundMaterials': continue
-            if name not in model.__table__.columns or name not in {'id','warehouse_id','material_id','customer_id','supplier_id','status','category','normal_balance','is_active','customer_id','journal_id','opening_balance_id','sales_order_id','account_id','period_id','work_order_id','owner_id','code','source_type'}:
+            if name not in model.__table__.columns or name not in {'id','warehouse_id','material_id','customer_id','supplier_id','status','category','normal_balance','is_active','customer_id','journal_id','opening_balance_id','sales_order_id','account_id','period_id','work_order_id','owner_id','code','source_type','request_id'}:
                 raise HTTPException(422,'不支持的筛选字段')
             stmt=stmt.where(getattr(model,name)==value)
         if payload.query.strip():

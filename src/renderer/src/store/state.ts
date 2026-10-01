@@ -89,6 +89,7 @@ export function createAppState() {
   const financeToolResult = ref<import('../../../shared/erp-api').FinanceToolResult | null>(null)
   const traceResult = ref<import('../../../shared/erp-api').ErpOperations['queryTrace']['output'] | null>(null)
   const productionToolResult = ref<import('../../../shared/erp-api').FinanceToolResult|null>(null)
+  const purchaseApprovalPolicy=ref<import('../../../shared/erp-api').PurchaseApprovalPolicy|null>(null)
   const dataRevision = ref(0)
   const stockSummary = ref({ material_count: 0, posted_receipt_count: 0, movement_count: 0 })
   const periodClosingHistoryId = ref(0)
@@ -209,6 +210,7 @@ export function createAppState() {
   })
   const purchaseRequestForm = ref({
     requestId: null as number | null,
+    department:'',estimated_total:'0.00',version:1,
     reference: '',
     note: '',
     lines: [{ material_id: 0, quantity: '1' }]
@@ -406,6 +408,7 @@ export function createAppState() {
   )
 
   return {
+    purchaseApprovalPolicy,
     productionToolResult,
     traceResult,
     financeToolResult,

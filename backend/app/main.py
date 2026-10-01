@@ -17,6 +17,7 @@ from app.access.menus import router as menu_router
 from app.catalog.routes import router as catalog_router
 from app.purchase.receipts import router as receipts_router
 from app.purchase.orders import router as purchase_router
+from app.purchase.approvals import router as purchase_approvals_router
 from app.purchase.requests import router as purchase_requests_router
 from app.purchase.goods_receipts import router as goods_receipts_router
 from app.purchase.returns import router as purchase_returns_router
@@ -95,7 +96,7 @@ for router in (
     trace_router, service_router, access_router, menu_router, table_query_router, catalog_router, receipts_router,
     inventory_router, stock_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
     warehouse_inbounds_router, warehouse_outbounds_router,
-    purchase_router, purchase_requests_router, goods_receipts_router,
+    purchase_approvals_router, purchase_router, purchase_requests_router, goods_receipts_router,
     purchase_returns_router, customers_router, sales_router, sales_returns_router,
     production_tools_router, production_router, work_orders_router, material_issues_router,
     material_returns_router, production_completions_router, production_costs_router, production_settlements_router,

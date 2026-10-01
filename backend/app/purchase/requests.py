@@ -22,6 +22,8 @@ from app.core.models import (
 UserCreator = aliased(User)
 UserReviewer = aliased(User)
 
+from app.purchase.approvals import profile_data,save_profile,start_approval,review_approval,audit
+
 router = APIRouter(prefix="/api/v1")
 
 
@@ -38,6 +40,9 @@ class RequestLineInput(BaseModel):
 
 
 class PurchaseRequestInput(BaseModel):
+    department: str = Field(default="", max_length=80)
+    estimated_total: Decimal = Field(default=Decimal(0),ge=0,le=999999999999,decimal_places=2)
+    version: int | None = Field(default=None,gt=0,strict=True)
     reference: str = Field(default="", max_length=100)
     note: str = Field(default="", max_length=500)
     lines: list[RequestLineInput] = Field(min_length=1, max_length=100)
@@ -129,7 +134,7 @@ def request_data(db: Session, request_id: int) -> dict:
                 "remaining_quantity": str(Decimal(item["quantity"]) - ordered),
             }
         )
-    return {**dict(row), "lines": lines}
+    return {**dict(row), **profile_data(db,request_id), "lines": lines}
 
 
 def validate_lines(db: Session, payload: PurchaseRequestInput) -> None:
@@ -176,12 +181,13 @@ def create_purchase_request(
                 for line in payload.lines
             ]
         )
+        save_profile(db,cursor.id,payload,user)
         return request_data(db, cursor.id)
 
 
 @router.put("/purchase-requests/{request_id}")
 def update_purchase_request(
-    request_id: int, payload: PurchaseRequestInput, _: dict = Depends(require("purchase_request.create"))
+    request_id: int, payload: PurchaseRequestInput, user: dict = Depends(require("purchase_request.create"))
 ) -> dict:
     with orm_session(write=True) as db:
         row = (
@@ -197,6 +203,9 @@ def update_purchase_request(
             raise HTTPException(404, "采购申请不存在")
         if row["status"] not in ("draft", "rejected"):
             raise HTTPException(409, "只能修改草稿或已驳回的申请")
+        profile=profile_data(db,request_id)
+        if profile["version"] and payload.version!=profile["version"]:
+            raise HTTPException(409,"申请已变化，请刷新后再修改")
         validate_lines(db, payload)
         db.execute(delete(PurchaseRequestLine).where((PurchaseRequestLine.purchase_request_id == request_id)))
         db.add_all(
@@ -221,6 +230,7 @@ def update_purchase_request(
                 review_reason="",
             )
         )
+        save_profile(db,request_id,payload,user)
         return request_data(db, request_id)
 
 
@@ -244,6 +254,7 @@ def submit_purchase_request(
             ):
                 raise HTTPException(404, "采购申请不存在")
             raise HTTPException(409, "只能提交草稿采购申请")
+        start_approval(db,request_id,user)
         return request_data(db, request_id)
 
 
@@ -252,6 +263,7 @@ def approve_purchase_request(
     request_id: int, user: dict = Depends(require("purchase_request.review"))
 ) -> dict:
     with orm_session(write=True) as db:
+        if not review_approval(db,request_id,user,True):return request_data(db,request_id)
         cursor = db.execute(
             update(PurchaseRequest)
             .where(PurchaseRequest.id == request_id, PurchaseRequest.status == "submitted")
@@ -280,6 +292,7 @@ def reject_purchase_request(
     request_id: int, payload: ReviewReasonInput, user: dict = Depends(require("purchase_request.review"))
 ) -> dict:
     with orm_session(write=True) as db:
+        review_approval(db,request_id,user,False,payload.reason)
         cursor = db.execute(
             update(PurchaseRequest)
             .where(PurchaseRequest.id == request_id, PurchaseRequest.status == "submitted")
@@ -348,4 +361,5 @@ def cancel_purchase_request(
             .where((PurchaseRequest.id == request_id))
             .values(status="cancelled", cancelled_by=user["id"], cancelled_at=func.current_timestamp())
         )
+        audit(db,user,request_id,"cancel","取消采购申请",profile_data(db,request_id))
         return request_data(db, request_id)

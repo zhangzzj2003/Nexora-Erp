@@ -20,6 +20,7 @@ const workspaceRouteComponents = {
   suppliers: () => import('../views/workspace/catalog/SuppliersView.vue'),
   customers: () => import('../views/workspace/catalog/CustomersView.vue'),
   warehouses: () => import('../views/workspace/catalog/WarehousesView.vue'),
+  purchaseApprovals:()=>import('../views/workspace/purchase/PurchaseApprovalsView.vue'),
   purchaseRequests: () => import('../views/workspace/purchase/PurchaseRequestsView.vue'),
   purchase: () => import('../views/workspace/purchase/PurchaseOrdersView.vue'),
   goodsReceipts: () => import('../views/workspace/purchase/PurchaseGoodsReceiptsView.vue'),

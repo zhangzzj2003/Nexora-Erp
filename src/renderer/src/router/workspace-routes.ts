@@ -140,6 +140,9 @@ export const workspaceRouteGroups = [
     label: '采购管理',
     routes: [
       {
+        key:'purchaseApprovals',path:'/workspace/purchase-approvals',label:'采购审批规则',permission:'purchase_request.view',icon:'file'
+      },
+      {
         key: 'purchaseRequests',
         path: '/workspace/purchase-requests',
         label: '采购申请',
