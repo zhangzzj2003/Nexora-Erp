@@ -1,4 +1,4 @@
-// 圆形过渡沿用参考项目的时长与方向；控制器由 Pinia 持有，多个按钮共用同一队列。
+// 圆形过渡由 Pinia 持有；明暗两个方向都从触发按钮展开新主题。
 export interface ThemeOrigin { x: number; y: number }
 type SnapshotTransition = Pick<ViewTransition, 'ready' | 'finished' | 'skipTransition'>
 type SnapshotAnimation = Pick<Animation, 'finished' | 'cancel'>
@@ -13,17 +13,20 @@ export interface ThemeTransitionEnvironment {
   start?: (update: () => Promise<void>) => SnapshotTransition
 }
 
-export function themeCircleFrames(dark: boolean, origin: ThemeOrigin, width: number, height: number): string[] {
+export function themeCircleFrames(origin: ThemeOrigin, width: number, height: number): string[] {
   const radius = Math.hypot(Math.max(origin.x, width - origin.x), Math.max(origin.y, height - origin.y))
   const frames = [`circle(0px at ${origin.x}px ${origin.y}px)`, `circle(${radius}px at ${origin.x}px ${origin.y}px)`]
-  // 切入深色时收拢旧的浅色快照；切入浅色时展开新的浅色快照。
-  return dark ? frames.reverse() : frames
+  // 始终揭开新画面，避免深色从远处边缘出现、被误认为圆心偏移。
+  return frames
 }
 
 export function themeToggleOrigin(event: Pick<MouseEvent, 'clientX' | 'clientY' | 'detail'>,
   rect: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>): ThemeOrigin {
   // 键盘点击没有鼠标坐标，使用触发按钮中心，避免动画从窗口左上角开始。
-  return event.detail === 0
+  const inside = Number.isFinite(event.clientX) && Number.isFinite(event.clientY)
+    && event.clientX >= rect.left && event.clientX <= rect.left + rect.width
+    && event.clientY >= rect.top && event.clientY <= rect.top + rect.height
+  return event.detail === 0 || !inside
     ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
     : { x: event.clientX, y: event.clientY }
 }
@@ -79,10 +82,10 @@ export function createThemeTransition(options: {
         await transition.ready
         if (ended || disposed || id !== request) return
         animation = env.root.animate({
-          clipPath: themeCircleFrames(dark, origin ?? { x: env.width / 2, y: env.height / 2 }, env.width, env.height)
+          clipPath: themeCircleFrames(origin ?? { x: env.width / 2, y: env.height / 2 }, env.width, env.height)
         }, {
           duration: 450, easing: 'ease-in', fill: 'forwards',
-          pseudoElement: dark ? '::view-transition-old(root)' : '::view-transition-new(root)'
+          pseudoElement: '::view-transition-new(root)'
         })
         await animation.finished
         transition.skipTransition()

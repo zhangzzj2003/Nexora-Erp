@@ -33,15 +33,20 @@
   transition-timing-function: cubic-bezier(.22, 1, .36, 1), ease-in-out, ease-in-out, ease-in-out, ease-in-out;
 }
 
-/* 圆形快照直接捕获最终主题色，避免与颜色渐变叠加；侧栏与悬停的位移仍保留。 */
+/* 圆形快照直接捕获最终主题色；结束后恢复侧栏与悬停原有的过渡规则。 */
 :root[data-theme-transition='circle'] { --theme-color-duration: 0s; }
+/* Naive UI 的边框、VXE 控件和伪元素有独立过渡；快照期间统一停用，
+   否则新画面仍在变色，圆形动画尚未结束就会闪跳并持续重绘整页。 */
+:root[data-theme-transition='circle'] *,
+:root[data-theme-transition='circle'] *::before,
+:root[data-theme-transition='circle'] *::after { transition: none !important; }
 :root[data-theme-transition='circle']::view-transition-group(root),
+:root[data-theme-transition='circle']::view-transition-image-pair(root),
 :root[data-theme-transition='circle']::view-transition-old(root),
 :root[data-theme-transition='circle']::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 :root[data-theme-transition='circle']::view-transition-old(root) { z-index: 1; }
-:root[data-theme-transition='circle']::view-transition-new(root) { z-index: 2147483646; }
-:root[data-theme-transition='circle'][data-theme='dark']::view-transition-old(root) { z-index: 2147483646; }
-:root[data-theme-transition='circle'][data-theme='dark']::view-transition-new(root) { z-index: 1; }
+/* 裁剪层只在切换期间准备绘制资源；两个方向层次固定，结束后再释放快照。 */
+:root[data-theme-transition='circle']::view-transition-new(root) { z-index: 2; will-change: clip-path; }
 
 @media (prefers-reduced-motion: reduce) {
   :root[data-theme],

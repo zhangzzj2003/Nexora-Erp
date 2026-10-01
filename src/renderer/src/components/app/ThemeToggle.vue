@@ -9,7 +9,7 @@ import { useThemeStore } from '../../store/theme-store'
 const theme = useThemeStore()
 const { isDarkTheme } = storeToRefs(theme)
 const { toggleTheme } = theme
-// 顶部与侧栏同时存在按钮，SVG 遮罩必须各自唯一，避免相互引用。
+// 引导页与顶部复用按钮，SVG 遮罩必须各自唯一，避免相互引用。
 const maskId = `theme-moon-${useId()}`
 </script>
 

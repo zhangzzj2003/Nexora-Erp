@@ -36,7 +36,9 @@ export const useThemeStore = defineStore('theme', () => {
     }
   })
   function toggleTheme(event: MouseEvent): void {
-    const target = event.currentTarget
+    // Naive UI 转发事件时 currentTarget 可能是包装节点；点击 SVG 也回溯到实际按钮。
+    const target = event.target instanceof Element ? event.target.closest('button.theme-toggle')
+      : event.currentTarget instanceof Element ? event.currentTarget.closest('button.theme-toggle') : null
     const origin = target instanceof HTMLElement ? themeToggleOrigin(event, target.getBoundingClientRect()) : undefined
     void motion.toggle(origin).catch((error: unknown) => console.error('切换主题失败', error))
   }
