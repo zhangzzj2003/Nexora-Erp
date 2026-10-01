@@ -12,7 +12,6 @@ import AuthView from './AuthView.vue'
 import { nexoraLogo } from '../assets/brand'
 import { accountRoleText } from '../utils/account-role'
 import { workspacePageDescriptions } from '../utils/workspace-page-copy'
-import { usesIntegratedTitleBar } from '../../../shared/window-chrome'
 
 const {
   screen,
@@ -39,8 +38,6 @@ const {
 const isAuthScreen = computed(() => screen.value === 'setup' || screen.value === 'login')
 // 窄窗口与侧栏账号卡片共用角色名称规则，避免同一用户显示两种称呼。
 const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], roles.value))
-// 桌面标签已融入窗口顶部，普通浏览器继续在内容区显示。
-const integratedTitleBar = usesIntegratedTitleBar(window.nexora?.platform)
 </script>
 
 <template>
@@ -51,9 +48,9 @@ const integratedTitleBar = usesIntegratedTitleBar(window.nexora?.platform)
     </Transition>
 
     <main class="content">
+      <!-- 标签独占标题栏下方、侧栏右侧的一行，不随业务内容滚动。 -->
+      <WorkspaceTabs v-if="screen === 'app'" class="workspace-page-tabs" />
       <div class="content-body" :class="{ 'auth-screen': isAuthScreen }">
-        <WorkspaceTabs v-if="screen === 'app' && !integratedTitleBar" />
-
         <header class="topbar">
           <!-- 登录标题沿用侧栏的品牌图形，保持未登录和工作台的视觉识别一致。 -->
           <span v-if="isAuthScreen" class="auth-header-mark" aria-hidden="true">
@@ -98,6 +95,12 @@ const integratedTitleBar = usesIntegratedTitleBar(window.nexora?.platform)
 </template>
 
 <style scoped>
+/* 标签栏脱离内容区的内边距布局，首个标签贴近侧栏边缘。 */
+.workspace-page-tabs {
+  flex: none;
+  margin: 0;
+  padding: 7px clamp(25px, 4vw, 62px) 0 6px;
+}
 .workspace-page-description {
   max-width: 960px;
   margin: 12px 0 0;

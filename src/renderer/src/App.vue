@@ -10,7 +10,6 @@ import OnboardingView from './views/OnboardingView.vue'
 import WorkspaceShell from './views/WorkspaceShell.vue'
 import AppMessageProvider from './components/feedback/AppMessageProvider.vue'
 import AppTitleBar from './components/app/AppTitleBar.vue'
-import WorkspaceTabs from './components/workspace/WorkspaceTabs.vue'
 import { usesIntegratedTitleBar } from '../../shared/window-chrome'
 
 // 根组件统一启动和释放桌面连接资源；页面状态仍由 Pinia store 管理。
@@ -34,9 +33,7 @@ onUnmounted(dispose)
   >
     <AppMessageProvider>
       <div :class="{ 'desktop-shell': integratedTitleBar }">
-        <AppTitleBar v-if="integratedTitleBar" :platform="platform">
-          <WorkspaceTabs v-if="screen === 'app'" />
-        </AppTitleBar>
+        <AppTitleBar v-if="integratedTitleBar" :platform="platform" />
         <OnboardingView v-if="screen !== 'app' && screen !== 'login' && screen !== 'setup'" />
         <WorkspaceShell v-else />
       </div>

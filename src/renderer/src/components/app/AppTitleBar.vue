@@ -26,7 +26,7 @@ watch(themeMode, syncWindowTheme)
         <img :src="nexoraLogo" alt="" />
         <strong>NEXORA <span>ERP</span></strong>
       </div>
-      <div class="app-titlebar-pages"><slot><span class="app-titlebar-note">企业运营工作台</span></slot></div>
+      <div class="app-titlebar-caption"><span class="app-titlebar-note">企业运营工作台</span></div>
       <div class="app-titlebar-actions"><ThemeToggle /></div>
     </div>
   </header>
@@ -40,12 +40,11 @@ watch(themeMode, syncWindowTheme)
 .app-titlebar-brand { display: flex; flex: none; align-items: center; gap: 9px; white-space: nowrap; font-size: 13px; letter-spacing: .05em; }
 .app-titlebar-brand img { width: 27px; height: 27px; object-fit: contain; }
 .app-titlebar-brand span { font-size: 11px; color: #237d7a; }
-.app-titlebar-pages { flex: 1; min-width: 0; }
+.app-titlebar-caption { flex: 1; min-width: 0; }
 .app-titlebar-note { font-size: 12px; color: #718399; }
-/* 点击区不参与拖动；标签间的剩余空白仍可以拖动整个窗口。 */
-.app-titlebar-actions, .app-titlebar-pages :deep(button) { -webkit-app-region: no-drag; }
+/* 主题按钮不参与拖动；页面标签另占内容区的第二行。 */
+.app-titlebar-actions { -webkit-app-region: no-drag; }
 .app-titlebar-actions { flex: none; display: flex; align-items: center; }
-.app-titlebar-pages :deep(.workspace-tabs) { height: 47px; min-height: 0; margin: 0; padding: 5px 0 0; border: 0; background: transparent; }
 :root[data-theme='dark'] .app-titlebar { background: #111d32; color: #e6edf8; border-color: #33445f; }
 :root[data-theme='dark'] .app-titlebar-brand span { color: #68cbc2; }
 :root[data-theme='dark'] .app-titlebar-note { color: #a6b5cb; }
