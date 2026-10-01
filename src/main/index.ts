@@ -6,6 +6,8 @@ import { callBackend, getBackendHealth } from './backend'
 import type { ErpOperations } from '../shared/erp-api'
 import type { HostInput } from '../shared/desktop-api'
 import { keepDesktopInTray, trayServiceLabel } from './tray-state'
+import { windowChromeOptions } from './window-chrome'
+import { windowOverlayTheme } from '../shared/window-chrome'
 import { activateSaved, approveConnection, createHost, disconnect, finishHostSetup, hostFingerprint, hostStatus,
   loadConnections, prepareConnection, recentProfiles, restartHost, resume, shutdownConnections,
   startDiscovery, stopDiscovery, stopHost, upgradeHost } from './connections'
@@ -63,6 +65,8 @@ async function updateTray(): Promise<void> {
 function createWindow(): void {
   // 渲染进程保持隔离；桌面能力通过预加载脚本的受限接口提供。
   const window = new BrowserWindow({
+    // 标题栏由页面统一绘制，窗口按钮仍由操作系统提供。
+    ...windowChromeOptions(process.platform),
     width: 1120,
     height: 720,
     minWidth: 820,
@@ -106,6 +110,13 @@ app.whenReady().then(() => {
   ipcMain.handle('app:get-version', (event) => {
     assertMainWindow(event)
     return app.getVersion()
+  })
+
+  ipcMain.handle('window:set-theme', (event, mode: unknown) => {
+    assertMainWindow(event)
+    const overlay = windowOverlayTheme(mode)
+    // macOS 红黄绿按钮保留原生外观；Windows 的按钮底色随页面主题同步。
+    if (process.platform === 'win32') mainWindow?.setTitleBarOverlay(overlay)
   })
 
   createWindow()

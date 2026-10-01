@@ -3,6 +3,9 @@ import type { DesktopApi } from '../shared/desktop-api'
 
 // 只暴露明确的查询方法，不把 ipcRenderer 整体交给页面。
 const desktopApi: DesktopApi = {
+  platform: process.platform,
+  // 页面只能同步既定主题，不能自定义原生窗口参数。
+  setWindowTheme: (mode) => ipcRenderer.invoke('window:set-theme', mode),
   getVersion: () => ipcRenderer.invoke('app:get-version') as Promise<string>,
   getBackendHealth: () => ipcRenderer.invoke('backend:get-health'),
   // 所有业务请求都由主进程按固定操作表转发，页面不能构造任意 URL。

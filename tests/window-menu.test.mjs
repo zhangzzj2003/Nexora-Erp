@@ -4,6 +4,7 @@ import { runInNewContext } from 'node:vm'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import ts from 'typescript'
+import { windowChromeOptions } from '../src/main/window-chrome.ts'
 
 // 执行实际窗口创建函数，验证首次启动和托盘重建窗口都应用菜单策略。
 const source = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
@@ -31,7 +32,7 @@ for (const platform of ['win32', 'darwin', 'linux']) {
         loadFile() { this.calls.push(['loadFile']) }
       }
       runInNewContext(`${script}; createWindow(); createWindow();`, {
-        BrowserWindow, join, __dirname: '/app/main', mainWindow: null,
+        BrowserWindow, windowChromeOptions, join, __dirname: '/app/main', mainWindow: null,
         process: { platform, env: development ? { ELECTRON_RENDERER_URL: 'http://localhost:5173' } : {} }
       })
       assert.equal(windows.length, 2)
@@ -41,6 +42,9 @@ for (const platform of ['win32', 'darwin', 'linux']) {
           [development ? 'loadURL' : 'loadFile']
         ])
         assert.equal(window.options.frame, undefined)
+        // 托盘重建与首次启动都保留平台原生按钮，Linux 继续使用系统标题栏。
+        assert.equal(window.options.titleBarStyle, platform === 'linux' ? undefined : 'hidden')
+        assert.deepEqual(window.options.titleBarOverlay, windowChromeOptions(platform).titleBarOverlay)
         assert.equal(window.options.webPreferences.contextIsolation, true)
         assert.equal(window.options.webPreferences.nodeIntegration, false)
       }

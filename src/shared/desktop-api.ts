@@ -39,6 +39,9 @@ export type StartupState =
 export interface HostStatus { configured: boolean; running: boolean; systemManaged: boolean; migrationNeeded: boolean; fingerprint: string | null }
 
 export interface DesktopApi {
+  // 平台是只读标识，不向页面暴露 Node.js 的 process 对象。
+  readonly platform: string
+  setWindowTheme: (mode: 'light' | 'dark') => Promise<void>
   getVersion: () => Promise<string>
   getBackendHealth: () => Promise<BackendHealth>
   saveReportCsv: (fileName: string, csv: string) => Promise<string | null>

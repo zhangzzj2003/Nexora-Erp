@@ -12,6 +12,7 @@ import AuthView from './AuthView.vue'
 import { nexoraLogo } from '../assets/brand'
 import { accountRoleText } from '../utils/account-role'
 import { workspacePageDescriptions } from '../utils/workspace-page-copy'
+import { usesIntegratedTitleBar } from '../../../shared/window-chrome'
 
 const {
   screen,
@@ -38,6 +39,8 @@ const {
 const isAuthScreen = computed(() => screen.value === 'setup' || screen.value === 'login')
 // 窄窗口与侧栏账号卡片共用角色名称规则，避免同一用户显示两种称呼。
 const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], roles.value))
+// 桌面标签已融入窗口顶部，普通浏览器继续在内容区显示。
+const integratedTitleBar = usesIntegratedTitleBar(window.nexora?.platform)
 </script>
 
 <template>
@@ -49,7 +52,7 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
 
     <main class="content">
       <div class="content-body" :class="{ 'auth-screen': isAuthScreen }">
-        <WorkspaceTabs v-if="screen === 'app'" />
+        <WorkspaceTabs v-if="screen === 'app' && !integratedTitleBar" />
 
         <header class="topbar">
           <!-- 登录标题沿用侧栏的品牌图形，保持未登录和工作台的视觉识别一致。 -->
