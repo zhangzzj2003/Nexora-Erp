@@ -9,6 +9,7 @@ from app.core.orm import orm_session, model_data
 router = APIRouter(prefix="/api/v1/menu-icons")
 # 固定菜单与图标白名单；契约测试核对桌面登记表，防止新增入口遗漏。
 MENU_KEYS = {
+    'route:trace','route:financeTools','route:productionPlanning','route:purchaseApprovals',
     'group:catalog',
     'group:finance',
     'group:production',

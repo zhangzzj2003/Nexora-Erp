@@ -7,7 +7,9 @@ export function createJournalActions(state: AppState, perform: (action: () => Pr
     state.journalOptions.value = await window.nexora.callApi('journalOptions', undefined)
     state.journalForm.value = item ? {
       id: item.id, version: item.version, reference: item.reference, journal_date: item.journal_date,
-      note: item.note, reason: '', lines: item.lines.map(({ account_id, summary, debit, credit, customer_id, supplier_id, department, project }) => ({ account_id, summary, debit, credit, customer_id, supplier_id, department, project }))
+      note: item.note, reason: '', lines: item.lines.map(({ account_id, summary, debit, credit, customer_id, supplier_id, department, project }) => ({ account_id, summary, debit, credit,
+          ...(customer_id === undefined ? {} : {customer_id}), ...(supplier_id === undefined ? {} : {supplier_id}),
+          ...(department === undefined ? {} : {department}), ...(project === undefined ? {} : {project}) }))
     } : { id: null, version: 1, reference: '', journal_date: '', note: '', reason: '',
       lines: [1, 2].map(() => ({ account_id: 0, summary: '', debit: '0', credit: '0' })) }
   }
@@ -18,7 +20,9 @@ export function createJournalActions(state: AppState, perform: (action: () => Pr
       const { id, version, reference, journal_date, note, reason, lines } = state.journalForm.value
       // 逐项构造普通对象，避免 Vue Proxy 进入 Electron IPC。
       const input = { reference, journal_date, note, reason,
-        lines: lines.map(({ account_id, summary, debit, credit, customer_id, supplier_id, department, project }) => ({ account_id, summary, debit, credit, customer_id, supplier_id, department, project })) }
+        lines: lines.map(({ account_id, summary, debit, credit, customer_id, supplier_id, department, project }) => ({ account_id, summary, debit, credit,
+          ...(customer_id === undefined ? {} : {customer_id}), ...(supplier_id === undefined ? {} : {supplier_id}),
+          ...(department === undefined ? {} : {department}), ...(project === undefined ? {} : {project}) })) }
       if (id === null) await window.nexora!.callApi('createJournal', input)
       else await window.nexora!.callApi('updateJournal', { ...input, id, version })
       state.journalForm.value = { id: null, version: 1, reference: '', journal_date: '', note: '', reason: '', lines: [] }

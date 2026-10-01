@@ -43,8 +43,8 @@ test('迟到来源不可覆盖新快照，换号或撤权会清除来源和配�
   const state = createAppState(); state.user.value = { id: 1, permissions }
   let pending = true; const resolvers = []
   globalThis.window = { nexora: { callApi(operation) {
-    if (pending) return new Promise(resolve => resolvers.push(() => resolve(operation === 'businessJournalSources' ? [{key:'old'}] : response(operation))))
-    return Promise.resolve(operation === 'businessJournalSources' ? [{key:'new'}] : response(operation))
+    if (pending) return new Promise(resolve => resolvers.push(() => resolve(operation === 'queryTable' ? {items:[{key:'old'}],page:1,total:1,page_size:20} : response(operation))))
+    return Promise.resolve(operation === 'queryTable' ? {items:[{key:'new'}],page:1,total:1,page_size:20} : response(operation))
   } } }
   const actions = createBusinessJournalActions(state, action => action())
   const first = actions.loadBusinessJournals(); pending = false
@@ -100,7 +100,7 @@ test('业务快照撤权清理先于其他模块加载失败', async t => {
   state.businessJournalPolicyChanges.value = [{id:1}]
   globalThis.window = { nexora: { async callApi(operation) {
     if (operation === 'me') return { id:1,permissions:['inventory.view'] }
-    if (operation === 'materials') throw Error('资料读取失败')
+    if (operation === 'menuIcons') throw Error('资料读取失败')
     return []
   } } }
   await assert.rejects(createDataLoader(state, code => state.user.value.permissions.includes(code), () => {}).refreshData(), /资料读取失败/)

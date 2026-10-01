@@ -2,7 +2,7 @@
 from decimal import Decimal
 from fastapi import HTTPException
 from sqlalchemy import select
-from app.core.models import StockMovement, InventoryLot, MovementLot, SalesReturnLine, MaterialReturnLine
+from app.core.models import StockMovement, InventoryLot, MovementLot, SalesReturnLine, MaterialReturnLine, ProductionCompletionReversal
 from app.core.orm import add_model
 
 
@@ -20,6 +20,9 @@ def source_movement(db,row):
         value=db.get(SalesReturnLine,row.source_line_id);kind='shipment';line=value.shipment_line_id if value else None
     elif row.source_type=='material_return':
         value=db.get(MaterialReturnLine,row.source_line_id);kind='material_issue';line=value.material_issue_line_id if value else None
+    elif row.source_type=='production_completion_reversal':
+        value=db.get(ProductionCompletionReversal,row.source_line_id)
+        kind='production_completion';line=value.production_completion_id if value else None
     elif row.source_type.endswith('_reversal'):
         kind=row.source_type.removesuffix('_reversal');line=row.source_line_id
     if kind and line:
@@ -38,8 +41,18 @@ def record_movements(db,head):
         if quantity>0:
             original=list(db.scalars(select(MovementLot).where(MovementLot.movement_id==source.id))) if source else []
             remaining=quantity
+            returned={}
+            # 分次退回按原出库各批次的未退数量分配，已冲销的退回也计入净额。
+            if source and row.source_type in ('sales_return','material_return'):
+                for prior in db.scalars(select(StockMovement).where(StockMovement.id<row.id,StockMovement.material_id==row.material_id,
+                        StockMovement.source_type.in_((row.source_type,row.source_type+'_reversal')))):
+                    origin=source_movement(db,prior)
+                    if prior.source_type.endswith('_reversal') and origin:origin=source_movement(db,origin)
+                    if origin is None or origin.id!=source.id:continue
+                    for item in db.scalars(select(MovementLot).where(MovementLot.movement_id==prior.id)):
+                        returned[item.lot_id]=returned.get(item.lot_id,Decimal(0))+Decimal(item.quantity)
             for allocation in original:
-                part=min(remaining,abs(Decimal(allocation.quantity)))
+                part=min(remaining,max(abs(Decimal(allocation.quantity))-returned.get(allocation.lot_id,Decimal(0)),Decimal(0)))
                 if part>0:db.add(MovementLot(movement_id=row.id,lot_id=allocation.lot_id,quantity=str(part)));remaining-=part
             if remaining:
                 lot=add_model(db,InventoryLot(code=f'LOT-{row.id}',material_id=row.material_id,origin_movement_id=row.id,basis='系统入库批次'))
@@ -57,13 +70,15 @@ def record_movements(db,head):
                 lots.append(legacy)
             if source and Decimal(source.quantity)>0:
                 origin_ids=set(db.scalars(select(MovementLot.lot_id).where(MovementLot.movement_id==source.id)))
-                lots=[lot for lot in lots if lot.id in origin_ids]
+                # 系统 FIFO 不代表物理批号；优先冲回原批次，再按当前可用库存分配。
+                # 不能因推断的批次已被调拨而拒绝现有按总库存校验的冲销业务。
+                lots.sort(key=lambda lot:(lot.id not in origin_ids,lot.id))
             remaining=-quantity
             for lot in lots:
                 available=balance(db,lot,row.warehouse_id)
                 part=min(remaining,max(available,Decimal(0)))
                 if part>0:db.add(MovementLot(movement_id=row.id,lot_id=lot.id,quantity=str(-part)));remaining-=part
                 if remaining==0:break
-            if remaining>0:raise HTTPException(409,'原入库批次已消耗或可用批次数量不足，请核对相关出库及冲销')
+            if remaining>0:raise HTTPException(409,'系统批次可用数量不足，请核对库存及冲销记录')
         # 让下一条调拨入库能读取刚追加的出库批次，仍受外层事务整体回滚保护。
         db.flush()

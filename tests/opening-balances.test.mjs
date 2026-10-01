@@ -51,7 +51,7 @@ test('撤权清除期初数据和表单，晚到的选项不可恢复；其他�
   pending.resolve({accounts:[{id:1}],period:null});assert.equal(await loading,false)
   assert.deepEqual(state.openingBalances.value,[]);assert.equal(state.openingBalanceForm.value.reference,'');assert.deepEqual(state.openingBalanceOptions.value,{accounts:[],period:null})
   state.user.value={id:1,permissions};state.openingBalances.value=[{id:1}];state.openingBalanceOptions.value={accounts:[{id:1}],period:null}
-  globalThis.window={nexora:{async callApi(action){if(action==='me')return{id:1,permissions:['inventory.view']};if(action==='materials')throw Error('业务失败');return[]}}}
+  globalThis.window={nexora:{async callApi(action){if(action==='me')return{id:1,permissions:['inventory.view']};if(action==='menuIcons')throw Error('业务失败');return[]}}}
   await assert.rejects(createDataLoader(state,p=>state.user.value.permissions.includes(p),()=>{}).refreshData(),/业务失败/)
   assert.deepEqual(state.openingBalances.value,[]);assert.deepEqual(state.openingBalanceOptions.value,{accounts:[],period:null})
 })

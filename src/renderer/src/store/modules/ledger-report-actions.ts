@@ -56,7 +56,7 @@ export function createLedgerReportActions(state: AppState) {
     const ticket = ++detailTicket
     state.ledgerReportJournalLoading.value = true
     try {
-      const record = await window.nexora!.callApi('journalDetail', { id })
+      const record = await window.nexora!.callApi('journalDetail', { id, paged: true })
       if (ticket === detailTicket && allowed()) state.ledgerReportJournal.value = record
     } catch (cause) {
       if (ticket === detailTicket) state.ledgerReportJournalError.value = displayError(cause)

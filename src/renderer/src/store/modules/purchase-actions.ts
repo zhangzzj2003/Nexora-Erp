@@ -1,3 +1,4 @@
+import { createRequestScope } from '../../utils/request-scope.ts'
 import type { AppState } from '../state'
 
 // 采购单据操作独立维护；写入后由统一入口刷新服务端快照。
@@ -5,6 +6,7 @@ export function createPurchaseActions(
   state: AppState,
   perform: (action: () => Promise<unknown>, success: string) => Promise<void>
 ) {
+  const requestScope = state.user ? createRequestScope(state) : null
   const {
     purchaseOrders,
     goodsReceipts,
@@ -200,7 +202,7 @@ export function createPurchaseActions(
       purchaseForm.value = {
         supplier_id: 0,
         reference: '',
-        lines: [{ material_id: 0, quantity: '1', unit_price: '0' }]
+        lines: [{ material_id: 0, quantity: '1', unit_price: '0', tax_rate: '0', discount_rate: '0', includes_tax: false }]
       }
     }, '采购订单草稿已创建。')
   }
@@ -300,11 +302,13 @@ export function createPurchaseActions(
 
   async function loadPurchaseApprovalPolicy():Promise<void>{
     if(!window.nexora)return
-    await perform(async()=>{state.purchaseApprovalPolicy.value=await window.nexora!.callApi('purchaseApprovalPolicy',undefined)},'审批规则已读取。')
+    const scope=requestScope!.capture()
+    await perform(async()=>{const result=await window.nexora!.callApi('purchaseApprovalPolicy',undefined);if(requestScope!.current(scope))state.purchaseApprovalPolicy.value=result},'审批规则已读取。')
   }
   async function savePurchaseApprovalPolicy(input:import('../../../../shared/erp-api').PurchaseApprovalPolicy & {reason:string}):Promise<void>{
     if(!window.nexora)return
-    await perform(async()=>{state.purchaseApprovalPolicy.value=await window.nexora!.callApi('savePurchaseApprovalPolicy',input)},'审批规则已保存，已提交申请保留原审批链。')
+    const scope=requestScope!.capture()
+    await perform(async()=>{const result=await window.nexora!.callApi('savePurchaseApprovalPolicy',input);if(requestScope!.current(scope))state.purchaseApprovalPolicy.value=result},'审批规则已保存，已提交申请保留原审批链。')
   }
   async function delegatePurchaseApproval(input:import('../../../../shared/erp-api').ErpOperations['delegatePurchaseApproval']['input']):Promise<void>{
     if(!window.nexora)return

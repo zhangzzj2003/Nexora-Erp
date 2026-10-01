@@ -97,7 +97,7 @@ async function generate(): Promise<void> {
         <h3>结转科目配置</h3>
         <p class="muted">本年利润使用贷方方向的权益科目。启用日期保存后固定；生产成本、在制品不能未经核对纳入损益。</p>
         <div class="form-grid">
-          <label>启用期间开始日期<WorkspaceSelect v-model="configuration.start_date" :options="startOptions" required aria-label="启用期间开始日期" :disabled="configuration.version > 0 || busy" /></label>
+          <label>启用期间开始日期<WorkspaceSelect v-model="configuration.start_date" remote-dataset="accountingPeriods" remote-value-key="start_date" :options="startOptions" required aria-label="启用期间开始日期" :disabled="configuration.version > 0 || busy" /></label>
           <label>本年利润科目<WorkspaceSelect remote-dataset="ledgerAccounts" :remote-filters="{category:'equity',normal_balance:'credit',is_active:true}" :model-value="configuration.target_account_id ?? 0" :options="targetOptions" required aria-label="本年利润科目" :disabled="busy" @update:model-value="value => { configuration.target_account_id = value }" /></label>
           <label>配置依据 / 原因<AppInput v-model.trim="configuration.reason" required maxlength="200" :disabled="busy" /></label>
         </div>
@@ -107,7 +107,7 @@ async function generate(): Promise<void> {
         </WorkspaceTable>
         <div class="form-actions"><AppButton variant="primary" type="submit" :disabled="busy || connectionLost || loading || !configuration.target_account_id">{{ busy ? '正在保存…' : '保存结转配置' }}</AppButton><AppButton variant="secondary" type="button" :disabled="busy" @click="configure = false">取消配置</AppButton></div>
       </form>
-      <label class="ledger-search">结转期间<WorkspaceSelect v-model="periodId" :options="periodOptions" aria-label="结转期间" :disabled="busy || loading" @change="id => loadProfitTransferPreview(id)" /></label>
+      <label class="ledger-search">结转期间<WorkspaceSelect v-model="periodId" remote-dataset="accountingPeriods" :options="periodOptions" aria-label="结转期间" :disabled="busy || loading" @change="id => loadProfitTransferPreview(id)" /></label>
       <p v-if="!options.periods.length" class="muted">暂无会计期间。请先在“会计期间”建立公司使用的期间。</p>
     </template>
     <template v-if="preview && !loading && preview.period.id === periodId">

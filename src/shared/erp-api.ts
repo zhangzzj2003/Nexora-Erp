@@ -36,6 +36,14 @@ export interface Customer {
 export interface CustomerChange {
   id: number; action: string; reason: string; changed_by: number; created_at: string
 }
+export interface Material { id: number; sku: string; name: string; unit: string }
+export interface Warehouse { id: number; code: string; name: string }
+export type LedgerCategory = 'asset' | 'liability' | 'equity' | 'income' | 'expense' | 'cost'
+export interface LedgerAccount {
+  id: number; code: string; name: string; category: LedgerCategory
+  normal_balance: 'debit' | 'credit'; is_active: boolean; version: number
+  created_by: number; created_at: string
+}
 export interface AccountingPeriod {
   id: number; code: string; name: string; start_date: string; end_date: string
   status: 'open' | 'closed'; version: number; created_by: number; created_at: string
@@ -709,6 +717,8 @@ export interface ProductionCostSettlement {
   reversal_reason: string | null
   reversed_by_name: string | null
   reversed_at: string | null
+  // 质量成本独立展示，返工关联保留，不能全部算成合格品成本。
+  quality_costs?: { settlement_id: number; disposition_id: number; amount: string; kind: 'scrap' | 'rework'; quantity: string; rework_order_id: number | null }[]
   allocations: { settlement_id: number; completion_id: number; movement_id: number; quantity: string; amount: string }[]
   material_sources: Omit<ProductionMaterialSource, 'work_order_id' | 'material_issue_id'>[]
   charges: { id: number; kind: 'labor' | 'overhead'; amount: string; reference: string; created_by: number; created_at: string }[]
@@ -917,7 +927,7 @@ export interface LedgerRow {
   balance_quantity: string
 }
 export interface LedgerResult {
-  snapshot_id?: string groups: LedgerGroup[]; rows: LedgerRow[] }
+  snapshot_id?: string; groups: LedgerGroup[]; rows: LedgerRow[] }
 export interface LedgerQuery {
   paged?: boolean
   warehouse_id: number | null
@@ -946,7 +956,7 @@ export interface ReportResult {
 }
 
 // 每个数据集只允许服务端固定白名单查询；默认每页 20，最多 100。
-export type TableDataset = 'purchaseApprovalHistory' | 'purchaseApprovalStages' | 'planningPolicies' | 'workCenters' | 'productionSchedules' | 'qualityDispositions' | 'productionPlanAudits' | 'inventoryLots' | 'salesOrderLines' | 'businessSources' | 'businessPolicyHistory' | 'profitPolicyHistory' | 'financeCustomers' | 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
+export type TableDataset = 'purchaseApprovalHistory' | 'purchaseApprovalStages' | 'planningPolicies' | 'workCenters' | 'productionSchedules' | 'qualityDispositions' | 'productionPlanAudits' | 'inventoryLots' | 'salesOrderLines' | 'businessSources' | 'businessPolicyHistory' | 'profitPolicyHistory' | 'financeCustomers' | 'financeSuppliers' | 'unboundMaterials' | 'boundMaterials' | 'periodClosingHistory' | 'closingEvidence' | 'journalLines' | 'openingLines' | 'snapshot' | 'inventoryValuationMaterials' | 'inventoryValuationMovements' | 'productionCostOrders' | 'productionCostEntries' | 'productionMaterialSources' | 'financeAccounts' | 'financialSources' | 'materials' | 'suppliers' | 'supplierMaterials' | 'customers' | 'warehouses' | 'users' | 'roles' | 'purchaseRequests' | 'purchaseOrders' | 'goodsReceipts' | 'receipts' | 'purchaseReturns' | 'otherInbounds' | 'warehouseOutbounds' | 'stockAdjustments' | 'transfers' | 'stocktakes' | 'salesOrders' | 'shipments' | 'salesReturns' | 'boms' | 'workOrders' | 'materialIssues' | 'materialReturns' | 'productionCompletions' | 'productionCostSettlements' | 'ledgerAccounts' | 'accountingPeriods' | 'journals' | 'openingBalances' | 'paymentRecords' | 'inventoryCostInputs' | 'customerHistory' | 'journalHistory' | 'openingHistory' | 'ledgerAccountHistory' | 'periodHistory' | 'movements' | 'stock'
 export interface TableQuery extends PageQuery {
   snapshot_id?: string; snapshot_path?: string
   dataset: TableDataset; sort?: string; descending?: boolean

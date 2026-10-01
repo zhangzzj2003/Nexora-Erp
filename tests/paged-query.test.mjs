@@ -65,3 +65,30 @@ test('分页结果接受回调忽略乱序旧页', async () => {
   pending[0]({ items: [{id: 1}], total: 2, page: 1, page_size: 1 }); await old
   assert.deepEqual(accepted, [[{id: 2}]]); scope.stop()
 })
+
+
+// 翻页之后仍可读取表单所选单据，缓存只保留当前页及有界的表单引用。
+test('分页共享快照保留选中单据并替换无关旧页', async () => {
+  const {createAppState}=await import('../src/renderer/src/store/state.ts')
+  const {createTableActions}=await import('../src/renderer/src/store/modules/table-actions.ts')
+  const state=createAppState();state.user.value={id:1,roles:['admin'],permissions:[]}
+  state.goodsReceiptForm.value.purchase_order_id=3
+  state.purchaseOrders.value=[{id:3,lines:[{id:31}]},{id:4,lines:[]}]
+  createTableActions(state).hydrateDataset('purchaseOrders',[{id:9,lines:[]}])
+  assert.deepEqual(state.purchaseOrders.value.map(row=>row.id),[9,3])
+  state.goodsReceiptForm.value.purchase_order_id=0
+  createTableActions(state).hydrateDataset('purchaseOrders',[{id:10,lines:[]}])
+  assert.deepEqual(state.purchaseOrders.value.map(row=>row.id),[10])
+})
+
+// 撤权后重新授权，较早的请求也必须失效。
+test('请求范围识别同一账号撤权再授权', async () => {
+  const {createAppState}=await import('../src/renderer/src/store/state.ts')
+  const {createRequestScope}=await import('../src/renderer/src/utils/request-scope.ts')
+  const state=createAppState();state.user.value={id:1,roles:['finance'],permissions:['finance.view']}
+  const scope=createRequestScope(state);const old=scope.capture()
+  state.user.value={id:1,roles:['finance'],permissions:[]}
+  state.user.value={id:1,roles:['finance'],permissions:['finance.view']}
+  assert.equal(scope.current(old),false)
+  assert.equal(scope.current(scope.capture()),true)
+})

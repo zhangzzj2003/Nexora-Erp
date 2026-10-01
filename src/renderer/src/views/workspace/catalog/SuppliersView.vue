@@ -252,7 +252,7 @@ async function submitBinding(): Promise<void> {
               >搜索可绑定物料<AppInput v-model="materialQuery" placeholder="物料编码、名称或规格"
             /></label>
             <label
-              >选择物料<WorkspaceSelect
+              >选择物料<WorkspaceSelect remote-dataset="unboundMaterials" :remote-filters="{supplier_id:selectedId}"
                 v-model="materialId"
                 required
                 :options="[

@@ -1,9 +1,29 @@
+import { createRequestScope } from '../../utils/request-scope.ts'
 import type { TableDataset, TableQuery, TableRow } from '../../../../shared/erp-api'
 import type { AppState } from '../state'
 
 // 列表和选择框共用服务端分页，跨页面业务操作仅持有已读取的有界快照。
 export function createTableActions(state: AppState) {
+  const requestScope = state.user ? createRequestScope(state) : null
   function hydrateDataset(dataset: TableDataset, rows: TableRow[], metadata?: Record<string, unknown> | null): void {
+    // 主列表用自己的分页行显示；共享快照额外保留当前表单引用的记录，供选择联动读取。
+    const selected=new Set<number>()
+    function collect(value: unknown, depth = 0): void {
+      if (depth > 5 || !value || typeof value !== 'object') return
+      for (const [key,item] of Object.entries(value)) {
+        if ((key === 'id' || key.endsWith('_id')) && typeof item === 'number' && item > 0) selected.add(item)
+        else if (item && typeof item === 'object') collect(item,depth+1)
+      }
+    }
+    for (const [name,item] of Object.entries(state)) if (/form|edit/i.test(name) && item && typeof item === 'object' && 'value' in item) collect(item.value)
+    const previous=dataset === 'salesOrders' ? state.salesOrders.value : dataset === 'purchaseOrders' ? state.purchaseOrders.value
+      : dataset === 'workOrders' ? state.workOrders.value : dataset === 'materialIssues' ? state.materialIssues.value
+      : dataset === 'receipts' ? state.receipts.value : dataset === 'shipments' ? state.shipments.value
+      : dataset === 'purchaseRequests' ? state.purchaseRequests.value : dataset === 'materials' ? state.materials.value
+      : dataset === 'customers' ? state.customers.value : dataset === 'productionCostOrders' ? state.productionCostReport.value?.orders ?? [] : dataset === 'productionMaterialSources' ? state.productionCostReport.value?.material_sources ?? [] : []
+    const key=(row:object)=>{const item=row as TableRow;return dataset==='productionCostOrders' ? item.work_order_id : dataset==='productionMaterialSources' ? item.material_issue_line_id : item.id}
+    const present=new Set(rows.map(key))
+    rows=[...rows,...previous.filter(row=>selected.has(Number(key(row))) && !present.has(key(row))).slice(0,100)] as TableRow[]
     switch (dataset) {
       case 'businessSources': state.businessJournalSources.value = rows as unknown as typeof state.businessJournalSources.value; break
       case 'inventoryValuationMaterials':
@@ -54,10 +74,12 @@ export function createTableActions(state: AppState) {
       case 'stock': state.stock.value = rows as unknown as typeof state.stock.value;
         if (metadata) state.stockSummary.value = metadata as unknown as typeof state.stockSummary.value; break
     }
-    if (dataset === 'users') state.roleDrafts.value = Object.fromEntries(state.users.value.map(user => [user.id, [...user.roles]]))
+    if (dataset === 'users') for (const user of state.users.value) state.roleDrafts.value[user.id] ??= [...user.roles]
     if (dataset === 'roles') {
-      state.rolePermissionDrafts.value = Object.fromEntries(state.roles.value.map(role => [role.code, [...role.permissions]]))
-      state.roleLabelDrafts.value = Object.fromEntries(state.roles.value.map(role => [role.code, role.label]))
+      for (const role of state.roles.value) {
+        state.rolePermissionDrafts.value[role.code] ??= [...role.permissions]
+        state.roleLabelDrafts.value[role.code] ??= role.label
+      }
     }
     if (dataset === 'productionCompletions') {
       // 分页或重查保留尚未保存的质检草稿，不用新结果覆盖用户输入。
@@ -78,10 +100,10 @@ export function createTableActions(state: AppState) {
   }
   async function queryTrace(input: import('../../../../shared/erp-api').ErpOperations['queryTrace']['input']): Promise<void> {
     if(!window.nexora)return
-    const owner=state.user.value?.id
+    const owner=requestScope!.capture()
     state.traceResult.value=null
     const result=await window.nexora.callApi('queryTrace',input)
-    if(owner===state.user.value?.id)state.traceResult.value=result
+    if(requestScope!.current(owner))state.traceResult.value=result
   }
   async function allocateSalesWork(input: import('../../../../shared/erp-api').ErpOperations['allocateSalesWork']['input']):Promise<void>{
     if(!window.nexora)return

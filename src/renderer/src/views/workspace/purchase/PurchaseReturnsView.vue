@@ -78,7 +78,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >原入库单<WorkspaceSelect
+            >原入库单<WorkspaceSelect remote-dataset="receipts" :remote-filters="{status:'posted'}"
               v-model="purchaseReturnForm.receipt_id"
               required
               @change="choosePurchaseReturnReceipt"

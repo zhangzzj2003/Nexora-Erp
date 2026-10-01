@@ -1,3 +1,4 @@
+import { createRequestScope } from '../../utils/request-scope.ts'
 import type { AppState } from '../state'
 import type { WorkspaceRouteKey } from '../../router/workspace-routes'
 // 生产操作集中在业务模块；写入后仍由统一入口刷新服务端快照。
@@ -6,6 +7,7 @@ export function createProductionActions(
   perform: (action: () => Promise<unknown>, success: string) => Promise<void>,
   navigateToRoute: (key: WorkspaceRouteKey) => void
 ) {
+  const requestScope = state.user ? createRequestScope(state) : null
   const {
     workOrders,
     materialIssues,
@@ -336,10 +338,10 @@ export function createProductionActions(
   }
   async function runProductionTool(action:import('../../../../shared/erp-api').ProductionToolAction,payload:Record<string,unknown>):Promise<void>{
     if(!window.nexora)return
-    const owner=state.user.value?.id
+    const owner=requestScope!.capture()
     await perform(async()=>{
       const result=await window.nexora!.callApi('productionTools',{action,payload})
-      if(owner===state.user.value?.id)state.productionToolResult.value=result
+      if(requestScope!.current(owner))state.productionToolResult.value=result
     },'生产计划或质量处理已完成。')
   }
   return {

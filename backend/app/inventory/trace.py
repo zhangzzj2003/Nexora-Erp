@@ -65,9 +65,25 @@ LABELS={'sales_order':'销','work_order':'工','shipment':'出','receipt':'入',
     'other_inbound':'其他入','other_outbound':'其他出','lot':'批次','movement':'流水'}
 
 
-def movement_document(row):
-    kind=row.source_type.removesuffix('_reversal').replace('transfer_in','transfer').replace('transfer_out','transfer').replace('transfer_reversal_in','transfer').replace('transfer_reversal_out','transfer')
-    return kind if kind in MODELS else None
+# 冲销单编号与原单编号是不同序列，必须通过冲销关系回到原单。
+REVERSALS={
+    'receipt':(m.ReceiptReversal,'receipt_id'), 'shipment':(m.ShipmentReversal,'shipment_id'),
+    'sales_return':(m.SalesReturnReversal,'sales_return_id'), 'purchase_return':(m.PurchaseReturnReversal,'purchase_return_id'),
+    'production_completion':(m.ProductionCompletionReversal,'production_completion_id'),
+    'transfer':(m.TransferReversal,'transfer_id'), 'stocktake':(m.StocktakeReversal,'stocktake_id'),
+    'adjustment':(m.StockAdjustmentReversal,'adjustment_id'), 'other_inbound':(m.WarehouseInboundReversal,'inbound_id'),
+    'other_outbound':(m.WarehouseOutboundReversal,'outbound_id')}
+
+
+def movement_document(db,row):
+    kind='transfer' if row.source_type.startswith('transfer_') else row.source_type.removesuffix('_reversal')
+    if kind not in MODELS:return None
+    identifier=row.source_id
+    if 'reversal' in row.source_type:
+        model,field=REVERSALS[kind];reversal=db.get(model,row.source_id)
+        if reversal is None:return None
+        identifier=getattr(reversal,field)
+    return kind,identifier
 
 
 @router.post('/query')
@@ -118,12 +134,18 @@ def query_trace(payload:TraceQuery,user:dict=Depends(require('trace.view'))):
                 node['warehouse_balances']='；'.join(f'{warehouse.name}: {balance(db,row,warehouse.id)}' for warehouse in db.scalars(select(m.Warehouse)) if balance(db,row,warehouse.id)!=0)
             elif kind=='movement':
                 node.update(material_id=row.material_id,warehouse_id=row.warehouse_id,quantity=row.quantity)
-                doc=movement_document(row)
-                if doc:link(parent,(doc,row.source_id),row.quantity,'库存单据来源')
+                doc=movement_document(db,row)
+                if doc:link(parent,doc,row.quantity,'库存单据来源')
                 for alloc in db.scalars(select(m.MovementLot).where(m.MovementLot.movement_id==identifier)):link(parent,('lot',alloc.lot_id),alloc.quantity,'系统批次分配')
             else:
-                source_kinds=[kind,kind+'_reversal']
-                if kind=='transfer':source_kinds=['transfer_in','transfer_out','transfer_reversal_in','transfer_reversal_out']
-                for movement in db.scalars(select(m.StockMovement).where(m.StockMovement.source_type.in_(source_kinds),m.StockMovement.source_id==identifier)):link(parent,('movement',movement.id),movement.quantity,'库存确认')
+                source_kinds=['transfer_in','transfer_out'] if kind=='transfer' else [kind]
+                for movement in db.scalars(select(m.StockMovement).where(m.StockMovement.source_type.in_(source_kinds),m.StockMovement.source_id==identifier)):
+                    link(parent,('movement',movement.id),movement.quantity,'库存确认')
+                if kind in REVERSALS:
+                    model,field=REVERSALS[kind]
+                    reversal_ids=select(model.id).where(getattr(model,field)==identifier)
+                    types=['transfer_reversal_in','transfer_reversal_out'] if kind=='transfer' else [kind+'_reversal']
+                    for movement in db.scalars(select(m.StockMovement).where(m.StockMovement.source_type.in_(types),m.StockMovement.source_id.in_(reversal_ids))):
+                        link(parent,('movement',movement.id),movement.quantity,'库存冲销')
         # 列表只输出操作资料；金额隔离无需依赖前端隐藏列。
         return snapshot_metadata({'nodes':list(nodes.values()),'edges':edges,'rows':list(nodes.values()),'csv':'','totals':{'nodes':len(nodes),'edges':len(edges)}},user,('nodes','edges','rows'))

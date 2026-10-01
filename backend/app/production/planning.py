@@ -42,8 +42,6 @@ def mrp(db,warehouse_id,through_date):
         remaining=max(Decimal(line.quantity)-max(allocated,shipped_quantity(db,line.id)),Decimal(0))
         if remaining:explode(line.material_id,remaining,(),f'销-{order.id}')
     incoming={};requested={}
-    for material,quantity in db.execute(select(m.StockMovement.material_id,m.StockMovement.quantity).where(m.StockMovement.warehouse_id==warehouse_id)):
-        stock[material]=stock.get(material,Decimal(0))+Decimal(quantity)
     for line in db.scalars(select(m.PurchaseOrderLine).join(m.PurchaseOrder,m.PurchaseOrder.id==m.PurchaseOrderLine.purchase_order_id)
         .where(m.PurchaseOrder.status.in_(('confirmed','partially_received')))):
         incoming[line.material_id]=incoming.get(line.material_id,Decimal(0))+max(Decimal(line.quantity)-received_quantity(db,line.id),Decimal(0))
@@ -55,7 +53,7 @@ def mrp(db,warehouse_id,through_date):
     for identifier in sorted(set(needed)|set(policies)):
         material=db.get(m.Material,identifier);policy=policies.get(identifier)
         safety=Decimal(policy.safety_quantity) if policy else Decimal(0)
-        shortage=max(needed.get(identifier,Decimal(0))+safety-stock.get(identifier,Decimal(0))-incoming.get(identifier,Decimal(0))-requested.get(identifier,Decimal(0)),Decimal(0))
+        shortage=max(needed.get(identifier,Decimal(0))+safety-max(stock.get(identifier,Decimal(0))-covered.get(identifier,Decimal(0)),Decimal(0))-incoming.get(identifier,Decimal(0))-requested.get(identifier,Decimal(0)),Decimal(0))
         rows.append({'material_id':identifier,'sku':material.sku,'name':material.name,'unit':material.unit,'gross_quantity':str(needed.get(identifier,Decimal(0))),
             'stock_quantity':str(stock.get(identifier,Decimal(0))),'incoming_quantity':str(incoming.get(identifier,Decimal(0))),
             'requested_quantity':str(requested.get(identifier,Decimal(0))), 'safety_quantity':str(safety),'shortage_quantity':str(shortage),'need_date':through_date,

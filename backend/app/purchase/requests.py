@@ -22,7 +22,7 @@ from app.core.models import (
 UserCreator = aliased(User)
 UserReviewer = aliased(User)
 
-from app.purchase.approvals import profile_data,save_profile,start_approval,review_approval,audit
+from app.purchase.approvals import profile_data,save_profile,start_approval,review_approval,audit,cancel_approval
 
 router = APIRouter(prefix="/api/v1")
 
@@ -361,5 +361,5 @@ def cancel_purchase_request(
             .where((PurchaseRequest.id == request_id))
             .values(status="cancelled", cancelled_by=user["id"], cancelled_at=func.current_timestamp())
         )
-        audit(db,user,request_id,"cancel","取消采购申请",profile_data(db,request_id))
+        cancel_approval(db,request_id,user)
         return request_data(db, request_id)

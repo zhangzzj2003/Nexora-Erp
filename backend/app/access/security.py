@@ -71,7 +71,7 @@ def require(permission: str):
             raise HTTPException(403, "没有执行此操作的权限")
         # 可读总账、往来或结账证据的岗位必须另获全部销售金额授权，防止从财务旁路读取。
         money_permissions = {'finance.view','finance.record','finance.reverse','journal.view',
-            'opening_balance.view','accounting_period.closing_view','accounting_period.close'}
+            'opening_balance.view','accounting_period.closing_view','accounting_period.close','accounting_period.reopen'}
         if (permission in money_permissions or permission.startswith(('journal.', 'opening_balance.', 'business_journal.', 'profit_transfer.'))) and 'admin' not in user['roles'] and 'sales_amount.all' not in user['permissions']:
             raise HTTPException(403, '没有查看全部销售金额的权限')
         return user

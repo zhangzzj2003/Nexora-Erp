@@ -15,6 +15,7 @@ import { storeToRefs } from 'pinia'
 import { usePiniaAppStore } from '../../store/app-store'
 import { usePagedQuery } from '../../composables/use-paged-query'
 import type { TableDataset, TableRow } from '../../../../shared/erp-api'
+import AppButton from '../app/AppButton.vue'
 import WorkspacePagination from './WorkspacePagination.vue'
 import { tableScrollbarMetrics } from '../../utils/table-scrollbar'
 
@@ -192,7 +193,7 @@ defineSlots<{
               <template v-if="tableError">
                 <strong>数据加载失败</strong>
                 <span>{{ tableError }}</span>
-                <slot name="errorActions"><button v-if="dataset || snapshotId" type="button" @click="remote.load()">重新加载</button></slot>
+                <slot name="errorActions"><AppButton v-if="dataset || snapshotId" type="button" variant="secondary" @click="remote.load()">重新加载</AppButton></slot>
               </template>
               <slot v-else name="empty">{{ emptyText }}</slot>
             </div>

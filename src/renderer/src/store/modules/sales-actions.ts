@@ -65,7 +65,7 @@ export function createSalesActions(
       salesForm.value = {
         customer_id: 0,
         reference: '',
-        lines: [{ material_id: 0, quantity: '1', unit_price: '0' }]
+        lines: [{ material_id: 0, quantity: '1', unit_price: '0', tax_rate: '0', discount_rate: '0', includes_tax: false }]
       }
     }, '销售订单草稿已创建。')
   }

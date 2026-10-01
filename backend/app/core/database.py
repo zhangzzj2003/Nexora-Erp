@@ -1477,12 +1477,16 @@ def migrate() -> None:
                 address TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
                 is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
                 version INTEGER NOT NULL DEFAULT 1 CHECK(version>0))""")
-            db.execute("INSERT OR IGNORE INTO customer_profiles(customer_id) SELECT id FROM customers")
+            # 兼容早期只有权限目录的数据库，完整业务库仍回填历史归属。
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='customers'").fetchone():
+                db.execute("INSERT OR IGNORE INTO customer_profiles(customer_id) SELECT id FROM customers")
             db.execute("CREATE INDEX IF NOT EXISTS customer_profiles_owner ON customer_profiles(owner_id,customer_id)")
             db.execute("""CREATE TABLE IF NOT EXISTS sales_order_owners (
                 order_id INTEGER PRIMARY KEY REFERENCES sales_orders(id), owner_id INTEGER REFERENCES users(id),
                 version INTEGER NOT NULL DEFAULT 1 CHECK(version>0))""")
-            db.execute("INSERT OR IGNORE INTO sales_order_owners(order_id,owner_id) SELECT id,created_by FROM sales_orders")
+            # 兼容早期只有权限目录的数据库，完整业务库仍回填历史归属。
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sales_orders'").fetchone():
+                db.execute("INSERT OR IGNORE INTO sales_order_owners(order_id,owner_id) SELECT id,created_by FROM sales_orders")
             db.execute("CREATE INDEX IF NOT EXISTS sales_order_owners_owner ON sales_order_owners(owner_id,order_id)")
             db.execute("""CREATE TABLE IF NOT EXISTS customer_changes (
                 id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id),
@@ -1493,7 +1497,7 @@ def migrate() -> None:
                                      ('sales_amount.all','查看全部销售金额','sales.sales')]:
                 db.execute("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,?)",(code,label,group))
             db.executemany("INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)",
-                [('admin','customer.view'),('seller','customer.view'),('admin','sales_amount.all'),('finance','sales_amount.all')])
+                [('admin','customer.view'),('seller','customer.view'),('admin','sales_amount.all'),('finance','sales_amount.all'),('finance','sales.view')])
             db.execute("PRAGMA user_version = 46")
 
         if version < 47:
@@ -1511,8 +1515,10 @@ def migrate() -> None:
             from app.core.models import Base
             for name in ('sales_work_allocations','inventory_lots','movement_lots','trace_audits'):
                 db.execute(str(CreateTable(Base.metadata.tables[name], if_not_exists=True).compile(dialect=sqlite.dialect())))
-            db.execute("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES ('trace.view','查看单据与批次溯源','inventory.stock')")
+            db.execute("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES ('trace.view','查看单据与批次溯源','warehouse.inventory')")
             db.executemany("INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,'trace.view')",[(role,) for role in ('admin','warehouse','seller','planner')])
+            # 计划员需要共享销售数量以分配工单；金额仍由独立授权脱敏。
+            db.execute("INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES ('planner','sales.view')")
             db.execute('PRAGMA user_version = 48')
 
         if version < 49:

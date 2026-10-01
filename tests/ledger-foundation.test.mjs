@@ -66,7 +66,7 @@ test('授权撤销时先清理旧科目和期间，即使其他业务读取失�
   state.ledgerAccounts.value = [{ id: 1 }]; state.accountingPeriods.value = [{ id: 1 }]
   globalThis.window = { nexora: { async callApi(action) {
     if (action === 'me') return { permissions: ['inventory.view'] }
-    if (action === 'materials') throw new Error('其他模块失败')
+    if (action === 'menuIcons') throw new Error('其他模块失败')
     return []
   } } }
   const { refreshData } = createDataLoader(state, code => state.user.value.permissions.includes(code), () => {})

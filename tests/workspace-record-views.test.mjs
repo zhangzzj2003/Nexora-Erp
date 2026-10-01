@@ -4,6 +4,7 @@ import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { createPinia } from 'pinia'
 import { matchesRecordQuery } from '../src/renderer/src/utils/workspace-records.ts'
 import { workspacePageDescriptions } from '../src/renderer/src/utils/workspace-page-copy.ts'
 import { workspaceRoutes } from '../src/renderer/src/router/workspace-routes.ts'
@@ -52,7 +53,7 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
   const server = await createServer({configFile:false,plugins:[{
     name:'record-view-fixtures', enforce:'pre',
     resolveId(id,importer) {
-      if(!importer?.includes('/views/workspace/')) return
+      if(!importer?.includes('/views/workspace/') && !importer?.includes('/components/workspace/')) return
       if(id.endsWith('/store/app-store')) return '\0record-view-store'
       if(id.endsWith('/WorkspaceTable.vue')) return '\0record-view-table'
     },
@@ -65,7 +66,7 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
   const {state,permissions}=await server.ssrLoadModule('\0record-view-store')
   const render = async file => {
     const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/'+file)
-    return renderToString(createSSRApp({render:()=>h(View)}))
+    return renderToString(createSSRApp({render:()=>h(View)}).use(createPinia()))
   }
   // 每个财务页面只保留自己的列表，不再依赖旧 finance 标签键才能显示。
   state.activeTab.value = 'financePayments'

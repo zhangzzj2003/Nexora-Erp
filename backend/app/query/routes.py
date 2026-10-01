@@ -74,6 +74,8 @@ SPECS = {
     'businessPolicyHistory':TableSpec(m.BusinessJournalPolicyChange,'business_journal.view'),
     'profitPolicyHistory':TableSpec(m.ProfitTransferPolicyChange,'profit_transfer.view'),
     'financeCustomers': TableSpec(m.Customer, 'finance.view'),
+    'financeSuppliers': TableSpec(m.Supplier, 'finance.view'),
+    'unboundMaterials': TableSpec(m.Material, 'inventory.view'),
     'boundMaterials': TableSpec(m.Material, 'inventory.view'),
     'periodClosingHistory': TableSpec(m.PeriodClosing, 'accounting_period.closing_view', parent='period_id'),
     'materials': TableSpec(m.Material, 'inventory.view'),
@@ -161,7 +163,7 @@ def serialize(db: Session, spec: TableSpec, key, user: dict, dataset: str) -> di
     if dataset.endswith('History'):
         result['before']=json.loads(result.pop('before_json')) if result.get('before_json') else None
         result['after']=json.loads(result.pop('after_json')) if result.get('after_json') else None
-        result['changed_by_name']=db.get(m.User,row.changed_by).username
+        if hasattr(row,'changed_by'):result['changed_by_name']=db.get(m.User,row.changed_by).username
         if dataset in ('businessPolicyHistory','profitPolicyHistory'):result['version']=result['after']['version']
 
     if hasattr(row,'created_by'):
@@ -267,7 +269,7 @@ def query_table(payload: TableQuery, user: dict = Depends(current_user)) -> dict
     if payload.dataset in ('customers','customerHistory'):
         customer_access(user)
     else:
-        if payload.dataset=='ledgerAccounts' and spec.permission not in user['permissions'] and any(code in user['permissions'] for code in ('journal.create','journal.view','opening_balance.create','business_journal.view','profit_transfer.view','finance.view')):
+        if payload.dataset in ('ledgerAccounts','accountingPeriods') and spec.permission not in user['permissions'] and any(code in user['permissions'] for code in ('journal.create','journal.view','opening_balance.create','business_journal.view','profit_transfer.view','finance.view')):
             require('finance.view' if 'finance.view' in user['permissions'] else next(code for code in ('journal.create','journal.view','opening_balance.create','business_journal.view','profit_transfer.view') if code in user['permissions']))(user)
         else: require(spec.permission)(user)
     if len(payload.filters)>12:
@@ -276,10 +278,11 @@ def query_table(payload: TableQuery, user: dict = Depends(current_user)) -> dict
         model=spec.model
         primary=list(model.__table__.primary_key.columns)
         stmt=select(*primary)
-        if payload.dataset=='boundMaterials':
+        if payload.dataset in ('boundMaterials','unboundMaterials'):
             supplier_id=payload.filters.get('supplier_id')
             if not isinstance(supplier_id,int) or supplier_id<=0: raise HTTPException(422,'须指定供应商')
-            stmt=stmt.join(m.SupplierMaterial,m.SupplierMaterial.material_id==m.Material.id).where(m.SupplierMaterial.supplier_id==supplier_id)
+            if payload.dataset=='boundMaterials':stmt=stmt.join(m.SupplierMaterial,m.SupplierMaterial.material_id==m.Material.id).where(m.SupplierMaterial.supplier_id==supplier_id)
+            else:stmt=stmt.where(~select(m.SupplierMaterial.material_id).where(m.SupplierMaterial.material_id==m.Material.id,m.SupplierMaterial.supplier_id==supplier_id).exists())
         if payload.dataset=='customers':
             stmt=stmt.join(m.CustomerProfile,m.CustomerProfile.customer_id==m.Customer.id)
             if not is_admin(user):
@@ -295,8 +298,12 @@ def query_table(payload: TableQuery, user: dict = Depends(current_user)) -> dict
         for name,value in payload.filters.items():
             if value is None: continue
             if name=='warehouse_id' and payload.dataset=='stock': continue
-            if name=='supplier_id' and payload.dataset=='boundMaterials': continue
-            if name not in model.__table__.columns or name not in {'id','warehouse_id','material_id','customer_id','supplier_id','status','category','normal_balance','is_active','customer_id','journal_id','opening_balance_id','sales_order_id','account_id','period_id','work_order_id','owner_id','code','source_type','request_id'}:
+            if name=='supplier_id' and payload.dataset in ('boundMaterials','unboundMaterials'): continue
+            if name=='statuses' and hasattr(model,'status') and isinstance(value,str):
+                stmt=stmt.where(model.status.in_(value.split(',')));continue
+            if payload.dataset=='customers' and name in ('owner_id','is_active'):
+                stmt=stmt.where(getattr(m.CustomerProfile,name)==value);continue
+            if name not in model.__table__.columns or name not in {'id','warehouse_id','material_id','customer_id','supplier_id','status','category','normal_balance','is_active','customer_id','journal_id','opening_balance_id','sales_order_id','account_id','period_id','work_order_id','owner_id','code','source_type','request_id','start_date'}:
                 raise HTTPException(422,'不支持的筛选字段')
             stmt=stmt.where(getattr(model,name)==value)
         if payload.query.strip():

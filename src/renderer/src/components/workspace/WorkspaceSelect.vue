@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T extends WorkspaceSelectValue">
-import { computed, ref, watch, onScopeDispose } from 'vue'
+import { computed, ref, shallowRef, watch, onScopeDispose } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NSelect } from 'naive-ui'
 import type { SelectInst } from 'naive-ui'
@@ -19,6 +19,7 @@ defineOptions({ inheritAttrs: false })
 const props = withDefaults(
   defineProps<{
     remoteDataset?: TableDataset
+    remoteValueKey?: string
     remoteFilters?: Record<string, string | number | boolean | null>
     modelValue: T
     options: readonly WorkspaceSelectOption<T>[]
@@ -38,7 +39,8 @@ const { isDarkTheme } = storeToRefs(useThemeStore())
 const theme = computed(() => workspaceSelectTheme(isDarkTheme.value))
 // 选择框按需远程搜索，保留空选项与当前选中项，避免一次加载所有客户或物料。
 const appStore = usePiniaAppStore()
-const remoteRows = ref<WorkspaceSelectOption<T>[]>([])
+const remoteRows = shallowRef<WorkspaceSelectOption<T>[]>([])
+const retainedSelection = shallowRef<WorkspaceSelectOption<T> | null>(null)
 const remoteLoading = ref(false)
 const remoteError = ref('')
 let remotePage = 1
@@ -47,20 +49,38 @@ let remoteQuery = ''
 let requestVersion = 0
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 function optionFor(row: TableRow): WorkspaceSelectOption<T> {
-  const value = row.id ?? row.code ?? row.work_order_id ?? row.order_id ?? row.material_issue_line_id
-  const name = row.name ?? row.customer_name ?? row.product_name ?? row.party_name ?? row.material_name ?? row.full_name ?? row.username ?? row.label ?? ''
+  const value = props.remoteValueKey ? row[props.remoteValueKey] : props.remoteDataset === 'productionMaterialSources' ? row.material_issue_line_id
+    : props.remoteDataset === 'productionCostOrders' ? row.work_order_id
+    : row.id ?? row.code ?? row.order_id ?? row.work_order_id
+  const name = ['name','customer_name','product_name','party_name','material_name','full_name','username','label','reference','code']
+    .map(key => row[key]).find(value => typeof value === 'string' && value.trim()) ?? ''
   const label = row.sku ? `${row.sku} · ${name}` : name ? `${row.id && !row.name && !row.username ? '#' + row.id + ' · ' : ''}${name}` : `#${value}`
-  return { value: value as T, label }
+  return { value: value as T, label, disabled: row.is_active === false || row.is_active === 0 }
 }
 async function loadOptions(query = '', page = 1): Promise<void> {
   if (!props.remoteDataset || typeof window === 'undefined' || !window.nexora) return
   const current = ++requestVersion
+  // 从属选择框等待上游单据选中；编号为零时不是查询失败，也不能让旧请求回填。
+  if (Object.entries(props.remoteFilters ?? {}).some(([key,value]) => key.endsWith('_id') && value === 0)) {
+    remoteRows.value=[];retainedSelection.value=null;remoteError.value='';remoteTotal=0;remoteLoading.value=false
+    return
+  }
   remoteLoading.value = true
   try {
     remoteError.value = ''
     const result = await appStore.queryDataset({ dataset: props.remoteDataset, query, page, page_size: 100, filters: props.remoteFilters })
+    // 当前选中项可能不在首个搜索页；单独按编号查询，保持表单联动可用。
+    let selected: TableRow[] = []
+    if (props.modelValue && !result.items.some(row => optionFor(row).value === props.modelValue)) {
+      const field = props.remoteValueKey ?? (props.remoteDataset === 'roles' ? 'code' : props.remoteDataset === 'productionMaterialSources' ? 'material_issue_line_id'
+        : props.remoteDataset === 'productionCostOrders' ? 'work_order_id' : props.remoteDataset === 'financeAccounts' ? 'order_id' : 'id')
+      const lookup = await appStore.queryDataset({dataset:props.remoteDataset,query:'',page:1,page_size:1,filters:{...props.remoteFilters,[field]:props.modelValue}})
+      selected=lookup.items
+    }
     if (current !== requestVersion) return
-    appStore.hydrateDataset(props.remoteDataset, result.items)
+    appStore.hydrateDataset(props.remoteDataset, [...result.items,...selected])
+    const active=[...result.items,...selected].find(row=>optionFor(row).value===props.modelValue)
+    retainedSelection.value=active ? optionFor(active) : null
     remotePage = result.page
     remoteTotal = result.total
     remoteQuery = query
@@ -77,11 +97,16 @@ function searchRemote(query: string): void {
 }
 onScopeDispose(() => { ++requestVersion; clearTimeout(searchTimer) })
 watch(() => [props.remoteDataset, props.remoteFilters], () => { remoteRows.value = []; if (props.remoteDataset) void loadOptions() }, { deep: true, immediate: true })
+watch(() => `${appStore.user?.id}:${appStore.user?.permissions.join('|')}`, () => {
+  ++requestVersion; clearTimeout(searchTimer); remoteRows.value=[]; retainedSelection.value=null; remoteTotal=0
+}, {flush:'sync'})
+watch(() => appStore.dataRevision, () => { if (props.remoteDataset) void loadOptions() })
 const visibleOptions = computed(() => {
   if (!props.remoteDataset) return props.options
   const options = new Map<T, WorkspaceSelectOption<T>>()
   for (const option of props.options)
     if (option.value === null || option.value === 0 || option.value === '' || option.value === props.modelValue) options.set(option.value, option)
+  if (retainedSelection.value?.value === props.modelValue) options.set(retainedSelection.value.value, retainedSelection.value)
   for (const option of remoteRows.value) options.set(option.value, option)
   if (remotePage * 100 < remoteTotal) options.set('__load_more__' as T, { value: '__load_more__' as T, label: '继续加载下一页…' })
   return [...options.values()]
@@ -95,6 +120,7 @@ function update(key: unknown): void {
   const option = resolveWorkspaceSelection(visibleOptions.value, key, props.disabled)
   if (!option) return
   invalid.value = false
+  retainedSelection.value = option
   // 先同步 v-model 再通知联动操作，订单切换等回调才能读到新的编号。
   emit('update:modelValue', option.value)
   emit('change', option.value)

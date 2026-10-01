@@ -76,7 +76,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >销售订单<WorkspaceSelect remote-dataset="salesOrders"
+            >销售订单<WorkspaceSelect remote-dataset="salesOrders" :remote-filters="{statuses:'confirmed,partially_shipped'}"
               v-model="shipmentForm.sales_order_id"
               required
               @change="chooseShipmentOrder"

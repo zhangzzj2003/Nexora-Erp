@@ -338,7 +338,7 @@ def test_permissions_and_v41_migration(journals, remove_closing_schema):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 45
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 50
         assert db.execute("SELECT COUNT(*) FROM ledger_accounts").fetchone()[0] == 2
         assert (
             db.execute(
@@ -402,7 +402,7 @@ def test_report_only_permission_reads_confirmed_source_and_large_exact_amount(jo
     )
     client.post(
         "/api/v1/roles",
-        json=dict(code="report_reader", label="报表查看", permissions=["journal.view"]),
+        json=dict(code="report_reader", label="报表查看", permissions=["journal.view", "sales_amount.all"]),
     )
     client.post(
         "/api/v1/users",

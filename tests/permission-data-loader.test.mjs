@@ -24,7 +24,7 @@ test('业务列表返回 404 时，权限目录仍优先取得服务端数据', 
     calls.push(action)
     if (action === 'me') return admin
     if (action === 'permissions') return [permission]
-    if (action === 'materials') throw new Error('Not Found')
+    if (action === 'menuIcons') throw new Error('Not Found')
     return []
   } } }
   const state = createAppState()

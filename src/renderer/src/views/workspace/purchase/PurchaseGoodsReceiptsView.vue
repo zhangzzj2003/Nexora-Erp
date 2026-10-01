@@ -74,7 +74,7 @@ async function submitCreate(): Promise<void> {
             <h3>记录本批采购收货</h3>
             <div class="form-grid">
               <label
-                >采购订单<WorkspaceSelect
+                >采购订单<WorkspaceSelect remote-dataset="purchaseOrders" :remote-filters="{statuses:'confirmed,partially_received'}"
                   v-model="goodsReceiptForm.purchase_order_id"
                   required
                   @change="chooseGoodsReceiptOrder"

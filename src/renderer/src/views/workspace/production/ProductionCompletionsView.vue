@@ -79,7 +79,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >生产工单<WorkspaceSelect remote-dataset="workOrders"
+            >生产工单<WorkspaceSelect remote-dataset="workOrders" :remote-filters="{statuses:'released,in_progress'}"
               v-model="completionForm.work_order_id"
               required
               @change="selectCompletionOrder(completionForm.work_order_id)"

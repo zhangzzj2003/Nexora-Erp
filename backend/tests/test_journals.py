@@ -385,7 +385,7 @@ def test_permissions_options_and_migration(journals, remove_journal_schema):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 45
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 50
         assert db.execute("SELECT count(*) FROM ledger_accounts").fetchone()[0] == 2
         assert (
             db.execute(
@@ -400,8 +400,8 @@ def test_options_and_read_only_permissions_are_independent(journals):
     client, _ = journals
     record = create(client)
     for name, permissions in [
-        ("creator", ["journal.create"]),
-        ("observer", ["journal.view"]),
+        ("creator", ["journal.create", "sales_amount.all"]),
+        ("observer", ["journal.view", "sales_amount.all"]),
     ]:
         assert (
             client.post(

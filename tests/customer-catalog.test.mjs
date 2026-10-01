@@ -6,18 +6,19 @@ import { renderToString } from '@vue/server-renderer'
 import { createMemoryHistory } from 'vue-router'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import Icons from 'unplugin-icons/vite'
 import { createWorkspaceRouter, installWorkspaceAccessGuard } from '../src/renderer/src/router/index.ts'
 import { workspaceRoutes, visibleRouteGroups } from '../src/renderer/src/router/workspace-routes.ts'
 import { createSalesActions } from '../src/renderer/src/store/modules/sales-actions.ts'
 import { submitCreateDialog } from '../src/renderer/src/utils/create-dialog.ts'
 
-test('客户资料归属基础资料，直接访问及撤销权限遵循销售查看权限', async () => {
-  const group = visibleRouteGroups(['sales.view']).find(group => group.key === 'catalog')
+test('客户资料归属基础资料，直接访问及撤销权限遵循客户查看权限', async () => {
+  const group = visibleRouteGroups(['customer.view']).find(group => group.key === 'catalog')
   assert.deepEqual(group.routes.map(route => route.key), ['customers'])
   assert.equal(visibleRouteGroups(['customer.manage']).some(group => group.key === 'catalog'), false)
   const component = { render: () => null }
   const router = createWorkspaceRouter(createMemoryHistory(), Object.fromEntries(workspaceRoutes.map(route => [route.key, component])))
-  let permissions = ['sales.view']
+  let permissions = ['customer.view','sales.view']
   installWorkspaceAccessGuard(router, () => permissions)
   await router.push('/workspace/customers')
   assert.equal(router.currentRoute.value.name, 'customers')
@@ -32,16 +33,16 @@ test('独立客户页显示名单并约束新增操作，销售订单页不再�
   const server = await createServer({ configFile: false, plugins: [{
     name: 'customer-fixtures', enforce: 'pre',
     resolveId(id, importer) {
-      if (!importer?.includes('/views/workspace/')) return
+      if (!importer?.includes('/views/workspace/') && !importer?.includes('/components/workspace/')) return
       if (id.endsWith('/store/app-store')) return '\0customer-store'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0customer-table'
     },
     load(id) {
       if (id === '\0customer-store') return `
         import {defineStore,storeToRefs} from 'pinia'
-        export const permissions = new Set(['sales.view'])
+        export const permissions = new Set(['customer.view','sales.view'])
         export const usePiniaAppStore = defineStore('customer-test', {
-          state:()=>({busy:false,connectionLost:false,error:'',notice:'',customers:[{id:1,name:'测试客户甲'}],customerForm:{name:''},salesOrders:[],salesForm:{customer_id:0,reference:'',lines:[]},materials:[]}),
+          state:()=>({busy:false,connectionLost:false,error:'',notice:'',user:{id:1,roles:[],permissions:['customer.view','sales.view']},users:[],customerEdit:null,customerHistory:[],customers:[{id:1,name:'测试客户甲'}],customerForm:{name:''},salesOrders:[],salesForm:{customer_id:0,reference:'',lines:[]},materials:[]}),
           actions:{can(p){return permissions.has(p)},createCustomer(){},navigateToRoute(){},localTime(v){return v}}
         })
         export const useAppStore = ()=>{const s=usePiniaAppStore();return {...s,...storeToRefs(s)}}
@@ -53,7 +54,7 @@ test('独立客户页显示名单并约束新增操作，销售订单页不再�
         }})
       `
     }
-  }, vue()], optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
+  }, Icons({compiler:'vue3'}), vue()], optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
   t.after(() => server.close())
   const { usePiniaAppStore, permissions } = await server.ssrLoadModule('\0customer-store')
   const pinia = createPinia()

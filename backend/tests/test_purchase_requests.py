@@ -85,6 +85,7 @@ def test_rejected_request_can_be_revised_and_invalid_links_fail(monkeypatch, tmp
         assert client.post(f"{base}/purchase-requests/{request_id}/reject", headers=admin,
                            json={"reason": "数量不符"}).status_code == 200
         revised = client.put(f"{base}/purchase-requests/{request_id}", headers=admin, json={
+            "version": client.get(f"{base}/purchase-requests", headers=admin).json()[0]["version"],
             "lines": [{"material_id": material, "quantity": "5"}]}).json()
         assert revised["status"] == "draft"
         assert revised["review_reason"] == ""

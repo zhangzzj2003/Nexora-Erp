@@ -34,3 +34,19 @@ def test_policy_overlapping_intervals_and_version_rejected(ledger):
     assert ledger.put(endpoint,json={'version':0,'enabled':True,'reason':'规则','rules':[rule,rule]}).status_code==422
     saved=ledger.put(endpoint,json={'version':0,'enabled':True,'reason':'规则','rules':[rule]});assert saved.status_code==200
     assert ledger.put(endpoint,json={'version':0,'enabled':False,'reason':'规则','rules':[rule]}).status_code==409
+
+
+def test_cancel_terminates_pending_steps_and_history_is_paged(ledger):
+    rule={'department':'','minimum':'0','maximum':None,'steps':[{'role_code':'admin','approver_id':None}]}
+    assert ledger.put('/api/v1/purchase/approvals',json={'version':0,'enabled':True,'reason':'规则','rules':[rule]}).status_code==200
+    material=ledger.post('/api/v1/materials',json={'sku':'CANCEL-APR','name':'审批物料','unit':'件'}).json()['id']
+    created=ledger.post('/api/v1/purchase-requests',json={'reference':'保留原需求','lines':[{'material_id':material,'quantity':'2'}]}).json()
+    path=f"/api/v1/purchase-requests/{created['id']}"
+    submitted=ledger.post(path+'/submit').json()
+    cancelled=ledger.post(path+'/cancel');assert cancelled.status_code==200,cancelled.text
+    assert cancelled.json()['version']>submitted['version']
+    assert all(step['status']=='cancelled' for step in cancelled.json()['approval_steps'])
+    history=ledger.post('/api/v1/tables/query',json={'dataset':'purchaseApprovalHistory','page':1,'page_size':2})
+    assert history.status_code==200,history.text
+    assert history.json()['total']==4 and len(history.json()['items'])==2
+    assert history.json()['items'][0]['action']=='cancel'

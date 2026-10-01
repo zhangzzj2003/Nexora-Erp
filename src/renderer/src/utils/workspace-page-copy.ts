@@ -15,7 +15,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   shipments: '按销售订单分批出库，确认后扣减库存并记录应收来源。',
   warehouses: '默认主仓库以及已被业务单据引用的仓库不能删除。',
   catalog: '请按规格建立独立物料编码，同一规格无需为不同供应商重复建档。',
-  customers: '集中查询和新增客户资料，销售订单使用同一份客户名单。',
+  customers: '商务维护自己的客户资料，管理员可查看和转交全部客户；订单仍按权限协作处理。',
   suppliers: '选择“供货物料”管理供应商与现有物料的绑定。',
   menuManagement: '为导航分组和页面选择图标；保存后当前侧栏立即更新，其他客户端重新登录或刷新数据后生效。',
   roles: '新增职务后可按模块、单据和操作分别授权；内置职务仅供查看。',
@@ -42,5 +42,9 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   productionCosts: '材料优先采用领料时的库存平均成本，净领料缺价时显示待核价。全部报工后按合格数量结算完工成本，分摊与来源保留快照；更正前先冲销结算。',
   users: '管理账号、姓名、工号和手机号，分配角色、切换账号状态及重置密码。',
   permissionCatalog: '名称用于页面展示；内部代码用于服务端授权，不能修改。',
+  trace: '按销售明细、工单和系统批次查询单据关联及数量流转。',
+  financeTools: '核对往来期初、银行流水、辅助核算和人民币管理报表。',
+  productionPlanning: '计算物料缺口，安排生产工序并处理报废与返工。',
+  purchaseApprovals: '按部门和金额配置分级审批，记录节点审批及代审原因。',
   settings: '查看当前连接、修改账号密码并管理本机服务。',
 }

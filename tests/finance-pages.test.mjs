@@ -7,11 +7,11 @@ import { visibleRouteGroups, workspaceRoutes, permittedOpenedRoutes } from '../s
 import { createFinanceActions } from '../src/renderer/src/store/modules/finance-actions.ts'
 import { submitCreateDialog } from '../src/renderer/src/utils/create-dialog.ts'
 
-test('三个财务页面分别注册，保留原地址并统一拦截未授权访问', async () => {
-  const keys = ['finance', 'financePayments', 'financeSources']
+test('四个财务页面分别注册，保留原地址并统一拦截未授权访问', async () => {
+  const keys = ['finance', 'financeTools', 'financePayments', 'financeSources']
   const group = visibleRouteGroups(['finance.view']).find(group => group.key === 'finance')
   assert.deepEqual(group.routes.map(route => route.key), keys)
-  assert.deepEqual(group.routes.map(route => route.label), ['应收应付', '收付款记录', '应收应付来源'])
+  assert.deepEqual(group.routes.map(route => route.label), ['应收应付', '财务核对', '收付款记录', '应收应付来源'])
   assert.equal(group.routes[0].path, '/workspace/finance')
   const component = { render: () => null }
   const router = createWorkspaceRouter(createMemoryHistory(), Object.fromEntries(workspaceRoutes.map(route => [route.key, component])))

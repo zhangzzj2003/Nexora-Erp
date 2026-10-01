@@ -16,7 +16,7 @@ def test_customer_scope_order_money_and_transfers(monkeypatch, tmp_path):
             return {'Authorization':'Bearer '+token}
         admin=login('admin')
         ids={}
-        for name,role in [('alice','seller'),('bob','seller'),('finance','finance'),('warehouse','warehouse')]:
+        for name,role in [('alice','seller'),('bob','seller'),('finance','finance'),('warehouse','warehouse'),('planner','planner')]:
             ids[name]=client.post(base+'/users',headers=admin,json={'username':name,'password':name+'-password-123','roles':[role]}).json()['id']
         alice,bob,finance,warehouse=[login(name) for name in ('alice','bob','finance','warehouse')]
         customer=client.post(base+'/customers',headers=alice,json={'name':'客户甲','contact_name':'联系人甲','phone':'13800138000','address':'私有地址'}).json()
@@ -42,6 +42,8 @@ def test_customer_scope_order_money_and_transfers(monkeypatch, tmp_path):
         assert shared['customer_name']=='客户甲' and shared['lines'][0]['quantity']=='2'
         assert shared['amount_visible'] is False and shared['total_amount'] is None
         assert shared['lines'][0]['unit_price'] is None and shared['lines'][0]['line_total'] is None
+        planned=client.get(base+'/sales-orders',headers=login('planner'))
+        assert planned.status_code==200 and planned.json()[0]['total_amount'] is None
         assert 'contact_name' not in shared and 'address' not in shared
         confirmed=client.post(f'{base}/sales-orders/{oid}/confirm',headers=bob).json()
         assert confirmed['amount_visible'] is False and confirmed['total_amount'] is None

@@ -25,7 +25,7 @@ const sourceColumns = [
       :show-title="false"
       title="应收应付来源"
       :columns="sourceColumns"
-      :data="receivablesPayables.entries"
+      :data="receivablesPayables?.entries ?? []"
       :min-table-width="980"
     >
       <template #beforeTable>

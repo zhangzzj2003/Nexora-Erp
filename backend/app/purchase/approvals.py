@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.access.security import require
 from app.core.orm import orm_session,add_model,model_data
 from app.core import models as m
-from app.finance.tools import Reason
+from app.core.input_validation import Reason
 
 router=APIRouter(prefix='/api/v1/purchase/approvals')
 
@@ -60,7 +60,11 @@ def save_profile(db,identifier,payload,user):
     if row and payload.version!=row.version:raise HTTPException(409,'申请资料已变化，请重新读取再保存')
     if row:row.department=payload.department.strip();row.estimated_total=f'{payload.estimated_total:.2f}';row.version+=1
     else:db.add(m.PurchaseRequestProfile(request_id=identifier,department=payload.department.strip(),estimated_total=f'{payload.estimated_total:.2f}',version=1))
-    db.flush();audit(db,user,identifier,'save','保存申请及预计金额',profile_data(db,identifier))
+    db.flush()
+    request=db.get(m.PurchaseRequest,identifier)
+    evidence={**profile_data(db,identifier),'reference':request.reference,'note':request.note,
+        'lines':[model_data(line) for line in db.scalars(select(m.PurchaseRequestLine).where(m.PurchaseRequestLine.purchase_request_id==identifier))]}
+    audit(db,user,identifier,'save','保存申请及预计金额',evidence)
 
 
 def start_approval(db,identifier,user):
@@ -154,3 +158,14 @@ def delegate(data:DelegateInput,user:dict=Depends(require('users.manage'))):
         before=stage.approver_id;stage.approver_id=target.id;profile.version+=1
         audit(db,user,request.id,'delegate',data.reason,{'position':stage.position,'before_approver':before,'after_approver':target.id})
         return profile_data(db,request.id)
+
+
+def cancel_approval(db,identifier,user):
+    # 取消申请同步终止在途节点并提高版本，防止页面仍把旧节点当成可审批。
+    profile=db.get(m.PurchaseRequestProfile,identifier)
+    if profile:
+        profile.version+=1
+        for stage in db.scalars(select(m.PurchaseApprovalStage).where(m.PurchaseApprovalStage.request_id==identifier,
+                m.PurchaseApprovalStage.round==profile.approval_round,m.PurchaseApprovalStage.status=='pending')):
+            stage.status='cancelled'
+    db.flush();audit(db,user,identifier,'cancel','取消采购申请',profile_data(db,identifier))

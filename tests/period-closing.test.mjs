@@ -89,7 +89,7 @@ test('其他模块读取失败前，数据加载器先清除失去授权的结�
   state.periodClosingCheck.value={period,can_close:true}; state.periodClosingHistory.value=[{id:1}]
   globalThis.window={nexora:{async callApi(action){
     if(action==='me')return {id:1,permissions:['inventory.view']}
-    if(action==='materials')throw new Error('业务模块失败')
+    if(action==='menuIcons')throw new Error('业务模块失败')
     return []
   }}}
   const loader=createDataLoader(state, code=>state.user.value.permissions.includes(code),()=>{})

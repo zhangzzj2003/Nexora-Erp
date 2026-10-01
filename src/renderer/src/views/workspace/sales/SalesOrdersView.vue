@@ -89,7 +89,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >客户<WorkspaceSelect remote-dataset="customers"
+            >客户<WorkspaceSelect remote-dataset="customers" :remote-filters="{is_active:true}"
               v-model="salesForm.customer_id"
               required
               :options="[

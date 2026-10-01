@@ -52,7 +52,43 @@ def test_all_rejected_scrap_can_settle_without_finished_stock(ledger):
     payload={'completion_id':cid,'kind':'scrap','quantity':'1','reason':'质量报废'}
     result=tool(ledger,'quality',payload);assert result.status_code==200,result.text
     assert tool(ledger,'quality',payload).status_code==409
-    settled=ledger.post('/api/v1/production-cost-settlements',json={'work_order_id':order,'reference':'ALL-FAIL-SETTLE','note':'全部报废'})
+    settled=ledger.post('/api/v1/production-costs/settlements',json={'work_order_id':order,'reference':'ALL-FAIL-SETTLE','note':'全部报废'})
     assert settled.status_code==201,settled.text
     assert settled.json()['accepted_quantity']=='0' and settled.json()['allocations']==[]
     assert settled.json()['quality_costs'][0]['amount']=='10.00'
+
+
+def test_mrp_deducts_existing_stock_exactly_once(ledger):
+    # 两件需求只有一件库存，必须仍报告一件缺口，不能把库存重复抵扣。
+    _,component,_,_=seed(ledger)
+    with orm_session(write=True) as db:
+        db.add(m.StockMovement(warehouse_id=1,material_id=component,quantity='1',source_type='test_opening',source_id=1,source_line_id=1,created_by=1))
+    report=tool(ledger,'mrp',{'warehouse_id':1,'through_date':'2026-10-10'})
+    assert report.status_code==200,report.text
+    row=next(row for row in snapshot_rows(ledger,report.json()) if row['material_id']==component)
+    assert row['stock_quantity']=='1' and row['shortage_quantity']=='1.000'
+
+
+def test_rework_carries_parent_cost_and_requires_parent_settlement(ledger):
+    product,_,_,order=seed(ledger)
+    with orm_session(write=True) as db:
+        db.get(m.WorkOrder,order).status='completed'
+        completion=add_model(db,m.ProductionCompletion(work_order_id=order,reported_quantity='1',accepted_quantity='0',rejected_quantity='1',status='posted',qc_note='返工',created_by=1,inspected_by=1,posted_by=1,posted_at='2026-10-01 00:00:00'))
+        db.add(m.ProductionCostEntry(work_order_id=order,kind='labor',amount='12.50',reference='PARENT-LABOR',note='',created_by=1));cid=completion.id
+    result=tool(ledger,'quality',{'completion_id':cid,'kind':'rework','quantity':'1','reason':'返工修复'})
+    assert result.status_code==200,result.text
+    child=snapshot_rows(ledger,result.json())[0]['rework_order_id']
+    from app.production.quality_costs import carried_cost
+    with orm_session() as db:assert carried_cost(db,child)[0] is None
+    settled=ledger.post('/api/v1/production-costs/settlements',json={'work_order_id':order,'reference':'PARENT-SETTLE','note':''})
+    assert settled.status_code==201,settled.text
+    with orm_session() as db:assert str(carried_cost(db,child)[0])=='12.50'
+    # 返工结算固化父成本之后，须先冲销返工结算才能更正父成本。
+    with orm_session(write=True) as db:
+        db.get(m.WorkOrder,child).status='completed'
+        finish=add_model(db,m.ProductionCompletion(work_order_id=child,reported_quantity='1',accepted_quantity='1',rejected_quantity='0',status='posted',created_by=1,inspected_by=1,posted_by=1))
+        db.add(m.StockMovement(warehouse_id=1,material_id=product,quantity='1',source_type='production_completion',source_id=finish.id,source_line_id=finish.id,created_by=1))
+    child_settlement=ledger.post('/api/v1/production-costs/settlements',json={'work_order_id':child,'reference':'CHILD-SETTLE','note':''})
+    assert child_settlement.status_code==201,child_settlement.text
+    assert child_settlement.json()['total_amount']=='12.50'
+    assert ledger.post(f"/api/v1/production-costs/settlements/{settled.json()['id']}/reverse",json={'reason':'更正'}).status_code==409

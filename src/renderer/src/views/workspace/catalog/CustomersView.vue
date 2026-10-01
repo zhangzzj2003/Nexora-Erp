@@ -26,14 +26,15 @@ const admin = computed(() => user.value?.roles.includes('admin') ?? false)
 function editCustomer(row: Customer): void {
   customerEdit.value = { ...row, is_active: Boolean(row.is_active), reason: '' }
 }
+// 新增联系人与归属列后保留可读列宽，窄窗口通过公共横向滚动浏览。
 const customerColumns = [
-  { key: 'id', title: '编号', width: '120' },
-  { key: 'name', title: '客户名称' },
-  { key: 'owner_name', title: '负责商务' },
-  { key: 'contact_name', title: '联系人' },
-  { key: 'phone', title: '联系电话' },
-  { key: 'address', title: '地址' },
-  { key: 'status', title: '状态' },
+  { key: 'id', title: '编号', width: '80' },
+  { key: 'name', width: '180', title: '客户名称' },
+  { key: 'owner_name', width: '120', title: '负责商务' },
+  { key: 'contact_name', width: '140', title: '联系人' },
+  { key: 'phone', width: '160', title: '联系电话' },
+  { key: 'address', width: '220', title: '地址' },
+  { key: 'status', width: '80', title: '状态' },
   { key: 'actions', title: '操作', width: '200' }
 ]
 const filteredCustomers = computed(() =>
@@ -54,7 +55,7 @@ async function submitCustomer(): Promise<void> {
       title="客户资料"
       :columns="customerColumns"
       :data="filteredCustomers"
-      :min-table-width="480"
+      :min-table-width="1200"
     >
       <template #actions>
         <AppButton

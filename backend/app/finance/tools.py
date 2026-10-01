@@ -13,10 +13,8 @@ from app.core.orm import orm_session, model_data, add_model
 from app.core.models import (PartyOpening, PartyOpeningPayment, BankStatement, BankMatch, FinanceToolAudit,
     Customer, Supplier, LedgerAccount, Journal, JournalLine, JournalAuxiliary, ProfitTransfer, PaymentRecord)
 from app.core.period_lock import ensure_date_unlocked
-from app.finance.ledger_reports import LedgerReportQuery, trial_balance, confirmed_opening_lines
 from app.finance.ledger import PeriodInput
 from app.query.snapshots import snapshot_metadata
-from app.reports.routes import csv_value
 
 router=APIRouter(prefix='/api/v1/finance/tools')
 ZERO=Decimal(0)
@@ -107,14 +105,19 @@ def opening_row(db,row):
     return {**model_data(row),'party_name':party.name,'settled_amount':f'{paid:.2f}','outstanding_amount':f'{Decimal(row.amount)-paid:.2f}'}
 
 
+def safe_csv(value):
+    return '\''+value if value.lstrip().startswith(('=','+','-','@')) else value
+
+
 def snapshot(rows,user,totals=None):
     keys=list(dict.fromkeys(key for row in rows for key in row if not isinstance(row[key],(list,dict))))
     output=StringIO();writer=csv.writer(output);writer.writerow(keys)
-    for row in rows:writer.writerow([csv_value(str(row.get(key,''))) for key in keys])
+    for row in rows:writer.writerow([safe_csv(str(row.get(key,''))) for key in keys])
     return snapshot_metadata({'columns':[{'key':key,'title':key} for key in keys],'rows':rows,'totals':totals or {},'csv':'\ufeff'+output.getvalue()},user,('rows',))
 
 
 def statements(db,data):
+    from app.finance.ledger_reports import LedgerReportQuery,trial_balance
     filters=LedgerReportQuery(kind='trial_balance',from_date=data.from_date,to_date=data.to_date)
     rows,totals=trial_balance(db,filters)
     accounts={a.id:a for a in db.scalars(select(LedgerAccount))}
@@ -128,7 +131,11 @@ def statements(db,data):
     # 损益表排除本期结转及其冲销，不以期末已清零余额冒充当期经营损益。
     transfers=set(db.scalars(select(ProfitTransfer.journal_id)))
     all_journals={j.id:j for j in db.scalars(select(Journal).where(Journal.status=='posted'))}
-    excluded=transfers | {j.id for j in all_journals.values() if j.reversal_of_id in transfers}
+    excluded=set(transfers)
+    while True:
+        related={j.id for j in all_journals.values() if j.reversal_of_id in excluded}
+        if related.issubset(excluded):break
+        excluded.update(related)
     revenue=expense=ZERO
     for line,journal in db.execute(select(JournalLine,Journal).join(Journal,Journal.id==JournalLine.journal_id)
         .where(Journal.status=='posted',Journal.journal_date>=data.from_date,Journal.journal_date<=data.to_date)):
@@ -138,9 +145,7 @@ def statements(db,data):
         else:expense+=value
         result.append({'statement':'利润','code':line.account_code,'name':line.account_name,'journal_id':journal.id,'category':line.category,'amount':f'{value:.2f}'})
     # 成本类别余额属于尚未转入损益的在制成本；未结转利润进入权益核对项。
-    untransferred=ZERO
-    for line,journal in db.execute(select(JournalLine,Journal).join(Journal,Journal.id==JournalLine.journal_id).where(Journal.status=='posted',Journal.journal_date<=data.to_date)):
-        if line.category in ('income','expense'):untransferred+=Decimal(line.credit)-Decimal(line.debit)
+    untransferred=sum((Decimal(row['closing_credit'])-Decimal(row['closing_debit']) for row in rows if accounts[int(row['account_id'])].category in ('income','expense')),ZERO)
     assets=balances['asset']+balances['cost'];liability=-balances['liability'];equity=-balances['equity']+untransferred
     return result,{'assets':f'{assets:.2f}','liabilities':f'{liability:.2f}','equity_with_current_profit':f'{equity:.2f}',
         'revenue':f'{revenue:.2f}','expense':f'{expense:.2f}','net_profit':f'{revenue-expense:.2f}',
@@ -209,6 +214,7 @@ def command(value:ToolInput,user:dict=Depends(require('finance.view'))):
             if action=='history':return snapshot([model_data(row) for row in db.scalars(select(FinanceToolAudit).order_by(FinanceToolAudit.id.desc()))],user)
             if action=='reconcile':
                 from app.finance.routes import financial_entries
+                from app.finance.ledger_reports import confirmed_opening_lines
                 rows=[];entries=financial_entries(db)
                 for account in db.scalars(select(LedgerAccount)):
                     openings=[row for row in db.scalars(select(PartyOpening).where(PartyOpening.ledger_account_id==account.id,PartyOpening.status=='confirmed'))]

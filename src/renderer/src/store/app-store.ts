@@ -177,6 +177,7 @@ function createAppStore() {
   watch(() => `${user.value?.id}:${user.value?.permissions.join('|')}`, () => {
     // 跨账号不保留客户联系人、商务价格或编辑草稿；同账号切换页面仍保留草稿。
     state.customerForm.value = { name: '' }
+    state.purchaseApprovalPolicy.value = null
     state.productionToolResult.value = null
     state.traceResult.value = null
     state.financeToolResult.value = null
@@ -185,7 +186,7 @@ function createAppStore() {
     state.customers.value = []
     state.salesOrders.value = []
     state.salesReturns.value = []
-    state.salesForm.value = { customer_id: 0, reference: '', lines: [{ material_id: 0, quantity: '1', unit_price: '0' }] }
+    state.salesForm.value = { customer_id: 0, reference: '', lines: [{ material_id: 0, quantity: '1', unit_price: '0', tax_rate: '0', discount_rate: '0', includes_tax: false }] }
     state.paymentRecords.value = []
     state.financeAccounts.value = []
     state.journals.value = []

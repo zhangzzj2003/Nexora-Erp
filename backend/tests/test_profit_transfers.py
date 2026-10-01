@@ -327,7 +327,7 @@ def test_precision_and_total_limit_without_truncation(profit):
 
 def test_permissions_input_and_migration_failure(profit, remove_transfer_schema):
     client, _, _ = profit
-    assert client.post('/api/v1/roles', json=dict(code='profit_reader', label='损益只读', permissions=['profit_transfer.view'])).status_code == 201
+    assert client.post('/api/v1/roles', json=dict(code='profit_reader', label='损益只读', permissions=['profit_transfer.view', 'sales_amount.all'])).status_code == 201
     client.post('/api/v1/users', json=dict(username='viewer', password='viewer-pass-123', roles=['profit_reader']))
     token = client.post('/api/v1/auth/login', json=dict(username='viewer', password='viewer-pass-123')).json()['token']
     headers = {'Authorization':'Bearer ' + token}
@@ -351,5 +351,5 @@ def test_permissions_input_and_migration_failure(profit, remove_transfer_schema)
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 45
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 50
         assert db.execute("SELECT count(*) FROM permissions WHERE code LIKE 'profit_transfer.%'").fetchone()[0] == 3

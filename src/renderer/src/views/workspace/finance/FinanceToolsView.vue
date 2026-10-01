@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NInput, NDatePicker } from 'naive-ui'
+import { NDatePicker } from 'naive-ui'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -50,7 +50,7 @@ async function run():Promise<void>{
       <label>处理事项<WorkspaceSelect v-model="action" :options="choices" :disabled="busy" /></label>
       <template v-if="action==='create_opening'">
         <label>往来类型<WorkspaceSelect v-model="form.kind" :options="[{value:'receivable',label:'应收'},{value:'payable',label:'应付'}]" /></label>
-        <label>往来单位<WorkspaceSelect v-model="form.party_id" :remote-dataset="form.kind==='receivable'?'financeCustomers':'suppliers'" :options="[{value:0,label:'选择往来单位',disabled:true}]" required /></label>
+        <label>往来单位<WorkspaceSelect v-model="form.party_id" :remote-dataset="form.kind==='receivable'?'financeCustomers':'financeSuppliers'" :options="[{value:0,label:'选择往来单位',disabled:true}]" required /></label>
         <label>核对总账科目<WorkspaceSelect v-model="form.ledger_account_id" remote-dataset="ledgerAccounts" :options="[{value:0,label:'选择科目',disabled:true}]" required /></label>
         <label>启用日期<NDatePicker type="date" value-format="yyyy-MM-dd" :formatted-value="form.effective_date || null" @update:formatted-value="value=>{form.effective_date=typeof value==='string'?value:''}" /></label>
       </template>
@@ -65,7 +65,7 @@ async function run():Promise<void>{
       <label v-if="action==='import_bank'">银行账号<AppInput v-model.trim="form.bank_account" required maxlength="80" /></label>
       <label v-if="write">处理原因<AppInput v-model.trim="form.reason" required maxlength="200" /></label>
     </div>
-    <label v-if="action==='import_bank'">银行流水（每行：日期、带正负号的金额、唯一参考号；用制表符分隔）<NInput v-model:value="form.bankRows" type="textarea" :rows="6" placeholder="2026-10-01&#9;100.00&#9;BANK-001" /></label>
+    <label v-if="action==='import_bank'">银行流水（每行：日期、带正负号的金额、唯一参考号；用制表符分隔）<AppInput v-model="form.bankRows" type="textarea" :rows="6" placeholder="2026-10-01&#9;100.00&#9;BANK-001" /></label>
     <div class="form-actions"><AppButton type="submit" :disabled="busy||connectionLost||!store.can(permission)">{{ busy?'处理中…':write?'保存处理':'查询' }}</AppButton></div>
     <p v-if="error" role="alert">{{ error }}</p>
   </form>

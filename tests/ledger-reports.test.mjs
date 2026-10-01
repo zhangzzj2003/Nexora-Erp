@@ -36,7 +36,7 @@ test('条件变更使旧结果和过期响应失效，旧请求不能解除新�
   assert.equal(state.ledgerReportResult.value,null);assert.equal(state.ledgerReportLoading.value,true)
   pending[1].resolve({csv:'新数据',filters:{...filters,to_date:'2026-01-31'}});await second
   assert.equal(state.ledgerReportResult.value.csv,'新数据');assert.equal(state.ledgerReportLoading.value,false)
-  assert.deepEqual(inputs[0],filters)
+  assert.deepEqual(inputs[0],{...filters,paged:true})
   state.ledgerReportQuery.value.kind='account_ledger';assert.equal(state.ledgerReportResult.value,null)
 })
 

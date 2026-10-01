@@ -76,7 +76,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >原领料单<WorkspaceSelect remote-dataset="materialIssues"
+            >原领料单<WorkspaceSelect remote-dataset="materialIssues" :remote-filters="{statuses:'posted'}"
               v-model="materialReturnForm.material_issue_id"
               required
               @change="selectReturnIssue(materialReturnForm.material_issue_id)"

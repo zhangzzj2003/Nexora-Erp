@@ -222,7 +222,7 @@ const filteredEntries = computed(() =>
         <form @submit.prevent="recordMaterialValuation">
           <div class="form-grid">
             <label
-              >待核价领料<WorkspaceSelect
+              >待核价领料<WorkspaceSelect remote-dataset="productionMaterialSources"
                 v-model="materialValuationForm.material_issue_line_id"
                 required
                 :options="[
@@ -379,6 +379,7 @@ const filteredEntries = computed(() =>
                 >完工 #{{ allocation.completion_id }} · 流水 #{{ allocation.movement_id }} ·
                 合格数量 {{ allocation.quantity }} · 分摊 ¥{{ allocation.amount }}</span
               >
+              <span v-for="quality in item.quality_costs ?? []" :key="quality.disposition_id">{{ quality.kind === 'scrap' ? '报废' : '返工' }}处置 #{{ quality.disposition_id }} · 数量 {{ quality.quantity }} · 成本 ¥{{ quality.amount }}<template v-if="quality.rework_order_id"> · 返工工单 #{{ quality.rework_order_id }}</template></span>
               <span v-for="source in item.material_sources" :key="source.material_issue_line_id"
                 >领料明细 #{{ source.material_issue_line_id }} · {{ source.material_name }} · 净领
                 {{ source.net_quantity }} ·

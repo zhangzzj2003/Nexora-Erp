@@ -64,3 +64,22 @@ def test_bank_import_is_atomic_and_amount_direction_is_checked(ledger):
     assert ledger.post(BASE+f'/payment-records/{pid}/reverse',json={'reason':'冲销'}).status_code==409
     assert call(ledger,'unmatch_bank',{'id':bid,'reason':'重新核对'}).status_code==200
     assert rows(ledger,call(ledger,'banks').json())[0]['payment_id'] is None
+
+
+# 损益结转发生前后管理报表必须保持相同经营利润，并把权益核对平衡。
+from test_profit_transfers import profit, journals, post_record, generate, post
+
+
+def test_statements_keep_profit_after_transfer_and_balance_equity(profit):
+    from decimal import Decimal
+    client,_,_=profit
+    post_record(profit,'income',Decimal('100.00'),'INCOME')
+    post_record(profit,'expense',Decimal('-30.00'),'EXPENSE')
+    scope={'from_date':'2026-01-01','to_date':'2026-01-31'}
+    before=call(client,'statements',scope);assert before.status_code==200,before.text
+    assert before.json()['totals']['net_profit']=='70.00'
+    assert before.json()['totals']['balance_difference']=='0.00'
+    transfer=generate(client);post(profit,transfer)
+    after=call(client,'statements',scope);assert after.status_code==200,after.text
+    assert after.json()['totals']['net_profit']=='70.00'
+    assert after.json()['totals']['balance_difference']=='0.00'

@@ -9,11 +9,12 @@
 | `app/access/` | 账号登录、用户、角色、权限、导航图标配置及授权检查。 |
 | `app/catalog/` | 供应商与物料基础资料。 |
 | `app/core/` | 数据库迁移、静态 SQLAlchemy ORM 模型与统一会话事务边界。 |
-| `app/purchase/` | 采购申请、采购订单、采购收货、入库单、采购退货。 |
-| `app/inventory/` | 仓库、其他入出库、调拨、盘点、独立调整、库存余额和台账。 |
+| `app/purchase/` | 采购申请、分级审批与代审、采购订单、采购收货、入库单、采购退货。 |
+| `app/inventory/` | 仓库、其他入出库、调拨、盘点、独立调整、库存余额、系统批次溯源和台账。 |
 | `app/sales/` | 客户、销售订单、出库、销售退货。 |
-| `app/production/` | BOM、工单、领退料、报工、工单成本及完工批次结算。 |
+| `app/production/` | BOM、工单、领退料、报工、物料计划、人工排程、质量处置、在制及完工成本。 |
 | `app/finance/` | 应收应付、订单余额、手工收付款、总账科目、会计期间、期初余额、手工及业务来源凭证、损益结转、已过账报表及期间结账与重开。 |
+| `app/query/` | 数据集白名单分页及按账号授权的短期报表快照。 |
 | `app/reports/` | 采购执行、收退货、库存余额与收发存报表。 |
 | `app/service/` | 服务状态、局域网发现、系统服务、备份恢复。 |
 
@@ -52,7 +53,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 采购申请与采购订单
 
-数据库第 29 版新增采购申请、申请明细和订单明细来源关联。`GET /api/v1/purchase-requests` 查询申请及每行已转、待转数量；`POST /purchase-requests` 建草稿，`PUT /purchase-requests/{id}` 修改草稿或驳回后的申请，`/submit` 提交审批，`/approve` 与 `/reject` 由有审批权限的人处理，驳回必须填写原因，`/cancel` 取消尚未被有效订单使用的申请。修改驳回申请会恢复为草稿，需重新提交。查看、建改、提交、审批、取消分别要求 `purchase_request.view`、`purchase_request.create`、`purchase_request.submit`、`purchase_request.review`、`purchase_request.cancel`；管理员默认可全部操作，采购员和仓库员默认可查看、建改、提交及取消，审批权限默认仅管理员拥有，也可授予自定义角色。审批不要求与建单人不同。
+数据库第 29 版新增采购申请、申请明细和订单明细来源关联。`GET /api/v1/purchase-requests` 查询申请及每行已转、待转数量；`POST /purchase-requests` 建草稿，`PUT /purchase-requests/{id}` 修改草稿或驳回后的申请，`/submit` 提交审批，`/approve` 与 `/reject` 由有审批权限的人处理，驳回必须填写原因，`/cancel` 取消尚未被有效订单使用的申请。修改驳回申请会恢复为草稿，需重新提交。查看、建改、提交、审批、取消分别要求 `purchase_request.view`、`purchase_request.create`、`purchase_request.submit`、`purchase_request.review`、`purchase_request.cancel`；管理员默认可全部操作，采购员和仓库员默认可查看、建改、提交及取消，审批权限默认仅管理员拥有，也可授予自定义角色。未启用分级规则时保留原有单级行为；启用后禁止申请人及提交人自审，同轮不同节点不能由同一账号重复审批，见 [审批规则](../docs/purchase-approval.md)。
 
 `POST /api/v1/purchase-orders` 可选传 `purchase_request_id`，并为每条明细传 `purchase_request_line_id`。服务端在写事务内校验申请已批准、物料匹配以及数量不超过待转量；未取消的订单草稿也占用申请额度，取消订单后释放。每张订单只关联一张申请，同一申请可按明细和数量拆成多张订单、分别选择供应商；不关联申请的直接采购继续可用。旧订单保留原样，不推断申请来源。申请和订单本身均不改变库存或应付。
 
@@ -68,7 +69,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 库存金额基础接口为 `GET /api/v1/inventory/valuation`，按同一公司全部仓库的物料流水顺序重放移动加权平均。关联采购订单的入库沿用订单单价；出库按发生时平均成本，销售退货、生产退料和调拨入库沿用原出库成本。没有价格依据的正向流水会显示“待核价”，现存数量含未知成本时该物料及总库存金额均为 `null`，不会把未知金额当作零。`GET /api/v1/inventory/valuation/inputs` 可查全部人工核价修订；`POST /api/v1/inventory/valuation/inputs` 对允许人工核价的正向流水登记单价、依据编号和原因，后续修订追加记录并重算金额。查看和登记分别需要 `inventory_valuation.view`、`inventory_valuation.record`，默认授予管理员和财务员。未结期间修订可能改变已展示的历史成本；已结边界内的核价和完工分摊受锁定保护，见 [期间结账规则](../docs/period-closing.md)；已结算完工批次采用结算分摊金额；已被有效结算使用的核价来源禁止修订，须先冲销关联结算。业务来源凭证已提供采购价差及销售成本分录，详见 [业务凭证规则](../docs/business-journals.md)；完整成本价差分摊仍待实现。
 
-`GET /api/v1/finance/receivables-payables` 逐行列出已确认销售出库形成的应收、采购入库形成的应付及销售、采购退货形成的负向调整。每笔记录包含往来单位、订单、来源单据与明细、物料、数量、原单价、确认人和确认时间。金额按每行数量乘原单价四舍五入到分，币种暂固定为人民币。草稿与取消单不产生金额；升级前的已确认单据同样从原记录推导，无需改写历史。没有采购订单单价的入库及其退货标记为待核价，不计入已知应付总额。此接口需要 `finance.view`，仅内置管理员和财务员默认拥有；其他角色需管理员显式授权。当前合计是业务净额；订单级收付款和未结金额由下述独立记录计算，税费和自动转总账尚未实现。
+`GET /api/v1/finance/receivables-payables` 逐行列出已确认销售出库形成的应收、采购入库形成的应付及销售、采购退货形成的负向调整。每笔记录包含往来单位、订单、来源单据与明细、物料、数量、原单价、确认人和确认时间。金额按每行数量乘原单价四舍五入到分，币种暂固定为人民币。草稿与取消单不产生金额；升级前的已确认单据同样从原记录推导，无需改写历史。没有采购订单单价的入库及其退货标记为待核价，不计入已知应付总额。此接口需要 `finance.view`，仅内置管理员和财务员默认拥有；其他角色需管理员显式授权。当前合计是业务净额；订单级收付款和未结金额由下述独立记录计算，结算单价已计入税率和折扣；自动转总账扩展暂缓。
 
 `GET /api/v1/finance/overview` 在同一读取事务中返回金额来源、订单余额和收付款记录，供桌面工作台显示。`GET /api/v1/finance/accounts` 也可单独按已发生业务的订单查询业务净额、收付款净额、未结金额和来源行编号；负未结额表示需退款的贷方余额。`GET /api/v1/finance/payment-records` 返回全部手工收付款与冲销记录。`POST /api/v1/finance/payment-records` 以 `kind`（`receivable` 或 `payable`）、`order_id`、`action`（`settlement` 收款/付款或 `refund` 退款）、正金额、外部 `reference` 和可选 `note` 登记。金额最多两位小数，不得超过当前订单未结金额或贷方余额；写事务同时核对余额，防止并行超额。同一订单、类别和动作的参考号不得重复。`POST /api/v1/finance/payment-records/{id}/reverse` 以原因新增等额反向记录；原记录保留，且只能冲销一次。查看需要 `finance.view`，登记和冲销分别需要 `finance.record`、`finance.reverse`；管理员和财务员默认拥有。系统仅记录人工录入的资金事实，不连接银行，也不自动证明资金已到账；无采购订单单价的旧入库目前无法在系统内登记对应付款，需后续补价流程。
 
@@ -116,7 +117,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 销售订单、出库与退货
 
-`POST /api/v1/customers` 创建客户资料，`GET /api/v1/customers` 查询。`POST /api/v1/sales-orders` 创建包含客户、物料、数量及单价的草稿；`/confirm` 确认后才能出库，未出库订单可调用 `/cancel` 取消。`GET /api/v1/sales-orders` 返回金额、每行已出库及剩余数量。金额按每行数量乘单价后四舍五入到分，目前仅按人民币展示；税费和折扣尚未计入。应收在确认出库时形成，并随退货或冲销记录调整。
+`POST /api/v1/customers` 创建客户资料，`GET /api/v1/customers` 查询。`POST /api/v1/sales-orders` 创建包含客户、物料、数量及单价的草稿；`/confirm` 确认后才能出库，未出库订单可调用 `/cancel` 取消。`GET /api/v1/sales-orders` 返回金额、每行已出库及剩余数量。金额按每行数量乘单价后四舍五入到分，目前仅按人民币展示；按行保存税率、折扣及原报价；共享订单金额按负责商务独立授权。应收在确认出库时形成，并随退货或冲销记录调整。
 
 `POST /api/v1/shipments` 从已确认订单创建出库草稿并指定仓库；`POST /api/v1/shipments/{id}/post` 确认出库，`/cancel` 取消草稿。确认时在同一写事务内重新核对订单剩余量与仓库库存，写入带订单、出库单明细和操作者来源的负库存流水，并更新订单为部分或全部出库。库存不足、超量、重复确认返回 409。已出库不可取消。管理员可用 `POST /api/v1/shipments/{id}/reverse` 提交冲销原因，一次性在原出库仓追加正库存流水、负应收来源，并按有效出库量恢复订单状态与可出库数量。存在未冲销的已确认销售退货时须先冲销退货；已冲销出库不能再次冲销或新建、确认关联退货。原出库及流水保留，已收款时财务余额可能变为待退款，实际退款须另行登记。销售单据查看要求 `sales.view`，客户管理要求 `customer.manage`；销售订单创建、确认、取消和出库单创建、确认、取消分别由 `sales_order.*`、`shipment.*` 权限控制，冲销要求 `shipment.reverse`。销售员可创建订单和出库草稿，仓库员可确认出库，管理员可执行全部操作。
 
@@ -169,7 +170,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 数据库第 35 版新增采购报表与库存报表权限。`POST /api/v1/reports/query` 支持 `purchase_requests`、`purchase_orders`、`receiving_returns`、`inventory_balance`、`stock_flow`，按可用的供应商、仓库、物料和日期筛选。响应同时包含列、行和由同一行集生成的带 UTF-8 BOM 的 CSV；日期按单据创建日期或库存流水日期筛选，库存余额按截至日期计算。采购类要求 `purchase_report.view`，库存类要求 `inventory_report.view`。
 
-供应商主列表支持服务端分页搜索：`POST /api/v1/suppliers/query` 接收 `query`、`page`（从 1 开始）与 `page_size`（1–100，默认 20），返回 `items`、筛选后 `total`、有效 `page` 和 `page_size`；查看仍要求 `inventory.view`。总数与分页统一显示在表格底部，可选每页 10/20/50/100 条，搜索回到首页，删除造成的越界页自动回退。查询失败提供重试入口，过期响应不覆盖新结果。原 GET 供应商接口仍供业务选项使用，其他列表及供货物料明细尚未改为服务端分页。客户端与服务端需同时升级。
+供应商主列表支持服务端分页搜索：`POST /api/v1/suppliers/query` 接收 `query`、`page`（从 1 开始）与 `page_size`（1–100，默认 20），返回 `items`、筛选后 `total`、有效 `page` 和 `page_size`；查看仍要求 `inventory.view`。总数与分页统一显示在表格底部，可选每页 10/20/50/100 条，搜索回到首页，删除造成的越界页自动回退。查询失败提供重试入口，过期响应不覆盖新结果。原 GET 接口保留兼容；业务表格及选择框已接入 `/api/v1/tables/query`，供货物料同样分页。客户端与服务端需同时升级。
 
 
 数据库第 37 版为用户添加 `full_name`（姓名，最多 60 字）、`employee_no`（工号，最多 40 字）和 `phone`（电话，最多 24 字）。旧账号默认空值；工号允许英文、数字、下划线及短横线，非空工号忽略大小写保持唯一。电话可为空或填写数字、国际区号及常见分隔符。创建用户时可填写资料，`PUT /api/v1/users/{id}` 在一个事务中更新资料与角色，沿用 `users.manage` 授权和最后管理员保护，失败不部分保存；变更前后快照及操作者写入 `user_profile_changes`，不含密码。用户查询和登录响应一并返回资料。客户端、服务端需同步升级。
@@ -210,9 +211,9 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 客户归属与金额访问（开发分支）
 
-客户档案权限与共享订单分离；客户资料维护、版本审计、独立订单负责商务和金额脱敏规则见 [客户归属说明](../docs/customer-ownership.md)。本轮数据库第 46 版与客户端需同步升级；统一测试及构建安排在全部任务实现之后，当前不标为已验收。
+客户档案权限与共享订单分离；客户资料维护、版本审计、独立订单负责商务和金额脱敏规则见 [客户归属说明](../docs/customer-ownership.md)。本轮数据库第 46 版与客户端需同步升级；统一自动检查及临时桌面验收已完成，正式服务端尚未升级。
 
-统一列表分页方案见 `docs/table-pagination.md`（当前开发分支待统一验证）。保存后仅重新读取当前打开列表，报表快照分页与导出使用同一授权范围。
+统一列表分页方案见 [表格分页说明](../docs/table-pagination.md)（本轮整合分支已验证）。保存后仅重新读取当前打开列表，报表快照分页与导出使用同一授权范围。
 
 财务核对模块 `finance/tools.py` 提供往来期初、银行匹配、辅助核算及管理报表，边界见 `docs/finance-completion.md`。
 
@@ -221,3 +222,5 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 `production/planning.py` 负责物料缺口及在制成本口径，`production/tools.py` 负责计划参数、排程和质量处置；`quality_costs.py` 维护不合格品成本去向。范围见 `docs/production-quality.md`。
 
 `purchase/approvals.py` 维护分级规则、提交快照、节点审批和代审；配置边界见 `docs/purchase-approval.md`。
+
+本轮全部六项功能保留为需求分支及整合验证分支；证据和上线边界见 [本轮验收](../docs/erp-batch-acceptance.md)。

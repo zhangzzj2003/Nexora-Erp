@@ -4,6 +4,7 @@ import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { createPinia } from 'pinia'
 
 // vxe 的真实外壳另有组件测试；这里展开行插槽，核对迁移后的业务信息与权限分支。
 const storeModule = `
@@ -23,6 +24,7 @@ export const state = {
   can: permission => permissions.has(permission), localTime: value => value
 }
 export const useAppStore = () => state
+export const usePiniaAppStore = () => state
 `
 const tableModule = `
 import { defineComponent, h } from 'vue'
@@ -37,7 +39,7 @@ test('调拨和盘点表格保留明细、冲销记录、权限及断线禁用',
   const server = await createServer({configFile:false, plugins:[{
     name:'warehouse-test-fixtures', enforce:'pre',
     resolveId(id, importer) {
-      if (!importer?.includes('/warehouse/')) return
+      if (!importer?.includes('/warehouse/') && !importer?.includes('/components/workspace/')) return
       if (id.endsWith('/store/app-store')) return '\0warehouse-test-store'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0warehouse-test-table'
     },
@@ -53,7 +55,7 @@ test('调拨和盘点表格保留明细、冲销记录、权限及断线禁用',
   ]) {
     const {default: View} = await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/'+file)
     const {state, permissions} = await server.ssrLoadModule('\0warehouse-test-store')
-    const render = () => renderToString(createSSRApp({render:()=>h(View)}))
+    const render = () => renderToString(createSSRApp({render:()=>h(View)}).use(createPinia()))
     permissions.clear()
     state.connectionLost.value = false
     const readonly = await render()

@@ -11,7 +11,7 @@ const props = withDefaults(
   defineProps<{
     modelValue: T
     modelModifiers?: InputModifiers
-    type?: 'text' | 'password' | 'number' | 'tel' | 'search'
+    type?: 'text' | 'password' | 'number' | 'tel' | 'search' | 'textarea'
     disabled?: boolean
   }>(),
   { type: 'text', disabled: false }
@@ -41,7 +41,8 @@ function update(value: string): void {
     :class="$attrs.class"
     :style="$attrs.style as string | undefined"
     :value="modelValue == null ? '' : String(modelValue)"
-    :type="type === 'password' ? 'password' : 'text'"
+    :type="type === 'password' ? 'password' : type === 'textarea' ? 'textarea' : 'text'"
+    :rows="$attrs.rows as number | undefined"
     :disabled="disabled"
     :input-props="nativeInputProps()"
     :placeholder="($attrs.placeholder as string | undefined) ?? ''"

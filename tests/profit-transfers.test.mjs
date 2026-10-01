@@ -55,14 +55,14 @@ test('迟到期间预览不能覆盖新选择，撤权清除配置、来源与�
   assert.equal(state.profitTransferLoading.value, false)
 })
 
-test('配置与历史一起读取，读取故障不留下可生成的旧余额', async t => {
+test('配置按需读取，分页历史不预加载，读取故障清除旧余额', async t => {
   const old = globalThis.window; t.after(() => { globalThis.window = old })
   const state = createAppState(); state.user.value = { id: 1, permissions }
   globalThis.window = { nexora: { async callApi(operation) { return operation === 'profitTransferOptions' ? { policy } : [{ id: 1 }] } } }
   const actions = createProfitTransferActions(state, action => action())
   assert.equal(await actions.loadProfitTransferOptions(), true)
   assert.equal(state.profitTransferOptions.value.policy.version, 2)
-  assert.equal(state.profitTransferPolicyChanges.value[0].id, 1)
+  assert.deepEqual(state.profitTransferPolicyChanges.value, [])
   state.profitTransferPreview.value = { can_generate: true }
   globalThis.window.nexora.callApi = async () => { throw Error('源凭证读取失败') }
   assert.equal(await actions.loadProfitTransferPreview(1), false)
@@ -106,7 +106,7 @@ test('其他业务接口失败前已清除被撤权的损益预览和配置', as
   state.profitTransferPolicyChanges.value = [{ id: 1 }]
   globalThis.window = { nexora: { async callApi(operation) {
     if (operation === 'me') return { id: 1, permissions: ['inventory.view'] }
-    if (operation === 'materials') throw Error('资料读取失败')
+    if (operation === 'menuIcons') throw Error('资料读取失败')
     return []
   } } }
   await assert.rejects(createDataLoader(state, permission => state.user.value.permissions.includes(permission), () => {}).refreshData(), /资料读取失败/)

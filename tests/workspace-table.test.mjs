@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vue from '@vitejs/plugin-vue'
+import Icons from 'unplugin-icons/vite'
 import { createSSRApp, h } from 'vue'
 import { createPinia } from 'pinia'
 import { setup as setupSsrStyles } from '@css-render/vue3-ssr'
@@ -23,7 +24,7 @@ test('公共表格加载真实 vxe 组件并渲染功能区、加载和空状态
   // vxe 在浏览器挂载后才生成数据行；这里验证服务端渲染能装载真实组件与公共外壳。
   const server = await createServer({
     configFile: false,
-    plugins: [vue()],
+    plugins: [Icons({compiler:'vue3'}), vue()],
     ssr: { noExternal: ['vxe-table'] },
     optimizeDeps: { noDiscovery: true, include: [] },
     server: { middlewareMode: true },

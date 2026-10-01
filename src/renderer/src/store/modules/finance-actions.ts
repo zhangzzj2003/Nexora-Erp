@@ -1,3 +1,4 @@
+import { createRequestScope } from '../../utils/request-scope.ts'
 import type { AppState } from '../state'
 
 // 收付款操作独立维护；写入后由统一入口刷新服务端快照。
@@ -5,6 +6,7 @@ export function createFinanceActions(
   state: AppState,
   perform: (action: () => Promise<unknown>, success: string) => Promise<void>
 ) {
+  const requestScope = state.user ? createRequestScope(state) : null
   const { paymentForm, reversalReasons } = state
 
   async function createPaymentRecord(): Promise<void> {
@@ -33,11 +35,11 @@ export function createFinanceActions(
 
   async function runFinanceTool(action: import('../../../../shared/erp-api').FinanceToolAction, payload: Record<string, unknown>): Promise<void> {
     if (!window.nexora) return
-    const owner = state.user.value?.id
+    const owner = requestScope!.capture()
     await perform(async () => {
       const result = await window.nexora!.callApi('financeTools', { action, payload })
       // 账号变化后不能把旧账户的财务结果填回页面。
-      if (owner === state.user.value?.id) state.financeToolResult.value = result
+      if (requestScope!.current(owner)) state.financeToolResult.value = result
     }, '财务处理完成，查询结果已保留。')
   }
   async function exportFinanceTool(): Promise<void> {

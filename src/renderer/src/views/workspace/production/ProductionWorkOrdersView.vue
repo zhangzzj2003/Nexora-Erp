@@ -80,7 +80,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >启用的 BOM<WorkspaceSelect remote-dataset="boms"
+            >启用的 BOM<WorkspaceSelect remote-dataset="boms" :remote-filters="{statuses:'active'}"
               v-model="workOrderForm.bom_id"
               required
               :options="[

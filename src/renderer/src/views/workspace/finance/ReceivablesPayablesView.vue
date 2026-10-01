@@ -57,15 +57,15 @@ const filteredAccounts = computed(() =>
         <div class="summary-grid">
           <div class="metric">
             <span>业务应收净额</span>
-            <strong>¥{{ receivablesPayables.receivable_amount }}</strong>
+            <strong>¥{{ receivablesPayables?.receivable_amount ?? '0.00' }}</strong>
           </div>
           <div class="metric">
             <span>业务应付净额</span>
-            <strong>¥{{ receivablesPayables.payable_amount }}</strong>
+            <strong>¥{{ receivablesPayables?.payable_amount ?? '0.00' }}</strong>
           </div>
           <div class="metric">
             <span>待定价明细</span>
-            <strong>{{ receivablesPayables.unpriced_count }}</strong>
+            <strong>{{ receivablesPayables?.unpriced_count ?? 0 }}</strong>
           </div>
         </div>
         <p class="muted">

@@ -245,7 +245,7 @@ def test_permissions_and_missing_details(journals):
     assert client.get(JOURNALS + "/0").status_code == 422
     client.post(
         "/api/v1/roles",
-        json=dict(code="report_reader", label="总账查看", permissions=["journal.view"]),
+        json=dict(code="report_reader", label="总账查看", permissions=["journal.view", "sales_amount.all"]),
     )
     for username, roles in (("reader", ["report_reader"]), ("buyer", ["buyer"])):
         assert (
