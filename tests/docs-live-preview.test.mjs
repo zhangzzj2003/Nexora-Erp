@@ -1,32 +1,45 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync,readFileSync,readdirSync,rmSync } from 'node:fs'
+import { mkdtempSync,readFileSync,existsSync,mkdirSync,writeFileSync,rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
+import postcss from 'postcss'
 import { buildWebsite } from '../scripts/build-docs-site.mjs'
+import { displayMarkup, } from '../docs/site/workspace-display.mjs'
+import { displayStyles } from '../scripts/site-display.mjs'
 
-// 实际构建 Vue 入口，防止只生成 iframe 标签却遗漏组件包或使用错误的绝对路径。
-test('官网构建包含原 App 及动态样式，桥接隔离于示例会话', async()=>{
-  const output=mkdtempSync(resolve(tmpdir(),'nexora-live-'))
+// 发布产物必须直接包含展示内容，即使关闭 JavaScript 也能看到界面，不再启动子应用。
+test('官网直接生成三窗 HTML 与项目样式，无 iframe、应用分包或加载状态', async()=>{
+  const output=mkdtempSync(resolve(tmpdir(),'nexora-display-'))
   try {
+    // 更新旧产物时也清除历史嵌入应用，仅清理构建专属目录。
+    mkdirSync(resolve(output,'assets/live-preview'),{recursive:true})
+    writeFileSync(resolve(output,'assets/live-preview/stage.html'),'old generated app')
     await buildWebsite(output)
-    const root=resolve(output,'assets/live-preview'),html=readFileSync(resolve(root,'stage.html'),'utf8')
-    assert.match(html,/src="\.\/assets\/stage-[^" ]+\.js"/)
-    const files=readdirSync(resolve(root,'assets'))
-    const js=files.filter(file=>file.endsWith('.js')).map(file=>readFileSync(resolve(root,'assets',file),'utf8')).join('\n')
-    // 原 App 延迟装配，CSS 由动态导入的依赖预加载；核对引用和实际产物。
-    const css=files.find(file=>/^main-.*\.css$/.test(file))
-    assert.ok(css);assert.ok(js.includes(css))
-    assert.ok(html.includes(`href="./assets/${css}"`))
-    assert.match(html,/rel="modulepreload" href="\.\/assets\/WorkspaceTable-[^"]+\.js"/)
-    assert.match(readFileSync(resolve(output,'zh-CN/index.html'),'utf8'),/stage\.html\?v=[a-f0-9]{12}&amp;surface=receipt/)
-    assert.match(readFileSync(resolve(root,'assets',css),'utf8'),/workspace/)
-    assert.match(js,/nexora:preview-row/);assert.match(js,/nexora:select-preview-item/)
-    // 全 App 的隔离桥接仅接受已配置示例读取；写入拒绝由另一组快照测试覆盖。
-    const entry=readFileSync(new URL('../scripts/site-preview/main.mjs',import.meta.url),'utf8')
-    assert.match(entry,/callApi: async operation => previewResponse\(operation\)/)
-    assert.match(entry,/store.initialize = async \(\) => \{\}/)
-    assert.match(entry,/export const previewReady/)
-    assert.doesNotMatch(entry,/fetch\(|connectServer\(/)
+    assert.equal(existsSync(resolve(output,'assets/live-preview')),false)
+    for(const language of ['zh-CN','en']) {
+      const html=readFileSync(resolve(output,language,'index.html'),'utf8')
+      assert.equal([...html.matchAll(/data-display-canvas/g)].length,3)
+      assert.equal([...html.matchAll(/data-display-source="receipt:101:1"/g)].length,3)
+      assert.match(html,/app-display\.css\?v=[a-f0-9]{12}/)
+      assert.doesNotMatch(html,/<iframe|stage\.html|preview-loading|preview-error|正在加载业务视图|Loading business view/)
+      assert.match(html,/workspace-record-lines/)
+      assert.match(html,/EL-IC-000001 × 200/)
+    }
+    const runtime=readFileSync(resolve(output,'assets/source-details.mjs'),'utf8')
+    assert.doesNotMatch(runtime,/postMessage|setTimeout|fetch\(|import\(.*main|message'/)
   }finally{rmSync(output,{recursive:true,force:true})}
+})
+// 验证取来的样式既保持项目的关键视觉值，也全部隔离在展示作用域里。
+test('工作台、浅色主题和表格样式复用项目规则，任何选择器都不污染官网',()=>{
+  const css=displayStyles(),root=postcss.parse(css)
+  root.walkRules(rule=>{for(const selector of rule.selectors) assert.ok(selector.startsWith('.erp-display'),selector)})
+  assert.match(css,/background: #edf1f5/)
+  assert.match(css,/--vxe-ui-table-border-color: #e5edf1/)
+  assert.match(css,/font-size:19\.5px/)
+  // 明细锚点贴合文字，手机移动的终点不能是单元格的空白末端。
+  assert.match(css,/workspace-record-lines>span\{[^}]*width:max-content;max-width:100%/)
+  assert.doesNotMatch(css,/@import|data-theme='dark'|100vw|100svh/)
+  for(const key of ['receipt','stock','finance']) assert.match(displayMarkup(key),/aria-hidden="true" inert/)
+  assert.throws(()=>displayMarkup('invalid'),/未知官网展示页面/)
 })

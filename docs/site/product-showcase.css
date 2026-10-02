@@ -64,21 +64,19 @@ html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-peek-1{anima
 @media print{.hero :is(.hero-title-line,.hero-eyebrow,.subtitle,.hero-description,.hero-scope,.actions,.hero-journey,.cover-scroll,.hero-peek){animation:none!important}}
 .hero-journey{display:flex;gap:16px;align-items:center;justify-content:center;margin:36px auto 0}.hero-journey a{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink);text-decoration:none}.hero-journey a:hover{color:var(--teal)}.hero-journey a span{font-size:10px;color:var(--teal);font-variant-numeric:tabular-nums}.hero-journey i{font-style:normal;color:#80aea6;font-size:13px}
 /* 完整真实工作台保留原有外壳；放大区落在内容栏内，不另外设计官网统计卡。 */
-/* 真实共享表格只出现一次；从原始比例到 150% 的变化沿同一 DOM 视图完成。 */
+/* 项目表格外观只出现一次；从原始比例到 150% 的变化沿同一 DOM 视图完成。 */
 /* 原界面直接贴合等比例视口；聚焦沿用同一比例，手机仍保留独立取景高度。 */
 .real-interface{display:none;position:relative;background:#f4f6f9;height:var(--logical-height,480px);overflow:hidden}
 [data-surface=screenshots] .window-viewport{padding:0}
 [data-surface=screenshots] .real-interface{display:block}[data-surface=screenshots] .window-chrome,[data-surface=screenshots] .app-layout,[data-surface=screenshots] .window-base{display:none}
 [data-surface=screenshots] .scene-board,[data-surface=screenshots] .stage-heading{max-width:1680px}
-.live-preview-content{position:absolute;inset:0;transform:none}
-.live-preview-frame{display:block;position:absolute;left:0;top:0;width:1800px;height:1200px;border:0;pointer-events:none;background:#f4f6f9;transform-origin:0 0}
+.interface-content{position:absolute;inset:0;transform:none}
+.erp-display{transform:scale(.4)}
 .real-item-target{position:absolute;left:var(--item-left);top:var(--item-top);width:var(--item-width);height:var(--item-height);border:2px solid #237d7a;border-radius:4px;z-index:1;pointer-events:none;font-size:0;color:transparent}
 .real-item-target::before,.real-item-target::after{content:"";position:absolute;top:calc(50% - 4px);width:8px;height:8px;border-radius:50%;background:#237d7a;box-shadow:0 0 0 3px #def6ef}.real-item-target::before{left:-9px}.real-item-target::after{right:-8px}
 .real-interface[data-preview-ready=false] .real-item-target{display:none}
-.real-source-caption,.live-preview-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-.live-preview-focus{position:absolute;right:24px;bottom:16px;border:1px solid #dfe5ec;border-radius:6px;color:#237d7a;background:#fff;padding:8px 12px;font:inherit;font-size:14px}
-.preview-loading,.preview-error{position:absolute;inset:0;background:#f4f6f9;padding:36px;align-content:center;text-align:center;color:#63788a;line-height:1.8}
-.preview-error{z-index:3}.preview-loading{z-index:2;pointer-events:none}.real-interface[data-view-ready=true] .preview-loading,.preview-error[hidden]{display:none}
+.real-source-caption,.interface-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.interface-focus{position:absolute;right:24px;bottom:16px;border:1px solid #dfe5ec;border-radius:6px;color:#237d7a;background:#fff;padding:8px 12px;font:inherit;font-size:14px}
 .scroll-scene:not(.motion-enabled) .real-interface{height:720px}
 .detail-controls{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 auto 8px;flex-wrap:wrap;color:var(--muted);font-size:13px}.detail-controls>span{margin-right:8px}.detail-controls button{background:var(--panel);border:1px solid var(--rule);border-radius:6px;color:var(--muted);padding:9px 16px;font:inherit}.detail-controls [aria-pressed=true]{background:#e0f4ed;border-color:#71b5a7;color:var(--teal)}
 .detail-summary{text-align:center;margin:0 auto 16px;font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.7}
@@ -102,10 +100,8 @@ html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-peek-1{anima
 
 /* 手机只移动原页面的取景，不缩小字号或拼接远处字段；范围控件不改变业务数据。 */
 .preview-pan{display:none}
-@media(max-width:760px){.preview-pan{display:flex;flex-direction:column;gap:8px;position:absolute;bottom:18px;left:24px;right:24px;font-size:12px;color:var(--muted);padding:12px;background:var(--panel);border:1px solid var(--rule);border-radius:6px}.preview-pan input{width:100%;accent-color:var(--teal)}.live-preview-focus{top:16px;bottom:auto}}
+@media(max-width:760px){.preview-pan{display:flex;flex-direction:column;gap:8px;position:absolute;bottom:18px;left:24px;right:24px;font-size:12px;color:var(--muted);padding:12px;background:var(--panel);border:1px solid var(--rule);border-radius:6px}.preview-pan input{width:100%;accent-color:var(--teal)}.interface-focus{top:16px;bottom:auto}}
 
-/* 连线定位超时只提示该项，已显示的原页面仍可阅读，不退回整屏加载层。 */
-.real-interface[data-view-ready=true] .preview-error{inset:auto 16px 16px;padding:12px;background:#fff;border:1px solid var(--rule);font-size:12px}
 
 /* 标题主字、背景和轨道共用中心；说明与返回入口不参与标题的居中计算。 */
 .site-finale{position:relative;min-height:540px;height:78svh;max-height:840px;text-align:center;overflow:hidden;scroll-margin-top:0}

@@ -123,7 +123,7 @@ export function mountScene(doc = document, win = window) {
     if (realSurface()) {
       const target = detailMagnification(progress, Boolean(focused), staticMode())
       detailZoom = staticMode() || !focused ? target : Math.abs(target-detailZoom) < .001 ? target : lerp(detailZoom,target,.18)
-      // 原 App 保持完整布局，仅移动同一界面的镜头；端点使用相同镜头矩阵。
+      // 官网展示保留项目完整布局，仅移动同一界面的镜头；端点使用相同镜头矩阵。
       scene.querySelectorAll('.real-interface').forEach(pane => pane.style.setProperty('--detail-zoom',String(detailZoom)))
       detailController?.camera(Math.max(0,Math.min(1,(detailZoom-2/3)*3)))
       measureAnchors()
@@ -296,7 +296,7 @@ export function mountScene(doc = document, win = window) {
     onRender()
   }
   const destroyDetails = detailController = mountSourceDetails(scene, doc.documentElement.lang, () => {
-    // 子表格的布局回报只更新锚点，不重新启动镜头补间，避免滚动时反馈抖动。
+    // 展示布局变化只更新锚点，不重新启动镜头补间，避免滚动时反馈抖动。
     measureAnchors(); schedule()
   }, win)
   scene.addEventListener('load', onRender, true); scene.addEventListener('error', onRender, true)

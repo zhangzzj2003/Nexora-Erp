@@ -21,15 +21,24 @@ export function detailMagnification(progress, focused = false, staticMode = fals
   const p = Math.max(0, Math.min(1, (progress - .12) / .33))
   return (1 + .5 * p * p * (3 - 2 * p)) / 1.5
 }
-// 来自子视图的真实行矩形必须完整位于视口内，拒绝旧选择与不合法数值。
-export function validPreviewRow(data, surface, detail) {
-  if (!data || data.type !== 'nexora:preview-row' || data.surface !== surface || data.key !== detail.key || data.sourceId !== detailSource(detail)) return false
-  const {width,height,rect} = data
-  return rect && [width,height,rect.left,rect.top,rect.width,rect.height].every(Number.isFinite)
-    && width > 0 && height > 0 && rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.top >= 0
-    && rect.left + rect.width <= width + 1 && rect.top + rect.height <= height + 1
+// 使用未变换的本地布局定位字段，不读取屏幕矩形，避免缩放和透视导致反馈抖动。
+export function measureDisplayItem(canvas, detail) {
+  if (!canvas || !sourceDetails.includes(detail)) return null
+  const nodes = [...canvas.querySelectorAll(`[data-display-item="${detail.key}"]`)]
+  if (!nodes.length) return null
+  const boxes = nodes.map(node => {
+    let left=0,top=0,current=node
+    while(current && current!==canvas) {left+=current.offsetLeft;top+=current.offsetTop;current=current.offsetParent}
+    return current===canvas ? {left,top,right:left+node.offsetWidth,bottom:top+node.offsetHeight} : null
+  })
+  if (boxes.some(box=>!box)) return null
+  const left=Math.min(...boxes.map(box=>box.left)),top=Math.min(...boxes.map(box=>box.top))
+  const rect={left,top,width:Math.max(...boxes.map(box=>box.right))-left,height:Math.max(...boxes.map(box=>box.bottom))-top}
+  const width=canvas.offsetWidth,height=canvas.offsetHeight
+  if (![width,height,...Object.values(rect)].every(Number.isFinite) || width<=0 || height<=0 || rect.width<=0 || rect.height<=0 || left<0 || top<0 || left+rect.width>width+1 || top+rect.height>height+1) return null
+  return {width,height,rect}
 }
-// 原始完整页面与放大区域共用一份 DOM：镜头只平移和缩放，不重排页面。
+// 项目风格完整界面与放大区域共用一份 DOM：镜头只平移和缩放，不重排页面。
 export function originalCamera(data, width, height, progress, pan = 0) {
   const p=Math.max(0,Math.min(1,progress)),rect=data.rect
   const fit=Math.min(width/data.width,height/data.height)
@@ -55,73 +64,41 @@ export function mountSourceDetails(scene, language, changed = () => {}, win = wi
   if (!buttons.length) return Object.assign(() => {},{camera:()=>{}})
   const en = language === 'en', panes = ['receipt','stock','finance'].map(key => scene.querySelector(`[data-detail-key="${key}"]`)).filter(Boolean)
   let selected = sourceDetails[0], cameraProgress = 0
-  const geometry = new Map()
-  const viewSizes = new Map()
-  const timers = new Map(), origin = win.location.origin
-  const clear = pane => { win.clearTimeout(timers.get(pane)); timers.delete(pane) }
-  const request = pane => pane.querySelector('iframe')?.contentWindow?.postMessage({type:'nexora:select-preview-item',key:selected.key},origin)
-  const pending = (pane,reload=false) => {
-    clear(pane)
-    pane.dataset.previewReady = 'false'
-    if (reload) {pane.dataset.viewReady='false';geometry.delete(pane);viewSizes.delete(pane)}
-    const error = pane.querySelector('[data-preview-error]')
-    if (error) error.hidden = true
-    timers.set(pane,win.setTimeout(() => { if (error) error.hidden = false; changed() },8000))
-  }
   const select = detail => {
     selected = detail
     buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.sourceDetail === detail.key)))
     for (const pane of panes) {
-      pending(pane)
       const key = pane.dataset.detailKey, anchor = pane.querySelector('[data-real-anchor]')
       anchor.dataset.sourceId = detailSource(detail)
       anchor.textContent = `${en ? detail.en : detail.zh} · ${detail.sku} · ${en ? 'Purchase receipt' : '采购入库'} #101`
       pane.querySelector('[data-detail-name]').textContent = en ? detail.en : detail.zh
       pane.querySelector('[data-detail-sku]').textContent = detail.sku
       pane.querySelector('[data-detail-value]').textContent = key === 'finance' ? detailMoney(detail.amount) : `${key === 'stock' ? '+' : ''}${detail.quantity.toLocaleString('en-US')} ${en ? 'units' : '个'}`
-      request(pane)
     }
     const summary = scene.querySelector('[data-detail-summary]')
     if (summary) summary.textContent = en
       ? `${detail.en} · ${detail.quantity.toLocaleString('en-US')} received → inventory +${detail.quantity.toLocaleString('en-US')} → payable ${detailMoney(detail.amount)}`
       : `${detail.zh} · 入库 ${detail.quantity.toLocaleString('en-US')} 个 → 库存 +${detail.quantity.toLocaleString('en-US')} 个 → 应付 ${detailMoney(detail.amount)}`
-    changed()
+    camera(); changed()
   }
   const camera = (value = cameraProgress) => {
     cameraProgress = value
     for (const pane of panes) {
-      const row = geometry.get(pane),size=viewSizes.get(pane)
-      // 原界面已显示但明细尚未就绪时先展示全貌，连线单独等待真实矩形。
-      const data = row ?? (size ? {...size,rect:{left:0,top:0,width:size.width,height:size.height}} : null)
-      if (!data) continue
+      const canvas = pane.querySelector('[data-display-canvas]')
+      const data = measureDisplayItem(canvas,selected)
+      // 缺失或越界的字段只隐藏关联边框，界面内容一直保留，不阻挡阅读。
+      pane.dataset.previewReady=String(Boolean(data))
+      if (!canvas) continue
       const width=pane.clientWidth,height=pane.clientHeight
-      const pose=originalCamera(data,width,height,row ? cameraProgress : 0,Number(pane.dataset.previewPan??0))
-      pane.querySelector('iframe').style.transform=`translate3d(${pose.x}px,${pose.y}px,0) scale(${pose.scale})`
+      const view=data ?? {width:canvas.offsetWidth,height:canvas.offsetHeight,rect:{left:0,top:0,width:canvas.offsetWidth,height:canvas.offsetHeight}}
+      if (!width || !height || !view.width || !view.height) continue
+      const pose=originalCamera(view,width,height,data ? cameraProgress : 0,Number(pane.dataset.previewPan??0))
+      canvas.style.transform=`translate3d(${pose.x}px,${pose.y}px,0) scale(${pose.scale})`
       const rect=pose.rect
       pane.querySelector('[data-real-anchor]').style.cssText=`--item-left:${rect.left/width*100}%;--item-top:${rect.top/height*100}%;--item-width:${rect.width/width*100}%;--item-height:${rect.height/height*100}%`
     }
   }
-  const message = event => {
-    // 同源且确实属于该 iframe 才能更新轨道坐标；不信任外部窗口提供的字段。
-    if (event.origin !== origin) return
-    const pane = panes.find(item => item.querySelector('iframe')?.contentWindow === event.source)
-    if (!pane || event.data?.surface!==pane.dataset.detailKey) return
-    if (event.data.type==='nexora:preview-error') {
-      clear(pane);geometry.delete(pane);viewSizes.delete(pane);pane.dataset.previewReady='false';pane.dataset.viewReady='false'
-      pane.querySelector('[data-preview-error]').hidden=false;changed();return
-    }
-    if (event.data.type==='nexora:preview-ready') {
-      const {width,height}=event.data
-      if (![width,height].every(value=>Number.isFinite(value)&&value>0&&value<=8192)) return
-      viewSizes.set(pane,{width,height});pane.dataset.viewReady='true';camera();request(pane);changed();return
-    }
-    if (!validPreviewRow(event.data,pane.dataset.detailKey,selected)) return
-    geometry.set(pane,event.data); camera()
-    pane.dataset.previewReady = 'true'
-    pane.dataset.viewReady = 'true'
-    pane.querySelector('[data-preview-error]').hidden = true
-    clear(pane); changed()
-  }
+
   const click = event => {
     const button = event.target.closest('[data-source-detail]')
     if (!buttons.includes(button)) return
@@ -136,8 +113,10 @@ export function mountSourceDetails(scene, language, changed = () => {}, win = wi
     pane.dataset.previewPan=String(Math.max(0,Math.min(1,value/100)));camera();changed()
   }
   scene.addEventListener('input',input)
-  const loads = panes.map(pane => { const frame = pane.querySelector('iframe'), load = () => { pending(pane,true); request(pane) }; frame.addEventListener('load',load); return [frame,load] })
-  win.addEventListener('message',message); scene.addEventListener('click',click)
+  scene.addEventListener('click',click)
+  // 字体与窗口变化只校正同一份 DOM 的锚点，不启动子应用、网络请求或加载计时器。
+  const resize=()=>{camera();changed()}
+  win.addEventListener('resize',resize)
   select(selected)
-  return Object.assign(() => { scene.removeEventListener('click',click);scene.removeEventListener('input',input); win.removeEventListener('message',message); loads.forEach(([frame,load])=>frame.removeEventListener('load',load)); panes.forEach(clear) },{camera})
+  return Object.assign(() => { scene.removeEventListener('click',click);scene.removeEventListener('input',input);win.removeEventListener('resize',resize) },{camera})
 }

@@ -1,9 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sourceDetails, originalCamera, validPreviewRow, detailMagnification, detailSource, detailCanvas, detailWindowLayout, mountSourceDetails } from '../docs/site/source-details.mjs'
+import { sourceDetails, originalCamera, measureDisplayItem, detailMagnification, detailSource, detailCanvas, detailWindowLayout, mountSourceDetails } from '../docs/site/source-details.mjs'
 import { receipts, ledger, receivablesPayables } from '../scripts/site-preview/fixtures.mjs'
 import { sceneAt, windowGeometry, projectWindowPoint, connectionEndpoints } from '../docs/site/scene-geometry.mjs'
-import { findOriginalItem } from '../scripts/site-preview/original-items.mjs'
 
 // 对照真实预览数据，验证逐项关联，而不是只检查三个标签同写了 #101。
 test('三种物料逐行对应入库、库存及应付证据，金额独立且合计 4800', () => {
@@ -19,15 +18,20 @@ test('三种物料逐行对应入库、库存及应付证据，金额独立且�
   assert.equal(sourceDetails.reduce((sum,detail)=>sum+detail.amount,0),4800)
 })
 
-// 直接定位原页面单元格，不能把样式和数据拆开重做为另一种表格。
-test('原页面明细定位保留真实布局与字段，未知物料不关联',()=>{
-  const detail=sourceDetails[0],span={textContent:detail.zh},cells=Array.from({length:7},(_,index)=>({getBoundingClientRect:()=>({left:100*index,top:100,right:100*(index+1),bottom:150})}))
-  const row={textContent:detail.sku+' · 采购入库 #101',querySelectorAll:()=>cells}
-  const root={querySelectorAll:()=>[span],querySelector:()=>({querySelectorAll:()=>[row]})}
-  assert.equal(findOriginalItem(root,'receipt',detail),span)
-  assert.deepEqual(findOriginalItem(root,'stock',detail).getBoundingClientRect(),{left:200,top:100,width:300,height:50})
-  assert.deepEqual(findOriginalItem(root,'finance',detail).getBoundingClientRect(),{left:300,top:100,width:300,height:50})
-  assert.equal(findOriginalItem(root,'stock',sourceDetails[1]),null)
+// 本地字段用未变换的 offset 定位，外部窗口与镜头缩放都不能改变关联来源。
+test('原位字段定位合并连续单元格，拒绝缺失、越界及错误父节点',()=>{
+  const canvas={offsetWidth:1800,offsetHeight:1200}
+  const parent={offsetLeft:300,offsetTop:200,offsetParent:canvas}
+  const nodes=[{offsetLeft:20,offsetTop:40,offsetWidth:220,offsetHeight:60,offsetParent:parent},{offsetLeft:240,offsetTop:40,offsetWidth:300,offsetHeight:60,offsetParent:parent}]
+  canvas.querySelectorAll=()=>nodes
+  assert.deepEqual(measureDisplayItem(canvas,sourceDetails[0]),{width:1800,height:1200,rect:{left:320,top:240,width:520,height:60}})
+  nodes[1].offsetLeft=1600
+  assert.equal(measureDisplayItem(canvas,sourceDetails[0]),null)
+  nodes[1].offsetLeft=240;nodes[1].offsetParent=null
+  assert.equal(measureDisplayItem(canvas,sourceDetails[0]),null)
+  canvas.querySelectorAll=()=>[]
+  assert.equal(measureDisplayItem(canvas,sourceDetails[0]),null)
+  assert.equal(measureDisplayItem(canvas,{key:'invalid'}),null)
 })
 test('镜头完整状态保留整页，放大只改变原 DOM 变换，锚点共用同一矩阵',()=>{
   const data={width:1800,height:1200,rect:{left:810,top:450,width:580,height:40}}
@@ -76,74 +80,58 @@ test('同一组件放大曲线可倒滚，静态直接可读；三窗实际行�
 })
 
 function detailFixture() {
-  const scene=new EventTarget(), win=new EventTarget(), fields=()=>({textContent:''}), timerCallbacks=new Map()
-  let timerId=0
-  Object.assign(win,{location:{origin:'https://preview.test'},setTimeout(callback){timerCallbacks.set(++timerId,callback);return timerId},clearTimeout(id){timerCallbacks.delete(id)}})
+  const scene=new EventTarget(),win=new EventTarget(),fields=()=>({textContent:''})
   const buttons=sourceDetails.map(detail=>({dataset:{sourceDetail:detail.key},setAttribute(name,value){this[name]=value}}))
   const panes=Object.fromEntries(['receipt','stock','finance'].map(key=>{
-    const anchor={style:{},dataset:{}},name=fields(),sku=fields(),value=fields(),error={hidden:true},sent=[]
-    const frame=Object.assign(new EventTarget(),{style:{},contentWindow:{postMessage(data,origin){sent.push({data,origin})}}})
-    const pane={clientWidth:720,clientHeight:600,dataset:{detailKey:key},querySelector:selector=>({'iframe':frame,'[data-preview-error]':error,'[data-real-anchor]':anchor,'[data-detail-name]':name,'[data-detail-sku]':sku,'[data-detail-value]':value})[selector]}
-    return [key,{...pane,anchor,name,sku,value,frame,error,sent}]
+    const anchor={style:{},dataset:{}},name=fields(),sku=fields(),value=fields()
+    const canvas={style:{},offsetWidth:1800,offsetHeight:1200,missing:false}
+    canvas.querySelectorAll=selector=>canvas.missing ? [] : [{offsetLeft:400,offsetTop:300+sourceDetails.findIndex(d=>selector.includes(d.key))*70,offsetWidth:580,offsetHeight:56,offsetParent:canvas}]
+    const pane={clientWidth:720,clientHeight:480,dataset:{detailKey:key},querySelector:selector=>({'[data-display-canvas]':canvas,'[data-real-anchor]':anchor,'[data-detail-name]':name,'[data-detail-sku]':sku,'[data-detail-value]':value})[selector]}
+    return [key,{...pane,canvas,anchor,name,sku,value}]
   }))
   const summary=fields();let changes=0
   scene.querySelectorAll=()=>buttons
   scene.querySelector=selector=>selector==='[data-detail-summary]'?summary:panes[selector.match(/"([a-z]+)"/)?.[1]]
-  const click=button=>{const event=new Event('click');Object.defineProperty(event,'target',{value:{closest:()=>button}});scene.dispatchEvent(event)}
-  const payload=(surface,detail=sourceDetails[0])=>({type:'nexora:preview-row',surface,key:detail.key,sourceId:detailSource(detail),width:720,height:600,rect:{left:40,top:240+60*detail.line,width:640,height:56}})
-  const message=(surface,data=payload(surface),origin=win.location.origin,source=panes[surface].frame.contentWindow)=>win.dispatchEvent(Object.assign(new Event('message'),{data,origin,source}))
-  return {scene,win,panes,buttons,summary,click,payload,message,timerCallbacks,changed:()=>{changes++},changes:()=>changes}
+  const emit=(type,target)=>{const event=new Event(type);Object.defineProperty(event,'target',{value:{closest:()=>target}});scene.dispatchEvent(event)}
+  return {scene,win,panes,buttons,summary,emit,changed:()=>{changes++},changes:()=>changes}
 }
-test('同源真实行布局才能显示连线，拒绝跨源、旧选择、越界与无效矩形，卸载清理',()=>{
+// 原位展示同步完成选择和布局，没有 iframe 消息、计时器或加载中间态。
+test('首帧同步显示，切换物料立即更新三窗来源、金额和锚点，卸载清理事件',()=>{
   const f=detailFixture(),destroy=mountSourceDetails(f.scene,'zh-CN',f.changed,f.win)
-  assert.equal(f.panes.stock.dataset.previewReady,'false')
-  const initial=f.changes()
-  f.message('stock',f.payload('stock'),'https://foreign.test')
-  f.message('stock',f.payload('stock'),f.win.location.origin,{})
-  f.message('stock',{...f.payload('stock'),width:NaN})
-  f.message('stock',{...f.payload('stock'),rect:{left:0,top:0,width:900,height:60}})
-  assert.equal(f.changes(),initial)
-  f.message('stock');assert.equal(f.panes.stock.dataset.previewReady,'true')
-  assert.match(f.panes.stock.anchor.style.cssText,/--item-top:50%/)
-  f.click(f.buttons[1]);assert.equal(f.panes.stock.dataset.previewReady,'false')
-  f.message('stock');assert.equal(f.panes.stock.dataset.previewReady,'false')
-  f.message('stock',f.payload('stock',sourceDetails[1]));assert.equal(f.panes.stock.dataset.previewReady,'true')
+  for(const pane of Object.values(f.panes)){
+    assert.equal(pane.dataset.previewReady,'true')
+    assert.match(pane.canvas.style.transform,/scale\(0\.4\)/)
+  }
+  f.emit('click',f.buttons[1])
   assert.equal(f.buttons[1]['aria-pressed'],'true')
-  for(const pane of Object.values(f.panes)){assert.equal(pane.sku.textContent,'EL-SR-000001');assert.equal(pane.anchor.dataset.sourceId,'receipt:101:2');assert.equal(pane.sent.at(-1).origin,f.win.location.origin)}
+  for(const pane of Object.values(f.panes)){assert.equal(pane.sku.textContent,'EL-SR-000001');assert.equal(pane.anchor.dataset.sourceId,'receipt:101:2');assert.equal(pane.dataset.previewReady,'true')}
   assert.equal(f.panes.receipt.value.textContent,'2,000 个');assert.equal(f.panes.stock.value.textContent,'+2,000 个');assert.equal(f.panes.finance.value.textContent,'¥400.00')
   assert.match(f.summary.textContent,/贴片电阻.*库存 \+2,000.*应付 ¥400.00/)
-  const count=f.changes();f.click({dataset:{sourceDetail:'mcu'}});assert.equal(f.changes(),count)
-  for(const callback of f.timerCallbacks.values())callback()
-  assert.equal(f.panes.receipt.error.hidden,false)
-  f.panes.stock.frame.dispatchEvent(new Event('load'));assert.equal(f.panes.stock.dataset.previewReady,'false')
-  destroy();assert.equal(f.timerCallbacks.size,0)
-  const finalCount=f.changes();f.click(f.buttons[2]);f.message('stock');assert.equal(f.changes(),finalCount)
-  const en=detailFixture(),stop=mountSourceDetails(en.scene,'en',en.changed,en.win);en.click(en.buttons[2]);assert.match(en.summary.textContent,/Ceramic capacitor.*payable ¥400.00/);stop()
+  const count=f.changes();f.emit('click',{dataset:{sourceDetail:'unknown'}});assert.equal(f.changes(),count)
+  destroy();f.emit('click',f.buttons[2]);f.win.dispatchEvent(new Event('resize'));assert.equal(f.changes(),count)
+  const en=detailFixture(),stop=mountSourceDetails(en.scene,'en',en.changed,en.win);en.emit('click',en.buttons[2]);assert.match(en.summary.textContent,/Ceramic capacitor.*payable ¥400.00/);stop()
 })
-test('关联矩形拒绝负值和错误来源行',()=>{
-  const f=detailFixture(),data=f.payload('receipt')
-  assert.equal(validPreviewRow(data,'receipt',sourceDetails[0]),true)
-  for(const rect of [{...data.rect,left:-1},{...data.rect,height:0},{...data.rect,top:Infinity}])assert.equal(Boolean(validPreviewRow({...data,rect},'receipt',sourceDetails[0])),false)
-  assert.equal(validPreviewRow({...data,sourceId:'receipt:101:2'},'receipt',sourceDetails[0]),false)
+test('缺失字段只隐藏关联锚点，保留原位界面；字段恢复后重新对齐',()=>{
+  const f=detailFixture(),stop=mountSourceDetails(f.scene,'zh-CN',f.changed,f.win)
+  stop.camera(1)
+  assert.match(f.panes.stock.canvas.style.transform,/scale\(1\.158/)
+  f.panes.stock.canvas.missing=true;stop.camera()
+  assert.equal(f.panes.stock.dataset.previewReady,'false')
+  assert.match(f.panes.stock.canvas.style.transform,/scale\(0\.4\)/)
+  assert.equal(f.panes.receipt.dataset.previewReady,'true')
+  f.panes.stock.canvas.missing=false;f.win.dispatchEvent(new Event('resize'))
+  assert.equal(f.panes.stock.dataset.previewReady,'true')
+  stop()
 })
-
-// 真实页面可先读，连线只能在真实行已校验后出现；快速选择不应退回整屏加载。
-test('原界面就绪独立于行定位，加载失败立即结束等待，重载不保留旧矩形',()=>{
-  const f=detailFixture(),destroy=mountSourceDetails(f.scene,'zh-CN',f.changed,f.win)
-  const ready={type:'nexora:preview-ready',surface:'stock',width:1800,height:1200}
-  f.message('stock',ready,'https://foreign.test');assert.notEqual(f.panes.stock.dataset.viewReady,'true')
-  f.message('stock',{...ready,width:Infinity});assert.notEqual(f.panes.stock.dataset.viewReady,'true')
-  f.message('stock',ready);assert.equal(f.panes.stock.dataset.viewReady,'true')
-  assert.equal(f.panes.stock.dataset.previewReady,'false')
-  assert.match(f.panes.stock.frame.style.transform,/scale\(0\.4\)/)
-  assert.equal(f.panes.stock.sent.at(-1).data.key,'mcu')
-  f.click(f.buttons[2]);assert.equal(f.panes.stock.dataset.viewReady,'true')
-  assert.equal(f.panes.stock.dataset.previewReady,'false')
-  f.message('stock',f.payload('stock',sourceDetails[2]));assert.equal(f.panes.stock.dataset.previewReady,'true')
-  f.panes.stock.frame.dispatchEvent(new Event('load'))
-  assert.equal(f.panes.stock.dataset.viewReady,'false');assert.equal(f.panes.stock.dataset.previewReady,'false')
-  f.message('stock',{type:'nexora:preview-error',surface:'stock'})
-  assert.equal(f.panes.stock.error.hidden,false)
-  assert.equal(f.timerCallbacks.size,2)
-  destroy()
+test('手机取景范围限定在零到一，不改变示例内容或镜头字号',()=>{
+  const f=detailFixture(),stop=mountSourceDetails(f.scene,'zh-CN',f.changed,f.win)
+  f.panes.stock.clientWidth=360;stop.camera(1)
+  const control={dataset:{previewPan:'stock'},value:'100'}
+  f.emit('input',control)
+  assert.equal(f.panes.stock.dataset.previewPan,'1')
+  assert.match(f.panes.stock.canvas.style.transform,/scale\(1\.5\)/)
+  control.value='200';f.emit('input',control);assert.equal(f.panes.stock.dataset.previewPan,'1')
+  control.value='NaN';f.emit('input',control);assert.equal(f.panes.stock.dataset.previewPan,'1')
+  assert.equal(f.panes.stock.sku.textContent,'EL-IC-000001')
+  stop()
 })

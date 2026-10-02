@@ -1,3 +1,4 @@
+import { displayMarkup } from './workspace-display.mjs'
 import { sourceDetails, detailSource, detailMoney } from './source-details.mjs'
 
 // 截图标题与优势说明集中维护；中英文网站使用同一批中文应用界面素材。
@@ -9,7 +10,7 @@ export const showcaseImages = [
   { key: 'journals', file: 'journals.png', zh: ['业务与总账衔接', '从业务来源生成凭证草稿，独立审核后过账，保留原始依据。'], en: ['Business and ledger', 'Generate journal drafts from business sources, independently review them, then post with the original evidence preserved.'] },
 ]
 
-// 三窗复用当前共享组件；独立本地数据只读展示。
+// 三窗使用项目工作台样式与固定示例字段，直接融入官网。
 export const sourceImages = [
   { key: 'receipt', file: 'receipts.png', zh: ['采购入库', '确认原料进入电子原料仓'], en: ['Purchase receipts', 'Confirmed materials in the electronics warehouse'] },
   { key: 'stock', file: 'inventory.png', zh: ['库存台账', '数量变动保留采购入库来源'], en: ['Inventory ledger', 'Movements preserve the purchase receipt origin'] },
@@ -21,9 +22,9 @@ export function sourcePreviewMarkup(item, language) {
   const detail = sourceDetails[0]
   const label = en ? {receipt:'Received quantity',stock:'Inventory movement',finance:'Payable amount'}[item.key] : {receipt:'入库数量',stock:'库存变动',finance:'应付金额'}[item.key]
   const value = item.key === 'finance' ? detailMoney(detail.amount) : `${item.key === 'stock' ? '+' : ''}${detail.quantity} ${en ? 'units' : '个'}`
-  // iframe 隔离真实应用样式；同一组件整体放大，避免原图与裁剪图相互拼接。
-  const url = `../assets/live-preview/stage.html?surface=${item.key}`
-  return `<div class="real-interface" data-detail-key="${item.key}" data-preview-ready="false" data-view-ready="false"><div class="live-preview-content"><iframe class="live-preview-frame" src="${url}" title="${title} · ${en ? 'Original interface · Sample data' : '原始界面 · 示例数据'}" tabindex="-1" inert></iframe><span class="real-item-target" data-real-anchor="${item.key}" data-source-id="${detailSource(detail)}">${en ? detail.en : detail.zh} · ${detail.sku}</span></div><h2 class="live-preview-title" tabindex="-1">${title}</h2><button class="live-preview-focus" type="button" data-focus="${item.key}" aria-label="${en ? 'Focus business view' : '放大业务视图'}: ${title}">${en ? 'Focus view' : '聚焦明细'} ↗</button><label class="preview-pan">${en ? 'Pan to inspect original fields' : '移动查看原始字段'}<input type="range" min="0" max="100" step="1" value="0" data-preview-pan="${item.key}" aria-label="${en ? 'Pan original interface' : '移动原始界面取景'}: ${title}"></label><div class="preview-loading" role="status">${en ? 'Loading business view…' : '正在加载业务视图…'}</div><div class="preview-error" data-preview-error role="status" hidden>${en ? 'Preview unavailable. Reload or open the view.' : '组件预览暂时无法加载，请刷新或单独打开。'} <a href="${url}" target="_blank" rel="noopener">${en ? 'Open view' : '打开业务视图'} ↗</a></div><div class="real-source-caption"><strong data-detail-name>${en ? detail.en : detail.zh}</strong><span data-detail-sku>${detail.sku}</span><span>${label}</span><strong data-detail-value>${value}</strong></div></div>`
+  // 展示 HTML 随官网直接生成，放大和连线使用同一份项目风格 DOM。
+  return `<div class="real-interface" data-detail-key="${item.key}" data-preview-ready="false"><div class="interface-content">${displayMarkup(item.key)}<span class="real-item-target" data-real-anchor="${item.key}" data-source-id="${detailSource(detail)}">${en ? detail.en : detail.zh} · ${detail.sku}</span></div><h2 class="interface-title" tabindex="-1">${title}</h2><button class="interface-focus" type="button" data-focus="${item.key}" aria-label="${en ? 'Focus business view' : '放大业务视图'}: ${title}">${en ? 'Focus view' : '聚焦明细'} ↗</button><label class="preview-pan">${en ? 'Pan to inspect original fields' : '移动查看原始字段'}<input type="range" min="0" max="100" step="1" value="0" data-preview-pan="${item.key}" aria-label="${en ? 'Pan original interface' : '移动原始界面取景'}: ${title}"></label><div class="real-source-caption"><strong data-detail-name>${en ? detail.en : detail.zh}</strong><span data-detail-sku>${detail.sku}</span><span>${label}</span><strong data-detail-value>${value}</strong></div></div>`
+
 
 }
 

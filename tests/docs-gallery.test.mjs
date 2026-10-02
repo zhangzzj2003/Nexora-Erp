@@ -41,10 +41,9 @@ test('七张统一尺寸原图随构建复制，双语轨道入口、业务定�
       }
       for (const item of sourceImages) assert.ok(html.includes(`data-real-anchor="${item.key}"`))
       assert.doesNotMatch(html,/real-app-shell|real-workspace-mask|real-detail-image|@3x/)
-      for (const item of sourceImages) assert.ok(html.includes(`live-preview/stage.html?surface=${item.key}`))
-      assert.equal([...html.matchAll(/class="live-preview-frame"/g)].length,3)
-      assert.equal([...html.matchAll(/data-preview-error role="status" hidden/g)].length,3)
-      assert.equal([...html.matchAll(/class="live-preview-focus"/g)].length,3)
+      assert.doesNotMatch(html,/<iframe|live-preview\/|preview-loading|preview-error/)
+      assert.equal([...html.matchAll(/data-display-canvas/g)].length,3)
+      assert.equal([...html.matchAll(/class="interface-focus"/g)].length,3)
       assert.equal([...html.matchAll(/data-source-detail=/g)].length,3)
       assert.equal([...html.matchAll(/data-source-id="receipt:101:1"/g)].length,3)
       assert.match(html,/data-detail-summary aria-live="polite"/)

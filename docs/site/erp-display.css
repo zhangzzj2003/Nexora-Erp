@@ -1,0 +1,35 @@
+/* 展示继承项目外观，只固定取景尺寸；不装配应用会话或业务交互。 */
+.erp-display{position:absolute;left:0;top:0;width:1800px;height:1200px;transform-origin:0 0;overflow:hidden;background:#f4f6f9;color:#17213b;font:13px Inter,"PingFang SC","Microsoft YaHei",sans-serif;--workspace-field-text:#17213b;--workspace-field-muted:#718399;--workspace-field-accent:#237d7a;--app-button-secondary-hover:#f1f6f7;pointer-events:none}
+.erp-display,.erp-display *{box-sizing:border-box}
+.erp-display :is(h1,h2,p){text-align:left}
+.erp-display button{font-family:inherit;cursor:default}
+.erp-display .app-titlebar-safe-area{margin-left:88px;width:calc(100% - 88px)}
+.erp-display .display-shell{height:1152px;display:grid;grid-template-columns:238px minmax(0,1fr)}
+.erp-display .sidebar{height:1152px;position:relative}
+.erp-display .content{height:1152px}
+.erp-display .content-body{padding:35px 62px 32px;overflow:hidden}
+.erp-display .workspace-tabs{margin:-35px -62px 29px;padding-right:62px}
+.erp-display .topbar h1{font-size:38px}
+.erp-display .display-category{display:flex;align-items:center;gap:11px}
+.erp-display .display-title-tools{display:flex;align-items:center;gap:15px;font-size:12px;color:#52657b}
+.erp-display .display-moon{margin-left:auto;color:#41677b}
+.erp-display .sidebar-bottom{display:flex;align-items:center;gap:9px}
+.erp-display .sidebar-bottom small{display:block;margin-top:4px;font-size:10px}
+.erp-display .display-field{display:block;min-height:40px;border:1px solid #d4dce6;border-radius:8px;padding:9px 11px;background:#fff;color:#718399;font-size:13px;font-weight:400}
+.erp-display label{display:grid;gap:7px;color:#46546b;font-size:12px;font-weight:700}
+.erp-display .display-query{padding:11px 16px;border-radius:7px;background:#237d7a;color:white}
+.erp-display .workspace-vxe-table table{width:100%;table-layout:fixed;font-size:13px;text-align:left}
+.erp-display .workspace-vxe-table th{height:44px;background:#f1f5f7}
+.erp-display .workspace-vxe-table td{border-top:1px solid #e5edf1;line-height:1.6}
+.erp-display .workspace-vxe-table strong{font-size:13px}
+.erp-display .workspace-vxe-table .vxe-cell{overflow:hidden}
+.erp-display .workspace-vxe-table .pill{display:inline-block;font-size:11px;padding:3px 9px;border:1px solid #b8e1d0;border-radius:20px;background:#e7f7f0;color:#26856f}
+/* 入库明细以实际文字宽度取景，避免手机镜头移到列末端的空白区域。 */
+.erp-display .workspace-record-lines>span{white-space:nowrap;width:max-content;max-width:100%}
+.erp-display .display-balances{margin-top:20px}
+.erp-display .display-balances h2{font-size:20px;margin:0 0 20px}
+.erp-display .display-footer{display:flex;justify-content:space-between;padding:12px 62px;background:#f8fafb;border-top:1px solid #dfe6ed;color:#63788a;font-size:11px}
+
+/* 只读官网展示将业务字段提升到项目 13px 的 150%，整页到明细仍使用同一份 DOM。 */
+.erp-display .workspace-vxe-table table,.erp-display .workspace-vxe-table :is(.vxe-cell,strong){font-size:19.5px}
+.erp-display .workspace-vxe-table .vxe-header--column>.vxe-cell{font-size:19.5px}
