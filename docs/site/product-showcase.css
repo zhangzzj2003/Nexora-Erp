@@ -1,6 +1,6 @@
 /* 沿用官网银白和青绿体系；主图承担完整工作空间展示，其余截图解释具体优势。 */
 .product-showcase{max-width:1240px;margin:0 auto;padding:104px 36px 96px;scroll-margin-top:32px}
-.product-showcase-heading{position:relative;background:var(--paper);max-width:800px;margin-bottom:40px}
+.product-showcase-heading{position:relative;max-width:800px;margin-bottom:40px}
 .product-eyebrow{font-size:12px;letter-spacing:.15em;font-weight:650;color:var(--teal);margin:0 0 18px}
 .product-showcase h2{font-size:clamp(30px,3.2vw,45px);line-height:1.3;letter-spacing:-.025em;margin:0 0 20px}
 .product-showcase-heading>p:last-child{color:var(--muted);line-height:1.9;font-size:16px;margin:0;max-width:70ch}
@@ -17,15 +17,22 @@
 .image-enlarge{position:absolute;right:14px;bottom:14px;background:var(--panel);color:var(--teal);border:1px solid var(--rule);border-radius:6px;padding:8px 12px;font-size:12px;font-weight:600}
 .product-image-link:hover .image-enlarge{background:var(--teal);color:var(--panel)}
 .image-error{position:absolute;inset:0;padding:40px;display:flex;align-items:center;justify-content:center;line-height:1.7;color:var(--muted)}
-.product-shot figcaption{position:relative;padding:20px 0;background:var(--paper)}.product-shot-badge{font-size:11px;color:var(--muted);line-height:1.8;display:block;margin-top:20px}
+.product-shot figcaption{position:relative;padding:20px 0}.product-shot-badge{font-size:11px;color:var(--muted);line-height:1.8;display:block;margin-top:20px}
 .orbit-step{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid #74b9ae;border-radius:50%;color:var(--teal);font-size:13px;font-variant-numeric:tabular-nums;background:#f3faf8;box-shadow:0 0 0 7px #f8fafc}
 .product-shot h3{font-size:clamp(22px,2.2vw,30px);line-height:1.4;letter-spacing:-.015em;margin:12px 0}
 .product-shot figcaption p{font-size:14px;line-height:1.8;color:var(--muted);margin:0;max-width:70ch}
-/* 全页统一分层：内容 < 轨道 < 导航；顶层 dialog 仍覆盖轨道，局部背景不会再截断连线。 */
-.overview{--site-layer-content:1;--site-layer-orbit:2;--site-layer-navigation:3;overflow-anchor:none}
-/* GPU 和 SVG 共用一个覆盖层；不接收点击，图片、按钮及表格保持原来的交互。 */
+/* 留白和渐变在后，轨道居中，实体界面在前；不能用整个 main 建立层叠上下文。 */
+.overview{--site-layer-orbit:1;--site-layer-surface:2;--site-layer-navigation:3;overflow-anchor:none}
+/* GPU 和 SVG 共用轨道层，卡片自然遮住经过其背后的线，不接收点击。 */
 .page-orbit{position:fixed;inset:0;z-index:var(--site-layer-orbit);pointer-events:none;overflow:hidden}.page-orbit canvas{position:absolute;left:-40px;top:-40px}.page-orbit svg{width:100%;height:100%;overflow:hidden}.page-orbit path{fill:none;stroke:#218f81;stroke-width:1.4}.page-orbit circle{fill:#078c7e}.page-orbit.gpu-ready svg{visibility:hidden}
-.overview main,.overview footer{position:relative;z-index:var(--site-layer-content)}
+.overview main,.overview footer{position:relative;z-index:auto}
+/* 只提升实际表面，不提升画廊容器；标题附近的留白仍能看见连续轨道。 */
+.overview :is(.product-shot>.product-image-link,.hero-peek,.cover-content,.cover-scroll,.scroll-scene,.home-content){position:relative;z-index:var(--site-layer-surface)}
+/* 保留卫星和滚动提示的绝对定位，前景层级不改变原来的布局及出场动画。 */
+.overview :is(.hero-peek,.cover-scroll){position:absolute}
+/* 文字以自身紧凑底色遮挡，避免整块标题或说明背景把轨道硬切成两截。 */
+.product-showcase-heading>:is(p,h2),.product-shot figcaption>:is(.product-shot-badge,h3,p){position:relative;z-index:var(--site-layer-surface);background:var(--paper);box-shadow:0 0 0 4px var(--paper);width:fit-content;max-width:100%}
+.orbit-step{position:relative;z-index:var(--site-layer-surface)}
 .overview>.site-header{z-index:var(--site-layer-navigation)}
 /* 首屏真实界面形成两颗卫星；中心文案保持清晰，窄屏只保留业务路径。 */
 .overview .hero{overflow:hidden;background:radial-gradient(ellipse at 50% 52%,#e2f3ee55,transparent 64%)}

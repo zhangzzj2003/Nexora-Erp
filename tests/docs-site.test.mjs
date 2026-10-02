@@ -6,17 +6,23 @@ import { resolve, dirname } from 'node:path'
 import { buildSite, buildWebsite, renderMarkdown, resolveLink } from '../scripts/build-docs-site.mjs'
 import { mountScene, sceneAt, focusLayout } from '../docs/site/motion.mjs'
 
-test('全页轨道覆盖内容背景且不拦截输入，导航保留更高层级', () => {
+test('轨道在留白中连续并由真实界面和紧凑文字表面自然遮挡', () => {
   const css = readFileSync(new URL('../docs/site/product-showcase.css', import.meta.url), 'utf8')
-  // 验证实际共享样式的层级约束，避免局部背景或后续改动再次把轨道放到内容后面。
+  // 验证前后关系和父级层叠约束，避免只提高卡片却仍被 main 的层叠上下文限制。
   const level = name => Number(css.match(new RegExp(`--site-layer-${name}:(\\d+)`))?.[1])
-  assert.ok(level('content') < level('orbit'))
-  assert.ok(level('orbit') < level('navigation'))
+  assert.ok(level('orbit') < level('surface'))
+  assert.ok(level('surface') < level('navigation'))
   const orbit = css.match(/\.page-orbit\{([^}]+)\}/)?.[1]
   assert.match(orbit, /position:fixed/)
   assert.match(orbit, /z-index:var\(--site-layer-orbit\)/)
   assert.match(orbit, /pointer-events:none/)
-  assert.match(css, /\.overview main,\.overview footer\{[^}]*z-index:var\(--site-layer-content\)/)
+  assert.match(css, /\.overview main,\.overview footer\{[^}]*z-index:auto/)
+  assert.match(css, /:is\(\.product-shot>\.product-image-link,\.hero-peek,\.cover-content,\.cover-scroll,\.scroll-scene,\.home-content\)\{[^}]*z-index:var\(--site-layer-surface\)/)
+  assert.match(css, /\.product-showcase-heading>:is\(p,h2\),\.product-shot figcaption>:is\([^}]*width:fit-content/)
+  for (const selector of ['product-showcase-heading', 'product-shot figcaption']) {
+    const rule = css.match(new RegExp(`\\.${selector}\\{([^}]+)\\}`))?.[1]
+    assert.doesNotMatch(rule, /background:|z-index:/)
+  }
   assert.match(css, /\.overview>\.site-header\{z-index:var\(--site-layer-navigation\)/)
 })
 
