@@ -7,6 +7,18 @@ export const showcaseImages = [
   { key: 'journals', file: 'journals.png', zh: ['业务与总账衔接', '从业务来源生成凭证草稿，独立审核后过账，保留原始依据。'], en: ['Business and ledger', 'Generate journal drafts from business sources, independently review them, then post with the original evidence preserved.'] },
 ]
 
+// 三窗复用同一套真实截图；不把静态界面描述成可编辑应用。
+export const sourceImages = [
+  { key: 'receipt', file: 'receipts.png', zh: ['采购入库', '确认原料进入电子原料仓'], en: ['Purchase receipts', 'Confirmed materials in the electronics warehouse'] },
+  { key: 'stock', file: 'inventory.png', zh: ['库存台账', '数量变动保留采购入库来源'], en: ['Inventory ledger', 'Movements preserve the purchase receipt origin'] },
+  { key: 'finance', file: 'sources.png', zh: ['应收应付来源', '同一入库形成 4,800 元应付来源'], en: ['Financial origins', 'The same receipt creates a CNY 4,800 payable source'] },
+]
+
+export function sourcePreviewMarkup(item, language) {
+  const en = language === 'en', [title, description] = item[en ? 'en' : 'zh']
+  return `<div class="real-interface"><a class="product-image-link" href="../assets/screenshots/${item.file}" data-product-image data-image-title="${title}" aria-label="${en ? 'View full image' : '查看大图'}: ${title}"><img src="../assets/screenshots/${item.file}" alt="${title} · ${en ? 'Current interface preview · Sample data' : '当前界面预览 · 示例数据'}" width="1800" height="1200" loading="lazy" decoding="async"><span class="image-error" role="status" hidden>${en ? 'Image unavailable. Open the original image or reload.' : '图片暂时无法加载，请打开原图或刷新页面。'}</span><span class="image-enlarge">${en ? 'View full image' : '查看大图'} ↗</span></a><div class="real-source-caption"><strong>${title}</strong><span>${description}</span><span class="real-source-anchor" data-real-anchor="${item.key}">${en ? 'Purchase receipt' : '采购入库'} #101</span></div></div>`
+}
+
 export function showcaseMarkup(language) {
   const en = language === 'en'
   const badge = en ? 'Current interface preview · Sample data' : '当前界面预览 · 示例数据'
@@ -16,7 +28,7 @@ export function showcaseMarkup(language) {
   const failed = en ? 'Image unavailable. Open the original image or reload the page.' : '图片暂时无法加载，请打开原图或刷新页面。'
   const figures = showcaseImages.map((item, index) => {
     const [title, description] = item[en ? 'en' : 'zh']
-    return `<figure class="product-shot${index === 0 ? ' product-shot-main' : ''}"><a class="product-image-link" href="../assets/screenshots/${item.file}" data-product-image aria-label="${en ? `View full image: ${title}` : `查看大图：${title}`}"><img src="../assets/screenshots/${item.file}" alt="${title} · ${badge}" width="1800" height="1200" loading="lazy" decoding="async"><span class="image-error" role="status" hidden>${failed}</span><span class="image-enlarge">${enlarge} <span aria-hidden="true">↗</span></span></a><figcaption><span class="product-shot-badge">${badge}</span><h3>${title}</h3><p>${description}</p></figcaption></figure>`
+    return `<figure class="product-shot${index === 0 ? ' product-shot-main' : ''}" data-orbit-card id="preview-${item.key}"><a class="product-image-link" href="../assets/screenshots/${item.file}" data-product-image aria-label="${en ? `View full image: ${title}` : `查看大图：${title}`}"><img src="../assets/screenshots/${item.file}" alt="${title} · ${badge}" width="1800" height="1200" loading="lazy" decoding="async"><span class="image-error" role="status" hidden>${failed}</span><span class="image-enlarge">${enlarge} <span aria-hidden="true">↗</span></span></a><figcaption><span class="orbit-step" data-orbit-node>${String(index + 1).padStart(2, '0')}</span><span class="product-shot-badge">${badge}</span><h3>${title}</h3><p>${description}</p></figcaption></figure>`
   }).join('')
   // 原图链接在无脚本时仍有效，增强脚本使用原生 dialog 管理焦点和键盘关闭。
   return `<section class="product-showcase" id="product-preview" aria-labelledby="product-preview-title"><div class="product-showcase-heading"><p class="product-eyebrow">${en ? 'INSIDE NEXORA' : 'NEXORA 工作空间'}</p><h2 id="product-preview-title">${heading}</h2><p>${intro}</p></div><div class="product-shots">${figures}</div></section><dialog class="product-lightbox" aria-labelledby="product-lightbox-title"><div class="lightbox-bar"><div><h2 id="product-lightbox-title"></h2><p>${badge}</p></div><form method="dialog"><button type="submit" autofocus>${en ? 'Close image' : '关闭大图'} <span aria-hidden="true">×</span></button></form></div><div class="lightbox-image"><img alt="" width="1800" height="1200"><p class="lightbox-error" role="status" hidden>${failed}</p></div><a class="lightbox-original" href="">${en ? 'Open original image' : '打开原图'} ↗</a></dialog>`

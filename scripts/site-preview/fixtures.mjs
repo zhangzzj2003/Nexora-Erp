@@ -1,5 +1,5 @@
 // 所有名称、单号及金额均为虚构示例；库存与成本围绕同一款控制板组织。
-export const previewRoutes = ['home', 'catalog', 'inventoryLedger', 'productionCosts', 'journals']
+export const previewRoutes = ['home', 'catalog', 'receipts', 'inventoryLedger', 'productionCosts', 'financeSources', 'journals']
 const createdAt = '2026-10-01T08:00:00+00:00'
 const material = (id, sku, name, category_code, specification, packageName, part, unit = '个') => ({
   id, sku, name, category_code, specification, package: packageName, brand: '示例品牌',
@@ -67,7 +67,15 @@ const journal = (id, reference, status, value, source) => ({
     label: { receipt: '采购入库', production_completion: '生产完工', shipment: '销售出库' }[source.split(':')[0]], source_id: Number(source.split(':')[1]),
   } } : null,
 })
-export const journals = [journal(501, 'DEMO-RCPT-101', 'posted', '8000.00', 'receipt:101'), journal(502, 'DEMO-PROD-301', 'submitted', '3300.00', 'production_completion:301'), journal(503, 'DEMO-SHIP-601', 'draft', '2000.00', 'shipment:601'), journal(504, 'DEMO-LABOR-201', 'approved', '600.00', null)]
+export const journals = [journal(501, 'DEMO-RCPT-101', 'posted', '4800.00', 'receipt:101'), journal(502, 'DEMO-PROD-301', 'submitted', '3300.00', 'production_completion:301'), journal(503, 'DEMO-SHIP-601', 'draft', '2000.00', 'shipment:601'), journal(504, 'DEMO-LABOR-201', 'approved', '600.00', null)]
+
+// 三窗轨道也使用正式列表页面；入库、台账和金额来源共享 #101 业务依据。
+export const receipts = [{ id: 101, supplier_id: 1, supplier_name: '示例电子供应商', warehouse_id: 1, warehouse_name: '电子原料仓', reference: 'DEMO-RCPT-101', status: 'posted', created_by: 2, created_by_name: '示例采购', created_at: createdAt, posted_at: createdAt, posted_by: 4, purchase_order_id: 101, goods_receipt_id: 101, reversal_id: null, reversal_reason: null, reversed_by: null, reversed_by_name: null, reversed_at: null,
+  lines: materials.slice(0, 3).map((item, index) => ({ id: index + 1, material_id: item.id, material_name: item.name, sku: item.sku, unit: item.unit, quantity: ['200', '2000', '1000'][index], unit_price: ['20.00', '0.20', '0.40'][index], returned_quantity: '0', returnable_quantity: ['200', '2000', '1000'][index] })),
+}]
+export const receivablesPayables = { currency: 'CNY', receivable_amount: '0.00', payable_amount: '4800.00', unpriced_count: 0,
+  entries: receipts[0].lines.map((line, index) => ({ key: `receipt:101:${line.id}`, kind: 'payable', source_type: 'receipt', source_id: 101, source_line_id: line.id, material_id: line.material_id, unit_price: line.unit_price, currency: 'CNY', order_id: 101, party_id: 1, party_name: '示例电子供应商', sku: line.sku, quantity: line.quantity, amount: ['4000.00', '400.00', '400.00'][index], posted_at: createdAt, posted_by: 4, posted_by_name: '示例仓管' })),
+}
 
 // 仅允许截图需要的读取；任何未配置请求（包括写入）明确失败，不回退正式服务。
 export function previewResponse(operation) {

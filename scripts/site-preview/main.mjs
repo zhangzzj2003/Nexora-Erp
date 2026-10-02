@@ -6,7 +6,7 @@ import { useThemeStore } from '../../src/renderer/src/store/theme-store'
 import { workspaceRouter } from '../../src/renderer/src/router/browser-router'
 import { installWorkspaceAccessGuard } from '../../src/renderer/src/router'
 import { workspaceRoutes, workspaceRouteGroups } from '../../src/renderer/src/router/workspace-routes'
-import { previewRoutes, previewResponse, materials, warehouses, journals, productionCostReport, productionCostSettlements } from './fixtures.mjs'
+import { previewRoutes, previewResponse, materials, warehouses, journals, productionCostReport, productionCostSettlements, receipts, receivablesPayables } from './fixtures.mjs'
 import '../../src/renderer/src/style.css'
 import '../../src/renderer/src/light-theme.css'
 import '../../src/renderer/src/dark-theme.css'
@@ -27,7 +27,7 @@ store.$patch({
     { code: 'EL', name: '电子类', children: [{ code: 'EL-IC', name: '集成电路 IC' }, { code: 'EL-SR', name: '贴片电阻' }, { code: 'EL-SC', name: '贴片电容' }, { code: 'EL-PC', name: 'PCB / 电路板' }] },
   ],
   ledgerQuery: { warehouse_id: null, material_id: null, source_type: null, from_date: '2026-09-25', to_date: '2026-10-01' },
-  productionCostReport, productionCostSettlements, journals, openedRouteKeys: previewRoutes,
+  productionCostReport, productionCostSettlements, journals, receipts, receivablesPayables, openedRouteKeys: previewRoutes,
 })
 // 只替换本预览实例的生命周期，不启动发现、连接、轮询或修改真实应用状态。
 store.initialize = async () => {}

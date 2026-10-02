@@ -25,7 +25,7 @@ export function mountProductGallery(root = document) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
     opener = link
-    title.textContent = link.closest('figure').querySelector('h3').textContent
+    title.textContent = link.dataset?.imageTitle || link.closest('figure')?.querySelector('h3')?.textContent || link.querySelector('img').alt
     image.alt = link.querySelector('img').alt
     image.hidden = false
     dialog.querySelector('.lightbox-error').hidden = true

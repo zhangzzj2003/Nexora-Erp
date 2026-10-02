@@ -22,12 +22,12 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
         if (page === 'index.html') {
           assert.match(html, /class="hero" data-cover/)
           assert.match(html, /href="#business-demo"/)
-          assert.match(html, /class="scroll-scene" id="business-demo"/)
+          assert.match(html, /class="scroll-scene"[^>]*id="business-demo"/)
           assert.doesNotMatch(html, /data-pause|data-resume|window-reflection/)
           assert.match(html, /data-stage="3"/)
         }
         for (const match of html.matchAll(/(?:href|src)="([^"#]+)(?:#([^" ]+))?"/g)) {
-          const href = match[1]
+          const href = match[1].split('?')[0]
           if (/^https?:/.test(href)) continue
           const target = resolve(dirname(path), href, href.endsWith('/') ? 'index.html' : '')
           assert.ok(existsSync(target), `${page}: ${href}`)
