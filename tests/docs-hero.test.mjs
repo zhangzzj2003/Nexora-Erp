@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { mountHeroEntrance } from '../docs/site/hero-entrance.mjs'
+import { runInNewContext } from 'node:vm'
+import { mountHeroEntrance, pageEntryScript } from '../docs/site/hero-entrance.mjs'
 
 // 以浏览器动画状态驱动测试，验证控制交接和有限请求帧，不复刻 CSS 插值算法。
 function fixture(options = {}) {
@@ -12,6 +13,8 @@ function fixture(options = {}) {
   hero.getAnimations = () => hero.animations
   doc.querySelector = () => options.absent ? null : hero
   doc.hidden = Boolean(options.hidden)
+  doc.documentElement = { dataset: {} }
+  doc.readyState = options.complete ? 'complete' : 'loading'
   reduced.matches = Boolean(options.reduced)
   win.matchMedia = () => reduced
   win.Event = Event
@@ -23,6 +26,44 @@ function fixture(options = {}) {
   return { hero, doc, win, reduced, frames, notifications: () => notifications,
     tick() { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn()) } }
 }
+
+test('head 启动脚本在首帧前选定出场或静态，锚点及减少动态不先播放动画', () => {
+  for (const options of [{}, { hash: '#product-preview' }, { reduced: true }, { hidden: true }, { scrollY: 80 }]) {
+    const f = fixture(options)
+    // 执行实际嵌入 HTML 的脚本，验证序列化函数没有遗漏运行依赖。
+    runInNewContext(pageEntryScript, { document: f.doc, window: f.win })
+    assert.equal(f.doc.documentElement.dataset.heroEntrance, Object.keys(options).length ? 'static' : 'intro')
+    assert.equal(f.doc.documentElement.dataset.navigationReady, undefined)
+    assert.equal(f.frames.size, 0)
+  }
+})
+
+test('首次定位期间保持即时滚动，load 后两帧才启用后续平滑导航', () => {
+  for (const complete of [false, true]) {
+    const f = fixture({ complete })
+    runInNewContext(pageEntryScript, { document: f.doc, window: f.win })
+    if (!complete) {
+      assert.equal(f.frames.size, 0)
+      f.win.dispatchEvent(new Event('load'))
+    }
+    f.tick()
+    assert.equal(f.doc.documentElement.dataset.navigationReady, undefined)
+    f.tick()
+    assert.equal(f.doc.documentElement.dataset.navigationReady, 'true')
+    assert.equal(f.frames.size, 0)
+    f.win.dispatchEvent(new Event('load'))
+    assert.equal(f.frames.size, 0)
+  }
+})
+
+test('后续模块保留 head 选定的静态状态，不因锚点改变重新出场', () => {
+  const f = fixture({ hash: '#product-preview' })
+  runInNewContext(pageEntryScript, { document: f.doc, window: f.win })
+  f.win.location.hash = ''
+  mountHeroEntrance(f.doc, f.win)
+  assert.equal(f.hero.dataset.heroSettled, 'true')
+  assert.equal(f.frames.size, 0)
+})
 
 test('首屏仅在出场期间通知轨道，结束后取消帧且滚动不会重播', () => {
   const f = fixture(), destroy = mountHeroEntrance(f.doc, f.win)

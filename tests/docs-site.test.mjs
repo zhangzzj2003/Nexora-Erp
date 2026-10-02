@@ -32,6 +32,9 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
         assert.ok(html.includes(`<html lang="${language}">`))
         assert.ok(html.includes(`../${language === 'en' ? 'zh-CN' : 'en'}/${page === 'index.html' ? './' : page}`))
         assert.match(html, /<h1[ >]/)
+        // 同步启动位于样式和正文前，首次锚点访问不会先绘制动画状态。
+        assert.ok(html.indexOf('<script data-page-entry>') < html.indexOf('rel="stylesheet"'))
+        assert.ok(html.indexOf('<script data-page-entry>') < html.indexOf('<body'))
         assert.match(html, /scope="col"/)
         if (page === 'index.html') {
           assert.match(html, /class="hero" data-cover/)
@@ -81,6 +84,18 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
     assert.ok(output.startsWith(prefix))
     rmSync(output, { recursive: true, force: true })
   }
+})
+
+test('首帧保持即时定位，首屏动画只在明确出场模式启用且无脚本仍可读', () => {
+  const css = readFileSync(new URL('../docs/site/site.css', import.meta.url), 'utf8')
+  const hero = readFileSync(new URL('../docs/site/product-showcase.css', import.meta.url), 'utf8')
+  assert.match(css, /html\{scroll-behavior:auto/)
+  assert.match(css, /html\[data-navigation-ready\]\{scroll-behavior:smooth\}/)
+  assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{html,html\[data-navigation-ready\]\{scroll-behavior:auto\}/)
+  for (const rule of hero.matchAll(/([^{}]+)\{([^{}]*animation:hero-enter-[^{}]+)\}/g)) {
+    assert.match(rule[1], /html\[data-hero-entrance=intro\]/)
+  }
+  assert.match(hero, /html\[data-hero-entrance=intro\] \.hero:not\(\[data-hero-settled\]\) \.hero-title-line\{animation:hero-enter-copy/)
 })
 
 test('Markdown 使用真实仓库路径，拒绝可执行协议及越界链接，原始 HTML 不执行', () => {

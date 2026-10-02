@@ -1,4 +1,20 @@
-// CSS 从首帧开始出场，脚本只负责轨道跟随和中断，不等待字体、截图或业务视图。
+// 在 head 中同步执行：先确定首屏状态，避免正文绘制后才从动画切换到静态。
+export function preparePageEntry(doc, win) {
+  const root = doc.documentElement
+  root.dataset.heroEntrance = win.location.hash || win.scrollY > 8 || doc.hidden ||
+    win.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'static' : 'intro'
+  // 首次锚点定位与浏览器位置恢复保持即时；加载后两帧再启用用户点击时的平滑滚动。
+  const ready = () => win.requestAnimationFrame(() => win.requestAnimationFrame(() => {
+    root.dataset.navigationReady = 'true'
+  }))
+  if (doc.readyState === 'complete') ready()
+  else win.addEventListener('load', ready, { once: true })
+}
+
+// 同一函数生成同步启动脚本并用于单元测试，不增加首轮网络请求或依赖模块加载顺序。
+export const pageEntryScript = `(${preparePageEntry.toString()})(document,window);`
+
+// CSS 从首帧开始出场，后续模块只负责轨道跟随和中断，不等待字体、截图或业务视图。
 export function mountHeroEntrance(doc = document, win = window) {
   const hero = doc.querySelector('[data-cover]')
   if (!hero) return () => {}
@@ -30,7 +46,7 @@ export function mountHeroEntrance(doc = document, win = window) {
     frame = win.requestAnimationFrame(tick)
   }
   // 锚点访问、历史位置恢复、减少动态及后台标签直接呈现最终画面。
-  if (reduced.matches || doc.hidden || win.scrollY > 8 || win.location.hash || !hero.getAnimations) {
+  if (doc.documentElement?.dataset.heroEntrance === 'static' || reduced.matches || doc.hidden || win.scrollY > 8 || win.location.hash || !hero.getAnimations) {
     settle()
     return settle
   }

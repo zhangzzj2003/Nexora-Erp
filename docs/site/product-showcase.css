@@ -33,22 +33,23 @@
 .hero-peek{position:absolute;width:clamp(260px,24vw,410px);top:38%;opacity:.9;pointer-events:none;border:1px solid #cbdedc;border-radius:12px;background:var(--panel);box-shadow:0 24px 50px #23594e1a;overflow:hidden}
 .hero-peek img{width:100%;height:auto;display:block}.hero-peek span{display:block;padding:12px 18px;text-align:left;color:var(--teal);font-size:12px}.hero-peek i{display:block;width:7px;height:7px;border-radius:50%;background:#109f8a;position:absolute;bottom:15px;right:15px}
 .hero-peek-0{left:-60px;transform:perspective(1400px) rotateY(18deg) rotateZ(-7deg)}.hero-peek-1{right:-60px;top:44%;transform:perspective(1400px) rotateY(-18deg) rotateZ(7deg)}
+/* 只在 head 已选定的出场模式播放；锚点、无脚本和减少动态从首帧完整可读。 */
 /* 标题分两拍出现，说明和入口随后跟上；只改变合成属性，不挤动首屏布局。 */
 .overview .hero h1 .hero-title-line{display:inline-block;color:var(--ink)}
 .overview .hero h1 .hero-title-accent{color:#00877d}
-.hero:not([data-hero-settled]) .hero-title-line{animation:hero-enter-copy 680ms cubic-bezier(.16,1,.3,1) both}
-.hero:not([data-hero-settled]) .hero-title-accent{animation-delay:100ms}
-.hero:not([data-hero-settled]) :is(.hero-eyebrow,.subtitle,.hero-description,.hero-scope,.actions,.hero-journey,.cover-scroll){animation:hero-enter-copy 520ms cubic-bezier(.16,1,.3,1) both}
-.hero:not([data-hero-settled]) .hero-eyebrow{animation-delay:0ms}
-.hero:not([data-hero-settled]) .subtitle{animation-delay:230ms}
-.hero:not([data-hero-settled]) .hero-description{animation-delay:290ms}
-.hero:not([data-hero-settled]) .hero-scope{animation-delay:340ms}
-.hero:not([data-hero-settled]) .actions{animation-delay:400ms}
-.hero:not([data-hero-settled]) .hero-journey{animation-delay:470ms}
-.hero:not([data-hero-settled]) .cover-scroll{animation-delay:620ms}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-title-line{animation:hero-enter-copy 680ms cubic-bezier(.16,1,.3,1) both}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-title-accent{animation-delay:100ms}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) :is(.hero-eyebrow,.subtitle,.hero-description,.hero-scope,.actions,.hero-journey,.cover-scroll){animation:hero-enter-copy 520ms cubic-bezier(.16,1,.3,1) both}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-eyebrow{animation-delay:0ms}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .subtitle{animation-delay:230ms}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-description{animation-delay:290ms}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-scope{animation-delay:340ms}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .actions{animation-delay:400ms}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-journey{animation-delay:470ms}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .cover-scroll{animation-delay:620ms}
 /* 两侧沿各自轨道进入，独立 translate/scale 保留 ERP 窗口原有的透视角度。 */
-.hero:not([data-hero-settled]) .hero-peek{animation:hero-enter-satellite 820ms cubic-bezier(.16,1,.3,1) 240ms both;--hero-enter-x:-100px}
-.hero:not([data-hero-settled]) .hero-peek-1{animation-delay:320ms;--hero-enter-x:100px}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-peek{animation:hero-enter-satellite 820ms cubic-bezier(.16,1,.3,1) 240ms both;--hero-enter-x:-100px}
+html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-peek-1{animation-delay:320ms;--hero-enter-x:100px}
 @keyframes hero-enter-copy{from{opacity:0;translate:0 20px}to{opacity:1;translate:0 0}}
 @keyframes hero-enter-satellite{from{opacity:0;translate:var(--hero-enter-x) 24px;scale:.94}to{opacity:.9;translate:0 0;scale:1}}
 /* 减少动态或打印时从第一帧完整可读；关闭脚本也会自行结束 CSS 出场。 */
