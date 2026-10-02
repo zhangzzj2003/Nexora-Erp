@@ -557,7 +557,7 @@ test('收尾轨道仅在可见时展开，倒滚可逆且减少动态保留完�
   assert.deepEqual(finaleOrbit({top:0,height:640},0,900), [])
   const entering = finaleOrbit({top:780,height:640},1440,900)
   const reading = finaleOrbit({top:120,height:640},1440,900)
-  assert.equal(reading.length,3)
+  assert.equal(reading.length,1)
   assert.ok(entering[0].amount < reading[0].amount)
   assert.deepEqual(finaleOrbit({top:780,height:640},1440,900),entering)
   const nearby = finaleOrbit({top:779.99,height:640},1440,900)
@@ -577,11 +577,27 @@ test('收尾复用全页画布，GPU 失败仍显示 SVG 且离屏不维持循�
     assert.equal(f.host.dataset.renderer,unavailable?'fallback':'webgl')
     assert.equal(f.host.hidden,false)
     assert.equal(f.canvases.length,1)
-    assert.equal((f.svg.innerHTML.match(/<path/g)||[]).length,3)
+    assert.equal((f.svg.innerHTML.match(/<path/g)||[]).length,1)
     assert.equal(f.finale.dataset.orbitReady,'true')
     assert.equal(f.queued(),0)
     f.setTop(-3000);f.win.dispatchEvent(new Event('scroll'));f.tick(32)
     assert.equal(f.host.hidden,true);assert.equal(f.queued(),0)
     f.destroy();assert.equal(f.finale.dataset.orbitReady,undefined)
   }
+})
+
+// 实际背景偏离视口中心时仍贴合外缘，闭环首尾与主线接点一致，不能穿过中央文案。
+test('收尾沿真实背景外缘闭合，主线在左缘切向接入', () => {
+  const background = {left:80,top:190,width:1000,height:420}
+  const [ring] = finaleOrbit({top:100,height:640},1440,900,true,background)
+  assert.deepEqual(ring.points[0],ring.points.at(-1))
+  assert.equal(ring.points[0][0],background.left)
+  assert.equal(ring.points[0][1],400)
+  const [incoming] = pageOrbitSegments([[80,100],ring.points[0]],1440,900)
+  assert.deepEqual(incoming.points.at(-1),ring.points[0])
+  assert.ok(incoming.points.at(-2)[1]<400 && ring.points[1][1]>400)
+  // 中央文字保护区内不得出现轨道；无效背景不能生成非法闭环。
+  assert.ok(ring.points.every(([x,y])=>Math.abs(x-580)>260 || Math.abs(y-400)>110))
+  assert.deepEqual(finaleOrbit({top:100,height:640},1440,900,false,{...background,width:0}),[])
+  assert.deepEqual(finaleOrbit({top:100,height:640},1440,900,false,{...background,top:NaN}),[])
 })

@@ -107,16 +107,18 @@ html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-peek-1{anima
 /* 连线定位超时只提示该项，已显示的原页面仍可阅读，不退回整屏加载层。 */
 .real-interface[data-view-ready=true] .preview-error{inset:auto 16px 16px;padding:12px;background:#fff;border:1px solid var(--rule);font-size:12px}
 
-/* 末尾与开场呼应：留出轨道空间，中央文字在前，背景光池位于连线后方。 */
-.site-finale{position:relative;min-height:540px;height:78svh;max-height:840px;display:grid;place-items:center;text-align:center;padding:70px 24px;background:radial-gradient(ellipse at center,#d5eee55c,transparent 65%);overflow:hidden;scroll-margin-top:0}
-.finale-origin{position:absolute;left:50%;top:12%;width:5px;height:5px;border-radius:50%;background:#268a7d}
-.finale-copy{position:relative;z-index:var(--site-layer-surface);max-width:700px}
-.finale-eyebrow{font-size:11px;letter-spacing:.2em;color:var(--teal);font-weight:600;margin:0 0 26px}
+/* 标题主字、背景和轨道共用中心；说明与返回入口不参与标题的居中计算。 */
+.site-finale{position:relative;min-height:540px;height:78svh;max-height:840px;text-align:center;overflow:hidden;scroll-margin-top:0}
+.finale-ring{position:absolute;left:50%;top:50%;width:min(1120px,86%);height:66%;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(ellipse at center,#d5eee580, #e4f3ed45 68%,transparent 100%);pointer-events:none}
+.finale-origin{position:absolute;left:0;top:50%;width:5px;height:5px;transform:translate(-50%,-50%);border-radius:50%;background:#268a7d}
+.finale-copy{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:var(--site-layer-surface);width:calc(100% - 48px);max-width:900px}
+.finale-eyebrow{position:absolute;bottom:calc(100% + 26px);left:0;width:100%;font-size:11px;letter-spacing:.2em;color:var(--teal);font-weight:600;margin:0}
 .site-finale h2{font-size:clamp(54px,7.5vw,112px);letter-spacing:-.04em;line-height:1.15;font-weight:750;margin:0;color:var(--teal)}
-.finale-description{font-size:17px;line-height:1.8;color:var(--muted);margin:28px 0 34px}
-.finale-back{display:inline-flex;gap:16px;align-items:center;font-size:13px;text-decoration:none;padding:10px;border-bottom:1px solid #7eaea6}
-/* 无脚本时的轻量静态轨道；WebGL 或 SVG 接管后隐藏，避免双重叠线。 */
-.finale-rings{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}.finale-rings i{position:absolute;width:86%;max-width:1120px;height:42%;border:1px solid #67b1a64a;border-radius:50%;transform:rotate(-12deg)}.finale-rings i:nth-child(2){width:75%;height:49%;transform:rotate(10deg)}.finale-rings i:nth-child(3){width:64%;height:55%;transform:rotate(-3deg)}
-.site-finale[data-orbit-ready] .finale-rings{display:none}
-@media(max-width:760px){.site-finale{min-height:460px;height:68svh;padding:60px 24px}.finale-description{font-size:14px}.finale-eyebrow{font-size:10px;letter-spacing:.13em}}
-@media print{.site-finale{height:auto;min-height:0;padding:40px 0;background:none}.finale-rings,.finale-origin,.finale-back{display:none}.site-finale h2{font-size:32px}}
+/* 全角句号不占标题宽度，保留原文朗读名称，让四个字光学居中。 */
+.finale-title-text{position:relative;display:inline-block}.finale-punctuation{position:absolute;left:100%;top:0}
+.finale-description{position:absolute;top:calc(100% + 24px);left:0;width:100%;font-size:17px;line-height:1.8;color:var(--muted);margin:0}
+.finale-back{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);z-index:var(--site-layer-surface);display:inline-flex;gap:16px;align-items:center;font-size:13px;text-decoration:none;padding:10px;border-bottom:1px solid #7eaea6;white-space:nowrap}
+/* 无脚本用背景外缘的单个闭环兜底；GPU/SVG 接管后只去掉边线，保留背景。 */
+.finale-ring::after{content:"";position:absolute;inset:0;border:1px solid #218f819e;border-radius:inherit}.site-finale[data-orbit-ready] .finale-ring::after{display:none}
+@media(max-width:760px){.site-finale{min-height:460px;height:68svh}.finale-description{font-size:14px}.finale-eyebrow{font-size:10px;letter-spacing:.13em;bottom:calc(100% + 20px)}}
+@media print{.site-finale{height:auto;min-height:0;padding:40px 0}.finale-ring,.finale-back{display:none}.finale-copy{position:relative;left:auto;top:auto;transform:none;width:100%;max-width:none}.finale-eyebrow,.finale-description{position:static;margin:16px 0}.site-finale h2{font-size:32px}}

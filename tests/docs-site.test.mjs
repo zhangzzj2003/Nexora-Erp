@@ -61,6 +61,10 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
           assert.ok(html.indexOf('id="coming-next"') < html.indexOf('<footer'))
           assert.ok(html.includes(language === 'en' ? 'Stay tuned.' : '敬请期待。'))
           assert.match(html, /class="finale-back" href="#main"/)
+          // 终点属于背景椭圆，正文主线不再跨越标题并续到页脚。
+          assert.match(html, /class="finale-ring" data-finale-ring[^>]*><span class="finale-origin" data-orbit-node/)
+          assert.match(html, /class="finale-title-text"/)
+          assert.doesNotMatch(html, /<footer[^>]*data-orbit-node/)
 
           assert.doesNotMatch(html, /data-pause|data-resume|window-reflection/)
           assert.match(html, /data-stage="3"/)

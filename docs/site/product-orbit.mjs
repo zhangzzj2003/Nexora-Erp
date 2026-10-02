@@ -63,24 +63,26 @@ export function orbitRing(center, radius, phase = 0) {
   })
 }
 
-// 收尾复用同一画布与三条椭圆轨道；进度只随滚动变化，不添加常驻时间循环。
-export function finaleOrbit(bounds, width, height, reduced = false) {
+// 外圈直接测量背景椭圆，左侧接点与主线共用 DOM 节点；不再叠加穿过文字的倾斜轨道。
+export function finaleOrbit(bounds, width, height, reduced = false, ringBounds = null) {
   if (![bounds.top, bounds.height, width, height].every(Number.isFinite) || bounds.height <= 0 || width <= 0 || height <= 0 || bounds.top >= height || bounds.top + bounds.height <= 0) return []
   const progress = reduced ? 1 : smooth((height - bounds.top) / Math.min(bounds.height, height))
-  const center = [width / 2, bounds.top + bounds.height * .5]
-  return [-.22, .18, -.06].map((tilt, index) => {
-    const rx = Math.min(560, width * .43) * (1 - index * .12)
-    const ry = Math.min(155, bounds.height * .22) * (1 + index * .17)
-    const points = orbitRing([0, 0], [rx, ry], index * .8).map(([x, y]) =>
-      [center[0] + x * Math.cos(tilt) - y * Math.sin(tilt), center[1] + x * Math.sin(tilt) + y * Math.cos(tilt)])
-    return { points, amount: reduced ? 1 : .15 + progress * .85, alpha: (.3 - index * .06) * progress, node: .12 + progress * (.7 - index * .12), visible: progress > 0 }
+  const ring = ringBounds ?? {left: width / 2 - Math.min(560, width * .43), top: bounds.top + bounds.height * .17, width: Math.min(1120, width * .86), height: bounds.height * .66}
+  if (![ring.left, ring.top, ring.width, ring.height].every(Number.isFinite) || ring.width <= 0 || ring.height <= 0) return []
+  const center = [ring.left + ring.width / 2, ring.top + ring.height / 2]
+  const points = Array.from({length: 97}, (_, index) => {
+    // 从左侧顺着主线向下绕行，最终回到同一个接点，文字始终留在圈内。
+    const angle = Math.PI - index / 96 * Math.PI * 2
+    return [center[0] + Math.cos(angle) * ring.width / 2, center[1] + Math.sin(angle) * ring.height / 2]
   })
+  points[points.length - 1] = [...points[0]]
+  return [{points, amount: progress, alpha: .62 * progress, node: progress, visible: progress > 0}]
 }
 
 export function mountPageOrbit(doc = document, win = window) {
   const host = doc.querySelector('.page-orbit')
   if (!host) return () => {}
-  const svg = host.querySelector('svg'), hero = doc.querySelector('[data-cover]'), finale = doc.querySelector('[data-orbit-finale]')
+  const svg = host.querySelector('svg'), hero = doc.querySelector('[data-cover]'), finale = doc.querySelector('[data-orbit-finale]'), finaleRing = doc.querySelector('[data-finale-ring]')
   const nodes = [...doc.querySelectorAll('[data-orbit-node]')]
   const cards = [...doc.querySelectorAll('[data-orbit-card]')]
   const peeks = [...doc.querySelectorAll('.hero-peek img')]
@@ -122,7 +124,7 @@ export function mountPageOrbit(doc = document, win = window) {
       lines.push({ points: orbitRing(center, [Math.min(590, win.innerWidth * .4), rect.height * .34], .6), amount: 1, alpha: .1 * (1-progress), node: .45 + progress * .5, visible: true })
     }
     // 实际收尾节点进入视口才生成几何，离屏与后台沿用既有停帧机制。
-    if (finale) lines.push(...finaleOrbit(finale.getBoundingClientRect(), win.innerWidth, win.innerHeight, reduced.matches))
+    if (finale) lines.push(...finaleOrbit(finale.getBoundingClientRect(), win.innerWidth, win.innerHeight, reduced.matches, finaleRing?.getBoundingClientRect()))
     svg.setAttribute('viewBox', `0 0 ${win.innerWidth} ${win.innerHeight}`)
     svg.innerHTML = lines.filter(line => line.visible).map(line => {
       const path = trimPath(line.points, line.amount), pos = pointOnPath(line.points, line.node)
