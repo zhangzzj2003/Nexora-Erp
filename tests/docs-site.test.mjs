@@ -21,6 +21,9 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
         assert.match(html, /scope="col"/)
         if (page === 'index.html') {
           assert.match(html, /class="hero" data-cover/)
+          // 双语首屏共用分层标题结构，新增控制器也进入资源版本和预加载图。
+          assert.match(html, /class="hero-title-line"/)
+          assert.match(html, /class="hero-title-line hero-title-accent"/)
           assert.match(html, /href="#business-demo"/)
           assert.match(html, /class="scroll-scene"[^>]*id="business-demo"/)
           assert.doesNotMatch(html, /data-pause|data-resume|window-reflection/)
@@ -40,6 +43,7 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
     assert.ok(existsSync(resolve(output, 'assets/webgl-stage.mjs')))
     assert.ok(existsSync(resolve(output, 'assets/scene-geometry.mjs')))
     assert.ok(existsSync(resolve(output, 'assets/cover-motion.mjs')))
+    assert.ok(existsSync(resolve(output, 'assets/hero-entrance.mjs')))
     // HTML 与整个模块依赖图使用同一内容版本，不会混入更新前的缓存。
     const home=readFileSync(resolve(output,'zh-CN/index.html'),'utf8')
     const version=home.match(/assets\/motion\.mjs\?v=([a-f0-9]{12})/)?.[1]

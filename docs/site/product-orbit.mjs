@@ -131,6 +131,8 @@ export function mountPageOrbit(doc = document, win = window) {
     else schedule()
   }
   win.addEventListener('scroll', schedule, { passive: true }); win.addEventListener('resize', schedule)
+  // 首屏卫星的有限出场改变节点坐标，与滚动使用同一个下一帧测量入口。
+  win.addEventListener('hero:entrance-frame', schedule)
   doc.addEventListener('visibilitychange', visibility)
   reduced.addEventListener('change', schedule); mobile.addEventListener('change', schedule)
   doc.fonts?.ready.then(schedule)
@@ -139,6 +141,7 @@ export function mountPageOrbit(doc = document, win = window) {
     disposed = true
     if (frame) win.cancelAnimationFrame(frame)
     win.removeEventListener('scroll', schedule); win.removeEventListener('resize', schedule)
+    win.removeEventListener('hero:entrance-frame', schedule)
     doc.removeEventListener('visibilitychange', visibility)
     reduced.removeEventListener('change', schedule); mobile.removeEventListener('change', schedule)
     peeks.forEach(image => { image.removeEventListener('load', onImage); image.removeEventListener('error', onImage) })

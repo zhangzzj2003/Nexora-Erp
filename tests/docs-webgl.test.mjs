@@ -428,6 +428,22 @@ test('全页轨道仅按需绘制，减少动态保留静态线，GPU 丢失恢�
   unavailable.destroy()
 })
 
+test('首屏有限出场共用轨道测量帧，结束及卸载后不继续绘制', () => {
+  const f = pageOrbitFixture()
+  f.tick(0)
+  const initial = f.svg.innerHTML
+  f.setTop(90)
+  f.win.dispatchEvent(new Event('hero:entrance-frame'))
+  f.win.dispatchEvent(new Event('hero:entrance-frame'))
+  assert.equal(f.queued(), 1)
+  f.tick(16)
+  assert.notEqual(f.svg.innerHTML, initial)
+  assert.equal(f.queued(), 0)
+  f.destroy()
+  f.win.dispatchEvent(new Event('hero:entrance-frame'))
+  assert.equal(f.queued(), 0)
+})
+
 // 直接验证滚动几何而不是计时动画，覆盖同位置重放、反向与边界连续性。
 test('轨道弧长进度跟随阅读线，向下推进、倒滚收回且边界连续', () => {
   const path = cubicPoints([100,600],[100,800],[900,1000],[900,1200])

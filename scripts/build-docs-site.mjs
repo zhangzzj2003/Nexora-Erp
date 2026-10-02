@@ -12,14 +12,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const languages = {
   'zh-CN': { other: 'en', readme: 'README.md', guide: 'docs/development.zh-CN.md',
     features: '项目功能', progress: '开发进度', docs: '开发文档', skip: '跳到正文', contents: '本页目录', source: '查看 Markdown',
-    title: '每一步业务，<br><span>彼此相连。</span>', subtitle: '联光 ERP · 面向企业内部的桌面 ERP',
+    title: '<span class="hero-title-line">每一步业务，</span><br><span class="hero-title-line hero-title-accent">彼此相连。</span>', subtitle: '联光 ERP · 面向企业内部的桌面 ERP',
     intro: '面向电子生产，将物料、采购、库存、生产与销售连接起来，让业务记录与财务来源有据可查。', scope: '内部试用 · 单公司 · 多仓库 · 在线局域网',
     button: '探索业务演示', code: '查看核心能力', home: '项目介绍', lang: 'EN',
     flows: [['采购', 'PURCHASE', '申请与订单'], ['库存', 'INVENTORY', '收发与台账'], ['生产', 'PRODUCTION', '工单与成本'], ['销售', 'SALES', '出库与退货']],
     pillars: [['电子生产物料管理', '按类别自动编码，集中维护规格、封装与制造商料号，让采购和生产使用同一份物料档案。'], ['跨业务来源追溯', '采购、库存、生产与销售保留单据关联、操作者与更正记录，查清每笔数量和金额的来处。'], ['业务与财务衔接', '从已确认业务生成凭证草稿，独立审核后过账；核对材料、人工和制造费用的成本来源。']], footer: '内部试用 · 单公司 · 在线局域网', download: '下载 Markdown' },
   en: { other: 'zh-CN', readme: 'README.en.md', guide: 'docs/development.en.md',
     features: 'Features', progress: 'Progress', docs: 'Development guide', skip: 'Skip to content', contents: 'On this page', source: 'View Markdown',
-    title: 'Every operation.<br><span>Connected.</span>', subtitle: 'Nexora ERP · Desktop ERP for internal operations',
+    title: '<span class="hero-title-line">Every operation.</span><br><span class="hero-title-line hero-title-accent">Connected.</span>', subtitle: 'Nexora ERP · Desktop ERP for internal operations',
     intro: 'For electronic production: connect materials, purchasing, inventory, production and sales through traceable business and financial origins.', scope: 'Internal trial · Single company · Multiple warehouses · Online LAN',
     button: 'Explore business demo', code: 'Core capabilities', home: 'Overview', lang: '中文',
     flows: [['Purchasing', 'PURCHASE', 'Requests & orders'], ['Inventory', 'INVENTORY', 'Movements & ledgers'], ['Production', 'PRODUCTION', 'Work orders & costs'], ['Sales', 'SALES', 'Shipments & returns']],
@@ -95,7 +95,7 @@ export function buildSite(output = resolve(root, 'dist/site')) {
   mkdirSync(resolve(output, 'assets'), { recursive: true })
   mkdirSync(resolve(output, 'sources'), { recursive: true })
   // 整个模块图共用内容版本，避免更新后入口与被缓存的旧依赖混用。
-  const siteFiles=['site.css','product-showcase.css','product-gallery.mjs','product-showcase.mjs','product-orbit.mjs','source-details.mjs','motion.mjs','cover-motion.mjs','scene-geometry.mjs','webgl-stage.mjs','sandbox.mjs','sandbox-ui.mjs','sandbox.css']
+  const siteFiles=['site.css','product-showcase.css','product-gallery.mjs','product-showcase.mjs','product-orbit.mjs','hero-entrance.mjs','source-details.mjs','motion.mjs','cover-motion.mjs','scene-geometry.mjs','webgl-stage.mjs','sandbox.mjs','sandbox-ui.mjs','sandbox.css']
   const version=createHash('sha256').update(siteFiles.map(file=>readFileSync(resolve(root,'docs/site',file),'utf8')).join('\n')).digest('hex').slice(0,12)
   for (const file of siteFiles) {
     const source=readFileSync(resolve(root,'docs/site',file),'utf8')

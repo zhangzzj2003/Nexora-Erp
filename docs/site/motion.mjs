@@ -5,6 +5,7 @@ import { mountSandbox } from './sandbox-ui.mjs'
 import { createWebGLStage, cubicPoints, pointOnPath } from './webgl-stage.mjs'
 import { mountPageOrbit } from './product-orbit.mjs'
 import { mountCover } from './cover-motion.mjs'
+import { mountHeroEntrance } from './hero-entrance.mjs'
 
 const clamp = value => Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
 const lerp = (a, b, p) => a + (b - a) * p
@@ -334,4 +335,4 @@ export function mountScene(doc = document, win = window) {
     reduced.removeEventListener('change', onPreference); mobile.removeEventListener('change', onPreference); short.removeEventListener('change', onPreference)
   }
 }
-if (typeof document !== 'undefined') { if (document.querySelector('.page-orbit')) mountPageOrbit(); else mountCover(); mountScene() }
+if (typeof document !== 'undefined') { if (document.querySelector('.page-orbit')) mountPageOrbit(); else mountCover(); mountHeroEntrance(); mountScene() }
