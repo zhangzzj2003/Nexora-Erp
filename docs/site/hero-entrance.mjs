@@ -1,7 +1,7 @@
 // 在 head 中同步执行：先确定首屏状态，避免正文绘制后才从动画切换到静态。
 export function preparePageEntry(doc, win) {
   const root = doc.documentElement
-  root.dataset.heroEntrance = win.location.hash || win.scrollY > 8 || doc.hidden ||
+  root.dataset.heroEntrance = win.scrollY > 8 || doc.hidden ||
     win.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'static' : 'intro'
   // 首次锚点定位与浏览器位置恢复保持即时；加载后两帧再启用用户点击时的平滑滚动。
   const ready = () => win.requestAnimationFrame(() => win.requestAnimationFrame(() => {
@@ -20,7 +20,7 @@ export function mountHeroEntrance(doc = document, win = window) {
   if (!hero) return () => {}
   const reduced = win.matchMedia('(prefers-reduced-motion: reduce)')
   let frame = 0, settled = false
-  const windowEvents = ['scroll', 'wheel', 'touchstart', 'pointerdown', 'resize', 'hashchange', 'pagehide']
+  const windowEvents = ['wheel', 'touchstart', 'pointerdown', 'resize', 'hashchange', 'pagehide']
   const notify = () => win.dispatchEvent(new win.Event('hero:entrance-frame'))
   // 用户开始阅读或操作就立即交还滚动控制；移除出场动画后仍保留原有透视样式。
   function settle() {
@@ -30,11 +30,14 @@ export function mountHeroEntrance(doc = document, win = window) {
     frame = 0
     hero.dataset.heroSettled = 'true'
     windowEvents.forEach(name => win.removeEventListener(name, settle))
+    win.removeEventListener('scroll', onScroll)
     hero.removeEventListener('focusin', settle)
     doc.removeEventListener('visibilitychange', settle)
     reduced.removeEventListener('change', settle)
     notify()
   }
+  // 浏览器刷新也可能报告一次顶部 scroll；只有实际离开顶部才中断出场。
+  function onScroll() { if (win.scrollY > 8) settle() }
   function tick() {
     frame = 0
     if (settled) return
@@ -45,12 +48,13 @@ export function mountHeroEntrance(doc = document, win = window) {
     notify()
     frame = win.requestAnimationFrame(tick)
   }
-  // 锚点访问、历史位置恢复、减少动态及后台标签直接呈现最终画面。
-  if (doc.documentElement?.dataset.heroEntrance === 'static' || reduced.matches || doc.hidden || win.scrollY > 8 || win.location.hash || !hero.getAnimations) {
+  // 按实际位置判断，保留锚点的顶部刷新也能出场；下方恢复、减少动态和后台直接可读。
+  if (doc.documentElement?.dataset.heroEntrance === 'static' || reduced.matches || doc.hidden || win.scrollY > 8 || !hero.getAnimations) {
     settle()
     return settle
   }
   windowEvents.forEach(name => win.addEventListener(name, settle, { passive: true }))
+  win.addEventListener('scroll', onScroll, { passive: true })
   hero.addEventListener('focusin', settle)
   doc.addEventListener('visibilitychange', settle)
   reduced.addEventListener('change', settle)

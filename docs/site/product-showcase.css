@@ -40,7 +40,7 @@
 .hero-peek{position:absolute;width:clamp(260px,24vw,410px);top:38%;opacity:.9;pointer-events:none;border:1px solid #cbdedc;border-radius:12px;background:var(--panel);box-shadow:0 24px 50px #23594e1a;overflow:hidden}
 .hero-peek img{width:100%;height:auto;display:block}.hero-peek span{display:block;padding:12px 18px;text-align:left;color:var(--teal);font-size:12px}.hero-peek i{display:block;width:7px;height:7px;border-radius:50%;background:#109f8a;position:absolute;bottom:15px;right:15px}
 .hero-peek-0{left:-60px;transform:perspective(1400px) rotateY(18deg) rotateZ(-7deg)}.hero-peek-1{right:-60px;top:44%;transform:perspective(1400px) rotateY(-18deg) rotateZ(7deg)}
-/* 只在 head 已选定的出场模式播放；锚点、无脚本和减少动态从首帧完整可读。 */
+/* 只在 head 已选定的出场模式播放；下方恢复位置、无脚本和减少动态直接完整可读。 */
 /* 标题分两拍出现，说明和入口随后跟上；只改变合成属性，不挤动首屏布局。 */
 .overview .hero h1 .hero-title-line{display:inline-block;color:var(--ink)}
 .overview .hero h1 .hero-title-accent{color:#00877d}
