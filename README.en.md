@@ -1,6 +1,8 @@
 # Nexora ERP
 
-[简体中文](README.md) · [Website source](docs/site/) · [Development guide](docs/development.en.md)
+[简体中文](README.md) · [Live website](https://zhangzzj2003.github.io/Nexora-Erp/en/) · [Website source](docs/site/) · [Development guide](docs/development.en.md)
+
+[![Open the Nexora website · WebGL business connections and sample interfaces](docs/site/website-preview.jpg)](https://zhangzzj2003.github.io/Nexora-Erp/en/)
 
 A desktop ERP for internal operations, connecting purchasing, warehousing, sales, production and operational finance through traceable documents and stock movements. The desktop uses Electron, Vue 3, TypeScript and Pinia; the server uses FastAPI, SQLAlchemy and SQLite.
 
@@ -8,7 +10,7 @@ The desktop uses an integrated title bar across onboarding, login and the worksp
 
 Theme buttons morph between moon and sun and use a 450 ms circular transition: both directions reveal the new snapshot from the actual triggering button’s click position. Keyboard activation uses the button center. Percentage-based centers and radii keep live compositor clipping correctly scaled on Retina and other high-density displays, covering the farthest corner before the snapshot ends. Component and pseudo-element transitions pause during the snapshot to avoid continuing color changes and mid-animation flashes; browser animation timing is used without a fixed 30 fps cap. The theme entry is consolidated at the top and removed from the lower-left sidebar; rapid clicks preserve the last choice. Unsupported snapshots, reduced motion and capture failures fall back to a direct theme update. The motion is adapted from Vben; see [third-party notices](docs/third-party-notices.md).
 
-The project is in an **internal trial phase for one company, multiple warehouses and online LAN clients**. Windows and macOS clients access centralized server data over HTTPS. Disconnected clients cannot submit changes. Documentation and the website are bilingual; the application UI remains Chinese. Website code is prepared; GitHub Pages is not enabled yet.
+The project is in an **internal trial phase for one company, multiple warehouses and online LAN clients**. Windows and macOS clients access centralized server data over HTTPS. Disconnected clients cannot submit changes. Documentation and the website are bilingual; the application UI remains Chinese. The website preview is published through GitHub Pages using sample data, without connecting to the production ERP service.
 
 The directory follows the active route and offers permitted pages in the same category. Refresh reads authorized data before remounting the current page, retaining the login session and opened tabs. Independent pagination and dashboard queries reload as well. Repeated refresh and business submission are blocked during the operation; failures show a shared error message and can be retried. Browser and Linux workspaces provide the same controls above the content.
 
@@ -64,6 +66,6 @@ Requires Node.js 22.12+ and Python 3.11+. Setup, architecture, business constrai
 - [English development guide](docs/development.en.md)
 - [中文开发文档](docs/development.zh-CN.md)
 
-Run `npm run docs:build` to generate a local HTML website and bilingual guide. GitHub Pages configuration is included, with hosting intentionally not enabled yet. Installer artifacts go to `release/` and remain unsigned/unnotarized; see the guide for commands.
+Run `npm run docs:build` to generate a local HTML website and bilingual guide. The website is published manually through GitHub Pages; open the link at the top for the full interactive presentation. Installer artifacts go to `release/` and remain unsigned/unnotarized; see the guide for commands.
 
 Material management now includes production details, fixed categories and server-generated category codes. See [material catalog rules (Chinese)](docs/material-catalog.md). Upgrade both client and server.

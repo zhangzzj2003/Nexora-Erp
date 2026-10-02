@@ -1,10 +1,12 @@
 # Nexora ERP（联光 ERP）
 
-[English](README.en.md) · [官网源码](docs/site/) · [中文开发文档](docs/development.zh-CN.md)
+[English](README.en.md) · [访问官网](https://zhangzzj2003.github.io/Nexora-Erp/zh-CN/) · [官网源码](docs/site/) · [中文开发文档](docs/development.zh-CN.md)
+
+[![打开 Nexora 官网 · 查看 WebGL 业务连线与示例界面](docs/site/website-preview.jpg)](https://zhangzzj2003.github.io/Nexora-Erp/zh-CN/)
 
 面向企业内部的桌面 ERP，将采购、仓库、销售、生产与业务财务连接到同一套可追溯的单据和库存流水。桌面端使用 Electron、Vue 3、TypeScript 与 Pinia，服务端使用 FastAPI、SQLAlchemy 与 SQLite。
 
-当前处于**单公司、多仓库、在线局域网内部试用阶段**。Windows 和 macOS 客户端通过 HTTPS 访问服务端，数据集中保存；断网后不能提交业务修改。文档和官网提供中英文版本，应用界面目前仍为中文。官网代码已准备，GitHub Pages 暂未启用。
+当前处于**单公司、多仓库、在线局域网内部试用阶段**。Windows 和 macOS 客户端通过 HTTPS 访问服务端，数据集中保存；断网后不能提交业务修改。文档和官网提供中英文版本，应用界面目前仍为中文。官网预览通过 GitHub Pages 发布，展示使用示例数据，不连接正式 ERP 服务。
 
 桌面顶部采用融合标题栏：macOS 保留左上角原生红黄绿按钮，Windows 保留右上角原生窗口按钮；品牌、刷新、主页、当前分类与页面目录和主题切换在同一行。页面标签在标题栏下方、侧栏右侧独占一行，不随业务内容滚动。顶部空白处可拖动窗口，主题切换同步 Windows 控件配色；引导、登录和工作台共用顶部栏。普通浏览器预览与 Linux 保留系统窗口外框，关闭窗口仍遵循既有托盘行为。
 
@@ -64,6 +66,6 @@
 - [中文开发文档](docs/development.zh-CN.md)
 - [English development guide](docs/development.en.md)
 
-运行 `npm run docs:build` 生成可本地查看的 HTML 官网和双语开发文档。官网使用 GitHub Pages 发布配置，目前按要求暂不启用。安装包产物在 `release/`，尚未签名或公证；详细命令见开发文档。
+运行 `npm run docs:build` 生成可本地查看的 HTML 官网和双语开发文档。官网通过 GitHub Pages 手动发布，完整动效从本文顶部的官网入口打开。安装包产物在 `release/`，尚未签名或公证；详细命令见开发文档。
 
 物料档案、分类前缀、自动编号与旧库兼容规则见 [物料管理规则](docs/material-catalog.md)。客户端和服务端须同步升级。

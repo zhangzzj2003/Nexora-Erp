@@ -229,7 +229,7 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 | `docs/site/hero-entrance.mjs` | 一次性首屏出场的轨道跟随、中断、偏好适配与资源释放。 |
 | `docs/site/product-showcase.*`、`product-gallery.mjs` | 真实界面截图、双语说明、失败提示和原生大图弹窗。 |
 | `docs/site/screenshots/`、`scripts/site-preview/` | 截图素材、独立取景会话与只读组件入口；官网构建单独打包只读入口。 |
-| `.github/workflows/docs-site.yml` | PR 验证及主线 Pages 发布配置。 |
+| `.github/workflows/docs-site.yml` | PR 验证、明确手动发布及可选的主线 Pages 发布配置。 |
 
 本地 `npm run docs:build` 后运行 `python -m http.server 4173 --directory dist/site`，访问 `http://localhost:4173/`。语言切换保留页面类型，正文和目录无需 JavaScript；已有专题文档保留中文原文，英文指南明确标注语言。
 
@@ -249,9 +249,9 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 
 运行 `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs tests/docs-gallery.test.mjs` 验证页面路径、业务规则、滚动阶段及 GPU 生命周期。详细说明见 [官网动效与沙盒说明](site/motion-proposal.zh-CN.md)。
 
-目前按要求**暂不启用线上网站**。准备发布时由管理员在 Settings → Pages → Source 选 GitHub Actions，再启用仓库变量 `PAGES_ENABLED=true` 并手动运行官网工作流。普通推送权限不足以配置 Pages。工作流只上传 `dist/site/`；PR 只验证不发布。预期地址 `https://zhangzzj2003.github.io/Nexora-Erp/`，部署成功前不可称为可用官网。
+官网预览发布入口为 [https://zhangzzj2003.github.io/Nexora-Erp/](https://zhangzzj2003.github.io/Nexora-Erp/)。README 顶部的官网链接和可点击预览图打开完整 WebGL 展示，GitHub README 本身只显示静态内容。管理员将 Pages 来源设为 GitHub Actions；在所选官网分支手动运行 `docs-site.yml` 并勾选 `publish=true`，即可发布该分支而不合并。PR 和未勾选发布的手动运行只验证，工作流只上传 `dist/site/`。仓库变量 `PAGES_ENABLED=true` 另外控制主线推送自动发布，分支预览验收期间保持关闭。`github-pages` 环境须允许此次发布分支。
 
-参考 [GitHub Pages 官方工作流](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)。公开官网不包含数据库、私钥、令牌或本地日志。更新进度先核对合并代码，再同步双语文档并发布；未合并需求保持开发中。
+参考 [GitHub Pages 官方工作流](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)。公开官网不包含数据库、私钥、令牌或本地日志。发布前核对源码版本和双语文档；明确要求发布的分支预览不表示需求已合并或应用已验收，默认分支 README 仍须另行授权合并后更新。
 
 辅助核算使用静态 ORM 模型提供四类辅助归属、版本规则、拆分期初与组合结转；接口、快照更正和桌面权限边界见 [辅助核算规则](auxiliary-accounting.md)。[分户期初](subledger-openings.md)逐笔核对历史未结单据，独立审核后启用并记录资金，导入不会重复增加总账余额。
 

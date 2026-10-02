@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: '发布所选分支的官网到 GitHub Pages'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,7 +29,7 @@ jobs:
           cache: npm
       # 官网不需要下载 Electron 或启动后端。
       - run: npm ci --ignore-scripts
-      # 覆盖真实组件构建、逐项关联和现有官网演示的全部测试。
+      # 覆盖原位界面、逐项关联、发布边界和既有官网演示。
       - run: node --test tests/docs*.test.mjs
       - run: npm run docs:build
       - uses: actions/upload-artifact@v4
@@ -32,12 +37,13 @@ jobs:
           name: nexora-docs-preview
           path: dist/site/
       - uses: actions/upload-pages-artifact@v4
-        if: github.event_name != 'pull_request' && vars.PAGES_ENABLED == 'true'
+        # 手动发布必须明确勾选；自动发布仅限主线且需要单独开启变量。
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PAGES_ENABLED == 'true')
         with:
           path: dist/site/
   deploy:
-    # 用户确认暂不启用，管理员开启 Pages 和变量后才允许发布。
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.PAGES_ENABLED == 'true'
+    # 官网需求分支可经明确手动操作发布，PR 验证永远不发布，也不自动合并代码。
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PAGES_ENABLED == 'true')
     needs: build
     runs-on: ubuntu-latest
     permissions:

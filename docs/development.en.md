@@ -228,7 +228,7 @@ The website uses a static HTML/CSS/JavaScript build. `scripts/build-docs-site.mj
 | `docs/site/hero-entrance.mjs` | One-time cover entrance coordination, interruption, motion preferences and cleanup. |
 | `docs/site/product-showcase.*`, `product-gallery.mjs` | Interface screenshots, bilingual captions, load failures and native image dialog. |
 | `docs/site/screenshots/`, `scripts/site-preview/` | Screenshot assets, isolated capture session and separately bundled read-only component entry. |
-| `.github/workflows/docs-site.yml` | PR validation and mainline Pages publishing configuration. |
+| `.github/workflows/docs-site.yml` | PR validation, explicit manual publishing and optional mainline Pages publishing. |
 
 Build with `npm run docs:build`, then run `python -m http.server 4173 --directory dist/site` and visit `http://localhost:4173/`. Language links retain the page type. Text and contents work without JavaScript. Existing specialist documents remain in Chinese, clearly labeled in this guide.
 
@@ -248,9 +248,9 @@ Long records use pagination: 2 rows for receipt/payable lines, 4 for stock movem
 
 Run `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs tests/docs-gallery.test.mjs` to check page paths, business rules, motion stages and GPU lifecycle. See the [website motion and sandbox guide](site/motion-proposal.en.md).
 
-**Online hosting is intentionally not enabled yet.** When ready, an administrator selects GitHub Actions under Settings → Pages → Source, sets repository variable `PAGES_ENABLED=true`, and manually runs the website workflow. Push permission alone cannot configure Pages. Only `dist/site/` is uploaded; PRs validate without publishing. The expected URL is `https://zhangzzj2003.github.io/Nexora-Erp/`; it is not a live website until deployment succeeds.
+The website preview is published at [https://zhangzzj2003.github.io/Nexora-Erp/](https://zhangzzj2003.github.io/Nexora-Erp/). README links and a clickable preview image open the full WebGL presentation; GitHub README itself shows only static content. An administrator enables GitHub Actions as the Pages source. Run `docs-site.yml` with `publish=true` on the selected website branch to publish without merging it. PRs and manual runs without this input only validate; only `dist/site/` is uploaded. `PAGES_ENABLED=true` separately enables automatic publication on mainline pushes and remains disabled during branch preview review. The `github-pages` environment must permit the selected publication branch.
 
-See the [official GitHub Pages workflow guide](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages). Public output excludes databases, private keys, tokens and local logs. Verify merged code before updating both languages and publishing; unmerged work stays in development.
+See the [official GitHub Pages workflow guide](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages). Public output excludes databases, private keys, tokens and local logs. Check the source revision and both languages before publication. An explicitly requested branch preview does not mark the PR as merged or the application as accepted; the default-branch README updates only after a separately authorized merge.
 
 Company statement configuration, archive rules and permissions are described in the [statement rules (Chinese)](financial-statements.md).
 

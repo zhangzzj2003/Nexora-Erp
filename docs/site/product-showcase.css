@@ -114,7 +114,7 @@ html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-peek-1{anima
 .finale-eyebrow{position:absolute;bottom:calc(100% + 26px);left:0;width:100%;font-size:11px;letter-spacing:.2em;color:var(--teal);font-weight:600;margin:0}
 .site-finale h2{font-size:clamp(54px,7.5vw,112px);letter-spacing:-.04em;line-height:1.15;font-weight:750;margin:0;color:var(--teal)}
 /* 全角句号不占标题宽度，保留原文朗读名称，让四个字光学居中。 */
-.finale-title-text{position:relative;display:inline-block}.finale-punctuation{position:absolute;left:100%;top:0}
+.finale-title-text{position:relative;display:inline-block}
 .finale-description{position:absolute;top:calc(100% + 24px);left:0;width:100%;font-size:17px;line-height:1.8;color:var(--muted);margin:0}
 .finale-back{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);z-index:var(--site-layer-surface);display:inline-flex;gap:16px;align-items:center;font-size:13px;text-decoration:none;padding:10px;border-bottom:1px solid #7eaea6;white-space:nowrap}
 /* 无脚本保留相同的主辅倾斜闭环；GPU/SVG 接管后只去掉边线，保留背景。 */

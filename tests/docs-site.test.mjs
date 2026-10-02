@@ -53,13 +53,18 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
           // 双语首屏共用分层标题结构，新增控制器也进入资源版本和预加载图。
           assert.match(html, /class="hero-title-line"/)
           assert.match(html, /class="hero-title-line hero-title-accent"/)
+          // 标题与无障碍文案同步移除标点，不残留悬挂句号节点。
+          const headline=html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1].replace(/<[^>]+>/g,'')
+          assert.equal(headline,language==='en' ? 'Every operationConnected' : '每一步业务彼此相连')
+          assert.match(html,language==='en' ? /aria-label="Stay tuned"/ : /aria-label="敬请期待"/)
+          assert.doesNotMatch(html,/class="finale-punctuation"/)
           assert.match(html, /href="#business-demo"/)
           assert.match(html, /class="scroll-scene"[^>]*id="business-demo"/)
           // 收尾位于正文之后、页脚之前；双语完整文案与原生回到首页入口始终可读。
           assert.match(html, /id="coming-next" data-orbit-finale/)
           assert.ok(html.indexOf('id="coming-next"') > html.indexOf('</article>'))
           assert.ok(html.indexOf('id="coming-next"') < html.indexOf('<footer'))
-          assert.ok(html.includes(language === 'en' ? 'Stay tuned.' : '敬请期待。'))
+          assert.ok(html.includes(language === 'en' ? 'Stay tuned' : '敬请期待'))
           assert.match(html, /class="finale-back" href="#main"/)
           // 终点属于背景椭圆，正文主线不再跨越标题并续到页脚。
           assert.match(html, /class="finale-ring" data-finale-ring[^>]*><span class="finale-origin" data-orbit-node="finale"/)
