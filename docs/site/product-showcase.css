@@ -47,7 +47,7 @@
 .real-source-caption,.live-preview-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .live-preview-focus{position:absolute;right:24px;bottom:16px;border:1px solid #dfe5ec;border-radius:6px;color:#237d7a;background:#fff;padding:8px 12px;font:inherit;font-size:14px}
 .preview-loading,.preview-error{position:absolute;inset:0;background:#f4f6f9;padding:36px;align-content:center;text-align:center;color:#63788a;line-height:1.8}
-.preview-error{z-index:3}.preview-loading{z-index:2;pointer-events:none}.real-interface[data-preview-ready=true] .preview-loading,.preview-error[hidden]{display:none}
+.preview-error{z-index:3}.preview-loading{z-index:2;pointer-events:none}.real-interface[data-view-ready=true] .preview-loading,.preview-error[hidden]{display:none}
 .scroll-scene:not(.motion-enabled) .real-interface{height:720px}
 .detail-controls{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 auto 8px;flex-wrap:wrap;color:var(--muted);font-size:13px}.detail-controls>span{margin-right:8px}.detail-controls button{background:var(--panel);border:1px solid var(--rule);border-radius:6px;color:var(--muted);padding:9px 16px;font:inherit}.detail-controls [aria-pressed=true]{background:#e0f4ed;border-color:#71b5a7;color:var(--teal)}
 .detail-summary{text-align:center;margin:0 auto 16px;font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.7}
@@ -72,3 +72,6 @@
 /* 手机只移动原页面的取景，不缩小字号或拼接远处字段；范围控件不改变业务数据。 */
 .preview-pan{display:none}
 @media(max-width:760px){.preview-pan{display:flex;flex-direction:column;gap:8px;position:absolute;bottom:18px;left:24px;right:24px;font-size:12px;color:var(--muted);padding:12px;background:var(--panel);border:1px solid var(--rule);border-radius:6px}.preview-pan input{width:100%;accent-color:var(--teal)}.live-preview-focus{top:16px;bottom:auto}}
+
+/* 连线定位超时只提示该项，已显示的原页面仍可阅读，不退回整屏加载层。 */
+.real-interface[data-view-ready=true] .preview-error{inset:auto 16px 16px;padding:12px;background:#fff;border:1px solid var(--rule);font-size:12px}

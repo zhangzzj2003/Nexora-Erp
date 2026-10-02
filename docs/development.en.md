@@ -259,3 +259,5 @@ Auxiliary accounting uses static ORM models for four dimensions, versioned rules
 ## After-sales
 
 [After-sales rules (Chinese)](after-sales.md) cover independently approved cases, return/exchange drafts, customer-owned repair custody, inspection, handover, explicit fees and additive corrections. Customer goods do not become company stock. Closing freezes period-end plans and custody. Automatic warranty decisions, serial numbers, attachments, labor costs and partial handovers remain future work.
+
+The original interface is shown as soon as it mounts; fonts and row positioning only refine the links. Selection messages are received before App startup, and initial/selection reports do not wait for animation frames. Chunk loading errors are reported immediately. Shared App/table chunks are preloaded, while the site module graph and preview entry use content versions to prevent mixed cached releases.

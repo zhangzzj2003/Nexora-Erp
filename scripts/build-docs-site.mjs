@@ -94,9 +94,13 @@ function page(language, guide, rendered) {
 export function buildSite(output = resolve(root, 'dist/site')) {
   mkdirSync(resolve(output, 'assets'), { recursive: true })
   mkdirSync(resolve(output, 'sources'), { recursive: true })
-  copyFileSync(resolve(root, 'docs/site/site.css'), resolve(output, 'assets/site.css'))
-  // 静态截图和大图增强脚本使用相对路径，兼容 GitHub Pages 仓库子路径。
-  for (const file of ['product-showcase.css', 'product-gallery.mjs', 'product-showcase.mjs', 'product-orbit.mjs', 'source-details.mjs']) copyFileSync(resolve(root, 'docs/site', file), resolve(output, 'assets', file))
+  // 整个模块图共用内容版本，避免更新后入口与被缓存的旧依赖混用。
+  const siteFiles=['site.css','product-showcase.css','product-gallery.mjs','product-showcase.mjs','product-orbit.mjs','source-details.mjs','motion.mjs','cover-motion.mjs','scene-geometry.mjs','webgl-stage.mjs','sandbox.mjs','sandbox-ui.mjs','sandbox.css']
+  const version=createHash('sha256').update(siteFiles.map(file=>readFileSync(resolve(root,'docs/site',file),'utf8')).join('\n')).digest('hex').slice(0,12)
+  for (const file of siteFiles) {
+    const source=readFileSync(resolve(root,'docs/site',file),'utf8')
+    writeFileSync(resolve(output,'assets',file),file.endsWith('.mjs') ? source.replace(/(['"])(\.\/[\w-]+\.mjs)\1/g,(_,quote,path)=>`${quote}${path}?v=${version}${quote}`) : source)
+  }
   mkdirSync(resolve(output, 'assets/screenshots'), { recursive: true })
   // 版本来自图片内容，更新截图后不会继续命中浏览器中的旧图或旧失败缓存。
   const imageVersions = new Map()
@@ -107,7 +111,6 @@ export function buildSite(output = resolve(root, 'dist/site')) {
     copyFileSync(source, resolve(output, 'assets/screenshots', image.file))
   }
   copyFileSync(resolve(root, 'resources/icon.png'), resolve(output, 'assets/brand.png'))
-  for (const file of ['motion.mjs', 'cover-motion.mjs', 'scene-geometry.mjs', 'webgl-stage.mjs', 'sandbox.mjs', 'sandbox-ui.mjs', 'sandbox.css']) copyFileSync(resolve(root, 'docs/site', file), resolve(output, 'assets', file))
   copyFileSync(resolve(root, 'docs/site/fonts/InterVariable.woff2'), resolve(output, 'assets/InterVariable.woff2'))
   copyFileSync(resolve(root, 'docs/site/fonts/LICENSE.txt'), resolve(output, 'assets/FONT-LICENSE.txt'))
   for (const [language, t] of Object.entries(languages)) {
@@ -116,6 +119,9 @@ export function buildSite(output = resolve(root, 'dist/site')) {
       const source = guide ? t.guide : t.readme
       const markdown = readFileSync(resolve(root, source), 'utf8')
       let html = page(language, guide, renderMarkdown(markdown,source,language,!guide))
+      html=html.replace(/(\.\.\/assets\/[\w-]+\.(?:css|mjs))"/g,`$1?v=${version}"`)
+      // 提前获取官网模块，不与随后启动的完整界面抢首轮请求。
+      if (!guide) html=html.replace('</head>',siteFiles.filter(file=>file.endsWith('.mjs')&&file!=='product-showcase.mjs').map(file=>`<link rel="modulepreload" href="../assets/${file}?v=${version}">`).join('')+'</head>')
       for (const [file, version] of imageVersions) html = html.replaceAll(`../assets/screenshots/${file}`, `../assets/screenshots/${file}?v=${version}`)
       writeFileSync(resolve(output, language, guide ? 'development.html' : 'index.html'), html)
       writeFileSync(resolve(output, 'sources', posix.basename(source)), markdown)
@@ -130,7 +136,11 @@ export function buildSite(output = resolve(root, 'dist/site')) {
 export async function buildWebsite(output = resolve(root, 'dist/site')) {
   buildSite(output)
   const { buildLivePreview } = await import('./build-live-preview.mjs')
-  await buildLivePreview(resolve(output,'assets/live-preview'))
+  const version=await buildLivePreview(resolve(output,'assets/live-preview'))
+  for (const language of Object.keys(languages)) {
+    const path=resolve(output,language,'index.html')
+    writeFileSync(path,readFileSync(path,'utf8').replaceAll('stage.html?surface=','stage.html?v='+version+'&amp;surface='))
+  }
   return output
 }
 

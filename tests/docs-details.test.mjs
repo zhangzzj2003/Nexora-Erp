@@ -126,3 +126,24 @@ test('关联矩形拒绝负值和错误来源行',()=>{
   for(const rect of [{...data.rect,left:-1},{...data.rect,height:0},{...data.rect,top:Infinity}])assert.equal(Boolean(validPreviewRow({...data,rect},'receipt',sourceDetails[0])),false)
   assert.equal(validPreviewRow({...data,sourceId:'receipt:101:2'},'receipt',sourceDetails[0]),false)
 })
+
+// 真实页面可先读，连线只能在真实行已校验后出现；快速选择不应退回整屏加载。
+test('原界面就绪独立于行定位，加载失败立即结束等待，重载不保留旧矩形',()=>{
+  const f=detailFixture(),destroy=mountSourceDetails(f.scene,'zh-CN',f.changed,f.win)
+  const ready={type:'nexora:preview-ready',surface:'stock',width:1800,height:1200}
+  f.message('stock',ready,'https://foreign.test');assert.notEqual(f.panes.stock.dataset.viewReady,'true')
+  f.message('stock',{...ready,width:Infinity});assert.notEqual(f.panes.stock.dataset.viewReady,'true')
+  f.message('stock',ready);assert.equal(f.panes.stock.dataset.viewReady,'true')
+  assert.equal(f.panes.stock.dataset.previewReady,'false')
+  assert.match(f.panes.stock.frame.style.transform,/scale\(0\.4\)/)
+  assert.equal(f.panes.stock.sent.at(-1).data.key,'mcu')
+  f.click(f.buttons[2]);assert.equal(f.panes.stock.dataset.viewReady,'true')
+  assert.equal(f.panes.stock.dataset.previewReady,'false')
+  f.message('stock',f.payload('stock',sourceDetails[2]));assert.equal(f.panes.stock.dataset.previewReady,'true')
+  f.panes.stock.frame.dispatchEvent(new Event('load'))
+  assert.equal(f.panes.stock.dataset.viewReady,'false');assert.equal(f.panes.stock.dataset.previewReady,'false')
+  f.message('stock',{type:'nexora:preview-error',surface:'stock'})
+  assert.equal(f.panes.stock.error.hidden,false)
+  assert.equal(f.timerCallbacks.size,2)
+  destroy()
+})

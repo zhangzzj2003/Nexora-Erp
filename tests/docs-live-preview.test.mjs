@@ -17,6 +17,9 @@ test('官网构建包含原 App 及动态样式，桥接隔离于示例会话', 
     // 原 App 延迟装配，CSS 由动态导入的依赖预加载；核对引用和实际产物。
     const css=files.find(file=>/^main-.*\.css$/.test(file))
     assert.ok(css);assert.ok(js.includes(css))
+    assert.ok(html.includes(`href="./assets/${css}"`))
+    assert.match(html,/rel="modulepreload" href="\.\/assets\/WorkspaceTable-[^"]+\.js"/)
+    assert.match(readFileSync(resolve(output,'zh-CN/index.html'),'utf8'),/stage\.html\?v=[a-f0-9]{12}&amp;surface=receipt/)
     assert.match(readFileSync(resolve(root,'assets',css),'utf8'),/workspace/)
     assert.match(js,/nexora:preview-row/);assert.match(js,/nexora:select-preview-item/)
     // 全 App 的隔离桥接仅接受已配置示例读取；写入拒绝由另一组快照测试覆盖。

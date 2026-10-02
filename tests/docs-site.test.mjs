@@ -40,6 +40,16 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
     assert.ok(existsSync(resolve(output, 'assets/webgl-stage.mjs')))
     assert.ok(existsSync(resolve(output, 'assets/scene-geometry.mjs')))
     assert.ok(existsSync(resolve(output, 'assets/cover-motion.mjs')))
+    // HTML 与整个模块依赖图使用同一内容版本，不会混入更新前的缓存。
+    const home=readFileSync(resolve(output,'zh-CN/index.html'),'utf8')
+    const version=home.match(/assets\/motion\.mjs\?v=([a-f0-9]{12})/)?.[1]
+    assert.ok(version)
+    for(const [,file] of home.matchAll(/rel="modulepreload" href="\.\.\/assets\/([\w-]+\.mjs)\?v=[a-f0-9]{12}"/g)){
+      const js=readFileSync(resolve(output,'assets',file),'utf8')
+      for(const [,dependency,token] of js.matchAll(/['"]\.\/([\w-]+\.mjs)\?v=([a-f0-9]{12})['"]/g)){
+        assert.equal(token,version);assert.ok(existsSync(resolve(output,'assets',dependency)))
+      }
+    }
     assert.match(readFileSync(resolve(output, 'assets/sandbox.css'), 'utf8'), /\.scroll-scene\{[^}]*overflow-anchor:none/)
     const cn = readFileSync(resolve(output, 'zh-CN/development.html'), 'utf8')
     const en = readFileSync(resolve(output, 'en/development.html'), 'utf8')
