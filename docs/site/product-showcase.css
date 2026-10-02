@@ -109,8 +109,11 @@ html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-peek-1{anima
 
 /* 标题主字、背景和轨道共用中心；说明与返回入口不参与标题的居中计算。 */
 .site-finale{position:relative;min-height:540px;height:78svh;max-height:840px;text-align:center;overflow:hidden;scroll-margin-top:0}
-.finale-ring{position:absolute;left:50%;top:50%;width:min(1120px,86%);height:66%;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(ellipse at center,#d5eee580, #e4f3ed45 68%,transparent 100%);pointer-events:none}
-.finale-origin{position:absolute;left:0;top:50%;width:5px;height:5px;transform:translate(-50%,-50%);border-radius:50%;background:#268a7d}
+.finale-ring{position:absolute;left:50%;top:50%;width:min(1120px,86%);height:min(310px,52%);transform:translate(-50%,-50%);--finale-tilt:-.18rad;--finale-secondary-tilt:.16rad;pointer-events:none}
+/* 接点由几何计算，DOM 标记只用于主线顺序，不能额外留下竖线挂点。 */
+.finale-origin{position:absolute;left:0;top:50%;width:1px;height:1px;opacity:0}
+/* 柔光不描边；轨道包围同心文字，避免呈现一整块椭圆框。 */
+.finale-ring::before{content:"";position:absolute;inset:-35% -8%;border-radius:50%;background:radial-gradient(ellipse at center,#d5eee570,transparent 70%);transform:rotate(var(--finale-tilt))}
 .finale-copy{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:var(--site-layer-surface);width:calc(100% - 48px);max-width:900px}
 .finale-eyebrow{position:absolute;bottom:calc(100% + 26px);left:0;width:100%;font-size:11px;letter-spacing:.2em;color:var(--teal);font-weight:600;margin:0}
 .site-finale h2{font-size:clamp(54px,7.5vw,112px);letter-spacing:-.04em;line-height:1.15;font-weight:750;margin:0;color:var(--teal)}
@@ -118,7 +121,8 @@ html[data-hero-entrance=intro] .hero:not([data-hero-settled]) .hero-peek-1{anima
 .finale-title-text{position:relative;display:inline-block}.finale-punctuation{position:absolute;left:100%;top:0}
 .finale-description{position:absolute;top:calc(100% + 24px);left:0;width:100%;font-size:17px;line-height:1.8;color:var(--muted);margin:0}
 .finale-back{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);z-index:var(--site-layer-surface);display:inline-flex;gap:16px;align-items:center;font-size:13px;text-decoration:none;padding:10px;border-bottom:1px solid #7eaea6;white-space:nowrap}
-/* 无脚本用背景外缘的单个闭环兜底；GPU/SVG 接管后只去掉边线，保留背景。 */
-.finale-ring::after{content:"";position:absolute;inset:0;border:1px solid #218f819e;border-radius:inherit}.site-finale[data-orbit-ready] .finale-ring::after{display:none}
-@media(max-width:760px){.site-finale{min-height:460px;height:68svh}.finale-description{font-size:14px}.finale-eyebrow{font-size:10px;letter-spacing:.13em;bottom:calc(100% + 20px)}}
+/* 无脚本保留相同的主辅倾斜闭环；GPU/SVG 接管后只去掉边线，保留背景。 */
+.finale-ring::after{content:"";position:absolute;inset:0;border:1px solid #218f8161;border-radius:50%;transform:rotate(var(--finale-tilt))}
+.finale-secondary{position:absolute;left:4%;top:-12%;width:92%;height:124%;border:1px solid #218f811f;border-radius:50%;transform:rotate(var(--finale-secondary-tilt))}.site-finale[data-orbit-ready] .finale-ring::after,.site-finale[data-orbit-ready] .finale-secondary{display:none}
+@media(max-width:760px){.site-finale{min-height:460px;height:68svh}.finale-ring{--finale-tilt:-.07rad;--finale-secondary-tilt:.09rad}.finale-description{font-size:14px}.finale-eyebrow{font-size:10px;letter-spacing:.13em;bottom:calc(100% + 20px)}}
 @media print{.site-finale{height:auto;min-height:0;padding:40px 0}.finale-ring,.finale-back{display:none}.finale-copy{position:relative;left:auto;top:auto;transform:none;width:100%;max-width:none}.finale-eyebrow,.finale-description{position:static;margin:16px 0}.site-finale h2{font-size:32px}}

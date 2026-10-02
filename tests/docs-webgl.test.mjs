@@ -1,4 +1,4 @@
-import { pageOrbitSegments, orbitProgress, orbitCardPose, orbitRing, finaleOrbit, mountPageOrbit } from '../docs/site/product-orbit.mjs'
+import { pageOrbitSegments, orbitProgress, orbitCardPose, orbitRing, finaleGeometry, finaleOrbit, mountPageOrbit } from '../docs/site/product-orbit.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { cubicPoints, trimPath, pointOnPath, ribbonMesh, floorLightAt, createWebGLStage, createWebGLGuide } from '../docs/site/webgl-stage.mjs'
@@ -396,11 +396,14 @@ function pageOrbitFixture(options = {}) {
   const card = { dataset:{}, getBoundingClientRect: () => ({top,bottom:top+600,height:600}),style: {setProperty: (name,value) => { styles[name]=value; if(name==='--orbit-angle') angle=value },removeProperty(name) {delete styles[name]} } }
   const host = { ...f.guideHost,ownerDocument:doc,dataset:{},querySelector:()=>svg }
   const finale = options.finale ? { dataset: {}, getBoundingClientRect: () => ({top:top+2200,height:640}) } : null
-  doc.querySelector = selector => selector === '.page-orbit' ? host : selector === '[data-cover]' ? hero : selector === '[data-orbit-finale]' ? finale : null
-  doc.querySelectorAll = selector => selector === '[data-orbit-node]' ? [node,options.sticky ? stage : other] : selector === '[data-orbit-card]' ? [card] : []
+  const endingRing = options.ending ? {getBoundingClientRect:()=>({left:150,top:top+2200+640*.24,width:1040,height:640*.52})} : null
+  const endingNode = {offsetHeight:1,dataset:{orbitNode:'finale'},getBoundingClientRect:()=>({left:0,top:top+2200,width:1,height:1})}
+  const downloadNode = {...node,dataset:{orbitNode:'edge'},getBoundingClientRect:()=>({left:110,top:top+2120,width:200,height:24})}
+  doc.querySelector = selector => selector === '[data-finale-ring]' ? endingRing : selector === '.page-orbit' ? host : selector === '[data-cover]' ? hero : selector === '[data-orbit-finale]' ? finale : null
+  doc.querySelectorAll = selector => selector === '[data-orbit-node]' ? [node,options.sticky ? stage : other,...(options.ending?[downloadNode,endingNode]:[])] : selector === '[data-orbit-card]' ? [card] : []
   const tick = time => { const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(time)) }
   const destroy=mountPageOrbit(doc,win)
-  return { ...f,doc,win,media,svg,host,styles,card,finale,tick,destroy,queued:()=>frames.size,setTop: value=>{top=value},angle:()=>angle }
+  return { ...f,doc,win,media,svg,host,styles,card,finale,endingRing,tick,destroy,queued:()=>frames.size,setTop: value=>{top=value},angle:()=>angle }
 }
 
 test('全页轨道仅按需绘制，减少动态保留静态线，GPU 丢失恢复并释放资源', () => {
@@ -557,7 +560,7 @@ test('收尾轨道仅在可见时展开，倒滚可逆且减少动态保留完�
   assert.deepEqual(finaleOrbit({top:0,height:640},0,900), [])
   const entering = finaleOrbit({top:780,height:640},1440,900)
   const reading = finaleOrbit({top:120,height:640},1440,900)
-  assert.equal(reading.length,1)
+  assert.equal(reading.length,2)
   assert.ok(entering[0].amount < reading[0].amount)
   assert.deepEqual(finaleOrbit({top:780,height:640},1440,900),entering)
   const nearby = finaleOrbit({top:779.99,height:640},1440,900)
@@ -577,7 +580,7 @@ test('收尾复用全页画布，GPU 失败仍显示 SVG 且离屏不维持循�
     assert.equal(f.host.dataset.renderer,unavailable?'fallback':'webgl')
     assert.equal(f.host.hidden,false)
     assert.equal(f.canvases.length,1)
-    assert.equal((f.svg.innerHTML.match(/<path/g)||[]).length,1)
+    assert.equal((f.svg.innerHTML.match(/<path/g)||[]).length,2)
     assert.equal(f.finale.dataset.orbitReady,'true')
     assert.equal(f.queued(),0)
     f.setTop(-3000);f.win.dispatchEvent(new Event('scroll'));f.tick(32)
@@ -586,18 +589,36 @@ test('收尾复用全页画布，GPU 失败仍显示 SVG 且离屏不维持循�
   }
 })
 
-// 实际背景偏离视口中心时仍贴合外缘，闭环首尾与主线接点一致，不能穿过中央文案。
-test('收尾沿真实背景外缘闭合，主线在左缘切向接入', () => {
-  const background = {left:80,top:190,width:1000,height:420}
-  const [ring] = finaleOrbit({top:100,height:640},1440,900,true,background)
-  assert.deepEqual(ring.points[0],ring.points.at(-1))
-  assert.equal(ring.points[0][0],background.left)
-  assert.equal(ring.points[0][1],400)
-  const [incoming] = pageOrbitSegments([[80,100],ring.points[0]],1440,900)
-  assert.deepEqual(incoming.points.at(-1),ring.points[0])
-  assert.ok(incoming.points.at(-2)[1]<400 && ring.points[1][1]>400)
-  // 中央文字保护区内不得出现轨道；无效背景不能生成非法闭环。
-  assert.ok(ring.points.every(([x,y])=>Math.abs(x-580)>260 || Math.abs(y-400)>110))
+// 主线沿切线顺滑汇入，倾斜主辅轨道同心闭合且不进入标题的核心区域。
+test('收尾倾斜轨道同心闭合，主线顺着轨道切线自然汇入', () => {
+  const background = {left:80,top:190,width:1000,height:330}
+  const geometry = finaleGeometry({top:100,height:640},1440,background)
+  for(const points of [geometry.points,geometry.secondary]){
+    assert.deepEqual(points[0],points.at(-1))
+    assert.ok(points.every(([x,y])=>Math.abs(x-580)>230 || Math.abs(y-355)>85))
+  }
+  // 左下方接点沿弧度继续轻缓绕行，接入本身不出现先向右再折返的回钩。
+  assert.ok(geometry.entry[0]<580 && geometry.entry[1]>355)
+  assert.ok(geometry.tangent[0]>0 && geometry.tangent[1]>0)
+  const [incoming] = pageOrbitSegments([[80,30],geometry.entry],1440,900,false,geometry.tangent)
+  assert.deepEqual(incoming.points.at(-1),geometry.entry)
+  const before = incoming.points.at(-2), after=geometry.points[1],entry=geometry.entry
+  const a=[entry[0]-before[0],entry[1]-before[1]],b=[after[0]-entry[0],after[1]-entry[1]]
+  assert.ok((a[0]*b[0]+a[1]*b[1])/(Math.hypot(...a)*Math.hypot(...b))>.995)
   assert.deepEqual(finaleOrbit({top:100,height:640},1440,900,false,{...background,width:0}),[])
   assert.deepEqual(finaleOrbit({top:100,height:640},1440,900,false,{...background,top:NaN}),[])
+})
+
+// 实页装配必须使用背景的实测尺寸，而不是视口中心或隐藏标记的位置。
+test('收尾接入与闭环使用同一实测几何，下载位置承担正文末尾转弯', () => {
+  const f=pageOrbitFixture({finale:true,ending:true})
+  f.setTop(-2100);f.tick(0)
+  const geometry=finaleGeometry(f.finale.getBoundingClientRect(),1440,f.endingRing.getBoundingClientRect())
+  const paths=[...f.svg.innerHTML.matchAll(/<path d="([^"]+)"/g)].map(match=>match[1])
+  assert.equal(paths.length,4)
+  const junction=geometry.entry.map(value=>value.toFixed(2)).join(' ')
+  assert.ok(paths[1].endsWith('L'+junction))
+  assert.ok(paths[2].startsWith('M'+junction))
+  assert.equal(f.queued(),0)
+  f.destroy()
 })
