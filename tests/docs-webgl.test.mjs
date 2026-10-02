@@ -1,4 +1,4 @@
-import { pageOrbitSegments, orbitRing, mountPageOrbit } from '../docs/site/product-orbit.mjs'
+import { pageOrbitSegments, orbitProgress, orbitCardPose, orbitRing, mountPageOrbit } from '../docs/site/product-orbit.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { cubicPoints, trimPath, pointOnPath, ribbonMesh, floorLightAt, createWebGLStage, createWebGLGuide } from '../docs/site/webgl-stage.mjs'
@@ -382,6 +382,7 @@ function pageOrbitFixture(options = {}) {
   media.forEach(item => { item.matches = false })
   const win = Object.assign(new EventTarget(), { innerWidth: 1440, innerHeight: 900, devicePixelRatio: 3 })
   let sequence = 0, query = 0, top = 120, angle
+  const styles = {}, stage = { offsetHeight: 7, dataset: { orbitNode: 'stage' }, getBoundingClientRect: () => ({left:100,top:Math.max(48,top+600),width:7,height:7}), closest: () => ({getBoundingClientRect:()=>({top:top+600})}) }
   win.requestAnimationFrame = fn => { frames.set(++sequence,fn); return sequence }
   win.cancelAnimationFrame = id => frames.delete(id)
   win.matchMedia = () => media[query++ % 2]
@@ -390,19 +391,19 @@ function pageOrbitFixture(options = {}) {
   const hero = { getBoundingClientRect: () => ({ top,bottom:top+900,height:900 }) }
   const node = { offsetHeight: 44, dataset: {}, getBoundingClientRect: () => ({left:100,top,width:44,height:44}) }
   const other = { ...node,getBoundingClientRect: () => ({left:900,top:top+600,width:44,height:44}) }
-  const card = { getBoundingClientRect: () => ({top,bottom:top+600,height:600}),style: {setProperty: (name,value) => { if(name==='--orbit-angle') angle=value },removeProperty() {} } }
+  const card = { dataset:{}, getBoundingClientRect: () => ({top,bottom:top+600,height:600}),style: {setProperty: (name,value) => { styles[name]=value; if(name==='--orbit-angle') angle=value },removeProperty(name) {delete styles[name]} } }
   const host = { ...f.guideHost,ownerDocument:doc,dataset:{},querySelector:()=>svg }
   doc.querySelector = selector => selector === '.page-orbit' ? host : hero
-  doc.querySelectorAll = selector => selector === '[data-orbit-node]' ? [node,other] : selector === '[data-orbit-card]' ? [card] : []
+  doc.querySelectorAll = selector => selector === '[data-orbit-node]' ? [node,options.sticky ? stage : other] : selector === '[data-orbit-card]' ? [card] : []
   const tick = time => { const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(time)) }
   const destroy=mountPageOrbit(doc,win)
-  return { ...f,doc,win,media,svg,host,tick,destroy,queued:()=>frames.size,setTop: value=>{top=value},angle:()=>angle }
+  return { ...f,doc,win,media,svg,host,styles,card,tick,destroy,queued:()=>frames.size,setTop: value=>{top=value},angle:()=>angle }
 }
 
-test('全页轨道暂停后台和正文循环，减少动态保留静态线，GPU 丢失恢复并释放资源', () => {
+test('全页轨道仅按需绘制，减少动态保留静态线，GPU 丢失恢复并释放资源', () => {
   const f=pageOrbitFixture()
   f.tick(40)
-  assert.equal(f.host.dataset.renderer,'webgl');assert.ok(f.queued()>0)
+  assert.equal(f.host.dataset.renderer,'webgl');assert.equal(f.queued(),0)
   f.doc.hidden=true;f.doc.dispatchEvent(new Event('visibilitychange'))
   assert.equal(f.queued(),0)
   f.doc.hidden=false;f.doc.dispatchEvent(new Event('visibilitychange'));f.tick(80)
@@ -423,6 +424,76 @@ test('全页轨道暂停后台和正文循环，减少动态保留静态线，GP
   const unavailable=pageOrbitFixture({unavailable:true});unavailable.tick(40)
   assert.equal(unavailable.host.dataset.renderer,'fallback');assert.ok(unavailable.svg.innerHTML.includes('<path'))
   unavailable.destroy()
+})
+
+// 直接验证滚动几何而不是计时动画，覆盖同位置重放、反向与边界连续性。
+test('轨道弧长进度跟随阅读线，向下推进、倒滚收回且边界连续', () => {
+  const path = cubicPoints([100,600],[100,800],[900,1000],[900,1200])
+  const shift = delta => path.map(([x,y])=>[x,y-delta])
+  const start = orbitProgress(path,900), middle = orbitProgress(shift(300),900)
+  assert.ok(start > 0 && start < middle && middle < 1)
+  assert.equal(orbitProgress(shift(700),900),1)
+  assert.equal(orbitProgress(shift(-200),900),0)
+  assert.equal(orbitProgress(shift(300),900),middle)
+  assert.equal(orbitProgress(path,900),start)
+  for (const delta of [83.9,84,84.1,599.9,600,600.1]) {
+    assert.ok(Math.abs(orbitProgress(shift(delta+.01),900)-orbitProgress(shift(delta),900))<.001)
+  }
+  assert.equal(orbitProgress([[NaN,0],[0,100]],900),0)
+  assert.equal(orbitProgress([],900),0)
+  assert.equal(orbitProgress([[0,0],[0,0]],900),1)
+})
+
+test('卡片按滚动入场、中央完整阅读、退场，手机轻量位移与减少动态完整可读', () => {
+  const bounds = top => ({top,height:600})
+  const entering = orbitCardPose(bounds(750),900), reading = orbitCardPose(bounds(168),900), leaving = orbitCardPose(bounds(-400),900)
+  assert.equal(entering.phase,'entering');assert.ok(entering.y>0 && entering.scale<1 && entering.opacity<1)
+  assert.equal(reading.phase,'reading');assert.equal(reading.scale,1);assert.equal(reading.opacity,1);assert.equal(reading.angle,0)
+  assert.equal(leaving.phase,'leaving');assert.ok(leaving.y<0)
+  assert.equal(orbitCardPose(bounds(750),900,1).x,-entering.x)
+  assert.deepEqual(orbitCardPose(bounds(750),900),entering)
+  const mobile=orbitCardPose(bounds(750),900,0,true)
+  assert.equal(mobile.x,0);assert.equal(mobile.angle,0);assert.ok(mobile.y>0 && mobile.y<entering.y);assert.ok(mobile.opacity>=.55)
+  assert.deepEqual(orbitCardPose(bounds(750),900,0,false,true),reading)
+  // 阅读平台两侧接缝使用零斜率平滑曲线，微量滚动不会造成姿态突变。
+  for(let top=-900;top<1200;top+=5) {
+    const a=orbitCardPose(bounds(top),900), b=orbitCardPose(bounds(top+.1),900)
+    assert.ok(Math.abs(a.y-b.y)<.05);assert.ok(Math.abs(a.opacity-b.opacity)<.001)
+  }
+})
+
+test('高频滚动每帧合并到最新位置，暂停不漂移，倒滚和快速跳转可重复', () => {
+  const f=pageOrbitFixture({unavailable:true});f.tick(1)
+  const first=f.svg.innerHTML, pose={...f.styles}
+  assert.equal(f.queued(),0)
+  f.tick(10000);assert.equal(f.svg.innerHTML,first);assert.deepEqual(f.styles,pose)
+  // 16ms 内更新同样必须绘制，避免原 32ms 限速导致连线落后页面。
+  f.setTop(-200);f.win.dispatchEvent(new Event('scroll'));f.win.dispatchEvent(new Event('scroll'))
+  assert.equal(f.queued(),1);f.tick(16)
+  assert.notEqual(f.svg.innerHTML,first);assert.notDeepEqual(f.styles,pose);assert.equal(f.queued(),0)
+  f.setTop(-2000);f.win.dispatchEvent(new Event('scroll'));f.tick(17);assert.equal(f.host.hidden,true)
+  f.setTop(120);f.win.dispatchEvent(new Event('scroll'));f.tick(18)
+  assert.equal(f.svg.innerHTML,first);assert.deepEqual(f.styles,pose)
+  f.media[1].matches=true;f.media[1].dispatchEvent(new Event('change'));f.tick(19)
+  assert.equal(f.styles['--orbit-angle'],'0deg');assert.equal(f.host.dataset.renderer,'fallback')
+  f.media[0].matches=true;f.media[0].dispatchEvent(new Event('change'));f.tick(20)
+  assert.equal(f.styles['--orbit-opacity'],'1');assert.equal(f.styles['--orbit-y'],'0px')
+  f.destroy();assert.deepEqual(f.styles,{});assert.equal(f.card.dataset.orbitPhase,undefined)
+})
+
+test('吸顶舞台节点使用自然位置，端点随页面等距平移，GPU 回退不改路径', () => {
+  const f=pageOrbitFixture({sticky:true});f.tick(1)
+  const state=()=>[...f.svg.innerHTML.matchAll(/<path d="([^"]+)"/g)].map(match=>match[1])
+  f.setTop(-600);f.win.dispatchEvent(new Event('scroll'));f.tick(2)
+  const before=state()[0]
+  f.setTop(-610);f.win.dispatchEvent(new Event('scroll'));f.tick(3)
+  const after=state()[0]
+  // 两个节点此时都高于阅读线，路径完整；sticky 标题停在 48px，轨道仍平移 10px。
+  const ys = path=>[...path.matchAll(/[ML]([-\d.]+) ([-\d.]+)/g)].map(match=>Number(match[2]))
+  ys(before).forEach((y,index)=>assert.ok(Math.abs(ys(after)[index]-(y-10))<.02))
+  f.canvases[0].fire('webglcontextlost');f.tick(4)
+  assert.equal(f.host.dataset.renderer,'fallback');assert.equal(state()[0],after)
+  f.destroy()
 })
 
 test('三窗真实截图保持完整统一比例，切换沙盒后恢复原镜头画布', () => {

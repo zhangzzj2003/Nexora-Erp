@@ -207,7 +207,7 @@ Actions installers are test builds, unsigned/unnotarized, and may trigger SmartS
 
 ## Website and HTML documentation
 
-The cover adds real interface satellites and a Materials → Inventory → Production → Finance path. `product-orbit.mjs` connects the cover, five interface previews, three-window stage and documentation margins through a transparent WebGL orbit. Light points flow only while the cover or previews are visible, pausing in the background and during documentation reading. Mobile and reduced motion use static SVG paths. HTML retains text, screenshots and clicks, including when GPU rendering fails.
+The cover adds real interface satellites and a Materials → Inventory → Production → Finance path. `product-orbit.mjs` connects the cover, five interface previews, three-window stage and documentation margins through a transparent WebGL orbit. Paths draw and retract with scroll reading progress, while cards enter, become fully readable in the center, and recede. Light points follow scroll rather than an independent timer. Each scroll frame reads untransformed layout nodes before updating poses, without throttling or catch-up interpolation; the sticky stage entrance stays at its natural layout position. Rendering stops when scrolling stops or the page is hidden. Mobile uses SVG scroll paths and light card motion; reduced motion retains fully visible static images and paths. HTML retains text, screenshots and clicks, including when GPU rendering fails.
 
 The website uses a static HTML/CSS/JavaScript build. `scripts/build-docs-site.mjs` uses Marked to convert version-controlled Markdown without business APIs, a database or browser-side Markdown compilation. Chinese lives at `/zh-CN/`, English at `/en/`, with `development.html` for each guide; the root opens Chinese.
 
@@ -217,7 +217,7 @@ The website uses a static HTML/CSS/JavaScript build. `scripts/build-docs-site.mj
 | `docs/development.zh-CN.md`, `docs/development.en.md` | Guide content sources; HTML is generated. |
 | `docs/site/site.css` | Website, documentation, mobile and print styles. |
 | `scripts/build-docs-site.mjs` | Page, contents, path and asset generation. |
-| `docs/site/product-orbit.mjs` | Full-page orbit, cover ellipses, scroll nodes and static fallback. |
+| `docs/site/product-orbit.mjs` | Full-page scroll orbit, card entry and exit, stable layout nodes and SVG fallback. |
 | `docs/site/product-showcase.*`, `product-gallery.mjs` | Interface screenshots, bilingual captions, load failures and native image dialog. |
 | `docs/site/screenshots/`, `scripts/site-preview/` | Screenshot assets and isolated sample session; see the screenshot directory guide. |
 | `.github/workflows/docs-site.yml` | PR validation and mainline Pages publishing configuration. |
