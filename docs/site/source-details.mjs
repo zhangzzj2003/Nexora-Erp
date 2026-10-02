@@ -4,12 +4,13 @@ export const sourceDetails = [
   { key: 'resistor', line: 2, sku: 'EL-SR-000001', zh: '贴片电阻', en: 'Chip resistor', shortZh: '电阻', quantity: 2000, amount: 400 },
   { key: 'capacitor', line: 3, sku: 'EL-SC-000001', zh: '陶瓷电容', en: 'Ceramic capacitor', shortZh: '电容', quantity: 1000, amount: 400 }
 ]
-export const detailCanvas = { width: 720, height: 600 }
+// 展示窗口和原页面统一为 3:2，完整状态无需上下补空白。
+export const detailCanvas = { width: 720, height: 480 }
 // 三窗总览预留字段之间的连线空隙，避免行内锚点落入相邻窗口的重叠区域。
 export function detailWindowLayout(layout, reframe = true) {
   const finance = reframe ? Math.max(0, Math.min(1, -(layout[2]?.rotation ?? 0) / 30)) : 0
   const targets = [{x:0,width:.28},{x:.33,width:.34},{x:.73,width:.27}]
-  return layout.map((item,index)=>({ ...item, logicalWidth:reframe ? detailCanvas.width : 1000, logicalHeight:detailCanvas.height,
+  return layout.map((item,index)=>({ ...item, logicalWidth:reframe ? detailCanvas.width : 1000, logicalHeight:reframe ? detailCanvas.height : 1000 * detailCanvas.height / detailCanvas.width,
     rotation:item.rotation*.4, x:item.x+(targets[index].x-item.x)*finance, width:item.width+(targets[index].width-item.width)*finance }))
 }
 export const detailMoney = amount => `¥${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

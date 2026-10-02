@@ -31,12 +31,25 @@ test('原页面明细定位保留真实布局与字段，未知物料不关联',
 })
 test('镜头完整状态保留整页，放大只改变原 DOM 变换，锚点共用同一矩阵',()=>{
   const data={width:1800,height:1200,rect:{left:810,top:450,width:580,height:40}}
-  const full=originalCamera(data,720,600,0),zoom=originalCamera(data,1000,600,1),middle=originalCamera(data,720,600,.5)
-  assert.equal(full.scale,.4);assert.equal(full.x,0);assert.equal(full.y,60)
-  assert.equal(zoom.scale,1.5);assert.equal(zoom.rect.top+zoom.rect.height/2,300)
+  const full=originalCamera(data,720,480,0),zoom=originalCamera(data,1000,1000*2/3,1),middle=originalCamera(data,720,480,.5)
+  assert.equal(full.scale,.4);assert.equal(full.x,0);assert.equal(full.y,0)
+  assert.equal(zoom.scale,1.5);assert.ok(Math.abs(zoom.rect.top+zoom.rect.height/2-1000/3)<1e-10)
   assert.ok(middle.scale>full.scale);assert.ok(middle.scale<zoom.scale)
   assert.equal(middle.rect.left,data.rect.left*middle.scale+middle.x)
-  assert.deepEqual(originalCamera(data,720,600,.5),middle)
+  assert.deepEqual(originalCamera(data,720,480,.5),middle)
+})
+// 全貌和聚焦窗口的初始镜头都必须贴边，不能以裁切原页面来消除留白。
+test('原页面等比例铺满普通及聚焦窗口，没有上下留白且不裁导航或底栏',()=>{
+  const data={width:1800,height:1200,rect:{left:810,top:450,width:580,height:40}}
+  for(const focused of [false,true]){
+    const layout=detailWindowLayout(sceneAt(.1).windows,!focused)
+    for(const item of layout){
+      const pose=originalCamera(data,item.logicalWidth,item.logicalHeight,0)
+      assert.ok(Math.abs(pose.x)<1e-10);assert.ok(Math.abs(pose.y)<1e-10)
+      assert.ok(Math.abs(data.width*pose.scale-item.logicalWidth)<1e-10)
+      assert.ok(Math.abs(data.height*pose.scale-item.logicalHeight)<1e-10)
+    }
+  }
 })
 // 手机保持原字号放大，通过镜头平移查看远处字段，避免整页缩小后难以阅读。
 test('手机镜头保留 150% 字号，横向移动可查看末端字段且高亮不越界',()=>{
@@ -52,7 +65,7 @@ test('同一组件放大曲线可倒滚，静态直接可读；三窗实际行�
   assert.equal(detailMagnification(0,true),1); assert.equal(detailMagnification(0,false,true),1)
   let prior=2/3
   for(let p=0;p<=.45;p+=.01){ const next=detailMagnification(p); assert.ok(next>=prior); assert.ok(next-prior<.016); prior=next }
-  assert.deepEqual(detailCanvas,{width:720,height:600})
+  assert.deepEqual(detailCanvas,{width:720,height:480})
   // 真实共享表格行取景约占视口 6%–94%，不再使用原截图的像素边界。
   for(const width of [1200,1440,1680]) for(const p of [.8,.92]) {
     const poses=detailWindowLayout(sceneAt(p).windows).map(item=>windowGeometry(item,width,520))

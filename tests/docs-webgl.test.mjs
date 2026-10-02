@@ -502,7 +502,7 @@ test('三窗真实明细放大使用独立画布，切换沙盒后恢复原镜�
   const f = scrollingScene({real:true})
   for (const pane of f.windows) {
     assert.equal(pane.style['--logical-width'],'720px')
-    assert.equal(pane.style['--logical-height'],'600px')
+    assert.equal(pane.style['--logical-height'],'480px')
   }
   f.click('[data-surface-select]',{surfaceSelect:'sandbox'});f.tick(40)
   assert.equal(f.scene.dataset.surface,'sandbox')

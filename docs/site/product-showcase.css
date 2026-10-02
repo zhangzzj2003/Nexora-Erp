@@ -34,7 +34,9 @@
 .hero-journey{display:flex;gap:16px;align-items:center;justify-content:center;margin:36px auto 0}.hero-journey a{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink);text-decoration:none}.hero-journey a:hover{color:var(--teal)}.hero-journey a span{font-size:10px;color:var(--teal);font-variant-numeric:tabular-nums}.hero-journey i{font-style:normal;color:#80aea6;font-size:13px}
 /* 完整真实工作台保留原有外壳；放大区落在内容栏内，不另外设计官网统计卡。 */
 /* 真实共享表格只出现一次；从原始比例到 150% 的变化沿同一 DOM 视图完成。 */
-.real-interface{display:none;position:relative;background:#f4f6f9;height:600px;overflow:hidden}
+/* 原界面直接贴合等比例视口；聚焦沿用同一比例，手机仍保留独立取景高度。 */
+.real-interface{display:none;position:relative;background:#f4f6f9;height:var(--logical-height,480px);overflow:hidden}
+[data-surface=screenshots] .window-viewport{padding:0}
 [data-surface=screenshots] .real-interface{display:block}[data-surface=screenshots] .window-chrome,[data-surface=screenshots] .app-layout,[data-surface=screenshots] .window-base{display:none}
 [data-surface=screenshots] .scene-board,[data-surface=screenshots] .stage-heading{max-width:1680px}
 .live-preview-content{position:absolute;inset:0;transform:none}
