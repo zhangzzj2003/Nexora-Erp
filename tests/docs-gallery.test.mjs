@@ -18,13 +18,9 @@ test('七张统一尺寸原图随构建复制，双语轨道入口、业务定�
       assert.equal(bytes.readUInt32BE(16), 1800)
       assert.equal(bytes.readUInt32BE(20), 1200)
     }
-    for (const item of sourceImages) {
-      const bytes=readFileSync(resolve(output,'assets/screenshots',item.highRes))
-      assert.equal(bytes.readUInt32BE(16),5400);assert.equal(bytes.readUInt32BE(20),3600)
-    }
     for (const language of ['zh-CN', 'en']) {
       const html = readFileSync(resolve(output, language, 'index.html'), 'utf8')
-      assert.equal([...html.matchAll(/data-product-image/g)].length, 8)
+      assert.equal([...html.matchAll(/data-product-image/g)].length, 5)
       assert.ok(html.indexOf('id="product-preview"') < html.indexOf('id="business-demo"'))
       assert.match(html, /href="#core-capabilities"/)
       assert.match(html, /href="#product-preview"/)
@@ -44,9 +40,11 @@ test('七张统一尺寸原图随构建复制，双语轨道入口、业务定�
         assert.ok(html.includes(`id="preview-${key}"`))
       }
       for (const item of sourceImages) assert.ok(html.includes(`data-real-anchor="${item.key}"`))
-      assert.equal([...html.matchAll(/class="real-app-shell"/g)].length,3)
-      assert.equal([...html.matchAll(/class="real-workspace-mask"/g)].length,3)
-      for (const item of sourceImages) assert.ok(html.includes(`href="../assets/screenshots/${item.highRes}?v=`))
+      assert.doesNotMatch(html,/real-app-shell|real-workspace-mask|real-detail-image|@3x/)
+      for (const item of sourceImages) assert.ok(html.includes(`live-preview/stage.html?surface=${item.key}`))
+      assert.equal([...html.matchAll(/class="live-preview-frame"/g)].length,3)
+      assert.equal([...html.matchAll(/data-preview-error role="status" hidden/g)].length,3)
+      assert.equal([...html.matchAll(/class="live-preview-focus"/g)].length,3)
       assert.equal([...html.matchAll(/data-source-detail=/g)].length,3)
       assert.equal([...html.matchAll(/data-source-id="receipt:101:1"/g)].length,3)
       assert.match(html,/data-detail-summary aria-live="polite"/)

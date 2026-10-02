@@ -24,7 +24,8 @@ jobs:
           cache: npm
       # 官网不需要下载 Electron 或启动后端。
       - run: npm ci --ignore-scripts
-      - run: node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs tests/docs-gallery.test.mjs
+      # 覆盖真实组件构建、逐项关联和现有官网演示的全部测试。
+      - run: node --test tests/docs*.test.mjs
       - run: npm run docs:build
       - uses: actions/upload-artifact@v4
         with:

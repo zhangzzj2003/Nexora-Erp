@@ -1,4 +1,4 @@
-import { detailWindowLayout, mountSourceDetails } from './source-details.mjs'
+import { detailWindowLayout, detailMagnification, mountSourceDetails } from './source-details.mjs'
 import { sceneAt, focusLayout, windowGeometry, fitWindowContent, perspective, projectWindowPoint, interpolateWindowPose, connectionEndpoints, sceneBoardHeight, advanceMotionClock } from './scene-geometry.mjs'
 export { sceneAt, focusLayout } from './scene-geometry.mjs'
 import { mountSandbox } from './sandbox-ui.mjs'
@@ -20,7 +20,7 @@ export function mountScene(doc = document, win = window) {
   const captions = [...scene.querySelectorAll('[data-caption]')]
   let progress = 0, focused = null, manual = false, frame = 0, onScreen = true, tween = null, disposed = false
   let renderedWindows = sceneAt(0).windows, lastStage = -1, sandbox
-  let pendingFocus = null
+  let pendingFocus = null, detailZoom = 2 / 3, detailController
   let graphics
   let resolvedWindows = [], logicalAnchors = [], linksAlpha = 1, heldPose = false
   const realSurface = () => scene.dataset.surface === 'screenshots'
@@ -39,8 +39,7 @@ export function mountScene(doc = document, win = window) {
     logicalAnchors = keys.map(key => {
       const element = anchorElement(key)
       if (!element || !element.offsetHeight) return null
-      const image = realSurface() ? element.closest('.real-interface')?.querySelector('img') : null
-      if (image && (image.hidden || (image.complete && !image.naturalWidth))) return null
+      if (realSurface() && element.closest('.real-interface')?.dataset.previewReady !== 'true') return null
       const viewport = element.closest('.window-viewport')
       const local = (node, x, y) => {
         for (let el = node; el && el !== viewport; el = el.offsetParent) { x += el.offsetLeft; y += el.offsetTop }
@@ -120,6 +119,15 @@ export function mountScene(doc = document, win = window) {
     return fitted
   }
   const place = () => {
+    if (realSurface()) {
+      const target = detailMagnification(progress, Boolean(focused), staticMode())
+      detailZoom = staticMode() || !focused ? target : Math.abs(target-detailZoom) < .001 ? target : lerp(detailZoom,target,.18)
+      // 原 App 保持完整布局，仅移动同一界面的镜头；端点使用相同镜头矩阵。
+      scene.querySelectorAll('.real-interface').forEach(pane => pane.style.setProperty('--detail-zoom',String(detailZoom)))
+      detailController?.camera(Math.max(0,Math.min(1,(detailZoom-2/3)*3)))
+      measureAnchors()
+      if (focused && Math.abs(target-detailZoom) >= .001) schedule()
+    }
     windows.forEach((el, index) => {
       const item = resolvedWindows[index]
       if (staticMode()) { el.style.cssText = ''; el.inert = false; el.removeAttribute('aria-hidden') }
@@ -286,7 +294,10 @@ export function mountScene(doc = document, win = window) {
   const onDetails = event => {
     onRender()
   }
-  const destroyDetails = mountSourceDetails(scene, doc.documentElement.lang, onRender)
+  const destroyDetails = detailController = mountSourceDetails(scene, doc.documentElement.lang, () => {
+    // 子表格的布局回报只更新锚点，不重新启动镜头补间，避免滚动时反馈抖动。
+    measureAnchors(); schedule()
+  }, win)
   scene.addEventListener('load', onRender, true); scene.addEventListener('error', onRender, true)
   scene.addEventListener('sandbox:render', onRender)
   scene.addEventListener('toggle', onDetails, true)

@@ -1,6 +1,5 @@
 import { createApp, nextTick } from 'vue'
 import { createPinia } from 'pinia'
-import { mountCaptureTool } from './capture.mjs'
 import App from '../../src/renderer/src/App.vue'
 import { usePiniaAppStore } from '../../src/renderer/src/store/app-store'
 import { useThemeStore } from '../../src/renderer/src/store/theme-store'
@@ -42,10 +41,10 @@ workspaceRouter.afterEach(to => {
   store.expandedGroupKey = workspaceRouteGroups.find(group => group.routes.some(item => item.key === route?.key))?.key ?? null
 })
 app.use(workspaceRouter)
-await workspaceRouter.isReady()
-app.mount('#app')
-await nextTick()
-document.documentElement.dataset.preview = 'sample-data'
-
-// 取景工具只在显式打开隔离预览时出现，不进入官网或正式应用。
-if (new URLSearchParams(location.search).get('capture') === 'true') mountCaptureTool()
+// 暴露就绪 Promise 而不是阻塞整个模块；生产分包的路由组件仍可读取共享导出。
+export const previewReady = (async () => {
+  await workspaceRouter.isReady()
+  app.mount('#app')
+  await nextTick()
+  document.documentElement.dataset.preview = 'sample-data'
+})()

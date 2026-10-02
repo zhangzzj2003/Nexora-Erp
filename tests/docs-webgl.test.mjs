@@ -302,7 +302,9 @@ function scrollingScene({ real = false } = {}) {
   board.querySelector = selector => selector === '.connection-layer' ? svg : null
   svg.querySelector = selector => groups[Number(selector.match(/\d+/)[0])]
   scene.getBoundingClientRect = () => ({ top: 1045 - win.scrollY, bottom: 4598 - win.scrollY, height: 3553 })
-  scene.querySelectorAll = selector => selector === '[data-stage]' ? buttons : selector === '[data-caption]' ? captions : []
+  // 收集真实组件的倍率，验证滚动、聚焦与停止绘制使用同一镜头时序。
+  const realPanes = real ? ['receipt','stock','finance'].map(element) : []
+  scene.querySelectorAll = selector => selector === '[data-stage]' ? buttons : selector === '[data-caption]' ? captions : selector === '.real-interface' ? realPanes : []
   scene.querySelector = selector => selector === '.scene-board' ? board : windows[['receipt', 'stock', 'finance'].findIndex(key => selector === `[data-window="${key}"]`)] ?? null
   scene.addEventListener('scene:geometry', event => { latest = event.detail })
   const destroy = mountScene(doc, win)
@@ -313,7 +315,7 @@ function scrollingScene({ real = false } = {}) {
   }
   const scroll = p => { win.scrollY = 1045 + p * 2508; win.dispatchEvent(new Event('scroll')) }
   tick(0)
-  return { scene, win, doc, windows, board, buttons, tick, click, scroll, destroy, latest: () => latest, queued: () => frames.size }
+  return { scene, win, doc, windows, board, buttons, realPanes, tick, click, scroll, destroy, latest: () => latest, queued: () => frames.size }
 }
 
 test('聚焦与编辑都不能锁住页面滚动，下一帧直接使用真实进度；快跳和倒滚不延迟恢复', () => {
@@ -500,7 +502,7 @@ test('三窗真实明细放大使用独立画布，切换沙盒后恢复原镜�
   const f = scrollingScene({real:true})
   for (const pane of f.windows) {
     assert.equal(pane.style['--logical-width'],'720px')
-    assert.equal(pane.style['--logical-height'],'480px')
+    assert.equal(pane.style['--logical-height'],'600px')
   }
   f.click('[data-surface-select]',{surfaceSelect:'sandbox'});f.tick(40)
   assert.equal(f.scene.dataset.surface,'sandbox')
@@ -508,5 +510,24 @@ test('三窗真实明细放大使用独立画布，切换沙盒后恢复原镜�
   f.click('[data-surface-select]',{surfaceSelect:'screenshots'});f.tick(80)
   assert.equal(f.windows[1].style['--logical-width'],'720px')
   assert.equal(f.scene.dataset.mode,'scroll')
+  f.destroy()
+})
+
+// 连续放大与相机使用同一帧，倒滚可复现，停止滚动后不能继续漂移。
+test('真实组件倍率随滚动连续变化，聚焦放大收敛后停帧',()=>{
+  const f=scrollingScene({real:true})
+  f.scroll(.2);f.tick(16)
+  const original=Number(f.realPanes[0].style['--detail-zoom'])
+  assert.ok(original>2/3 && original<1)
+  f.scroll(.3);f.tick(32)
+  const midway=Number(f.realPanes[0].style['--detail-zoom'])
+  assert.ok(midway>original && midway<1)
+  f.scroll(.45);f.tick(48);assert.equal(Number(f.realPanes[0].style['--detail-zoom']),1)
+  f.scroll(.2);f.tick(64);assert.equal(Number(f.realPanes[0].style['--detail-zoom']),original)
+  assert.equal(f.queued(),0)
+  f.click('[data-focus]',{focus:'receipt'});f.tick(80);f.tick(96)
+  assert.ok(Number(f.realPanes[0].style['--detail-zoom'])>original)
+  for(let time=112;time<2400;time+=16)f.tick(time)
+  assert.equal(Number(f.realPanes[0].style['--detail-zoom']),1);assert.equal(f.queued(),0)
   f.destroy()
 })

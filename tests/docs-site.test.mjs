@@ -3,14 +3,14 @@ import { test } from 'node:test'
 import { mkdtempSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, dirname } from 'node:path'
-import { buildSite, renderMarkdown, resolveLink } from '../scripts/build-docs-site.mjs'
+import { buildSite, buildWebsite, renderMarkdown, resolveLink } from '../scripts/build-docs-site.mjs'
 import { mountScene, sceneAt, focusLayout } from '../docs/site/motion.mjs'
 
-test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、目录链接有效', () => {
+test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、目录链接有效', async () => {
   const prefix = resolve(tmpdir(), 'nexora-docs-test-')
   const output = mkdtempSync(prefix)
   try {
-    buildSite(output)
+    await buildWebsite(output)
     for (const language of ['zh-CN', 'en']) {
       for (const page of ['index.html', 'development.html']) {
         const path = resolve(output, language, page)

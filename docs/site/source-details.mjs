@@ -1,57 +1,46 @@
-// 坐标对应 1800×1200 原始截图；版本校验要求换图时重新核对取景和逐行边界。
-// 官网只放大取景，不改图片中的真实业务字段。
-export const sourceCrops = {
-  receipt: { version: '055c85af0235', highResVersion: 'b56e60f879c7', x: 810, y: 392, width: 640, height: 256, rows: [[840,451,578,38],[840,490,578,38],[840,528,578,40]] },
-  stock: { version: 'd10ea5bb7f09', highResVersion: '8a48e62e4d73', x: 782, y: 394, width: 640, height: 256, rows: [[792,449,620,65],[792,514,620,65],[792,579,620,65]] },
-  finance: { version: '5e2fa472cc0c', highResVersion: 'd0f59e9120c4', x: 920, y: 330, width: 640, height: 256, rows: [[932,385,500,64],[932,449,500,66],[932,515,500,65]] }
-}
-
 // 三个页面使用同一入库的逐行证据；切换物料只换高亮，绝不触发业务写入。
 export const sourceDetails = [
   { key: 'mcu', line: 1, sku: 'EL-IC-000001', zh: '低功耗微控制器', en: 'Microcontroller', shortZh: '微控制器', quantity: 200, amount: 4000 },
   { key: 'resistor', line: 2, sku: 'EL-SR-000001', zh: '贴片电阻', en: 'Chip resistor', shortZh: '电阻', quantity: 2000, amount: 400 },
   { key: 'capacitor', line: 3, sku: 'EL-SC-000001', zh: '陶瓷电容', en: 'Ceramic capacitor', shortZh: '电容', quantity: 1000, amount: 400 }
 ]
-export const detailCanvas = { width: 720, height: 480 }
+export const detailCanvas = { width: 720, height: 600 }
 // 三窗总览预留字段之间的连线空隙，避免行内锚点落入相邻窗口的重叠区域。
 export function detailWindowLayout(layout, reframe = true) {
   const finance = reframe ? Math.max(0, Math.min(1, -(layout[2]?.rotation ?? 0) / 30)) : 0
   const targets = [{x:0,width:.28},{x:.33,width:.34},{x:.73,width:.27}]
-  return layout.map((item,index)=>({ ...item, logicalWidth:detailCanvas.width, logicalHeight:detailCanvas.height,
+  return layout.map((item,index)=>({ ...item, logicalWidth:reframe ? detailCanvas.width : 1000, logicalHeight:detailCanvas.height,
     rotation:item.rotation*.4, x:item.x+(targets[index].x-item.x)*finance, width:item.width+(targets[index].width-item.width)*finance }))
 }
 export const detailMoney = amount => `¥${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-// 高亮边界与连线锚点共用同一个矩形，百分比换算同时适用于透视窗口和手机平面布局。
-export function detailTarget(key, detail, mobile = false) {
-  const original = sourceCrops[key], crop = detailCrop(key,detail,mobile), index = sourceDetails.indexOf(detail)
-  if (!crop || index < 0) return null
-  const [x,y,width,height] = original.rows[index]
-  const left=mobile?Math.max(x,crop.x+8):x, right=mobile?Math.min(x+width,crop.x+crop.width-8):x+width
-  return { left: (left-crop.x)/crop.width*100, top: (y-crop.y)/crop.height*100, width: (right-left)/crop.width*100, height: height/crop.height*100 }
+// 镜头从完整页面推进到原字号最高 150%；减少动态和小屏直接呈现可读状态。
+export function detailMagnification(progress, focused = false, staticMode = false) {
+  if (staticMode || focused) return 1
+  const p = Math.max(0, Math.min(1, (progress - .12) / .33))
+  return (1 + .5 * p * p * (3 - 2 * p)) / 1.5
 }
-// 小屏只放大当前行的关键字段，不把完整桌面表格缩成难以辨认的小字。
-export function detailCrop(key, detail, mobile = false) {
-  const crop=sourceCrops[key], index=sourceDetails.indexOf(detail)
-  if(!crop || index<0) return null
-  if(!mobile) return crop
-  const [x,width]={receipt:[830,440],stock:[1016,340],finance:[1114,340]}[key]
-  const row=crop.rows[index]
-  return { x, y:row[1]+row[3]/2-56, width, height:112 }
+// 来自子视图的真实行矩形必须完整位于视口内，拒绝旧选择与不合法数值。
+export function validPreviewRow(data, surface, detail) {
+  if (!data || data.type !== 'nexora:preview-row' || data.surface !== surface || data.key !== detail.key || data.sourceId !== detailSource(detail)) return false
+  const {width,height,rect} = data
+  return rect && [width,height,rect.left,rect.top,rect.width,rect.height].every(Number.isFinite)
+    && width > 0 && height > 0 && rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.top >= 0
+    && rect.left + rect.width <= width + 1 && rect.top + rect.height <= height + 1
 }
-export function detailTargetStyle(key, detail) {
-  return [false,true].map(mobile=>{
-    const rect=detailTarget(key,detail,mobile)
-    return rect?Object.entries(rect).map(([name,value])=>`--${mobile?'mobile-':''}item-${name}:${value}%`).join(';'):''
-  }).join(';')
-}
-export function detailImageStyle(key, detail) {
-  return [false,true].map(mobile=>{
-    const crop=detailCrop(key,detail,mobile)
-    if(!crop) return ''
-    const prefix=mobile?'--mobile-detail-':'--detail-'
-    return `${prefix}left:${-crop.x/crop.width*100}%;${prefix}top:${-crop.y/crop.height*100}%;${prefix}image-width:${1800/crop.width*100}%;${prefix}aspect:${crop.width}/${crop.height}`
-  }).join(';')
+// 原始完整页面与放大区域共用一份 DOM：镜头只平移和缩放，不重排页面。
+export function originalCamera(data, width, height, progress, pan = 0) {
+  const p=Math.max(0,Math.min(1,progress)),rect=data.rect
+  const fit=Math.min(width/data.width,height/data.height)
+  // 总览需要看全同一组真实字段；聚焦大窗可接近 150%，不裁掉数量或金额。
+  const enlarged=width<=480 ? 1.5 : Math.min(1.5,(width-48)/rect.width)
+  const mix=(a,b)=>a+(b-a)*p,scale=mix(fit,enlarged)
+  const overflow=Math.max(0,rect.width*enlarged-(width-48))
+  const zoomX=width<=480 ? 24-rect.left*enlarged-overflow*Math.max(0,Math.min(1,pan)) : (width-rect.width*enlarged)/2-rect.left*enlarged
+  const x=mix((width-data.width*fit)/2,zoomX)
+  const y=mix((height-data.height*fit)/2,(height-rect.height*enlarged)/2-rect.top*enlarged)
+  const left=Math.max(8,rect.left*scale+x),right=Math.min(width-8,(rect.left+rect.width)*scale+x)
+  return {scale,x,y,rect:{left,top:rect.top*scale+y,width:right-left,height:rect.height*scale}}
 }
 export function detailSource(detail) { return `receipt:101:${detail.line}` }
 
@@ -60,24 +49,34 @@ export function detailControlsMarkup(language) {
   return `<div class="detail-controls" role="group" aria-label="${en ? 'Choose a linked material' : '选择关联物料'}"><span>${en ? 'Receipt #101 · Match one item' : '入库 #101 · 逐项对照'}</span>${sourceDetails.map((detail,index)=>`<button type="button" data-source-detail="${detail.key}" aria-pressed="${index===0}">${en ? detail.en : detail.shortZh}</button>`).join('')}</div><p class="detail-summary" data-detail-summary aria-live="polite"></p>`
 }
 
-export function mountSourceDetails(scene, language, changed = () => {}) {
+export function mountSourceDetails(scene, language, changed = () => {}, win = window) {
   const buttons = [...scene.querySelectorAll('[data-source-detail]')]
-  if (!buttons.length) return () => {}
-  const en = language === 'en'
+  if (!buttons.length) return Object.assign(() => {},{camera:()=>{}})
+  const en = language === 'en', panes = ['receipt','stock','finance'].map(key => scene.querySelector(`[data-detail-key="${key}"]`)).filter(Boolean)
+  let selected = sourceDetails[0], cameraProgress = 0
+  const geometry = new Map()
+  const timers = new Map(), origin = win.location.origin
+  const clear = pane => { win.clearTimeout(timers.get(pane)); timers.delete(pane) }
+  const request = pane => pane.querySelector('iframe')?.contentWindow?.postMessage({type:'nexora:select-preview-item',key:selected.key},origin)
+  const pending = pane => {
+    clear(pane)
+    pane.dataset.previewReady = 'false'
+    const error = pane.querySelector('[data-preview-error]')
+    if (error) error.hidden = true
+    timers.set(pane,win.setTimeout(() => { if (error) error.hidden = false; changed() },8000))
+  }
   const select = detail => {
+    selected = detail
     buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.sourceDetail === detail.key)))
-    for (const key of Object.keys(sourceCrops)) {
-      const pane = scene.querySelector(`[data-detail-key="${key}"]`)
-      if (!pane) continue
-      pane.querySelector('.real-detail-image').style.cssText = detailImageStyle(key, detail)
-      const anchor = pane.querySelector('[data-real-anchor]')
-      anchor.style.cssText = detailTargetStyle(key, detail)
+    for (const pane of panes) {
+      pending(pane)
+      const key = pane.dataset.detailKey, anchor = pane.querySelector('[data-real-anchor]')
       anchor.dataset.sourceId = detailSource(detail)
-      // 可访问文本描述的是截图中的同一行，不给图片叠加可编辑控件。
       anchor.textContent = `${en ? detail.en : detail.zh} · ${detail.sku} · ${en ? 'Purchase receipt' : '采购入库'} #101`
       pane.querySelector('[data-detail-name]').textContent = en ? detail.en : detail.zh
       pane.querySelector('[data-detail-sku]').textContent = detail.sku
       pane.querySelector('[data-detail-value]').textContent = key === 'finance' ? detailMoney(detail.amount) : `${key === 'stock' ? '+' : ''}${detail.quantity.toLocaleString('en-US')} ${en ? 'units' : '个'}`
+      request(pane)
     }
     const summary = scene.querySelector('[data-detail-summary]')
     if (summary) summary.textContent = en
@@ -85,13 +84,44 @@ export function mountSourceDetails(scene, language, changed = () => {}) {
       : `${detail.zh} · 入库 ${detail.quantity.toLocaleString('en-US')} 个 → 库存 +${detail.quantity.toLocaleString('en-US')} 个 → 应付 ${detailMoney(detail.amount)}`
     changed()
   }
+  const camera = (value = cameraProgress) => {
+    cameraProgress = value
+    for (const pane of panes) {
+      const data = geometry.get(pane)
+      if (!data) continue
+      const width=pane.clientWidth,height=pane.clientHeight
+      const pose=originalCamera(data,width,height,cameraProgress,Number(pane.dataset.previewPan??0))
+      pane.querySelector('iframe').style.transform=`translate3d(${pose.x}px,${pose.y}px,0) scale(${pose.scale})`
+      const rect=pose.rect
+      pane.querySelector('[data-real-anchor]').style.cssText=`--item-left:${rect.left/width*100}%;--item-top:${rect.top/height*100}%;--item-width:${rect.width/width*100}%;--item-height:${rect.height/height*100}%`
+    }
+  }
+  const message = event => {
+    // 同源且确实属于该 iframe 才能更新轨道坐标；不信任外部窗口提供的字段。
+    if (event.origin !== origin) return
+    const pane = panes.find(item => item.querySelector('iframe')?.contentWindow === event.source)
+    if (!pane || !validPreviewRow(event.data,pane.dataset.detailKey,selected)) return
+    geometry.set(pane,event.data); camera()
+    pane.dataset.previewReady = 'true'
+    pane.querySelector('[data-preview-error]').hidden = true
+    clear(pane); changed()
+  }
   const click = event => {
     const button = event.target.closest('[data-source-detail]')
     if (!buttons.includes(button)) return
     const detail = sourceDetails.find(item => item.key === button.dataset.sourceDetail)
     if (detail) select(detail)
   }
-  scene.addEventListener('click', click)
-  select(sourceDetails[0])
-  return () => scene.removeEventListener('click', click)
+  const input = event => {
+    const control=event.target.closest('[data-preview-pan]')
+    const pane=panes.find(item=>item.dataset.detailKey===control?.dataset.previewPan)
+    const value=Number(control?.value)
+    if (!pane || !Number.isFinite(value)) return
+    pane.dataset.previewPan=String(Math.max(0,Math.min(1,value/100)));camera();changed()
+  }
+  scene.addEventListener('input',input)
+  const loads = panes.map(pane => { const frame = pane.querySelector('iframe'), load = () => { pending(pane); request(pane) }; frame.addEventListener('load',load); return [frame,load] })
+  win.addEventListener('message',message); scene.addEventListener('click',click)
+  select(selected)
+  return Object.assign(() => { scene.removeEventListener('click',click);scene.removeEventListener('input',input); win.removeEventListener('message',message); loads.forEach(([frame,load])=>frame.removeEventListener('load',load)); panes.forEach(clear) },{camera})
 }
