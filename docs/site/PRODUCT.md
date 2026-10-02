@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-用户确认纯静态 HTML/CSS/JS + WebGL，GitHub Pages 为目标；当前提供 GitHub Pages 公开预览，README 顶部提供官网链接与可点击预览图；需求分支仍等待确认合并。
+用户确认纯静态 HTML/CSS/JS + WebGL，GitHub Pages 为目标；当前提供 GitHub Pages 公开预览，README 顶部提供官网链接与可点击预览图；官网发布与代码合并分别验证。
 
 ## Users
 
