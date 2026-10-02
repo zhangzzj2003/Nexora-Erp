@@ -63,10 +63,24 @@ export function orbitRing(center, radius, phase = 0) {
   })
 }
 
+// 收尾复用同一画布与三条椭圆轨道；进度只随滚动变化，不添加常驻时间循环。
+export function finaleOrbit(bounds, width, height, reduced = false) {
+  if (![bounds.top, bounds.height, width, height].every(Number.isFinite) || bounds.height <= 0 || width <= 0 || height <= 0 || bounds.top >= height || bounds.top + bounds.height <= 0) return []
+  const progress = reduced ? 1 : smooth((height - bounds.top) / Math.min(bounds.height, height))
+  const center = [width / 2, bounds.top + bounds.height * .5]
+  return [-.22, .18, -.06].map((tilt, index) => {
+    const rx = Math.min(560, width * .43) * (1 - index * .12)
+    const ry = Math.min(155, bounds.height * .22) * (1 + index * .17)
+    const points = orbitRing([0, 0], [rx, ry], index * .8).map(([x, y]) =>
+      [center[0] + x * Math.cos(tilt) - y * Math.sin(tilt), center[1] + x * Math.sin(tilt) + y * Math.cos(tilt)])
+    return { points, amount: reduced ? 1 : .15 + progress * .85, alpha: (.3 - index * .06) * progress, node: .12 + progress * (.7 - index * .12), visible: progress > 0 }
+  })
+}
+
 export function mountPageOrbit(doc = document, win = window) {
   const host = doc.querySelector('.page-orbit')
   if (!host) return () => {}
-  const svg = host.querySelector('svg'), hero = doc.querySelector('[data-cover]')
+  const svg = host.querySelector('svg'), hero = doc.querySelector('[data-cover]'), finale = doc.querySelector('[data-orbit-finale]')
   const nodes = [...doc.querySelectorAll('[data-orbit-node]')]
   const cards = [...doc.querySelectorAll('[data-orbit-card]')]
   const peeks = [...doc.querySelectorAll('.hero-peek img')]
@@ -107,6 +121,8 @@ export function mountPageOrbit(doc = document, win = window) {
       lines.push({ points: orbitRing(center, [Math.min(720, win.innerWidth * .48), rect.height * .25]), amount: 1, alpha: .17 * (1-progress), node: .15 + progress * .7, visible: true })
       lines.push({ points: orbitRing(center, [Math.min(590, win.innerWidth * .4), rect.height * .34], .6), amount: 1, alpha: .1 * (1-progress), node: .45 + progress * .5, visible: true })
     }
+    // 实际收尾节点进入视口才生成几何，离屏与后台沿用既有停帧机制。
+    if (finale) lines.push(...finaleOrbit(finale.getBoundingClientRect(), win.innerWidth, win.innerHeight, reduced.matches))
     svg.setAttribute('viewBox', `0 0 ${win.innerWidth} ${win.innerHeight}`)
     svg.innerHTML = lines.filter(line => line.visible).map(line => {
       const path = trimPath(line.points, line.amount), pos = pointOnPath(line.points, line.node)
@@ -114,6 +130,8 @@ export function mountPageOrbit(doc = document, win = window) {
     }).join('')
     const gpu = graphics.draw({ width: win.innerWidth, height: win.innerHeight, connections: lines, ratio: win.devicePixelRatio, staticMode: reduced.matches || mobile.matches })
     host.dataset.renderer = gpu ? 'webgl' : 'fallback'
+    // SVG 同样可绘制收尾；关闭脚本时由 CSS 静态椭圆兜底。
+    if (finale) finale.dataset.orbitReady = 'true'
     host.hidden = !lines.some(line => line.visible)
     cards.forEach((card, index) => {
       const pose = poses[index]
@@ -149,6 +167,7 @@ export function mountPageOrbit(doc = document, win = window) {
       for (const key of ['x', 'y', 'angle', 'roll', 'scale', 'opacity']) card.style.removeProperty(`--orbit-${key}`)
       delete card.dataset.orbitPhase
     })
+    if (finale) delete finale.dataset.orbitReady
     graphics.destroy(); svg.innerHTML = ''; host.hidden = true
   }
 }

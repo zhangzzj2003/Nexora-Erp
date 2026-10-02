@@ -55,6 +55,13 @@ test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、
           assert.match(html, /class="hero-title-line hero-title-accent"/)
           assert.match(html, /href="#business-demo"/)
           assert.match(html, /class="scroll-scene"[^>]*id="business-demo"/)
+          // 收尾位于正文之后、页脚之前；双语完整文案与原生回到首页入口始终可读。
+          assert.match(html, /id="coming-next" data-orbit-finale/)
+          assert.ok(html.indexOf('id="coming-next"') > html.indexOf('</article>'))
+          assert.ok(html.indexOf('id="coming-next"') < html.indexOf('<footer'))
+          assert.ok(html.includes(language === 'en' ? 'Stay tuned.' : '敬请期待。'))
+          assert.match(html, /class="finale-back" href="#main"/)
+
           assert.doesNotMatch(html, /data-pause|data-resume|window-reflection/)
           assert.match(html, /data-stage="3"/)
         }

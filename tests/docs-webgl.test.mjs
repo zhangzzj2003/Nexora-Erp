@@ -1,4 +1,4 @@
-import { pageOrbitSegments, orbitProgress, orbitCardPose, orbitRing, mountPageOrbit } from '../docs/site/product-orbit.mjs'
+import { pageOrbitSegments, orbitProgress, orbitCardPose, orbitRing, finaleOrbit, mountPageOrbit } from '../docs/site/product-orbit.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { cubicPoints, trimPath, pointOnPath, ribbonMesh, floorLightAt, createWebGLStage, createWebGLGuide } from '../docs/site/webgl-stage.mjs'
@@ -395,11 +395,12 @@ function pageOrbitFixture(options = {}) {
   const other = { ...node,getBoundingClientRect: () => ({left:900,top:top+600,width:44,height:44}) }
   const card = { dataset:{}, getBoundingClientRect: () => ({top,bottom:top+600,height:600}),style: {setProperty: (name,value) => { styles[name]=value; if(name==='--orbit-angle') angle=value },removeProperty(name) {delete styles[name]} } }
   const host = { ...f.guideHost,ownerDocument:doc,dataset:{},querySelector:()=>svg }
-  doc.querySelector = selector => selector === '.page-orbit' ? host : hero
+  const finale = options.finale ? { dataset: {}, getBoundingClientRect: () => ({top:top+2200,height:640}) } : null
+  doc.querySelector = selector => selector === '.page-orbit' ? host : selector === '[data-cover]' ? hero : selector === '[data-orbit-finale]' ? finale : null
   doc.querySelectorAll = selector => selector === '[data-orbit-node]' ? [node,options.sticky ? stage : other] : selector === '[data-orbit-card]' ? [card] : []
   const tick = time => { const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(time)) }
   const destroy=mountPageOrbit(doc,win)
-  return { ...f,doc,win,media,svg,host,styles,card,tick,destroy,queued:()=>frames.size,setTop: value=>{top=value},angle:()=>angle }
+  return { ...f,doc,win,media,svg,host,styles,card,finale,tick,destroy,queued:()=>frames.size,setTop: value=>{top=value},angle:()=>angle }
 }
 
 test('全页轨道仅按需绘制，减少动态保留静态线，GPU 丢失恢复并释放资源', () => {
@@ -546,4 +547,41 @@ test('真实组件倍率随滚动连续变化，聚焦放大收敛后停帧',()=
   for(let time=112;time<2400;time+=16)f.tick(time)
   assert.equal(Number(f.realPanes[0].style['--detail-zoom']),1);assert.equal(f.queued(),0)
   f.destroy()
+})
+
+// 测试共用几何的阅读边界、移动视口和静态偏好，不复制椭圆计算实现。
+test('收尾轨道仅在可见时展开，倒滚可逆且减少动态保留完整线', () => {
+  assert.deepEqual(finaleOrbit({top:900,height:640},1440,900), [])
+  assert.deepEqual(finaleOrbit({top:-640,height:640},1440,900), [])
+  assert.deepEqual(finaleOrbit({top:NaN,height:640},1440,900), [])
+  assert.deepEqual(finaleOrbit({top:0,height:640},0,900), [])
+  const entering = finaleOrbit({top:780,height:640},1440,900)
+  const reading = finaleOrbit({top:120,height:640},1440,900)
+  assert.equal(reading.length,3)
+  assert.ok(entering[0].amount < reading[0].amount)
+  assert.deepEqual(finaleOrbit({top:780,height:640},1440,900),entering)
+  const nearby = finaleOrbit({top:779.99,height:640},1440,900)
+  assert.ok(Math.abs(nearby[0].amount-entering[0].amount)<.001)
+  const phone = finaleOrbit({top:100,height:460},390,844,true)
+  for(const line of phone){
+    assert.equal(line.amount,1)
+    assert.ok(line.points.flat().every(Number.isFinite))
+    assert.ok(line.points.every(([x])=>x>=0&&x<=390))
+  }
+})
+
+test('收尾复用全页画布，GPU 失败仍显示 SVG 且离屏不维持循环', () => {
+  for(const unavailable of [false,true]){
+    const f=pageOrbitFixture({finale:true,unavailable})
+    f.tick(0);f.setTop(-2100);f.win.dispatchEvent(new Event('scroll'));f.tick(16)
+    assert.equal(f.host.dataset.renderer,unavailable?'fallback':'webgl')
+    assert.equal(f.host.hidden,false)
+    assert.equal(f.canvases.length,1)
+    assert.equal((f.svg.innerHTML.match(/<path/g)||[]).length,3)
+    assert.equal(f.finale.dataset.orbitReady,'true')
+    assert.equal(f.queued(),0)
+    f.setTop(-3000);f.win.dispatchEvent(new Event('scroll'));f.tick(32)
+    assert.equal(f.host.hidden,true);assert.equal(f.queued(),0)
+    f.destroy();assert.equal(f.finale.dataset.orbitReady,undefined)
+  }
 })
