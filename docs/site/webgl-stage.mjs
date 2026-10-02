@@ -182,7 +182,8 @@ function drawConnections(lines, canvasSize, connections, guide = false) {
       p.uniform('u_canvas', canvasSize); p.uniform('u_color', guide ? [.035, .54, .49, alpha * opacity] : [.015, .71, .61, alpha * opacity]); p.draw()
     }
     const node = pointOnPath(connection.points, Math.min(connection.node, connection.amount))
-    if (node) {
+    // 背景辅轨和已经闭合的收尾不显示端点，GPU 与 SVG 保持相同的单线行进语义。
+    if (node && connection.showNode !== false) {
       const p = lines.use(1, quad)
       p.uniform('u_canvas', canvasSize); p.uniform('u_center', node); p.uniform('u_radius', [guide ? 3.5 : 7]); p.uniform('u_opacity', [opacity]); p.draw()
     }

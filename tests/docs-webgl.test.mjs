@@ -610,15 +610,41 @@ test('收尾倾斜轨道同心闭合，主线顺着轨道切线自然汇入', ()
 })
 
 // 实页装配必须使用背景的实测尺寸，而不是视口中心或隐藏标记的位置。
-test('收尾接入与闭环使用同一实测几何，下载位置承担正文末尾转弯', () => {
+test('正文末尾直接延续为环绕路径，共用一个起点和行进端点', () => {
   const f=pageOrbitFixture({finale:true,ending:true})
   f.setTop(-2100);f.tick(0)
   const geometry=finaleGeometry(f.finale.getBoundingClientRect(),1440,f.endingRing.getBoundingClientRect())
   const paths=[...f.svg.innerHTML.matchAll(/<path d="([^"]+)"/g)].map(match=>match[1])
-  assert.equal(paths.length,4)
+  assert.equal(paths.length,3)
   const junction=geometry.entry.map(value=>value.toFixed(2)).join(' ')
-  assert.ok(paths[1].endsWith('L'+junction))
-  assert.ok(paths[2].startsWith('M'+junction))
+  // 同一条 path 从下载外缘继续下行，经过圈起点并环绕；不能在圈起点再出现 M。
+  assert.ok(paths[1].startsWith('M92.00 44.00'))
+  assert.ok(paths[1].includes('L'+junction))
+  assert.equal((paths[1].match(/M/g)||[]).length,1)
+  assert.equal((f.svg.innerHTML.match(/<circle/g)||[]).length,1)
   assert.equal(f.queued(),0)
   f.destroy()
+})
+
+// 覆盖用户截图里的中途状态：环绕尚未开始时，不允许先画出另一个起点。
+test('下降与环绕沿同一前缀顺序推进，倒滚不分叉或产生第二个端点', () => {
+  const source=[90,80],bounds={top:170,height:640}
+  const geometry=finaleGeometry(bounds,1440)
+  const [complete]=finaleOrbit(bounds,1440,900,true,null,source)
+  const join=complete.points.findIndex(point=>point[0]===geometry.entry[0]&&point[1]===geometry.entry[1])
+  assert.ok(join>0 && join<complete.points.length-1)
+  assert.deepEqual(complete.points[0],source)
+  assert.deepEqual(complete.points.at(-1),geometry.entry)
+  for(const top of [800,650,450,170]){
+    const from=[90,top-90],rect={top,height:640}
+    const lines=finaleOrbit(rect,1440,900,false,null,from)
+    const active=lines.filter(line=>line.visible&&line.showNode!==false)
+    assert.ok(active.length<=1)
+    const prefix=trimPath(lines[0].points,lines[0].amount)
+    assert.deepEqual(prefix[0],from)
+    assert.ok(prefix.every(point=>point.every(Number.isFinite)))
+    assert.deepEqual(finaleOrbit(rect,1440,900,false,null,from),lines)
+  }
+  assert.deepEqual(finaleOrbit(bounds,1440,900,false,null,[NaN,80]),[])
+  assert.deepEqual(finaleOrbit(bounds,1440,900,false,null,[90,1000]),[])
 })

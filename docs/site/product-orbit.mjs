@@ -3,6 +3,12 @@ import { cubicPoints, trimPath, pointOnPath, createWebGLGuide } from './webgl-st
 const clamp = value => Math.max(0, Math.min(1, value))
 const smooth = value => { const p = clamp(value); return p * p * (3 - 2 * p) }
 
+// 弯下来的主线与环绕段共享切线，接续处只有一个顶点。
+function terminalCurve(a, b, tangent) {
+  const dy = b[1] - a[1], reach = Math.min(110, dy * .3)
+  return cubicPoints(a, [a[0], a[1] + dy * .5], [b[0] - tangent[0] * reach, b[1] - tangent[1] * reach], b)
+}
+
 // 路径只做视口裁剪，控制点来自固定布局；滚动不改变曲线的形状。
 export function pageOrbitSegments(nodes, width, height, edgeRail = false, terminalTangent = null) {
   const lines = []
@@ -15,7 +21,7 @@ export function pageOrbitSegments(nodes, width, height, edgeRail = false, termin
     // 手机沿 12px 外缘下行，先转出正文区域再接入编号，避免穿过标题。
     const points = terminal
       // 最后一段沿收尾轨道切线汇入，不能用竖直控制点制造生硬的分叉。
-      ? cubicPoints(a, [a[0], a[1] + dy * .5], [b[0] - terminalTangent[0] * Math.min(110, dy * .3), b[1] - terminalTangent[1] * Math.min(110, dy * .3)], b)
+      ? terminalCurve(a, b, terminalTangent)
       : edgeRail && dy > 64
       ? [...cubicPoints(a, [a[0], a[1]+16], [12, a[1]+16], [12, a[1]+32], 16), [12,b[1]-24], ...cubicPoints([12,b[1]-24], [12,b[1]-8], [b[0],b[1]-8], b, 16)]
       : cubicPoints(a, [a[0], a[1] + dy * .55], [b[0], b[1] - dy * .55], b)
@@ -90,15 +96,24 @@ export function finaleGeometry(bounds, width, ringBounds = null) {
   return {points, secondary:path(ring.width*.46,ring.height*.62,width<=760?.09:.16), entry:points[0], tangent:tangent.map(value=>value/length)}
 }
 
-// 主轨闭合，辅轨淡显；只有滚动改变绘制进度，空闲时不添加循环。
-export function finaleOrbit(bounds, width, height, reduced = false, ringBounds = null) {
-  if (![bounds.top, bounds.height, width, height].every(Number.isFinite) || bounds.height <= 0 || width <= 0 || height <= 0 || bounds.top >= height || bounds.top + bounds.height <= 0) return []
-  const progress = reduced ? 1 : smooth((height - bounds.top) / Math.min(bounds.height, height))
+// 下降段和整圈组成同一条路径、同一个弧长进度；不能让圆环从另一个端点独立起播。
+export function finaleOrbit(bounds, width, height, reduced = false, ringBounds = null, source = null) {
+  if (![bounds.top, bounds.height, width, height].every(Number.isFinite) || bounds.height <= 0 || width <= 0 || height <= 0 || (!source && bounds.top >= height) || bounds.top + bounds.height <= 0) return []
   const geometry = finaleGeometry(bounds,width,ringBounds)
   if (!geometry) return []
+  if (source && (source.length !== 2 || !source.every(Number.isFinite) || source[1] > geometry.entry[1])) return []
+  const approach = source ? terminalCurve(source,geometry.entry,geometry.tangent) : []
+  const points = approach.length ? [...approach,...geometry.points.slice(1)] : geometry.points
+  const length = path => path.slice(1).reduce((sum,point,index)=>sum+Math.hypot(point[0]-path[index][0],point[1]-path[index][1]),0)
+  const leadFraction = length(approach) / length(points)
+  // 圈尚未入屏时也允许正文下方的主线推进；之后沿同一前缀继续绕行，倒滚沿原路回收。
+  const progress = reduced ? 1 : Math.max(leadFraction*orbitProgress(approach,height),smooth((height-bounds.top)/Math.min(bounds.height,height)))
+  if (!points.some(([,y])=>y>=-40) || !points.some(([,y])=>y<=height+40)) return []
+  const ringProgress = clamp((progress-leadFraction)/(1-leadFraction))
   return [
-    {points:geometry.points, amount:progress, alpha:.38*progress, node:progress, visible:progress>0},
-    {points:geometry.secondary, amount:1, alpha:.12*progress, node:.6, visible:progress>0}
+    {points, amount:progress, alpha:.38*smooth(progress*12), node:progress, showNode:progress<1, visible:progress>0},
+    // 辅轨只做背景层次，不产生第二个运行端点；主线开始环绕后才渐显。
+    {points:geometry.secondary, amount:1, alpha:.12*ringProgress, node:0, showNode:false, visible:ringProgress>0}
   ]
 }
 
@@ -135,7 +150,8 @@ export function mountPageOrbit(doc = document, win = window) {
     })
     const poses = cards.map((card, index) => orbitCardPose(card.getBoundingClientRect(), win.innerHeight, index, mobile.matches, reduced.matches))
     const rect = hero?.getBoundingClientRect()
-    const lines = pageOrbitSegments(coordinates, win.innerWidth, win.innerHeight, mobile.matches, visibleNodes.at(-1)?.dataset.orbitNode === 'finale' ? ending?.tangent : null)
+    const continuousEnding = ending && visibleNodes.at(-1)?.dataset.orbitNode === 'finale' && coordinates.length > 1
+    const lines = pageOrbitSegments(continuousEnding ? coordinates.slice(0,-1) : coordinates, win.innerWidth, win.innerHeight, mobile.matches)
     for (const line of lines) {
       line.amount = reduced.matches ? 1 : orbitProgress(line.points, win.innerHeight)
       // 刚开始绘制时光点也渐显，避免在阅读线附近突然闪出一个亮点。
@@ -150,12 +166,12 @@ export function mountPageOrbit(doc = document, win = window) {
       lines.push({ points: orbitRing(center, [Math.min(720, win.innerWidth * .48), rect.height * .25]), amount: 1, alpha: .17 * (1-progress), node: .15 + progress * .7, visible: true })
       lines.push({ points: orbitRing(center, [Math.min(590, win.innerWidth * .4), rect.height * .34], .6), amount: 1, alpha: .1 * (1-progress), node: .45 + progress * .5, visible: true })
     }
-    // 实际收尾节点进入视口才生成几何，离屏与后台沿用既有停帧机制。
-    if (finale) lines.push(...finaleOrbit(finaleBounds, win.innerWidth, win.innerHeight, reduced.matches, ringBounds))
+    // 下降段接近视口时即连续绘制，整条路径离屏或页面进入后台后沿用既有停帧机制。
+    if (finale) lines.push(...finaleOrbit(finaleBounds, win.innerWidth, win.innerHeight, reduced.matches, ringBounds, continuousEnding ? coordinates.at(-2) : null))
     svg.setAttribute('viewBox', `0 0 ${win.innerWidth} ${win.innerHeight}`)
     svg.innerHTML = lines.filter(line => line.visible).map(line => {
       const path = trimPath(line.points, line.amount), pos = pointOnPath(line.points, line.node)
-      return `<path d="${path.map(([x,y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)} ${y.toFixed(2)}`).join(' ')}" opacity="${line.alpha}"/><circle cx="${pos[0]}" cy="${pos[1]}" r="3" opacity="${line.alpha}"/>`
+      return `<path d="${path.map(([x,y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)} ${y.toFixed(2)}`).join(' ')}" opacity="${line.alpha}"/>${line.showNode === false ? '' : `<circle cx="${pos[0]}" cy="${pos[1]}" r="3" opacity="${line.alpha}"/>`}`
     }).join('')
     const gpu = graphics.draw({ width: win.innerWidth, height: win.innerHeight, connections: lines, ratio: win.devicePixelRatio, staticMode: reduced.matches || mobile.matches })
     host.dataset.renderer = gpu ? 'webgl' : 'fallback'
