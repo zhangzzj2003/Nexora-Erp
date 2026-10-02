@@ -18,6 +18,12 @@ test('轨道在留白中连续并由真实界面和紧凑文字表面自然遮�
   assert.match(orbit, /pointer-events:none/)
   assert.match(css, /\.overview main,\.overview footer\{[^}]*z-index:auto/)
   assert.match(css, /:is\(\.product-shot>\.product-image-link,\.hero-peek,\.cover-content,\.cover-scroll,\.scroll-scene,\.home-content\)\{[^}]*z-index:var\(--site-layer-surface\)/)
+  // 共享层级不能修改定位：:is 内卡片选择器会提高整条规则优先级，覆盖卫星的 absolute。
+  const surfaces = css.match(/\.overview :is\(\.product-shot>\.product-image-link,[^}]+\}/)?.[0]
+  assert.doesNotMatch(surfaces, /position:/)
+  assert.match(css, /\.hero-peek\{position:absolute/)
+  assert.match(css, /\.hero-peek-0\{left:-60px/)
+  assert.match(css, /\.hero-peek-1\{right:-60px/)
   assert.match(css, /\.product-showcase-heading>:is\(p,h2\),\.product-shot figcaption>:is\([^}]*width:fit-content/)
   for (const selector of ['product-showcase-heading', 'product-shot figcaption']) {
     const rule = css.match(new RegExp(`\\.${selector}\\{([^}]+)\\}`))?.[1]

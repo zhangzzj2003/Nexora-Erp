@@ -27,9 +27,9 @@
 .page-orbit{position:fixed;inset:0;z-index:var(--site-layer-orbit);pointer-events:none;overflow:hidden}.page-orbit canvas{position:absolute;left:-40px;top:-40px}.page-orbit svg{width:100%;height:100%;overflow:hidden}.page-orbit path{fill:none;stroke:#218f81;stroke-width:1.4}.page-orbit circle{fill:#078c7e}.page-orbit.gpu-ready svg{visibility:hidden}
 .overview main,.overview footer{position:relative;z-index:auto}
 /* 只提升实际表面，不提升画廊容器；标题附近的留白仍能看见连续轨道。 */
-.overview :is(.product-shot>.product-image-link,.hero-peek,.cover-content,.cover-scroll,.scroll-scene,.home-content){position:relative;z-index:var(--site-layer-surface)}
-/* 保留卫星和滚动提示的绝对定位，前景层级不改变原来的布局及出场动画。 */
-.overview :is(.hero-peek,.cover-scroll){position:absolute}
+.overview :is(.product-shot>.product-image-link,.hero-peek,.cover-content,.cover-scroll,.scroll-scene,.home-content){z-index:var(--site-layer-surface)}
+/* 只补正文的层级定位；卫星沿用原本的 absolute，不能变成占据首屏空间的 flex 项。 */
+.overview .home-content{position:relative}
 /* 文字以自身紧凑底色遮挡，避免整块标题或说明背景把轨道硬切成两截。 */
 .product-showcase-heading>:is(p,h2),.product-shot figcaption>:is(.product-shot-badge,h3,p){position:relative;z-index:var(--site-layer-surface);background:var(--paper);box-shadow:0 0 0 4px var(--paper);width:fit-content;max-width:100%}
 .orbit-step{position:relative;z-index:var(--site-layer-surface)}
