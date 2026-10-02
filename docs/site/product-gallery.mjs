@@ -1,8 +1,9 @@
 // 图片失败只替换说明，不移除原图链接；脚本失效时链接仍能独立打开图片。
-export function watchImage(image, fallback) {
+export function watchImage(image, fallback, onReady = () => {}) {
   const update = failed => {
     image.hidden = failed
     fallback.hidden = !failed
+    onReady(!failed)
   }
   image.addEventListener('error', () => update(true))
   image.addEventListener('load', () => update(false))
@@ -12,7 +13,12 @@ export function watchImage(image, fallback) {
 export function mountProductGallery(root = document) {
   const dialog = root.querySelector('.product-lightbox')
   const links = [...root.querySelectorAll('[data-product-image]')]
-  for (const link of links) watchImage(link.querySelector('img'), link.querySelector('.image-error'))
+  for (const link of links) {
+    const image = link.querySelector('img')
+    // 行内关联只在原图加载成功后显示；普通截图也保留同一失败提示路径。
+    link.dataset.imageReady = String(image.complete && image.naturalWidth > 0)
+    watchImage(image, link.querySelector('.image-error'), ready => { link.dataset.imageReady = String(ready) })
+  }
   if (!dialog || typeof dialog.showModal !== 'function') return
   const image = dialog.querySelector('img')
   const title = dialog.querySelector('h2')

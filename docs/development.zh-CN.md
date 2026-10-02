@@ -210,6 +210,8 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 
 首页以真实界面卫星、物料 → 库存 → 生产 → 财务路径填充首屏。`product-orbit.mjs` 用透明 WebGL 轨道贯穿首屏、五张界面、三窗展示和正文外缘，轨道按滚动阅读进度绘制与回收，卡片依次入场、完整阅读、退场，光点不再独立计时。滚动每帧读取未变形节点并更新，不限速或追赶；吸顶舞台入口固定在自然布局位置，停止滚动及后台停绘。手机保留 SVG 滚动连线与轻量卡片入场，减少动态保留完整静态阅读。标题、正文与截图由 HTML 展示，不被画布截获点击，GPU 失效后仍可读。
 
+真实界面三窗使用 720 × 480 画布，保留完整工作台外壳，在内容区放大同一物料对应行，并使用真实 DOM 三倍像素导出的 5400 × 3600 无损 PNG，手机只放大所选项的关键字段；连线取实际高亮矩形，关联键包括采购入库 #101 的行号。微控制器、电阻、电容分别对应 200 / 2000 / 1000 个与 4000 / 400 / 400 元应付。预览切换不写入业务或沙盒，图片未加载/失败时隐藏高亮和相关连线，完整高清图链接保留。取景工具通过预览地址的 `?capture=true` 显式启用，写图只允许本地源和三张固定 PNG；不包含在官网构建中。
+
 官网采用静态 HTML/CSS/JavaScript 构建，`scripts/build-docs-site.mjs` 使用 Marked 将版本控制中的 Markdown 转成页面，无业务 API、数据库或浏览器端 Markdown 编译。中文入口 `/zh-CN/`，英文 `/en/`，对应 `development.html` 为开发文档，根入口为中文。
 
 | 文件 | 维护方式 |
@@ -218,6 +220,7 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 | `docs/development.zh-CN.md`、`docs/development.en.md` | 指南内容源，自动生成 HTML。 |
 | `docs/site/site.css` | 官网/文档/移动端/打印样式。 |
 | `scripts/build-docs-site.mjs` | 页面、目录、路径与资源生成。 |
+| `docs/site/source-details.mjs` | 原图取景、逐行高亮与物料数量/金额关联；更换图片需复核坐标和版本。 |
 | `docs/site/product-orbit.mjs` | 全页滚动轨道、卡片入退场、固定布局节点及 SVG 兼容层。 |
 | `docs/site/product-showcase.*`、`product-gallery.mjs` | 真实界面截图、双语说明、失败提示和原生大图弹窗。 |
 | `docs/site/screenshots/`、`scripts/site-preview/` | 截图素材与独立示例会话，复现方式见截图目录说明。 |

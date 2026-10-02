@@ -1,3 +1,4 @@
+import { detailWindowLayout, mountSourceDetails } from './source-details.mjs'
 import { sceneAt, focusLayout, windowGeometry, fitWindowContent, perspective, projectWindowPoint, interpolateWindowPose, connectionEndpoints, sceneBoardHeight, advanceMotionClock } from './scene-geometry.mjs'
 export { sceneAt, focusLayout } from './scene-geometry.mjs'
 import { mountSandbox } from './sandbox-ui.mjs'
@@ -23,8 +24,8 @@ export function mountScene(doc = document, win = window) {
   let graphics
   let resolvedWindows = [], logicalAnchors = [], linksAlpha = 1, heldPose = false
   const realSurface = () => scene.dataset.surface === 'screenshots'
-  // 真实页面统一比例，额外 160px 留给图外说明与来源锚点。
-  const surfaceLayout = layout => realSurface() ? layout.map(item => ({ ...item, logicalWidth: 1800, logicalHeight: 1360 })) : layout
+  // 真实明细在独立坐标视窗放大，浅化透视保证行内字段可读；沙盒保持原有布局。
+  const surfaceLayout = layout => realSurface() ? detailWindowLayout(layout, !focused) : layout
   const anchorElement = key => board.querySelector(`[${realSurface() ? 'data-real-anchor' : 'data-anchor'}="${key}"]`)
   const staticMode = () => reduced.matches || mobile.matches || short.matches
   const targetProgress = () => {
@@ -38,6 +39,8 @@ export function mountScene(doc = document, win = window) {
     logicalAnchors = keys.map(key => {
       const element = anchorElement(key)
       if (!element || !element.offsetHeight) return null
+      const image = realSurface() ? element.closest('.real-interface')?.querySelector('img') : null
+      if (image && (image.hidden || (image.complete && !image.naturalWidth))) return null
       const viewport = element.closest('.window-viewport')
       const local = (node, x, y) => {
         for (let el = node; el && el !== viewport; el = el.offsetParent) { x += el.offsetLeft; y += el.offsetTop }
@@ -45,7 +48,7 @@ export function mountScene(doc = document, win = window) {
       }
       const edge = key === 'stock' && !realSurface() ? element.closest('tr') : element
       const dot = key === 'receipt' && !realSurface() ? element.querySelector('.anchor-dot') : null
-      return { source: element.textContent.trim(), left: local(edge, -5, edge.offsetHeight / 2), right: dot ? local(dot, dot.offsetWidth / 2, dot.offsetHeight / 2) : local(edge, edge.offsetWidth + 4, edge.offsetHeight / 2) }
+      return { source: realSurface() ? element.dataset.sourceId : element.textContent.trim(), left: local(edge, -5, edge.offsetHeight / 2), right: dot ? local(dot, dot.offsetWidth / 2, dot.offsetHeight / 2) : local(edge, edge.offsetWidth + 4, edge.offsetHeight / 2) }
     })
   }
   const drawLines = () => {
@@ -283,6 +286,8 @@ export function mountScene(doc = document, win = window) {
   const onDetails = event => {
     onRender()
   }
+  const destroyDetails = mountSourceDetails(scene, doc.documentElement.lang, onRender)
+  scene.addEventListener('load', onRender, true); scene.addEventListener('error', onRender, true)
   scene.addEventListener('sandbox:render', onRender)
   scene.addEventListener('toggle', onDetails, true)
   scene.addEventListener('focusin', onInputFocus)
@@ -309,8 +314,9 @@ export function mountScene(doc = document, win = window) {
   return () => {
     disposed = true
     if (frame) win.cancelAnimationFrame(frame)
-    observer.disconnect(); reveals.disconnect(); sandbox.destroy(); graphics.destroy()
+    observer.disconnect(); reveals.disconnect(); sandbox.destroy(); destroyDetails(); graphics.destroy()
     scene.removeEventListener('click', onClick); scene.removeEventListener('sandbox:focus', onFocus); scene.removeEventListener('sandbox:render', onRender)
+    scene.removeEventListener('load', onRender, true); scene.removeEventListener('error', onRender, true)
     scene.removeEventListener('toggle', onDetails, true)
     scene.removeEventListener('focusin', onInputFocus); scene.removeEventListener('scroll', schedule, true)
     win.removeEventListener('scroll', onScroll); win.removeEventListener('resize', onResize); doc.removeEventListener('visibilitychange', onVisibility)

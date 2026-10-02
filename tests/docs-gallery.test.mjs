@@ -18,6 +18,10 @@ test('七张统一尺寸原图随构建复制，双语轨道入口、业务定�
       assert.equal(bytes.readUInt32BE(16), 1800)
       assert.equal(bytes.readUInt32BE(20), 1200)
     }
+    for (const item of sourceImages) {
+      const bytes=readFileSync(resolve(output,'assets/screenshots',item.highRes))
+      assert.equal(bytes.readUInt32BE(16),5400);assert.equal(bytes.readUInt32BE(20),3600)
+    }
     for (const language of ['zh-CN', 'en']) {
       const html = readFileSync(resolve(output, language, 'index.html'), 'utf8')
       assert.equal([...html.matchAll(/data-product-image/g)].length, 8)
@@ -40,6 +44,13 @@ test('七张统一尺寸原图随构建复制，双语轨道入口、业务定�
         assert.ok(html.includes(`id="preview-${key}"`))
       }
       for (const item of sourceImages) assert.ok(html.includes(`data-real-anchor="${item.key}"`))
+      assert.equal([...html.matchAll(/class="real-app-shell"/g)].length,3)
+      assert.equal([...html.matchAll(/class="real-workspace-mask"/g)].length,3)
+      for (const item of sourceImages) assert.ok(html.includes(`href="../assets/screenshots/${item.highRes}?v=`))
+      assert.equal([...html.matchAll(/data-source-detail=/g)].length,3)
+      assert.equal([...html.matchAll(/data-source-id="receipt:101:1"/g)].length,3)
+      assert.match(html,/data-detail-summary aria-live="polite"/)
+      assert.ok(readFileSync(resolve(output,'assets/source-details.mjs'),'utf8').includes('mountSourceDetails'))
       assert.equal([...html.matchAll(/data-orbit-card/g)].length, 5)
       assert.ok(readFileSync(resolve(output, 'assets/product-orbit.mjs'), 'utf8').includes('createWebGLGuide'))
       assert.match(html, /data-action="reset"/)
@@ -75,7 +86,7 @@ function galleryFixture() {
     querySelector: selector => ({ img: modalImage, h2: title, button: closeButton, '.lightbox-original': original, '.lightbox-error': modalError })[selector],
   })
   const link = Object.assign(new EventTarget(), {
-    href: 'https://example.test/assets/home.png', focused: false,
+    href: 'https://example.test/assets/home.png', dataset: {}, focused: false,
     focus() { this.focused = true },
     querySelector: selector => selector === 'img' ? image : fallback,
     closest: () => ({ querySelector: () => ({ textContent: '工作台首页' }) }),
@@ -139,6 +150,9 @@ test('缓存失败、后续图片错误和重新加载成功都有可读提示�
   assert.equal(fallback.hidden, false)
   const f = galleryFixture()
   mountProductGallery(f.root); f.click(f.link)
+  assert.equal(f.link.dataset.imageReady,'false')
+  f.image.dispatchEvent(new Event('load'));assert.equal(f.link.dataset.imageReady,'true')
+  f.image.dispatchEvent(new Event('error'));assert.equal(f.link.dataset.imageReady,'false')
   f.modalImage.dispatchEvent(new Event('error'))
   assert.equal(f.modalError.hidden, false)
   assert.equal(f.original.href, f.link.href)

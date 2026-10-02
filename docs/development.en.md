@@ -209,6 +209,8 @@ Actions installers are test builds, unsigned/unnotarized, and may trigger SmartS
 
 The cover adds real interface satellites and a Materials → Inventory → Production → Finance path. `product-orbit.mjs` connects the cover, five interface previews, three-window stage and documentation margins through a transparent WebGL orbit. Paths draw and retract with scroll reading progress, while cards enter, become fully readable in the center, and recede. Light points follow scroll rather than an independent timer. Each scroll frame reads untransformed layout nodes before updating poses, without throttling or catch-up interpolation; the sticky stage entrance stays at its natural layout position. Rendering stops when scrolling stops or the page is hidden. Mobile uses SVG scroll paths and light card motion; reduced motion retains fully visible static images and paths. HTML retains text, screenshots and clicks, including when GPU rendering fails.
 
+The real-interface stage uses a 720 × 480 detail canvas. The complete app shell remains visible. Matching rows enlarge inside the workspace, using lossless 5400 × 3600 PNGs exported from the actual browser DOM and computed styles at three times the logical resolution; mobile crops focus on the selected item’s key fields. Lines use the actual highlighted rectangles and a key including receipt #101 and its line ID. Microcontroller, resistor and capacitor correspond to 200 / 2000 / 1000 units and CNY 4000 / 400 / 400 payable evidence. Preview selection writes no business or sandbox data. Pending or failed images hide highlights and related lines while preserving the complete high-resolution image link. The capture tool requires `?capture=true` in the isolated preview; its local-only sink accepts three fixed PNG names and is excluded from the website build.
+
 The website uses a static HTML/CSS/JavaScript build. `scripts/build-docs-site.mjs` uses Marked to convert version-controlled Markdown without business APIs, a database or browser-side Markdown compilation. Chinese lives at `/zh-CN/`, English at `/en/`, with `development.html` for each guide; the root opens Chinese.
 
 | File | Maintenance |
@@ -217,6 +219,7 @@ The website uses a static HTML/CSS/JavaScript build. `scripts/build-docs-site.mj
 | `docs/development.zh-CN.md`, `docs/development.en.md` | Guide content sources; HTML is generated. |
 | `docs/site/site.css` | Website, documentation, mobile and print styles. |
 | `scripts/build-docs-site.mjs` | Page, contents, path and asset generation. |
+| `docs/site/source-details.mjs` | Original-image crops, row highlights and material quantity/amount evidence; image replacements require coordinate and content-version review. |
 | `docs/site/product-orbit.mjs` | Full-page scroll orbit, card entry and exit, stable layout nodes and SVG fallback. |
 | `docs/site/product-showcase.*`, `product-gallery.mjs` | Interface screenshots, bilingual captions, load failures and native image dialog. |
 | `docs/site/screenshots/`, `scripts/site-preview/` | Screenshot assets and isolated sample session; see the screenshot directory guide. |

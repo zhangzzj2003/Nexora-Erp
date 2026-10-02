@@ -496,17 +496,17 @@ test('吸顶舞台节点使用自然位置，端点随页面等距平移，GPU �
   f.destroy()
 })
 
-test('三窗真实截图保持完整统一比例，切换沙盒后恢复原镜头画布', () => {
+test('三窗真实明细放大使用独立画布，切换沙盒后恢复原镜头画布', () => {
   const f = scrollingScene({real:true})
   for (const pane of f.windows) {
-    assert.equal(pane.style['--logical-width'],'1800px')
-    assert.equal(pane.style['--logical-height'],'1360px')
+    assert.equal(pane.style['--logical-width'],'720px')
+    assert.equal(pane.style['--logical-height'],'480px')
   }
   f.click('[data-surface-select]',{surfaceSelect:'sandbox'});f.tick(40)
   assert.equal(f.scene.dataset.surface,'sandbox')
   assert.equal(f.windows[1].style['--logical-width'],'1000px')
   f.click('[data-surface-select]',{surfaceSelect:'screenshots'});f.tick(80)
-  assert.equal(f.windows[1].style['--logical-width'],'1800px')
+  assert.equal(f.windows[1].style['--logical-width'],'720px')
   assert.equal(f.scene.dataset.mode,'scroll')
   f.destroy()
 })
