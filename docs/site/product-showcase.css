@@ -21,10 +21,12 @@
 .orbit-step{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid #74b9ae;border-radius:50%;color:var(--teal);font-size:13px;font-variant-numeric:tabular-nums;background:#f3faf8;box-shadow:0 0 0 7px #f8fafc}
 .product-shot h3{font-size:clamp(22px,2.2vw,30px);line-height:1.4;letter-spacing:-.015em;margin:12px 0}
 .product-shot figcaption p{font-size:14px;line-height:1.8;color:var(--muted);margin:0;max-width:70ch}
-/* 贯穿页面的透明 GPU 层不拦截点击，失效时使用完全相同坐标的 SVG 轨道。 */
-.page-orbit{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}.page-orbit canvas{position:absolute;left:-40px;top:-40px}.page-orbit svg{width:100%;height:100%;overflow:hidden}.page-orbit path{fill:none;stroke:#218f81;stroke-width:1.4}.page-orbit circle{fill:#078c7e}.page-orbit.gpu-ready svg{visibility:hidden}
-.overview{overflow-anchor:none}
-.overview main,.overview footer{position:relative;z-index:1}
+/* 全页统一分层：内容 < 轨道 < 导航；顶层 dialog 仍覆盖轨道，局部背景不会再截断连线。 */
+.overview{--site-layer-content:1;--site-layer-orbit:2;--site-layer-navigation:3;overflow-anchor:none}
+/* GPU 和 SVG 共用一个覆盖层；不接收点击，图片、按钮及表格保持原来的交互。 */
+.page-orbit{position:fixed;inset:0;z-index:var(--site-layer-orbit);pointer-events:none;overflow:hidden}.page-orbit canvas{position:absolute;left:-40px;top:-40px}.page-orbit svg{width:100%;height:100%;overflow:hidden}.page-orbit path{fill:none;stroke:#218f81;stroke-width:1.4}.page-orbit circle{fill:#078c7e}.page-orbit.gpu-ready svg{visibility:hidden}
+.overview main,.overview footer{position:relative;z-index:var(--site-layer-content)}
+.overview>.site-header{z-index:var(--site-layer-navigation)}
 /* 首屏真实界面形成两颗卫星；中心文案保持清晰，窄屏只保留业务路径。 */
 .overview .hero{overflow:hidden;background:radial-gradient(ellipse at 50% 52%,#e2f3ee55,transparent 64%)}
 .cover-content{max-width:760px}.overview .hero .hero-eyebrow{font-size:11px;letter-spacing:.14em;font-weight:600;color:var(--teal);margin:0 0 22px}

@@ -6,6 +6,20 @@ import { resolve, dirname } from 'node:path'
 import { buildSite, buildWebsite, renderMarkdown, resolveLink } from '../scripts/build-docs-site.mjs'
 import { mountScene, sceneAt, focusLayout } from '../docs/site/motion.mjs'
 
+test('全页轨道覆盖内容背景且不拦截输入，导航保留更高层级', () => {
+  const css = readFileSync(new URL('../docs/site/product-showcase.css', import.meta.url), 'utf8')
+  // 验证实际共享样式的层级约束，避免局部背景或后续改动再次把轨道放到内容后面。
+  const level = name => Number(css.match(new RegExp(`--site-layer-${name}:(\\d+)`))?.[1])
+  assert.ok(level('content') < level('orbit'))
+  assert.ok(level('orbit') < level('navigation'))
+  const orbit = css.match(/\.page-orbit\{([^}]+)\}/)?.[1]
+  assert.match(orbit, /position:fixed/)
+  assert.match(orbit, /z-index:var\(--site-layer-orbit\)/)
+  assert.match(orbit, /pointer-events:none/)
+  assert.match(css, /\.overview main,\.overview footer\{[^}]*z-index:var\(--site-layer-content\)/)
+  assert.match(css, /\.overview>\.site-header\{z-index:var\(--site-layer-navigation\)/)
+})
+
 test('双语页面和文档在 GitHub Pages 子路径下保持资源、语言、目录链接有效', async () => {
   const prefix = resolve(tmpdir(), 'nexora-docs-test-')
   const output = mkdtempSync(prefix)
