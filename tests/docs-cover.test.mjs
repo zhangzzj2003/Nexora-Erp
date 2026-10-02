@@ -80,4 +80,14 @@ test('快速跳出舞台清除固定路径，后台停帧，减少动态和卸�
   assert.ok(canvases.every(canvas => canvas.removed))
   assert.equal(content.style['--cover-y'], undefined)
   win.dispatchEvent(new Event('scroll')); assert.equal(frames.size, 0)
+  // 截图区插在封面和舞台之间时，引导线只到截图入口，不能跨越所有图片。
+  const query = doc.querySelector
+  doc.querySelector = selector => selector === '#product-preview' ? { getBoundingClientRect: () => ({ left: 30, width: 1440, top: 1045 - win.scrollY }) } : query(selector)
+  win.scrollY = 1045
+  const destroyPreview = mountCover(doc, win)
+  flush()
+  assert.match(path.getAttribute('d'), /L 750 24$/)
+  win.scrollY = 2000; win.dispatchEvent(new Event('scroll')); flush()
+  assert.equal(host.hidden, true)
+  destroyPreview()
 })

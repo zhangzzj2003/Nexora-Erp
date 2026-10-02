@@ -162,7 +162,7 @@ npm run build
 PowerShell 不替原生命令展开通配符，显式枚举测试。`npm run build` 已含类型检查，`npm run preview` 预览已有构建。网站专用检查：
 
 ```bash
-node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs
+node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs tests/docs-gallery.test.mjs
 npm run docs:build
 ```
 
@@ -208,7 +208,7 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 
 ## 官网与 HTML 文档
 
-首页标题与行动独占 `100svh` 封面，页眉叠放在顶部。`cover-motion.mjs` 让按钮下方的青绿引导线随滚动伸向入库窗口的实测顶边，随后由入库、库存和应付来源线接续；倒滚收回，快速离场或手动聚焦清除旧线。桌面使用 WebGL，手机使用同一路径的 SVG；减少动态、低高度及无脚本保留静态引导与文档入口。标题同时按宽高适配，中英文采用同一结构。
+首页标题与行动独占 `100svh` 封面，页眉叠放在顶部。`cover-motion.mjs` 让按钮下方的青绿引导线随滚动伸向界面截图区域，进入预览后收回；下方交互舞台继续保留入库、库存和应付来源连线；倒滚收回，快速离场或手动聚焦清除旧线。桌面使用 WebGL，手机使用同一路径的 SVG；减少动态、低高度及无脚本保留静态引导与文档入口。标题同时按宽高适配，中英文采用同一结构。
 
 官网采用静态 HTML/CSS/JavaScript 构建，`scripts/build-docs-site.mjs` 使用 Marked 将版本控制中的 Markdown 转成页面，无业务 API、数据库或浏览器端 Markdown 编译。中文入口 `/zh-CN/`，英文 `/en/`，对应 `development.html` 为开发文档，根入口为中文。
 
@@ -218,9 +218,15 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 | `docs/development.zh-CN.md`、`docs/development.en.md` | 指南内容源，自动生成 HTML。 |
 | `docs/site/site.css` | 官网/文档/移动端/打印样式。 |
 | `scripts/build-docs-site.mjs` | 页面、目录、路径与资源生成。 |
+| `docs/site/product-showcase.*`、`product-gallery.mjs` | 真实界面截图、双语说明、失败提示和原生大图弹窗。 |
+| `docs/site/screenshots/`、`scripts/site-preview/` | 截图素材与独立示例会话，复现方式见截图目录说明。 |
 | `.github/workflows/docs-site.yml` | PR 验证及主线 Pages 发布配置。 |
 
 本地 `npm run docs:build` 后运行 `python -m http.server 4173 --directory dist/site`，访问 `http://localhost:4173/`。语言切换保留页面类型，正文和目录无需 JavaScript；已有专题文档保留中文原文，英文指南明确标注语言。
+
+首屏明确“联光 ERP · 面向企业内部的桌面 ERP”，主行动进入业务演示，次行动查看核心能力。五张真实组件截图位于封面与交互演示之间，以工作台首页为主图，补充物料管理、库存台账、生产成本和总账凭证。统一浅色 1800 × 1200，标注“当前界面预览 · 示例数据”，可点击查看大图；手机纵向展示，原图链接在无脚本时仍有效。优势说明覆盖电子生产物料、跨业务来源与业务财务衔接；业务来源生成凭证草稿，独立审核后过账。
+
+运行 `npm run docs:preview-ui` 打开独立取景会话；它加载当前真实 App、Pinia、侧栏、顶部导航、标签和共享表格，只提供本地虚构数据，拒绝所有未配置请求，不连接正式服务、不写入业务数据。它用于界面取景，不构成原生桌面或服务连接验收；[截图说明](site/screenshots/README.md)记录尺寸与业务示例。
 
 首页使用独立的网页交互沙盒：先显示完整入库窗口，再随滚动从右侧引入库存和应付窗口，用 WebGL 连接实际来源锚点。支持多单据、多物料、仓库与供应商选择、确认入库、库存筛选和来源追溯、部分或全部模拟付款。数量使用三位定点小数，金额以整数分计算；草稿不生成业务流水，确认不能重复，已确认单据只能复制为草稿，付款不得超过未付余额。
 
@@ -232,7 +238,7 @@ Actions 安装包是测试构建，尚未签名/公证，可能触发 SmartScree
 
 长记录分页展示：入库和应付明细每页 2 行，库存流水每页 4 行，余额和付款记录每页 3 行。页码属于展示状态，合计、确认和余额始终使用完整业务数据。添加物料打开最后一页；确认时若其他页有错误，自动返回对应页并定位字段。删除或筛选后的越界页会收敛到有效页。桌面先按实际内容（包括展开明细和错误提示）计算逻辑高度，再统一缩放窗口与连线；窗口内不建立滚动容器。总览保留物料、数量和单价，金额列及逐行删除入口在放大窗口中操作。
 
-运行 `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs` 验证页面路径、业务规则、滚动阶段及 GPU 生命周期。详细说明见 [官网动效与沙盒说明](site/motion-proposal.zh-CN.md)。
+运行 `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs tests/docs-gallery.test.mjs` 验证页面路径、业务规则、滚动阶段及 GPU 生命周期。详细说明见 [官网动效与沙盒说明](site/motion-proposal.zh-CN.md)。
 
 目前按要求**暂不启用线上网站**。准备发布时由管理员在 Settings → Pages → Source 选 GitHub Actions，再启用仓库变量 `PAGES_ENABLED=true` 并手动运行官网工作流。普通推送权限不足以配置 Pages。工作流只上传 `dist/site/`；PR 只验证不发布。预期地址 `https://zhangzzj2003.github.io/Nexora-Erp/`，部署成功前不可称为可用官网。
 

@@ -16,6 +16,7 @@ export function coverGuideAt({ origin, entry, coverProgress, sceneProgress = 0, 
 
 export function mountCover(doc = document, win = window) {
   const hero = doc.querySelector('[data-cover]'), scene = doc.querySelector('.scroll-scene')
+  const showcase = doc.querySelector('#product-preview')
   if (!hero || !scene) return () => {}
   const content = hero.querySelector('.cover-content'), origin = hero.querySelector('.guide-origin'), host = hero.querySelector('.cover-guide'), hint = hero.querySelector('.cover-scroll')
   const svg = host.querySelector('svg'), path = svg.querySelector('path'), tip = svg.querySelector('circle'), board = scene.querySelector('.scene-board')
@@ -41,8 +42,11 @@ export function mountCover(doc = document, win = window) {
     const initial = windowGeometry(sceneAt(0).windows[0], root.width, root.height)
     const initialPoint = projectWindowPoint(initial, initial.pixelWidth / 2, 0)
     const receipt = scene.querySelector('[data-window="receipt"]').getBoundingClientRect(), sceneRect = scene.getBoundingClientRect()
-    const entry = vertical ? [(receipt.left + receipt.right) / 2, receipt.top] : pose ? [pose.entry[0] - win.scrollX, pose.entry[1] - win.scrollY] : [root.left + initialPoint[0], root.top + initialPoint[1]]
-    const line = coverGuideAt({ origin: [start.left + start.width / 2, start.top + start.height / 2], entry, coverProgress: p, sceneProgress: vertical ? clamp(-sceneRect.top / win.innerHeight) : pose?.progress ?? 0, manual: vertical ? false : pose?.manual ?? false, staticMode: !active, width: win.innerWidth, height: win.innerHeight })
+    // 新增界面区后，封面线止于其开头，避免跨越整组截图连向远处的业务舞台。
+    const previewRect = showcase?.getBoundingClientRect()
+    const entry = previewRect ? [previewRect.left + previewRect.width / 2, previewRect.top + 24] : vertical ? [(receipt.left + receipt.right) / 2, receipt.top] : pose ? [pose.entry[0] - win.scrollX, pose.entry[1] - win.scrollY] : [root.left + initialPoint[0], root.top + initialPoint[1]]
+    const sceneProgress = previewRect ? clamp(-previewRect.top / win.innerHeight) : vertical ? clamp(-sceneRect.top / win.innerHeight) : pose?.progress ?? 0
+    const line = coverGuideAt({ origin: [start.left + start.width / 2, start.top + start.height / 2], entry, coverProgress: p, sceneProgress, manual: previewRect || vertical ? false : pose?.manual ?? false, staticMode: !active, width: win.innerWidth, height: win.innerHeight })
     host.hidden = !line
     if (line) {
       const visible = trimPath(line.points, line.amount), head = pointOnPath(line.points, line.amount)

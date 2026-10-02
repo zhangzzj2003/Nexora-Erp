@@ -13,7 +13,8 @@
     "dist:win": "npm run build:backend && npm run build && electron-builder --win nsis --x64 --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && vue-tsc --noEmit -p tsconfig.web.json",
-    "docs:build": "node scripts/build-docs-site.mjs"
+    "docs:build": "node scripts/build-docs-site.mjs",
+    "docs:preview-ui": "node scripts/site-preview.mjs"
   },
   "engines": {
     "node": ">=22.12.0"

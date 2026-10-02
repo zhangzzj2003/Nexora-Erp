@@ -161,7 +161,7 @@ npm run build
 PowerShell does not expand native-command wildcards, so enumerate tests. `npm run build` includes typechecking; `npm run preview` previews an existing build. Website-specific checks:
 
 ```bash
-node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs
+node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs tests/docs-gallery.test.mjs
 npm run docs:build
 ```
 
@@ -207,7 +207,7 @@ Actions installers are test builds, unsigned/unnotarized, and may trigger SmartS
 
 ## Website and HTML documentation
 
-The headline and actions occupy a separate `100svh` cover with navigation overlaid at the top. `cover-motion.mjs` extends a fine teal guide from below the actions to the receipt's measured top edge, handing the narrative to the receipt, stock and payable source connections. Reverse scrolling retracts it; direct exits and manual focus clear old paths. Desktop uses WebGL, mobile shares the path through SVG, and reduced motion, short viewports and no script retain a static cue and documentation links. Type adapts to viewport width and height with the same bilingual structure.
+The headline and actions occupy a separate `100svh` cover with navigation overlaid at the top. `cover-motion.mjs` extends a fine teal guide from below the actions to the interface previews and retracts it on entry; the interactive stage below retains receipt, stock and payable source connections. Reverse scrolling retracts it; direct exits and manual focus clear old paths. Desktop uses WebGL, mobile shares the path through SVG, and reduced motion, short viewports and no script retain a static cue and documentation links. Type adapts to viewport width and height with the same bilingual structure.
 
 The website uses a static HTML/CSS/JavaScript build. `scripts/build-docs-site.mjs` uses Marked to convert version-controlled Markdown without business APIs, a database or browser-side Markdown compilation. Chinese lives at `/zh-CN/`, English at `/en/`, with `development.html` for each guide; the root opens Chinese.
 
@@ -217,9 +217,15 @@ The website uses a static HTML/CSS/JavaScript build. `scripts/build-docs-site.mj
 | `docs/development.zh-CN.md`, `docs/development.en.md` | Guide content sources; HTML is generated. |
 | `docs/site/site.css` | Website, documentation, mobile and print styles. |
 | `scripts/build-docs-site.mjs` | Page, contents, path and asset generation. |
+| `docs/site/product-showcase.*`, `product-gallery.mjs` | Interface screenshots, bilingual captions, load failures and native image dialog. |
+| `docs/site/screenshots/`, `scripts/site-preview/` | Screenshot assets and isolated sample session; see the screenshot directory guide. |
 | `.github/workflows/docs-site.yml` | PR validation and mainline Pages publishing configuration. |
 
 Build with `npm run docs:build`, then run `python -m http.server 4173 --directory dist/site` and visit `http://localhost:4173/`. Language links retain the page type. Text and contents work without JavaScript. Existing specialist documents remain in Chinese, clearly labeled in this guide.
+
+The cover identifies Nexora as a desktop ERP for internal company use. Its primary action opens the business demo; the secondary action opens core capabilities. Five real-component screenshots sit between the cover and demo: the workspace overview as the main image, followed by materials, inventory ledger, production costs and journals. All use a light theme at 1800 × 1200 and carry “Current interface preview · Sample data.” Images open in a native dialog and stack vertically on mobile; original links work without JavaScript. Copy explains electronic materials, traceable origins and business-finance links: business sources generate journal drafts for independent review before posting.
+
+Run `npm run docs:preview-ui` for the isolated capture session. It loads the current App, Pinia, sidebar, top navigation, tabs and shared tables with fictional local fixtures, rejecting all unconfigured requests. It neither connects to production services nor writes business data. This provides interface captures rather than native desktop or service-connection acceptance; the [screenshot guide (Chinese)](site/screenshots/README.md) records dimensions and sample provenance. The application UI remains Chinese.
 
 The homepage contains an independent interactive sandbox. A full receipt window appears first; inventory and payable windows enter from the right as the page scrolls, with WebGL paths connected to actual source anchors. It supports multiple receipts and materials, warehouse/supplier selection, receipt confirmation, stock filtering and tracing, and partial/full demo payments. Quantities use three fixed decimal places; money uses integer cents. Drafts do not produce movements, confirmation cannot repeat, confirmed receipts can only be copied to drafts, and payments cannot exceed the balance.
 
@@ -231,7 +237,7 @@ Manual switches fade old paths out and interpolate measured starting and destina
 
 Long records use pagination: 2 rows for receipt/payable lines, 4 for stock movements, and 3 for balances/payment history. Page numbers belong to presentation state; totals, confirmation and balances use all business records. Adding a material opens the last page. Confirmation reveals and focuses invalid fields on another page; removal/filtering clamps out-of-range pages. Desktop layout measures actual content, including expanded details and errors, before scaling windows and paths together. There are no internal scrolling containers. Overview keeps material, quantity and price; line amounts and removal controls appear in the expanded window.
 
-Run `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs` to check page paths, business rules, motion stages and GPU lifecycle. See the [website motion and sandbox guide](site/motion-proposal.en.md).
+Run `node --test tests/docs-site.test.mjs tests/docs-cover.test.mjs tests/docs-sandbox.test.mjs tests/docs-webgl.test.mjs tests/docs-gallery.test.mjs` to check page paths, business rules, motion stages and GPU lifecycle. See the [website motion and sandbox guide](site/motion-proposal.en.md).
 
 **Online hosting is intentionally not enabled yet.** When ready, an administrator selects GitHub Actions under Settings → Pages → Source, sets repository variable `PAGES_ENABLED=true`, and manually runs the website workflow. Push permission alone cannot configure Pages. Only `dist/site/` is uploaded; PRs validate without publishing. The expected URL is `https://zhangzzj2003.github.io/Nexora-Erp/`; it is not a live website until deployment succeeds.
 

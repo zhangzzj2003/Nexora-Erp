@@ -5,7 +5,9 @@
 .cover-content{width:100%;position:relative;z-index:1;transform:translateY(var(--cover-y,0px)) scale(var(--cover-scale,1));transform-origin:50% 50%}
 .overview .hero h1{font-size:clamp(64px,min(7.6vw,10.7svh),112px);line-height:1.08;margin-bottom:28px}
 .overview .hero h1 span{color:#00877d}
-.overview .hero .actions{margin-top:30px;gap:32px}
+.overview .hero .actions{margin-top:30px;gap:32px;flex-wrap:wrap}
+/* 双语按钮按整项换行，避免英文标签与箭头拆成两行。 */
+.overview .hero .actions a{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
 .guide-origin{position:relative;width:4px;height:4px;margin:38px auto 0;background:#188d80;border-radius:50%}
 .cover-stem{position:absolute;top:4px;left:1.5px;width:1px;height:64px;background:linear-gradient(#188d80,#188d8000)}
 .cover-motion .cover-stem{display:none}
@@ -17,8 +19,9 @@
 .cover-guide-tip{fill:#168b7f}
 .cover-guide canvas{position:absolute;left:-40px;top:-40px;pointer-events:none}
 .cover-guide.gpu-ready svg{visibility:hidden}
-.overview .subtitle{display:none}
-.overview .hero-description{font-size:18px}
+.overview .subtitle{display:block;font-size:15px;font-weight:600;color:var(--teal);margin:0 auto 16px;line-height:1.7}
+.overview .hero-description{font-size:18px;text-wrap:balance}
+.hero-scope{font-size:12px;color:var(--muted);line-height:1.7;margin-top:15px!important}
 .overview .primary{background:#087f75;border-radius:9px;box-shadow:0 8px 22px #087f7518}
 .scroll-scene{position:relative;padding:0;isolation:isolate;overflow-anchor:none}
 .scene-sticky{padding:22px 32px 18px;overflow:clip;background:radial-gradient(ellipse at 50% 80%,#dfeaf078,transparent 70%)}
