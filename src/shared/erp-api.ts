@@ -41,6 +41,9 @@ export interface PageResult<T> { items: T[]; total: number; page: number; page_s
 export interface SupplierMaterial { supplier_id: number; material_id: number }
 export interface Supplier { id: number; name: string; version: number }
 export interface Customer { id: number; name: string; owner_id: number | null; version: number }
+export interface CustomerDuplicateCandidate {
+  id: number; name: string; match: 'same_name' | 'similar_name'
+}
 export interface Warehouse { id: number; code: string; name: string; version: number }
 export interface MasterDataChange<T> {
   id: number; action: 'create' | 'update' | 'delete'; before: T | null; after: T | null
@@ -1123,6 +1126,7 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   unbindSupplierMaterial: { input: { supplierId: number; materialId: number }; output: void }
   createSupplier: { input: { name: string }; output: Supplier }
   customers: { input: undefined; output: Customer[] }
+  customerDuplicateCandidates: { input: { name: string }; output: CustomerDuplicateCandidate[] }
   createCustomer: { input: { name: string }; output: Customer }
   materialCategories: { input: undefined; output: MaterialCategory[] }
   materials: { input: undefined; output: Material[] }

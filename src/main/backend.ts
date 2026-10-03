@@ -485,6 +485,12 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'suppliers': return { method: 'GET', path: '/api/v1/suppliers' }
     case 'createSupplier': return { method: 'POST', path: '/api/v1/suppliers', body: payload }
     case 'customers': return { method: 'GET', path: '/api/v1/customers' }
+    case 'customerDuplicateCandidates': {
+      const name = payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>).name : undefined
+      if (typeof name !== 'string' || !name.trim() || name.trim().length > 120) throw new Error('客户名称无效')
+      return { method: 'POST', path: '/api/v1/customers/duplicate-candidates', body: { name: name.trim() } }
+    }
     case 'createCustomer': return { method: 'POST', path: '/api/v1/customers', body: payload }
     case 'materials': return { method: 'GET', path: '/api/v1/materials' }
     case 'createMaterial': return { method: 'POST', path: '/api/v1/materials', body: materialBody(payload, false) }

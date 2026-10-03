@@ -10,6 +10,7 @@ import { createWorkspaceRouter, installWorkspaceAccessGuard } from '../src/rende
 import { workspaceRoutes, visibleRouteGroups } from '../src/renderer/src/router/workspace-routes.ts'
 import { createSalesActions } from '../src/renderer/src/store/modules/sales-actions.ts'
 import { submitCreateDialog } from '../src/renderer/src/utils/create-dialog.ts'
+import { callBackend } from '../src/main/backend.ts'
 
 test('客户资料归属基础资料，直接访问及撤销权限遵循销售查看权限', async () => {
   const group = visibleRouteGroups(['sales.view']).find(group => group.key === 'catalog')
@@ -112,4 +113,25 @@ test('客户新增失败保留草稿和弹窗，成功刷新共享名单且不�
   assert.equal(customerForm.value.name, '')
   assert.equal(customers.value[0].id, 9)
   assert.deepEqual(salesForm.value, draft)
+})
+
+test('重复客户候选只经固定 IPC 路径查询并校验名称', async t => {
+  const original = globalThis.fetch
+  t.after(() => { globalThis.fetch = original })
+  const requests = []
+  globalThis.fetch = async (url, config) => {
+    requests.push({ path: new URL(url).pathname, method: config.method,
+      body: JSON.parse(config.body) })
+    return new Response(new URL(url).pathname.endsWith('/login')
+      ? JSON.stringify({ token: 'test', user: { id: 1 } }) : '[]', { status: 200 })
+  }
+  await callBackend('login', {})
+  requests.length = 0
+  await callBackend('customerDuplicateCandidates', { name: ' 客户甲 ', path: '/api/v1/users' })
+  assert.deepEqual(requests, [{ path: '/api/v1/customers/duplicate-candidates',
+    method: 'POST', body: { name: '客户甲' } }])
+  for (const name of ['', '   ', 'x'.repeat(121), 42]) {
+    await assert.rejects(callBackend('customerDuplicateCandidates', { name }), /客户名称无效/)
+  }
+  assert.equal(requests.length, 1)
 })

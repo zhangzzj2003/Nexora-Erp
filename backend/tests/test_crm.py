@@ -72,6 +72,33 @@ def approved(seed,data):
     return action(client,reviewer,quote,'approve')
 
 
+def test_customer_duplicate_candidates_respect_owner_scope_and_do_not_write(seeded):
+    client, admin, _, seller, viewer, customer, other, _ = seeded
+    same = client.post(B+'/customers/duplicate-candidates', headers=seller,
+                       json={'name': '客 户-甲'})
+    assert same.status_code == 200
+    assert same.json() == [{'id': customer, 'name': '客户甲', 'match': 'same_name'}]
+    assert client.post(B+'/customers/duplicate-candidates', headers=seller,
+                       json={'name': '客户乙'}).json() == []
+    assert client.post(B+'/customers/duplicate-candidates', headers=admin,
+                       json={'name': '客户乙'}).json() == [
+                           {'id': other, 'name': '客户乙', 'match': 'same_name'}]
+    extended = client.post(B+'/customers', headers=seller,
+                           json={'name': '上海华星有限公司'})
+    assert extended.status_code == 201
+    assert client.post(B+'/customers/duplicate-candidates', headers=seller,
+                       json={'name': '上海华星'}).json() == [
+                           {'id': extended.json()['id'], 'name': '上海华星有限公司',
+                            'match': 'similar_name'}]
+    assert client.post(B+'/customers/duplicate-candidates', headers=viewer,
+                       json={'name': '客户甲'}).status_code == 403
+    for invalid in ({'name': '   '}, {'name': '客户甲', 'owner_id': 3}):
+        assert client.post(B+'/customers/duplicate-candidates', headers=seller,
+                           json=invalid).status_code == 422
+    assert {row['id'] for row in client.get(B+'/customers', headers=admin).json()} == {
+        customer, other, extended.json()['id']}
+
+
 def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
     client,admin,reviewer,seller,_,customer,other,materials = seeded
     assert client.post(B+'/customers',headers=seller,json={

@@ -361,6 +361,33 @@ def list_customers(user: dict = Depends(require("sales.view"))) -> list[dict]:
         ]
 
 
+def comparable_customer_name(name: str) -> str:
+    # 仅消除大小写、空白和标点差异；不擅自推断简称、法人主体或关联公司。
+    return ''.join(char for char in name.casefold() if char.isalnum())
+
+
+@router.post('/customers/duplicate-candidates')
+def customer_duplicate_candidates(payload: CustomerInput,
+                                  user: dict = Depends(require('customer.manage'))) -> list[dict]:
+    target = comparable_customer_name(payload.name)
+    with orm_session() as db:
+        rows = db.execute(visible_customers(
+            select(Customer.id, Customer.name).order_by(Customer.id), user)).all()
+    candidates = []
+    for customer_id, name in rows:
+        comparable = comparable_customer_name(name)
+        if not comparable:
+            continue
+        same = comparable == target
+        related = min(len(comparable), len(target)) >= 4 and (
+            comparable in target or target in comparable)
+        if same or related:
+            candidates.append({'id': customer_id, 'name': name,
+                               'match': 'same_name' if same else 'similar_name'})
+    candidates.sort(key=lambda row: (row['match'] != 'same_name', row['id']))
+    return candidates[:10]
+
+
 @router.post("/customers", status_code=201)
 def create_customer(payload: CustomerInput, user: dict = Depends(require("customer.manage"))) -> dict:
     with orm_session(write=True) as db:
