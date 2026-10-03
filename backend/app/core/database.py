@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 67:
+        if version > 68:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2207,3 +2207,28 @@ def migrate() -> None:
             db.execute("INSERT INTO permissions(code,label,group_code) VALUES ('material_return.reverse','冲销已确认生产退料','production.material_return')")
             db.execute("INSERT INTO role_permissions(role_code,permission_code) VALUES ('admin','material_return.reverse')")
             db.execute('PRAGMA user_version = 67')
+
+        if version < 68:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE inventory_warning_observations (
+                rule_id INTEGER PRIMARY KEY REFERENCES inventory_warning_rules(id),
+                status TEXT NOT NULL CHECK(status IN ('normal','low','out_of_stock','disabled')),
+                quantity TEXT NOT NULL,
+                observed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE inventory_warning_events (
+                id INTEGER PRIMARY KEY,
+                rule_id INTEGER NOT NULL REFERENCES inventory_warning_rules(id),
+                warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+                material_id INTEGER NOT NULL REFERENCES materials(id),
+                previous_status TEXT CHECK(previous_status IS NULL OR previous_status IN ('normal','low','out_of_stock','disabled')),
+                status TEXT NOT NULL CHECK(status IN ('low','out_of_stock')),
+                quantity TEXT NOT NULL, threshold TEXT NOT NULL, shortage TEXT NOT NULL,
+                rule_version INTEGER NOT NULL,
+                warehouse_code TEXT NOT NULL, warehouse_name TEXT NOT NULL,
+                sku TEXT NOT NULL, material_name TEXT NOT NULL, unit TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX inventory_warning_events_warehouse ON inventory_warning_events(warehouse_id,id)')
+            db.execute('CREATE INDEX inventory_warning_events_rule ON inventory_warning_events(rule_id,id)')
+            db.execute('PRAGMA user_version = 68')

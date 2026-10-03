@@ -15,6 +15,10 @@ const row={...input,id:1,version:1,created_by:1,created_at:'2026-10-01 12:00:00'
 const detail={row,changes:[{id:1,reason:'备货依据',changed_by:1,changed_by_name:'admin',created_at:row.created_at,before:null,after:row}]}
 const overview={as_of:row.created_at,warehouse_id:null,rows:[row],warehouses:[{id:1,code:'MAIN',name:'主仓库'}],
   materials:[{id:1,sku:'PART',name:'物料',unit:'件'}],summary:{normal:0,low:1,out_of_stock:0,disabled:0,configured:1,unconfigured:0}}
+const warningEvent={id:2,rule_id:1,warehouse_id:1,material_id:1,previous_status:'normal',status:'low',
+  quantity:'0.125',threshold:'1.000',shortage:'0.875',rule_version:1,warehouse_code:'MAIN',warehouse_name:'主仓库',
+  sku:'PART',material_name:'物料',unit:'件',observed_at:row.created_at,created_at:row.created_at}
+const eventPage={as_of:row.created_at,warehouse_id:null,events:[warningEvent],next_before_id:null}
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}
 function fixture(t,callApi,perform=run=>run()){
   const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
@@ -32,16 +36,21 @@ test('库存查看控制入口，阈值只接受界限内的精确文本',()=>{
 test('IPC 固定路径、仓库范围和写字段白名单，拒绝浮点、假编号和缺失原因',async t=>{
   const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous})
   const calls=[];globalThis.fetch=async(url,options)=>{calls.push([new URL(url).pathname+new URL(url).search,options.body?JSON.parse(options.body):null]);
-    return new Response(JSON.stringify(new URL(url).pathname.endsWith('/login')?{token:'test',user:{id:1}}:new URL(url).pathname.includes('/rules/')?detail:overview),{status:200})}
+    return new Response(JSON.stringify(new URL(url).pathname.endsWith('/login')?{token:'test',user:{id:1}}:
+      new URL(url).pathname.includes('/rules/')?detail:new URL(url).pathname.endsWith('/events')?eventPage:overview),{status:200})}
   await callBackend('login',{});calls.length=0
   await callBackend('inventoryWarnings',{warehouseId:2})
+  await callBackend('inventoryWarningEvents',{warehouseId:2,beforeId:3})
   await callBackend('saveInventoryWarning',{...input,status:'normal',quantity:'999',_X_ROW_KEY:'table'})
-  assert.deepEqual(calls,[['/api/v1/inventory/warnings?warehouse_id=2',null],['/api/v1/inventory/warnings/rules/1/1',{version:0,threshold:'1.000',enabled:true,reason:'备货依据'}]])
+  assert.deepEqual(calls,[['/api/v1/inventory/warnings?warehouse_id=2',null],
+    ['/api/v1/inventory/warnings/events?warehouse_id=2&before_id=3',null],
+    ['/api/v1/inventory/warnings/rules/1/1',{version:0,threshold:'1.000',enabled:true,reason:'备货依据'}]])
   for(const bad of [{warehouse_id:'../users'},{material_id:true},{version:true},{threshold:0.125},{threshold:'1.0001'},{enabled:1},{reason:' '}]){
     await assert.rejects(callBackend('saveInventoryWarning',{...input,...bad}))
   }
   for(const bad of [null,[],true,{warehouseId:0},{warehouseId:'1'}])await assert.rejects(callBackend('inventoryWarnings',bad))
-  assert.equal(calls.length,2)
+  for(const bad of [null,[],true,{warehouseId:0},{beforeId:'3'}])await assert.rejects(callBackend('inventoryWarningEvents',bad))
+  assert.equal(calls.length,3)
 })
 test('响应拒绝伪零、未知状态、停用假差额及缺失审计',()=>{
   validateInventoryWarningResult('inventoryWarnings',overview);validateInventoryWarningResult('inventoryWarningDetail',detail)
@@ -52,6 +61,31 @@ test('响应拒绝伪零、未知状态、停用假差额及缺失审计',()=>{
   }
   assert.throws(()=>validateInventoryWarningResult('inventoryWarningDetail',{row,changes:null}),/响应格式/)
   assert.throws(()=>validateInventoryWarningResult('inventoryWarnings',{...overview,summary:{...overview.summary,unconfigured:-1}}),/响应格式/)
+  validateInventoryWarningResult('inventoryWarningEvents',eventPage)
+  for(const bad of [{...warningEvent,status:'normal'},{...warningEvent,quantity:0},{...warningEvent,rule_version:0}])
+    assert.throws(()=>validateInventoryWarningResult('inventoryWarningEvents',{...eventPage,events:[bad]}),/响应格式/)
+})
+test('服务端事件翻页保留历史，换号和迟到响应不泄露旧实例事件',async t=>{
+  const pending=deferred(),calls=[]
+  const {state,actions}=fixture(t,async(_action,data)=>{
+    calls.push(data)
+    if(data?.beforeId)return pending.promise
+    return {...eventPage,next_before_id:warningEvent.id}
+  })
+  assert.equal(await actions.loadWarningEvents(),true)
+  const more=actions.loadWarningEvents(true)
+  state.user.value={id:2,permissions}
+  pending.resolve({...eventPage,events:[{...warningEvent,id:1}],next_before_id:null})
+  assert.equal(await more,false);assert.equal(state.warningEvents.value,null)
+  globalThis.window.nexora.callApi=async()=>eventPage
+  assert.equal(await actions.loadWarningEvents(),true)
+  assert.equal(state.warningEvents.value.events.length,1)
+  state.warningWarehouseId.value=2
+  assert.equal(await actions.loadWarningEvents(),false)
+  assert.match(state.warningEventsError.value,/来源范围不匹配/)
+  state.connectionLost.value=true
+  assert.equal(state.warningEvents.value,null)
+  assert.equal(calls.length,2)
 })
 test('仓库改变、晚到详情和来源不匹配不覆盖当前结果',async t=>{
   const pending=deferred();const {state,actions}=fixture(t,()=>pending.promise)

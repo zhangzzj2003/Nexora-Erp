@@ -1820,3 +1820,32 @@ class InventoryWarningChange(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class InventoryWarningObservation(Base):
+    __tablename__ = 'inventory_warning_observations'
+    rule_id: Mapped[int] = mapped_column(Integer, ForeignKey('inventory_warning_rules.id'), primary_key=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    observed_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class InventoryWarningEvent(Base):
+    __tablename__ = 'inventory_warning_events'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[int] = mapped_column(Integer, ForeignKey('inventory_warning_rules.id'), nullable=False)
+    warehouse_id: Mapped[int] = mapped_column(Integer, ForeignKey('warehouses.id'), nullable=False)
+    material_id: Mapped[int] = mapped_column(Integer, ForeignKey('materials.id'), nullable=False)
+    previous_status: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    threshold: Mapped[str] = mapped_column(Text, nullable=False)
+    shortage: Mapped[str] = mapped_column(Text, nullable=False)
+    rule_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    warehouse_code: Mapped[str] = mapped_column(Text, nullable=False)
+    warehouse_name: Mapped[str] = mapped_column(Text, nullable=False)
+    sku: Mapped[str] = mapped_column(Text, nullable=False)
+    material_name: Mapped[str] = mapped_column(Text, nullable=False)
+    unit: Mapped[str] = mapped_column(Text, nullable=False)
+    observed_at: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))

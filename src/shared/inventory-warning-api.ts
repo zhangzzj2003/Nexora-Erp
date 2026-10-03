@@ -18,11 +18,22 @@ export interface InventoryWarningOverview {
   materials: {id: number; sku: string; name: string; unit: string}[]
   summary: Record<InventoryWarningStatus | 'configured' | 'unconfigured', number>
 }
+export interface InventoryWarningEvent {
+  id: number; rule_id: number; warehouse_id: number; material_id: number
+  previous_status: InventoryWarningStatus | null; status: 'low' | 'out_of_stock'
+  quantity: string; threshold: string; shortage: string; rule_version: number
+  warehouse_code: string; warehouse_name: string; sku: string; material_name: string; unit: string
+  observed_at: string; created_at: string
+}
+export interface InventoryWarningEventPage {
+  as_of: string; warehouse_id: number | null; events: InventoryWarningEvent[]; next_before_id: number | null
+}
 export interface InventoryWarningInput {
   warehouse_id: number; material_id: number; version: number; threshold: string; enabled: boolean; reason: string
 }
 export interface InventoryWarningOperations {
   inventoryWarnings: { input: {warehouseId?: number} | undefined; output: InventoryWarningOverview }
+  inventoryWarningEvents: { input: {warehouseId?: number; beforeId?: number} | undefined; output: InventoryWarningEventPage }
   inventoryWarningDetail: { input: {warehouse_id: number; material_id: number}; output: InventoryWarningDetail }
   saveInventoryWarning: { input: InventoryWarningInput; output: InventoryWarningDetail }
 }

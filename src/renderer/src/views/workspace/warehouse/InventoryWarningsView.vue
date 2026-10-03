@@ -14,7 +14,8 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 
 const store=usePiniaAppStore()
 const {warningOverview:overview,warningDetail:detail,warningLoading:loading,warningError:failure,
-  warningWarehouseId:warehouse,warningForm:form,warningEditing:editing,busy,user,connectionLost,error}=storeToRefs(store)
+  warningEvents:eventPage,warningEventsLoading:eventLoading,warningEventsError:eventFailure,
+  warningWarehouseId:warehouse,warningForm:form,warningEditing:editing,busy,user,server,connectionLost,error}=storeToRefs(store)
 const query=ref(''),filter=ref<string|null>('attention'),preparing=ref(false)
 const disabled=computed(()=>busy.value || loading.value || preparing.value || connectionLost.value)
 const mayManage=computed(()=>store.can('inventory_warning.manage') && store.can('inventory.view'))
@@ -47,11 +48,12 @@ function prepareLedger():void {
   if(detail.value)Object.assign(store.ledgerQuery,{warehouse_id:detail.value.row.warehouse_id,
     material_id:detail.value.row.material_id,from_date:'',to_date:'',source_type:null})
 }
-watch(warehouse,()=>{void store.loadInventoryWarnings()})
-watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}:${connectionLost.value}`,()=>{
-  if(!connectionLost.value && store.can('inventory.view'))void store.loadInventoryWarnings()
+function refresh():void {void store.loadInventoryWarnings();void store.loadWarningEvents()}
+watch(warehouse,refresh)
+watch(()=>`${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.permissions.join('|')}:${connectionLost.value}`,()=>{
+  if(!connectionLost.value && store.can('inventory.view'))refresh()
 })
-onMounted(()=>{void store.loadInventoryWarnings()})
+onMounted(refresh)
 onUnmounted(()=>{store.clearWarningDetail()})
 const statusOptions=[{value:'attention',label:'缺货或低库存'},...Object.entries(inventoryWarningLabels).map(([value,label])=>({value,label})),{value:null,label:'全部规则'}]
 const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarningStatus]??'未知状态'
@@ -83,7 +85,7 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
           <label>查看仓库<WorkspaceSelect v-model="warehouse" :disabled="disabled" :options="[{value:0,label:'全部仓库'},...(overview?.warehouses??[]).map(row=>({value:row.id,label:`${row.code} · ${row.name}`}))]" /></label>
           <label>搜索规则<AppInput v-model="query" placeholder="仓库、物料编码或名称" /></label>
           <label>预警状态<WorkspaceSelect v-model="filter" :options="statusOptions" /></label>
-          <AppButton type="button" :disabled="disabled" @click="store.loadInventoryWarnings()">刷新预警</AppButton>
+          <AppButton type="button" :disabled="disabled" @click="refresh">刷新预警</AppButton>
           <AppButton v-if="mayManage" type="button" variant="primary" :disabled="disabled || !overview" @click="start">配置预警规则</AppButton>
         </template>
         <template #beforeTable>
@@ -98,6 +100,21 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
         <template #cell-actions="{row}"><div class="warning-actions"><AppButton type="button" :disabled="disabled" @click="open(row)">详情与历史</AppButton><AppButton v-if="mayManage" type="button" :disabled="disabled" @click="open(row,true)">修订规则</AppButton></div></template>
         <template #empty>{{ loading ? '正在读取预警…' : failure ? '读取失败，请刷新重试。' : connectionLost ? '连接中断，旧预警已失效。' : '当前筛选没有匹配规则。未配置的组合不参与预警，请查看全部规则或配置阈值。' }}</template>
       </WorkspaceTable>
+      <section v-if="!editing" class="stack warning-evidence" aria-label="服务端库存预警事件">
+        <div class="warning-heading"><h3>服务端预警事件</h3><AppButton type="button" :disabled="connectionLost || eventLoading" @click="store.loadWarningEvents()">刷新事件</AppButton></div>
+        <p class="warning-muted">服务端约每 60 秒核对一次规则。这里保留首次异常、恢复后再次异常及低库存恶化为缺货的记录；时间和数量是当次核对快照，可能晚于实际库存流水。</p>
+        <p v-if="eventFailure" role="alert">{{ eventFailure }} 请重新读取事件。</p>
+        <p v-else-if="eventLoading && !eventPage" role="status">正在读取服务端事件…</p>
+        <p v-else-if="eventPage && !eventPage.events.length">当前仓库范围尚无服务端预警事件。</p>
+        <ol v-if="eventPage?.events.length" class="warning-events">
+          <li v-for="item in eventPage.events" :key="item.id">
+            <strong>{{ inventoryWarningLabels[item.status] }} · {{ item.warehouse_code }} / {{ item.sku }}</strong>
+            <span>核对于 {{ store.localTime(item.observed_at) }} · 现存 {{ item.quantity }} / 阈值 {{ item.threshold }} · 差额 {{ item.shortage }}</span>
+            <small>原状态：{{ item.previous_status ? inventoryWarningLabels[item.previous_status] : '首次核对' }} · v{{ item.rule_version }} · {{ item.warehouse_name }} / {{ item.material_name }}（{{ item.unit }}）</small>
+          </li>
+        </ol>
+        <AppButton v-if="eventPage?.next_before_id" type="button" :disabled="eventLoading || connectionLost" @click="store.loadWarningEvents(true)">{{ eventLoading ? '正在加载…' : '加载更早事件' }}</AppButton>
+      </section>
       <p class="warning-muted">{{ overview ? `读取时间：${store.localTime(overview.as_of)}。` : '' }}预警按各仓库已确认流水的现存量计算，不含草稿或未来需求，也不等同于 MRP 净需求。未配置与停用规则不表示库存充足。</p>
       <section v-if="detail && !editing" aria-label="库存预警修订证据" class="stack warning-evidence">
         <h3>{{ detail.row.warehouse_code }} · {{ detail.row.sku }} · v{{ detail.row.version }}</h3>
@@ -123,6 +140,8 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
 .warning-facts{display:grid;grid-template-columns:140px minmax(0,1fr);gap:10px 16px;margin:0}.warning-facts dt{color:#50667d;font-size:13px}.warning-facts dd{margin:0;overflow-wrap:anywhere}
 .warning-evidence h3{margin:12px 0 0}:deep(td strong),:deep(td .warning-muted){display:block}:deep(td){font-variant-numeric:tabular-nums}
 .warning-evidence a{color:var(--workspace-field-accent);text-underline-offset:3px}
+.warning-events{display:grid;gap:10px;margin:0;padding-left:24px}.warning-events li{padding:10px 12px;border:1px solid var(--workspace-line,#d9e1ea);border-radius:8px}
+.warning-events li strong,.warning-events li span,.warning-events li small{display:block}.warning-events li small{color:#50667d}
 :global(:root[data-theme='dark'] .warnings-page .warning-muted),:global(:root[data-theme='dark'] .warnings-page .warning-facts dt){color:#9aadc5}
 @media(max-width:600px){.warning-form-grid{grid-template-columns:1fr}.warning-facts{grid-template-columns:1fr;gap:4px}.warning-facts dd{margin-bottom:10px}}
 </style>

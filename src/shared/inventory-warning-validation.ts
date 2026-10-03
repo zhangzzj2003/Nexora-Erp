@@ -23,7 +23,15 @@ const detail: Check = value => fields(value, {row, changes:array(change)})
 const overview: Check = value => fields(value, {as_of:text, warehouse_id:value=>value===null || positive(value), rows:array(row),
   warehouses:array(value=>fields(value,{id:positive,code:text,name:text})), materials:array(value=>fields(value,{id:positive,sku:text,name:text,unit:text})),
   summary:value=>fields(value,Object.fromEntries([...statuses,'configured','unconfigured'].map(key=>[key,count])))})
+const warningEvent: Check = value => fields(value, {id:positive, rule_id:positive, warehouse_id:positive,
+  material_id:positive, previous_status:value=>value===null || statuses.includes(value as typeof statuses[number]),
+  status:value=>value==='low' || value==='out_of_stock', quantity, threshold:decimal, shortage:decimal,
+  rule_version:positive, warehouse_code:text, warehouse_name:text, sku:text, material_name:text, unit:text,
+  observed_at:text, created_at:text})
+const eventPage: Check = value => fields(value, {as_of:text, warehouse_id:value=>value===null || positive(value),
+  events:array(warningEvent), next_before_id:value=>value===null || positive(value)})
 export function validateInventoryWarningResult(action: string, value: unknown): void {
-  const check = action==='inventoryWarnings' ? overview : ['inventoryWarningDetail','saveInventoryWarning'].includes(action) ? detail : null
+  const check = action==='inventoryWarnings' ? overview : action==='inventoryWarningEvents' ? eventPage
+    : ['inventoryWarningDetail','saveInventoryWarning'].includes(action) ? detail : null
   if (check && !check(value)) throw new Error('库存预警响应格式不匹配，请核对服务端版本后重新读取。')
 }

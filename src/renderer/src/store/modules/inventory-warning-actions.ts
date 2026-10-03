@@ -7,12 +7,15 @@ export function emptyWarningForm(): InventoryWarningInput {
   return {warehouse_id:0, material_id:0, version:0, threshold:'', enabled:true, reason:''}
 }
 export function createInventoryWarningActions(state: AppState, perform:(run:()=>Promise<unknown>, message:string)=>Promise<void>) {
-  let owner=0, reads=0, details=0
+  let owner=0, reads=0, details=0, eventReads=0
   const can=(code:string)=>state.user.value?.permissions.includes(code)??false
   const available=()=>!!window.nexora && !state.connectionLost.value && can('inventory.view')
   function clearWarningDetail():void {details++;state.warningDetail.value=null}
-  function invalidate():void {reads++;clearWarningDetail();state.warningOverview.value=null;state.warningLoading.value=false;state.warningError.value=''}
-  watch(()=>`${state.user.value?.id}:${state.user.value?.permissions.join('|')}`,()=>{
+  function invalidate():void {
+    reads++;eventReads++;clearWarningDetail();state.warningOverview.value=null;state.warningLoading.value=false;state.warningError.value=''
+    state.warningEvents.value=null;state.warningEventsLoading.value=false;state.warningEventsError.value=''
+  }
+  watch(()=>`${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.permissions.join('|')}`,()=>{
     owner++;invalidate();state.warningForm.value=emptyWarningForm();state.warningEditing.value=false;state.warningWarehouseId.value=0
   },{flush:'sync'})
   // 同账号断线保留阈值正文与修订版本，但失效旧数量和审计。
@@ -28,6 +31,25 @@ export function createInventoryWarningActions(state: AppState, perform:(run:()=>
       state.warningOverview.value=result;return true
     } catch(error) {if(ticket===reads && session===owner)state.warningError.value=displayError(error);return false}
     finally {if(ticket===reads && session===owner)state.warningLoading.value=false}
+  }
+  async function loadWarningEvents(append=false):Promise<boolean> {
+    if(!available())return false
+    const warehouse=state.warningWarehouseId.value, previous=state.warningEvents.value
+    if(append && (!previous || previous.warehouse_id!==(warehouse || null) || previous.next_before_id===null))return false
+    const before=append ? previous!.next_before_id! : undefined
+    const ticket=++eventReads, session=owner
+    state.warningEventsLoading.value=true;state.warningEventsError.value=''
+    if(!append)state.warningEvents.value=null
+    try {
+      const result=await window.nexora!.callApi('inventoryWarningEvents',{
+        ...(warehouse?{warehouseId:warehouse}:{}),...(before?{beforeId:before}:{})})
+      if(ticket!==eventReads || session!==owner || !available() || warehouse!==state.warningWarehouseId.value)return false
+      if(result.warehouse_id!==(warehouse || null) || (before && result.events.some(event=>event.id>=before)))
+        throw Error('预警事件来源范围不匹配，请重新读取。')
+      state.warningEvents.value=append && previous ? {...result,events:[...previous.events,...result.events]} : result
+      return true
+    } catch(error) {if(ticket===eventReads && session===owner)state.warningEventsError.value=displayError(error);return false}
+    finally {if(ticket===eventReads && session===owner)state.warningEventsLoading.value=false}
   }
   async function loadWarningDetail(row: Pick<InventoryWarningRow,'warehouse_id'|'material_id'>):Promise<boolean> {
     if(!available())return false
@@ -66,5 +88,5 @@ export function createInventoryWarningActions(state: AppState, perform:(run:()=>
     if(session!==owner || !available() || !can('inventory_warning.manage'))return false
     state.warningForm.value=emptyWarningForm();state.warningEditing.value=false;return true
   }
-  return {loadInventoryWarnings,loadWarningDetail,clearWarningDetail,startWarningRule,editWarningRule,saveWarningRule}
+  return {loadInventoryWarnings,loadWarningEvents,loadWarningDetail,clearWarningDetail,startWarningRule,editWarningRule,saveWarningRule}
 }

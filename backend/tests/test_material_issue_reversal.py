@@ -185,6 +185,8 @@ def test_v65_upgrade_adds_reversal_permission_without_touching_users(monkeypatch
     # 从已初始化的数据库构造第 65 版结构，单独检验新增迁移的幂等性。
     with sqlite3.connect(path) as db:
         before = db.execute('SELECT id, username, password_hash FROM users').fetchall()
+        db.execute('DROP TABLE inventory_warning_events')
+        db.execute('DROP TABLE inventory_warning_observations')
         db.execute('DROP TABLE material_return_reversals')
         db.execute("DELETE FROM role_permissions WHERE permission_code='material_return.reverse'")
         db.execute("DELETE FROM permissions WHERE code='material_return.reverse'")
@@ -195,7 +197,7 @@ def test_v65_upgrade_adds_reversal_permission_without_touching_users(monkeypatch
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 67
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 68
         assert db.execute('SELECT id, username, password_hash FROM users').fetchall() == before
         assert db.execute("SELECT role_code FROM role_permissions WHERE permission_code='material_issue.reverse'").fetchall() == [('admin',)]
         assert db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='material_issue_reversals'").fetchone() is not None

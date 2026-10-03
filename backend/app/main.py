@@ -24,6 +24,7 @@ from app.inventory.warehouse import router as inventory_router
 from app.inventory.stocktake import router as stocktake_router
 from app.inventory.stock import router as stock_router
 from app.inventory.warnings import router as warnings_router
+from app.inventory.warning_events import router as warning_events_router, run_warning_event_scheduler
 from app.inventory.physical_lots import router as physical_lots_router
 from app.inventory.movement_evidence import router as movement_evidence_router
 from app.inventory.ledger import router as ledger_router
@@ -75,6 +76,7 @@ async def lifespan(_: FastAPI):
     migrate()
     publisher = None
     task = None
+    warning_task = None
     port = os.environ.get("NEXORA_DISCOVERY_PORT")
     if port is not None:
         with orm_session() as db:
@@ -92,12 +94,15 @@ async def lifespan(_: FastAPI):
 
         task = asyncio.create_task(publish_periodically())
     try:
+        warning_task = asyncio.create_task(run_warning_event_scheduler())
         yield
     finally:
-        if task is not None:
-            task.cancel()
+        for running in (warning_task, task):
+            if running is None:
+                continue
+            running.cancel()
             try:
-                await task
+                await running
             except asyncio.CancelledError:
                 pass
         if publisher is not None:
@@ -108,7 +113,7 @@ app = FastAPI(title="Nexora ERP API", version="0.1.0", lifespan=lifespan)
 # 路由只在这里组装；各功能目录负责自己的参数校验与业务接口。
 for router in (
     service_router, access_router, menu_router, catalog_router, receipts_router,
-    inventory_router, stock_router, warnings_router, physical_lots_router, movement_evidence_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
+    inventory_router, stock_router, warnings_router, warning_events_router, physical_lots_router, movement_evidence_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
     warehouse_inbounds_router, warehouse_outbounds_router,
     purchase_router, purchase_requests_router, goods_receipts_router,
     purchase_returns_router, sales_router, customer_import_router, contact_import_router, opportunity_import_router, crm_forecast_router, sales_returns_router, crm_router, crm_quotes_router, crm_quote_pdf_router, after_sales_labor_router, after_sales_router,

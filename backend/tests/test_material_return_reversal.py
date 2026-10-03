@@ -200,6 +200,8 @@ def test_v66_upgrade_adds_return_reversal_without_user_changes(monkeypatch, tmp_
             'username': 'admin', 'password': 'secure-pass-123'})
     with sqlite3.connect(path) as db:
         users = db.execute('SELECT id, username, password_hash FROM users').fetchall()
+        db.execute('DROP TABLE inventory_warning_events')
+        db.execute('DROP TABLE inventory_warning_observations')
         db.execute('DROP TABLE material_return_reversals')
         db.execute("DELETE FROM role_permissions WHERE permission_code='material_return.reverse'")
         db.execute("DELETE FROM permissions WHERE code='material_return.reverse'")
@@ -207,7 +209,7 @@ def test_v66_upgrade_adds_return_reversal_without_user_changes(monkeypatch, tmp_
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 67
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 68
         assert db.execute('SELECT id, username, password_hash FROM users').fetchall() == users
         assert db.execute("SELECT role_code FROM role_permissions WHERE permission_code='material_return.reverse'").fetchall() == [('admin',)]
         assert db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='material_return_reversals'").fetchone() is not None

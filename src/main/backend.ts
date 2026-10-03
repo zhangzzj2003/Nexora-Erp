@@ -282,6 +282,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       const warehouse=source?.warehouseId
       return {method:'GET',path:'/api/v1/inventory/warnings'+(warehouse===undefined?'':`?warehouse_id=${positiveId({id:warehouse},'id')}`)}
     }
+    case 'inventoryWarningEvents': {
+      if(payload!==undefined && (!payload || typeof payload!=='object' || Array.isArray(payload)))throw new Error('预警事件查询范围无效')
+      const source=payload as {warehouseId?:unknown;beforeId?:unknown}|undefined
+      const query:string[]=[]
+      if(source?.warehouseId!==undefined)query.push(`warehouse_id=${positiveId({id:source.warehouseId},'id')}`)
+      if(source?.beforeId!==undefined)query.push(`before_id=${positiveId({id:source.beforeId},'id')}`)
+      return {method:'GET',path:'/api/v1/inventory/warnings/events'+(query.length?`?${query.join('&')}`:'')}
+    }
     case 'physicalLotOverview':
     case 'physicalLotUnallocated': {
       if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('实物批次查询范围无效')

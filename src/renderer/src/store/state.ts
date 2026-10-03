@@ -1,4 +1,4 @@
-import type {InventoryWarningOverview,InventoryWarningDetail,InventoryWarningInput} from '../../../shared/inventory-warning-api'
+import type {InventoryWarningOverview,InventoryWarningDetail,InventoryWarningEventPage,InventoryWarningInput} from '../../../shared/inventory-warning-api'
 import type {PhysicalLotOverview,PhysicalLotHistory,PhysicalLotUnallocatedList} from '../../../shared/physical-lot-api'
 import { computed, ref } from 'vue'
 import type {EquipmentOverview,EquipmentDetail,EquipmentForms,EquipmentEntity} from '../../../shared/equipment-api'
@@ -107,6 +107,7 @@ export function createAppState() {
   const lotUnallocated=ref<PhysicalLotUnallocatedList|null>(null)
   const lotLoading=ref(false),lotError=ref(''),lotWarehouseId=ref(0),lotMaterialId=ref(0)
   const warningOverview=ref<InventoryWarningOverview|null>(null),warningDetail=ref<InventoryWarningDetail|null>(null)
+  const warningEvents=ref<InventoryWarningEventPage|null>(null),warningEventsLoading=ref(false),warningEventsError=ref('')
   const warningAlert=ref<{id:number;content:string}|null>(null)
   const warningLoading=ref(false),warningError=ref(''),warningWarehouseId=ref(0),warningEditing=ref(false)
   const warningForm=ref<InventoryWarningInput>({warehouse_id:0,material_id:0,version:0,threshold:'',enabled:true,reason:''})
@@ -509,7 +510,8 @@ export function createAppState() {
     dashboardResult, dashboardPeriod, dashboardLoading, dashboardError,
     qualityOverview, qualityDetail, qualityLoading, qualityError, qualityEdit, qualityForm,
     afterSalesOverview,afterSalesDetail,afterSalesLoading,afterSalesError,afterSalesEdit,afterSalesForm,
-    warningOverview,warningDetail,warningAlert,warningLoading,warningError,warningWarehouseId,warningEditing,warningForm,
+    warningOverview,warningDetail,warningEvents,warningEventsLoading,warningEventsError,
+    warningAlert,warningLoading,warningError,warningWarehouseId,warningEditing,warningForm,
     equipmentOverview,equipmentDetail,equipmentLoading,equipmentError,equipmentEdit,equipmentForms,
     mrpPlans, mrpOptions, mrpDetail, mrpCheck, mrpChanges, mrpPolicyChanges, mrpForm, mrpLoading, mrpError,
     crmOptions, crmOverview, crmForecast, crmDetail, crmChanges, crmOwnerChanges, crmForms, crmEdit, crmLoading, crmError,
