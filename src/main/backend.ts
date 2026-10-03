@@ -18,6 +18,7 @@ import type { ErpOperations } from '../shared/erp-api'
 import {validateDashboardResult} from '../shared/dashboard-api.ts'
 import {validateEquipmentResult} from '../shared/equipment-validation.ts'
 import {validateCustomerImportPreview,validateCustomerImportResult} from '../shared/customer-import-validation.ts'
+import {validateContactImportPreview,validateContactImportResult} from '../shared/contact-import-validation.ts'
 import { request as httpsRequest } from 'node:https'
 
 export interface BackendTarget {
@@ -117,6 +118,25 @@ function customerImportNames(payload: unknown): string[] {
     throw new Error('客户导入名单无效')
   }
   return names.map(name => (name as string).trim())
+}
+
+function contactImportRows(payload: unknown): ErpOperations['contactImportPreview']['input']['rows'] {
+  const rows = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>).rows : undefined
+  if (!Array.isArray(rows) || rows.length < 1 || rows.length > 100) throw new Error('联系人导入名单无效')
+  return rows.map(row => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('联系人导入明细无效')
+    const source = row as Record<string, unknown>
+    const field = (key: string, maximum: number, required = false): string => {
+      const value = source[key]
+      if (typeof value !== 'string' || value.trim().length > maximum || /[\x00-\x1f]/.test(value)
+        || (required && !value.trim())) throw new Error('联系人导入明细无效')
+      return value.trim()
+    }
+    return { customer_id: positiveId(row, 'customer_id'), name: field('name', 120, true),
+      job_title: field('job_title', 120), phone: field('phone', 80),
+      email: field('email', 160), note: field('note', 1000) }
+  })
 }
 
 function equipmentHours(value: unknown, maximum: number, allowZero: boolean): string {
@@ -355,6 +375,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'crmOptions': return { method: 'GET', path: '/api/v1/crm/options' }
     case 'crmOverview': return { method: 'GET', path: '/api/v1/crm/overview' }
+    case 'contactImportPreview': return { method: 'POST', path: '/api/v1/crm/contacts/import-preview',
+      body: { rows: contactImportRows(payload) } }
+    case 'importContacts': {
+      const rows = contactImportRows(payload)
+      const source = payload as Record<string, unknown>
+      if (typeof source.reason !== 'string' || !source.reason.trim() || source.reason.trim().length > 200
+        || typeof source.allow_similar !== 'boolean') throw new Error('联系人导入依据或同名确认无效')
+      return { method: 'POST', path: '/api/v1/crm/contacts/import',
+        body: { rows, reason: source.reason.trim(), allow_similar: source.allow_similar } }
+    }
     case 'customerOwnerChanges': return { method: 'GET', path: `/api/v1/customers/${positiveId(payload,'id')}/owner-changes` }
     case 'assignCustomerOwner': {
       const source=payload as ErpOperations['assignCustomerOwner']['input']
@@ -991,6 +1021,10 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     customerImportNames(payload))
   if (action === 'importCustomers') validateCustomerImportResult(data,
     customerImportNames(payload))
+  if (action === 'contactImportPreview') validateContactImportPreview(data,
+    contactImportRows(payload))
+  if (action === 'importContacts') validateContactImportResult(data,
+    contactImportRows(payload))
   if (action === 'postReceipt') {
     const request = payload as ErpOperations['postReceipt']['input']
     if (request.lines) validatePostedReceiptLots(data, request.receiptId, receiptLotBody({lines: request.lines}).lines)

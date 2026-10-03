@@ -12,6 +12,17 @@ export interface CrmContactInput {
   customer_id: number; name: string; job_title: string; phone: string; email: string; note: string; is_active: boolean
 }
 export interface CrmContact extends CrmBase, Omit<CrmContactInput, 'is_active'> { is_active: number }
+export type ContactImportRow = Omit<CrmContactInput, 'is_active'>
+export interface ContactImportPreview {
+  rows: {
+    row: number; customer_id: number; customer_name: string; name: string
+    existing_contact_ids: number[]; batch_rows: number[]; requires_confirmation: boolean
+  }[]
+  requires_confirmation: boolean
+}
+export interface ContactImportResult {
+  batch_reference: string; created: { id: number; customer_id: number; name: string; version: number }[]
+}
 export interface CrmOpportunityInput {
   customer_id: number; contact_id: number | null; title: string; owner_id: number
   stage: Exclude<CrmStage, 'won'>; estimated_amount: string; expected_close_date: string; note: string
@@ -61,6 +72,8 @@ export interface CrmEditTarget {kind: CrmKind; id: number; version: number; reas
 export interface CrmOperations {
   crmOptions: {input: undefined; output: CrmOptions}
   crmOverview: {input: undefined; output: CrmOverview}
+  contactImportPreview: {input: {rows: ContactImportRow[]}; output: ContactImportPreview}
+  importContacts: {input: {rows: ContactImportRow[]; reason: string; allow_similar: boolean}; output: ContactImportResult}
   customerOwnerChanges: {input: {id: number}; output: CustomerOwnerChange[]}
   assignCustomerOwner: {input: {id: number; owner_id: number; version: number; reason: string}; output: CrmOptions['customers'][number]}
   crmDetail: {input: {kind: CrmKind; id: number}; output: CrmRecord}

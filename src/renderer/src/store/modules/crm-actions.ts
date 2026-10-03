@@ -1,5 +1,6 @@
 import { watch } from 'vue'
 import type { CrmKind, CrmRecord, CrmQuote, CrmQuoteAction, CrmActivity, CrmOpportunity, CrmContact, CrmForms } from '../../../../shared/crm-api'
+import type { ContactImportRow } from '../../../../shared/crm-api'
 import type { AppState } from '../state'
 import { displayError } from '../../utils/formatters.ts'
 
@@ -126,8 +127,22 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
     }
     return saved
   }
+  async function importContactRows(rows: ContactImportRow[], reason: string, allow_similar: boolean): Promise<boolean> {
+    if (!can('crm_contact.manage') || !available() || state.busy.value) return false
+    const session = owner
+    let saved = false
+    await perform(async () => {
+      if (session !== owner || !can('crm_contact.manage') || !available()) return
+      await window.nexora!.callApi('importContacts', { rows, reason, allow_similar })
+      saved = true
+    }, '联系人已批量建立，逐条变更依据已留存。')
+    if (!saved || session !== owner) return false
+    // 写入已经成功；资料刷新失败时也不让用户误以为可以重新导入。
+    await loadCrm()
+    return session === owner
+  }
   return {loadCrm,loadCrmDetail,loadCustomerOwnerChanges,assignCustomerOwner,
-    clearCrmDetail,editCrm,startNewCrm,saveCrm,
+    clearCrmDetail,editCrm,startNewCrm,saveCrm,importContactRows,
     closeCrmActivity:(item: CrmActivity, action:'complete'|'cancel',reason:string)=>write('crm_activity.manage',
       ()=>window.nexora!.callApi('closeCrmActivity',{id:item.id,version:item.version,action,reason}),'跟进状态已登记，原记录保留。','activity'),
     reopenCrmOpportunity:(item:CrmOpportunity,reason:string)=>write('crm_opportunity.manage',

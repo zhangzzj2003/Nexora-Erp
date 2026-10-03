@@ -10,11 +10,13 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import CrmEditor from './CrmEditor.vue'
 import CrmEvidence from './CrmEvidence.vue'
+import ContactImportDialog from './ContactImportDialog.vue'
 import { crmKindLabel,crmQuoteLabel,crmActivityLabel,crmStageLabel,crmCommandLabel,quoteActions } from './crm-display'
 
 const store=usePiniaAppStore()
 const {crmOverview:overview,crmOptions:options,crmDetail:detail,crmError:failure,crmLoading:loading,crmForms:forms,crmOwnerChanges:ownerChanges,busy,user,connectionLost,error}=storeToRefs(store)
 const mode=ref<CrmKind>('activity');const editor=ref<CrmKind|null>(null);const customer=ref(0);const query=ref('')
+const contactImportOpen=ref(false)
 const ownerModal=ref(false);const ownerCustomer=ref(0);const nextOwner=ref(0);const ownerReason=ref('')
 const preparing=ref(false);const reason=ref('');const acceptance=ref('')
 type Command=CrmQuoteAction|'convert'|'complete'|'cancelActivity'|'reopen'
@@ -84,7 +86,7 @@ async function execute():Promise<void>{
     : await store.changeCrmQuote(task.record as CrmQuote,task.action as CrmQuoteAction,reason.value)
   if(saved)command.value=null
 }
-watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{command.value=null;editor.value=null;ownerModal.value=false;ownerCustomer.value=0;query.value='';customer.value=0;reason.value='';acceptance.value='';if(store.can('crm.view'))void store.loadCrm()})
+watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{command.value=null;editor.value=null;contactImportOpen.value=false;ownerModal.value=false;ownerCustomer.value=0;query.value='';customer.value=0;reason.value='';acceptance.value='';if(store.can('crm.view'))void store.loadCrm()})
 watch(connectionLost,lost=>{command.value=null;reason.value='';acceptance.value='';if(!lost)void store.loadCrm()})
 onMounted(()=>void store.loadCrm())
 onUnmounted(()=>store.clearCrmDetail())
@@ -94,6 +96,7 @@ onUnmounted(()=>store.clearCrmDetail())
     <div class="crm-toolbar"><AppButton v-for="kind in (['contact','activity','opportunity','quote'] as const)" :key="kind" :variant="mode===kind?'primary':'secondary'" :disabled="busy" @click="selectMode(kind)">{{ crmKindLabel[kind] }}</AppButton>
       <AppButton :disabled="disabled" @click="store.loadCrm()">{{ loading?'正在读取…':'刷新资料' }}</AppButton>
       <AppButton v-if="store.can('customer.assign')" :disabled="disabled || !options" @click="ownerModal=true">分配客户负责人</AppButton>
+      <AppButton v-if="mode==='contact' && store.can('crm_contact.manage')" :disabled="disabled || !options" @click="contactImportOpen=true">导入联系人 CSV</AppButton>
       <AppButton v-if="store.can(permission(mode))" :disabled="disabled || !options" @click="newRecord(mode)">新建{{ crmKindLabel[mode] }}</AppButton></div>
     <p>按客户追踪联系人、跟进和商机；报价经独立审核后，登记客户接受依据并转销售订单草稿。</p>
     <p v-if="connectionLost" role="alert">服务端连接中断，当前资料和可执行动作已失效。未保存的输入保留，恢复连接后重新读取再保存。</p>
@@ -121,6 +124,7 @@ onUnmounted(()=>store.clearCrmDetail())
       </WorkspaceTable>
       <CrmEvidence />
     </template>
+    <ContactImportDialog v-if="store.can('crm_contact.manage')" v-model:show="contactImportOpen" />
     <NModal :show="!!command" preset="card" :title="command ? crmCommandLabel[command.action] : ''" :style="{width:'min(680px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)command=null}">
       <form v-if="command" class="crm-operation" @submit.prevent="execute">
         <p>{{ rowTitle(command.record) }} · {{ rowStatus(command.record) }} · v{{ command.record.version }}</p>

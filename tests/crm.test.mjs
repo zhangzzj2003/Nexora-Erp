@@ -4,6 +4,8 @@ import { createAppState } from '../src/renderer/src/store/state.ts'
 import { createCrmActions,emptyCrmForms } from '../src/renderer/src/store/modules/crm-actions.ts'
 import { crmFormError,quoteActions,crmSnapshotRows } from '../src/renderer/src/views/workspace/sales/crm-display.ts'
 import { callBackend } from '../src/main/backend.ts'
+import { parseContactCsv, parseContactCsvBytes } from '../src/renderer/src/views/workspace/sales/contact-import.ts'
+import { validateContactImportPreview, validateContactImportResult } from '../src/shared/contact-import-validation.ts'
 import { canVisitRoute,routeByKey } from '../src/renderer/src/router/workspace-routes.ts'
 
 const permissions=['crm.view','crm_contact.manage','crm_activity.manage','crm_opportunity.manage','crm_quote.create','crm_quote.submit','crm_quote.convert','sales_order.create']
@@ -11,6 +13,7 @@ const quote={id:1,version:3,status:'approved',opportunity_version:2,opportunity_
 const quoteInput={opportunity_id:1,contact_id:null,reference:'Q-1',valid_until:'2030-01-31',terms:'确认后交货',lines:[{material_id:1,quantity:'1.005',unit_price:'0.9999'}]}
 const overview={contacts:[],activities:[],opportunities:[],quotes:[]}
 const options={customers:[],owners:[],materials:[]}
+const importRows=[{customer_id:4,name:'王女士',job_title:'采购',phone:'100',email:'',note:'重点客户'}]
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}
 function fixture(t,callApi,perform=run=>run()){
   const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
@@ -18,6 +21,66 @@ function fixture(t,callApi,perform=run=>run()){
   const state=createAppState();state.user.value={id:1,permissions}
   return {state,actions:createCrmActions(state,perform)}
 }
+
+test('联系人 CSV 保留带引号的逗号并拒绝越界或错列',()=>{
+  assert.deepEqual(parseContactCsv('\uFEFF客户编号,联系人姓名,职务,电话,邮箱,备注\r\n4,"王,女士",采购,100,,"备注""甲"""\r\n'),
+    [{customer_id:4,name:'王,女士',job_title:'采购',phone:'100',email:'',note:'备注"甲"'}])
+  assert.deepEqual(parseContactCsv('customer_id,name\n4,王女士'),
+    [{customer_id:4,name:'王女士',job_title:'',phone:'',email:'',note:''}])
+  assert.deepEqual(parseContactCsvBytes(new TextEncoder().encode('customer_id,name\n4,王女士').buffer),
+    parseContactCsv('customer_id,name\n4,王女士'))
+  assert.throws(()=>parseContactCsvBytes(Uint8Array.from([0xff,0xfe]).buffer))
+  for(const csv of ['name,customer_id\n王女士,4','客户编号,联系人姓名\n0,王女士',
+    '客户编号,联系人姓名\n4,"未闭合','客户编号,联系人姓名\n4,王女士,多余列',
+    '客户编号,联系人姓名\n4,王女士\n\n5,李女士','客户编号,联系人姓名\n']){
+    assert.throws(()=>parseContactCsv(csv))
+  }
+})
+
+test('联系人导入 IPC 限定字段并核对服务端响应',async t=>{
+  const old=globalThis.fetch;t.after(()=>{globalThis.fetch=old});const requests=[]
+  globalThis.fetch=async(url,config)=>{
+    const path=new URL(url).pathname,body=config.body?JSON.parse(config.body):null
+    requests.push({path,body})
+    const output=path.endsWith('/login')?{token:'test',user:{id:1}}
+      :path.endsWith('/import-preview')?{rows:body.rows.map((row,index)=>({
+        row:index+1,customer_id:row.customer_id,customer_name:'客户甲',name:row.name,
+        existing_contact_ids:[],batch_rows:[],requires_confirmation:false})),requires_confirmation:false}
+      :{batch_reference:'0123456789abcdef',created:body.rows.map((row,index)=>({
+        id:index+1,customer_id:row.customer_id,name:row.name,version:1}))}
+    return new Response(JSON.stringify(output),{status:200})
+  }
+  await callBackend('login',{});requests.length=0
+  await callBackend('contactImportPreview',{rows:[{...importRows[0],is_active:false,created_by:99}],path:'/users'})
+  await callBackend('importContacts',{rows:importRows,reason:' 原名单核对 ',allow_similar:true,path:'/users'})
+  assert.deepEqual(requests,[
+    {path:'/api/v1/crm/contacts/import-preview',body:{rows:importRows}},
+    {path:'/api/v1/crm/contacts/import',body:{rows:importRows,reason:'原名单核对',allow_similar:true}}
+  ])
+  for(const rows of [[],[{...importRows[0],customer_id:'4/../../users'}],
+    [{...importRows[0],name:' '}],Array(101).fill(importRows[0])]){
+    await assert.rejects(callBackend('contactImportPreview',{rows}),/联系人导入|编号无效/)
+  }
+  assert.equal(requests.length,2)
+  const preview={rows:[{row:1,customer_id:4,customer_name:'客户甲',name:'王女士',
+    existing_contact_ids:[],batch_rows:[],requires_confirmation:false}],requires_confirmation:false}
+  validateContactImportPreview(preview,importRows)
+  validateContactImportResult({batch_reference:'0123456789abcdef',created:[{id:1,customer_id:4,name:'王女士',version:1}]},importRows)
+  assert.throws(()=>validateContactImportPreview({...preview,rows:[{...preview.rows[0],customer_id:5}]},importRows))
+  assert.throws(()=>validateContactImportResult({batch_reference:'0123456789abcdef',created:[{id:1,customer_id:5,name:'王女士',version:1}]},importRows))
+})
+
+test('联系人导入写入成功后即使刷新失败也不提示重复提交',async t=>{
+  const calls=[];const {state,actions}=fixture(t,async(action,data)=>{
+    calls.push([action,data]);if(action==='importContacts')return {created:[{id:9}]}
+    throw Error('刷新失败')
+  })
+  assert.equal(await actions.importContactRows(importRows,'资料核对',false),true)
+  assert.deepEqual(calls[0],['importContacts',{rows:importRows,reason:'资料核对',allow_similar:false}])
+  state.user.value={id:2,permissions:['crm.view']}
+  assert.equal(await actions.importContactRows(importRows,'资料核对',false),false)
+  assert.equal(calls.length,3)
+})
 
 test('CRM 入口不被普通销售查看权限放开，审核和转单按实际阶段授权',()=>{
   assert.equal(canVisitRoute(routeByKey('customerRelations'),['sales.view']),false)

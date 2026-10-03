@@ -164,6 +164,77 @@ def test_customer_import_rechecks_similar_names_and_rejects_invalid_batches(seed
                            json=invalid).status_code == 422
 
 
+def test_contact_import_rechecks_scope_and_audits_atomic_batch(seeded):
+    client, admin, _, seller, viewer, customer, other, _ = seeded
+    rows = [{'customer_id': customer, 'name': '李女士', 'phone': '100'},
+            {'customer_id': customer, 'name': '张先生', 'email': 'zhang@example.invalid'}]
+    assert client.post(C+'/contacts/import-preview', headers=viewer,
+                       json={'rows': rows}).status_code == 403
+    preview = client.post(C+'/contacts/import-preview', headers=seller,
+                          json={'rows': rows})
+    assert preview.status_code == 200, preview.text
+    assert [row['customer_name'] for row in preview.json()['rows']] == ['客户甲', '客户甲']
+    assert not preview.json()['requires_confirmation']
+    result = client.post(C+'/contacts/import', headers=seller,
+                         json={'rows': rows, 'reason': '核对原始客户名单'})
+    assert result.status_code == 201, result.text
+    data = result.json()
+    assert len(data['batch_reference']) == 16
+    assert [row['name'] for row in data['created']] == ['李女士', '张先生']
+    for index, row in enumerate(data['created'], start=1):
+        changes = client.get(C+f'/records/contact/{row["id"]}/changes', headers=seller).json()
+        assert len(changes) == 1
+        assert changes[0]['action'] == 'create'
+        assert changes[0]['after']['customer_id'] == customer
+        assert f'{data["batch_reference"]} 第{index}条：核对原始客户名单' in changes[0]['reason']
+    assert {row['name'] for row in client.get(C+'/overview', headers=seller).json()['contacts']} == {
+        '李女士', '张先生'}
+    hidden = rows + [{'customer_id': other, 'name': '隐藏客户联系人'}]
+    for endpoint, body in (('/import-preview', {'rows': hidden}),
+                           ('/import', {'rows': hidden, 'reason': '越权'})):
+        response = client.post(C+'/contacts'+endpoint, headers=seller, json=body)
+        assert response.status_code == 404
+        assert '客户乙' not in response.text
+    assert all(row['name'] != '隐藏客户联系人' for row in
+               client.get(C+'/overview', headers=admin).json()['contacts'])
+
+
+def test_contact_import_duplicate_confirmation_and_invalid_rows(seeded):
+    client, admin, _, seller, _, customer, _, _ = seeded
+    existing = client.post(C+'/contacts', headers=seller,
+                           json={'customer_id': customer, 'name': '王女士'})
+    assert existing.status_code == 201
+    rows = [{'customer_id': customer, 'name': '新联系人'},
+            {'customer_id': customer, 'name': '王 女士'},
+            {'customer_id': customer, 'name': '新-联系人'}]
+    preview = client.post(C+'/contacts/import-preview', headers=seller,
+                          json={'rows': rows}).json()
+    assert preview['requires_confirmation']
+    assert preview['rows'][1]['existing_contact_ids'] == [existing.json()['id']]
+    assert preview['rows'][2]['batch_rows'] == [1]
+    rejected = client.post(C+'/contacts/import', headers=seller,
+                           json={'rows': rows, 'reason': '整理旧表'})
+    assert rejected.status_code == 409
+    assert [row['name'] for row in client.get(C+'/overview', headers=admin).json()['contacts']] == ['王女士']
+    accepted = client.post(C+'/contacts/import', headers=seller,
+                           json={'rows': rows, 'reason': '两名同名人员已核对',
+                                 'allow_similar': True})
+    assert accepted.status_code == 201, accepted.text
+    repeated = client.post(C+'/contacts/import', headers=seller,
+                           json={'rows': rows, 'reason': '网络超时后重试',
+                                 'allow_similar': True})
+    assert repeated.status_code == 409
+    assert len(client.get(C+'/overview', headers=admin).json()['contacts']) == 4
+    for body in ({'rows': []}, {'rows': [{'customer_id': customer, 'name': '  '}]},
+                 {'rows': [{'customer_id': customer, 'name': '甲', 'extra': 1}]},
+                 {'rows': [{'customer_id': customer, 'name': '甲\n乙'}]}):
+        assert client.post(C+'/contacts/import-preview', headers=seller,
+                           json=body).status_code == 422
+    assert client.post(C+'/contacts/import', headers=seller,
+                       json={'rows': [{'customer_id': customer, 'name': '甲'}],
+                             'reason': '依据', 'allow_similar': 'true'}).status_code == 422
+
+
 def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
     client,admin,reviewer,seller,_,customer,other,materials = seeded
     assert client.post(B+'/customers',headers=seller,json={
