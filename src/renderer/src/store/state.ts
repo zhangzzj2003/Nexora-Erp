@@ -64,6 +64,7 @@ import type {
   OtherInbound,
   WarehouseOutbound,
   PaymentRecord,
+  BankReconciliationOverview,
   Permission,
   ProductionCompletion,
   ProductionCostReport,
@@ -262,6 +263,11 @@ export function createAppState() {
     id: null, version: 1, code: '', name: '', start_date: '', end_date: '', reason: ''
   })
   const paymentRecords = ref<PaymentRecord[]>([])
+  const bankOverview = ref<BankReconciliationOverview | null>(null)
+  const bankAccountForm = ref({ code: '', name: '' })
+  const bankLineForm = ref({ account_id: 0, transaction_id: '', occurred_on: '', amount: '', counterparty: '', note: '' })
+  const bankMatchForm = ref<{ statement_line_id: number; source_type: 'order_payment' | 'subledger_payment'; source_id: number; reason: string }>({ statement_line_id: 0, source_type: 'order_payment', source_id: 0, reason: '' })
+  const bankReverseReasons = ref<Record<number, string>>({})
   const boms = ref<Bom[]>([])
   const workOrders = ref<WorkOrder[]>([])
   const materialIssues = ref<MaterialIssue[]>([])
@@ -608,6 +614,11 @@ export function createAppState() {
     ledgerAccountForm,
     accountingPeriodForm,
     paymentRecords,
+    bankOverview,
+    bankAccountForm,
+    bankLineForm,
+    bankMatchForm,
+    bankReverseReasons,
     boms,
     workOrders,
     materialIssues,

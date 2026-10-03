@@ -1424,6 +1424,48 @@ class PaymentRecord(Base):
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
+
+class BankAccount(Base):
+    __tablename__ = 'bank_accounts'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class BankStatementLine(Base):
+    __tablename__ = 'bank_statement_lines'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey('bank_accounts.id'), nullable=False)
+    transaction_id: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_on: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    counterparty: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class BankMatch(Base):
+    __tablename__ = 'bank_matches'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    statement_line_id: Mapped[int] = mapped_column(ForeignKey('bank_statement_lines.id'), nullable=False)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False)
+    source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class BankMatchReversal(Base):
+    __tablename__ = 'bank_match_reversals'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey('bank_matches.id'), nullable=False, unique=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
 class ReceiptWarehouse(Base):
     __tablename__ = "receipt_warehouses"
     receipt_id: Mapped[int] = mapped_column(Integer, ForeignKey("receipts.id"), primary_key=True)

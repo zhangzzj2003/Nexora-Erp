@@ -622,6 +622,12 @@ export interface PaymentRecord {
   party_name: string
   currency: 'CNY'
 }
+export interface BankAccount { id: number; code: string; name: string; created_by: number; created_by_name: string; created_at: string }
+export interface BankStatementLine { id: number; account_id: number; account_code: string; transaction_id: string; occurred_on: string; amount: string; counterparty: string; note: string; match_id: number | null; created_by: number; created_by_name: string; created_at: string }
+export interface BankPaymentSource { source_type: 'order_payment' | 'subledger_payment'; source_id: number; label: string; kind: 'receivable' | 'payable'; action: string; bank_amount: string; reference: string; created_at: string; match_id: number | null }
+export interface BankMatchReversal { id: number; match_id: number; reason: string; created_by: number; created_by_name: string; created_at: string }
+export interface BankMatch { id: number; statement_line_id: number; source_type: BankPaymentSource['source_type']; source_id: number; reason: string; created_by: number; created_by_name: string; created_at: string; reversal: BankMatchReversal | null }
+export interface BankReconciliationOverview { currency: 'CNY'; accounts: BankAccount[]; lines: BankStatementLine[]; sources: BankPaymentSource[]; matches: BankMatch[] }
 export interface FinanceOverview {
   report: ReceivablesPayables
   accounts: FinanceAccount[]
@@ -1253,6 +1259,11 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   periodClosingHistory: { input: { id: number }; output: PeriodClosingRecord[] }
   changePeriodClosingStatus: { input: { id: number; version: number; action: 'close' | 'reopen'; reason: string }; output: { period: AccountingPeriod; closing_id: number } }
   paymentRecords: { input: undefined; output: PaymentRecord[] }
+  bankReconciliationOverview: { input: undefined; output: BankReconciliationOverview }
+  createBankAccount: { input: { code: string; name: string }; output: BankAccount }
+  importBankLines: { input: { account_id: number; lines: { transaction_id: string; occurred_on: string; amount: string; counterparty: string; note: string }[] }; output: { account_id: number; line_ids: number[]; imported_count: number } }
+  matchBankLine: { input: { statement_line_id: number; source_type: BankPaymentSource['source_type']; source_id: number; reason: string }; output: BankMatch }
+  reverseBankMatch: { input: { matchId: number; reason: string }; output: BankMatchReversal }
   createPaymentRecord: { input: { kind: 'receivable' | 'payable'; order_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; note: string }; output: PaymentRecord }
   reversePaymentRecord: { input: { paymentId: number; reason: string }; output: PaymentRecord }
   boms: { input: undefined; output: Bom[] }

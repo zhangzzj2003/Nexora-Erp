@@ -22,6 +22,7 @@ MENU_KEYS = {
     'route:customerRelations',
     'route:finance',
     'route:financePayments',
+    'route:bankReconciliation',
     'route:financeSources',
     'route:ledgerAccounts',
     'route:journals',

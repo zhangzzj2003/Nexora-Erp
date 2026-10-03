@@ -133,7 +133,7 @@ def test_old_database_upgrade_preserves_references_and_initializes_sequence(clie
     assert client.delete(f"/api/v1/materials/{row['id']}").status_code == 204
     assert create(client)['sku'] == 'EL-SR-000016'
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 68
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 69
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
 
 

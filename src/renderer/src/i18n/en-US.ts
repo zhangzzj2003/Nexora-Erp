@@ -68,7 +68,7 @@ export const englishCopy: Readonly<Record<string, string>> = {
   '售后退换修': 'After-sales service', '销售订单': 'Sales orders', '销售出库': 'Sales shipments', '销售退货': 'Sales returns', '财务管理': 'Finance',
   '总账凭证': 'Journal entries', '期初余额': 'Opening balances', '分户期初': 'Subledger openings', '总账报表': 'Ledger reports', '财务报表': 'Financial statements',
   '辅助核算': 'Auxiliary accounting', '总账科目': 'Ledger accounts', '会计期间': 'Accounting periods', '库存计价': 'Inventory valuation', '应收应付': 'Receivables and payables',
-  '收付款记录': 'Payment records', '应收应付来源': 'Receivable and payable sources', '生产管理': 'Production', '生产 BOM': 'Production BOM', '生产工单': 'Work orders',
+  '收付款记录': 'Payment records', '银行勾对': 'Bank statement matching', '应收应付来源': 'Receivable and payable sources', '生产管理': 'Production', '生产 BOM': 'Production BOM', '生产工单': 'Work orders',
   '生产领料': 'Material issues', '生产退料': 'Material returns', '完工与质检': 'Completion and quality', '生产成本': 'Production costs', '物料需求计划': 'Material planning',
   '不合格品处置与返工': 'Quality disposition and rework', '设备维护': 'Equipment maintenance', '系统管理': 'System', '菜单管理': 'Menu management',
   '用户管理': 'User management', '权限管理': 'Access management', '权限目录': 'Permission catalog', '连接与服务': 'Connection and services'

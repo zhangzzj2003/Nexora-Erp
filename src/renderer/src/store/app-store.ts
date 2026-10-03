@@ -43,6 +43,7 @@ import { createPurchaseActions } from './modules/purchase-actions'
 import { createWarehouseActions } from './modules/warehouse-actions'
 import { createReportActions } from './modules/report-actions'
 import { createFinanceActions } from './modules/finance-actions'
+import { createBankReconciliationActions } from './modules/bank-reconciliation-actions'
 import { createLedgerActions } from './modules/ledger-actions'
 import { createPeriodClosingActions } from './modules/period-closing-actions'
 import { createOpeningBalanceActions } from './modules/opening-balance-actions'
@@ -244,6 +245,7 @@ function createAppStore() {
   const warehouseActions = createWarehouseActions(state, perform)
   const reportActions = createReportActions(state, perform)
   const financeActions = createFinanceActions(state, perform)
+  const bankReconciliationActions = createBankReconciliationActions(state, perform)
   const ledgerActions = createLedgerActions(state, perform)
   const periodClosingActions = createPeriodClosingActions(state, perform)
   const openingBalanceActions = createOpeningBalanceActions(state, perform)
@@ -324,6 +326,7 @@ function createAppStore() {
     ...warehouseActions,
     ...reportActions,
     ...financeActions,
+    ...bankReconciliationActions,
     ...ledgerActions,
     ...periodClosingActions,
     ...journalActions,

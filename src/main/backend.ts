@@ -177,6 +177,44 @@ function positiveId(payload: unknown, key: string): number {
   return value
 }
 
+function bankText(value: unknown, label: string, max: number, required = true): string {
+  if (typeof value !== 'string' || value.length > max || /[\x00-\x1f]/.test(value)
+    || (required && !value.trim())) throw new Error(`${label}无效`)
+  return value.trim()
+}
+
+function bankBody(payload: unknown, kind: 'account' | 'lines' | 'match' | 'reverse'): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('银行勾对参数无效')
+  const value = payload as Record<string, unknown>
+  if (kind === 'account') {
+    const code = bankText(value.code, '银行账户编码', 32)
+    if (!/^[A-Z0-9][A-Z0-9_-]{0,31}$/.test(code)) throw new Error('银行账户编码无效')
+    return { code, name: bankText(value.name, '银行账户名称', 80) }
+  }
+  if (kind === 'reverse') return { reason: bankText(value.reason, '撤销原因', 200) }
+  if (kind === 'match') {
+    const statement_line_id = positiveId(value, 'statement_line_id')
+    const source_id = positiveId(value, 'source_id')
+    if (value.source_type !== 'order_payment' && value.source_type !== 'subledger_payment') throw new Error('收付款来源无效')
+    return { statement_line_id, source_type: value.source_type, source_id, reason: bankText(value.reason, '勾对依据', 200) }
+  }
+  const account_id = positiveId(value, 'account_id')
+  if (!Array.isArray(value.lines) || value.lines.length < 1 || value.lines.length > 500) throw new Error('银行流水明细无效')
+  const lines = value.lines.map((entry: unknown) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('银行流水明细无效')
+    const row = entry as Record<string, unknown>
+    const occurred_on = bankText(row.occurred_on, '银行交易日期', 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(occurred_on) || Number.isNaN(Date.parse(`${occurred_on}T00:00:00Z`))) throw new Error('银行交易日期无效')
+    const amount = bankText(row.amount, '银行金额', 20)
+    if (!/^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(amount) || !Number.isFinite(Number(amount))
+      || Number(amount) === 0 || Math.abs(Number(amount)) > 1_000_000_000_000) throw new Error('银行金额无效')
+    return { transaction_id: bankText(row.transaction_id, '银行交易号', 100), occurred_on,
+      amount, counterparty: bankText(row.counterparty, '对方户名', 120, false), note: bankText(row.note, '备注', 200, false) }
+  })
+  if (new Set(lines.map(line => line.transaction_id)).size !== lines.length) throw new Error('同批银行交易号不能重复')
+  return { account_id, lines }
+}
+
 function customerImportNames(payload: unknown): string[] {
   const names = payload && typeof payload === 'object' && !Array.isArray(payload)
     ? (payload as Record<string, unknown>).names : undefined
@@ -917,6 +955,11 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: `/api/v1/finance/journals/${id}/reverse`, body: { version, reference, journal_date, reason } }
     }
     case 'paymentRecords': return { method: 'GET', path: '/api/v1/finance/payment-records' }
+    case 'bankReconciliationOverview': return { method: 'GET', path: '/api/v1/finance/bank-reconciliation/overview' }
+    case 'createBankAccount': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/accounts', body: bankBody(payload, 'account') }
+    case 'importBankLines': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/lines/import', body: bankBody(payload, 'lines') }
+    case 'matchBankLine': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/matches', body: bankBody(payload, 'match') }
+    case 'reverseBankMatch': return { method: 'POST', path: `/api/v1/finance/bank-reconciliation/matches/${positiveId(payload, 'matchId')}/reverse`, body: bankBody(payload, 'reverse') }
     case 'createPaymentRecord': return { method: 'POST', path: '/api/v1/finance/payment-records', body: payload }
     case 'reversePaymentRecord': return {
       method: 'POST', path: `/api/v1/finance/payment-records/${positiveId(payload, 'paymentId')}/reverse`,

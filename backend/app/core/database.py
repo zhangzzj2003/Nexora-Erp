@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 68:
+        if version > 69:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2232,3 +2232,39 @@ def migrate() -> None:
             db.execute('CREATE INDEX inventory_warning_events_warehouse ON inventory_warning_events(warehouse_id,id)')
             db.execute('CREATE INDEX inventory_warning_events_rule ON inventory_warning_events(rule_id,id)')
             db.execute('PRAGMA user_version = 68')
+
+        if version < 69:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_accounts (
+                id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_statement_lines (
+                id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+                transaction_id TEXT NOT NULL, occurred_on TEXT NOT NULL, amount TEXT NOT NULL,
+                counterparty TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(account_id, transaction_id))''')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_matches (
+                id INTEGER PRIMARY KEY,
+                statement_line_id INTEGER NOT NULL REFERENCES bank_statement_lines(id),
+                source_type TEXT NOT NULL CHECK(source_type IN ('order_payment','subledger_payment')),
+                source_id INTEGER NOT NULL, reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_match_reversals (
+                id INTEGER PRIMARY KEY, match_id INTEGER NOT NULL UNIQUE REFERENCES bank_matches(id),
+                reason TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX IF NOT EXISTS bank_matches_statement ON bank_matches(statement_line_id,id)')
+            db.execute('CREATE INDEX IF NOT EXISTS bank_matches_source ON bank_matches(source_type,source_id,id)')
+            db.execute("INSERT OR IGNORE INTO permission_groups(code,label,parent_code,sort_order) VALUES ('finance.bank_reconciliation','银行勾对','finance',54)")
+            operations = [('bank_reconciliation.' + action, label) for action, label in (
+                ('view','查看银行流水与勾对'), ('account','登记银行账户'),
+                ('record','登记银行流水'), ('match','勾对收付款'), ('reverse','撤销银行勾对'))]
+            db.executemany("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,'finance.bank_reconciliation')", operations)
+            db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [(role, code) for role in ('admin','finance') for code, _ in operations])
+            db.execute('PRAGMA user_version = 69')

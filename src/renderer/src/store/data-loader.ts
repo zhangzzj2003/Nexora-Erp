@@ -31,6 +31,7 @@ export function createDataLoader(
     openingBalances,
     accountingPeriods,
     paymentRecords,
+    bankOverview,
     boms,
     workOrders,
     materialIssues,
@@ -189,6 +190,12 @@ export function createDataLoader(
       financeAccounts.value = []
       paymentRecords.value = []
     }
+    if (can('bank_reconciliation.view')) {
+      const owner = `${state.server.value?.id}:${state.server.value?.fingerprint}:${user.value?.id}`
+      const overview = await window.nexora.callApi('bankReconciliationOverview', undefined)
+      if (owner === `${state.server.value?.id}:${state.server.value?.fingerprint}:${user.value?.id}`
+        && can('bank_reconciliation.view')) bankOverview.value = overview
+    } else bankOverview.value = null
     openingBalances.value = can('opening_balance.view') ? await window.nexora.callApi('openingBalances', undefined) : []
     journals.value = can('journal.view') ? await window.nexora.callApi('journals', undefined) : []
     ledgerAccounts.value = can('ledger_account.view')
