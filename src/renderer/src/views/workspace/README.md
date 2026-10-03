@@ -103,6 +103,6 @@
 
 `production/QualityDispositionView.vue` 提供独立 `quality.view` 入口，`QualityEditor.vue` 编制报废及返工，`QualityEvidence.vue` 核对冻结检验、追加材料与前后变更；`quality-actions.ts` 管理 Pinia 草稿、版本、断线及权限清理。生产工单、报工与成本显示关联来源；规则见 [不合格品处置与返工](../../../../../docs/quality-rework.md)。
 
-`warehouse/InventoryWarningsView.vue` 使用 `inventory-warning-actions.ts` 管理 Pinia 规则、数量、草稿与修订版本。只读权限沿用库存查看，维护另需独立权限；同账号断线失效旧量而保留正文，换号撤权及迟到响应隔离。库存台账链接预设来源组合；页面可翻阅服务端定时留存的预警事件，换号和断线失效旧历史。`inventory-warning-alerts.ts` 在当前登录窗口内轮询，失焦时通过受限预加载接口请求不含物料详情的系统通知。规则和升级见 [库存预警](../../../../../docs/inventory-warnings.md)。
+`warehouse/InventoryWarningsView.vue` 使用 `inventory-warning-actions.ts` 管理 Pinia 规则、数量、草稿与修订版本。只读权限沿用库存查看，维护另需独立权限；同账号断线失效旧量而保留正文，换号撤权及迟到响应隔离。库存台账链接预设来源组合；页面可翻阅服务端定时留存的预警事件，换号和断线失效旧历史。`inventory-warning-alerts.ts` 在当前登录窗口内轮询，失焦时通过受限预加载接口请求不含物料详情的系统通知；窗口关闭后由主进程托盘轮询服务端事件。规则和升级见 [库存预警](../../../../../docs/inventory-warnings.md)。
 
 `warehouse/PhysicalLotsView.vue` 使用 `physical-lot-actions.ts` 管理 Pinia 批次快照与补证写操作，查询沿用库存查看权限，现场补证另需 `physical_lot.reclassify`，旧客户端未分配流水逐笔、成对及成组补证需 `physical_lot.movement_evidence`；仓库/物料筛选、迟到响应、断线、换号和撤权都不能留下旧批次证据。历史未识别期初、新流水、现场补证、逐笔、成对及成组补证记录分开展示，补证与可审计冲销只转移批次归属，未分配差额不会显示成可追踪批次，规则见 [实物批次基础](../../../../../docs/physical-lot-tracing.md)。

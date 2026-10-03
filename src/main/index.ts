@@ -2,13 +2,15 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, T
 import { extname, join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
-import { callBackend, fetchCrmQuotePdf, getBackendHealth } from './backend'
+import { backendSessionMarker, callBackend, fetchCrmQuotePdf, getBackendHealth } from './backend'
 import type { ErpOperations } from '../shared/erp-api'
+import type { InventoryWarningEventPage } from '../shared/inventory-warning-api'
 import type { HostInput } from '../shared/desktop-api'
 import { keepDesktopInTray, trayServiceLabel } from './tray-state'
 import { windowChromeOptions } from './window-chrome'
 import { windowOverlayTheme } from '../shared/window-chrome'
 import { showInventoryWarningNotification } from './inventory-notifications'
+import { createInventoryTrayAlerts } from './inventory-tray-alerts'
 import { activateSaved, approveConnection, createHost, disconnect, finishHostSetup, hostFingerprint, hostStatus,
   loadConnections, prepareConnection, recentProfiles, restartHost, resume, shutdownConnections,
   startDiscovery, stopDiscovery, stopHost, upgradeHost } from './connections'
@@ -16,6 +18,16 @@ import { activateSaved, approveConnection, createHost, disconnect, finishHostSet
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let startupError: string | null = null
+const trayAlerts = createInventoryTrayAlerts({
+  sessionMarker: backendSessionMarker,
+  read: async beforeId => await callBackend('inventoryWarningEvents',
+    beforeId === undefined ? undefined : { beforeId }) as InventoryWarningEventPage,
+  windowOpen: () => mainWindow !== null,
+  notify: notice => {
+    showInventoryWarningNotification(notice, false, Notification.isSupported(),
+      (title, body) => new Notification({ title, body }), openMainWindow)
+  }
+})
 
 if (process.env.NEXORA_USER_DATA_DIR) {
   // 集成验收使用独立用户目录，避免测试创建的服务端影响真实工作资料。
@@ -90,6 +102,7 @@ function createWindow(): void {
       mainWindow = null
       // 窗口关闭后托盘仍常驻，主动结束仅供该窗口使用的局域网扫描。
       stopDiscovery()
+      void trayAlerts.poll()
     }
   })
 
@@ -123,14 +136,18 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+  trayAlerts.start()
   ipcMain.handle('backend:get-health', (event) => {
     assertMainWindow(event)
     return getBackendHealth()
   })
-  ipcMain.handle('erp:call', (event, action: keyof ErpOperations, payload: unknown) => {
+  ipcMain.handle('erp:call', async (event, action: keyof ErpOperations, payload: unknown) => {
     // 业务通道仅接受当前主窗口主框架的调用。
     assertMainWindow(event)
-    return callBackend(action, payload)
+    const result = await callBackend(action, payload)
+    // 会话变化后立即读取事件；读取不阻塞登录或退出，首次成功读取只建立基线。
+    if (action === 'login' || action === 'logout' || action === 'changePassword') void trayAlerts.poll()
+    return result
   })
   ipcMain.handle('inventory:notify-warning', (event, payload: unknown) => {
     assertMainWindow(event)
@@ -243,5 +260,6 @@ app.on('before-quit', () => {
   // 显式退出时销毁托盘，避免仍在进行的状态查询更新已释放的图标。
   tray?.destroy()
   tray = null
+  trayAlerts.stop()
   shutdownConnections()
 })

@@ -32,6 +32,17 @@ export interface BackendTarget {
 
 let sessionToken: string | null = null
 let selectedTarget: BackendTarget | null = null
+let sessionRevision = 0
+
+function setSessionToken(token: string | null, forceRevision = false): void {
+  if (forceRevision || sessionToken !== token) sessionRevision++
+  sessionToken = token
+}
+
+// 只暴露不含令牌的会话代号，供主进程丢弃跨账号或跨实例的迟到预警响应。
+export function backendSessionMarker(): number | null {
+  return sessionToken ? sessionRevision : null
+}
 
 function sameBackendIdentity(left: BackendTarget | null, right: BackendTarget | null): boolean {
   // 地址可能因局域网变化而更新；实例编号和已信任证书同时一致才允许沿用会话。
@@ -47,7 +58,7 @@ export function retainedSessionToken(token: string | null, current: BackendTarge
 
 export function selectBackend(target: BackendTarget | null): void {
   // 刷新页面会重新选中同一服务端，只有真正切换实例或证书时才丢弃令牌。
-  sessionToken = retainedSessionToken(sessionToken, selectedTarget, target)
+  setSessionToken(retainedSessionToken(sessionToken, selectedTarget, target))
   selectedTarget = target
 }
 
@@ -113,7 +124,7 @@ export async function fetchCrmQuotePdf(value: unknown): Promise<{ id: number; by
     throw new Error('无法读取报价 PDF，请检查网络、服务状态和证书。')
   }
   if (!response.ok) {
-    if (response.status === 401 && sessionToken === token) sessionToken = null
+    if (response.status === 401 && sessionToken === token) setSessionToken(null)
     const data: unknown = await response.json().catch(() => undefined)
     const detail = data && typeof data === 'object' && 'detail' in data ? data.detail : undefined
     throw new Error(typeof detail === 'string' ? detail : `报价 PDF 请求失败（HTTP ${response.status}）`)
@@ -1112,7 +1123,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   if (!publicAction && !sessionToken) throw new Error('请先登录')
   const activeToken = sessionToken
   // 即使本地服务暂时不可达，退出时也立刻丢弃桌面进程持有的令牌。
-  if (action === 'logout') sessionToken = null
+  if (action === 'logout') setSessionToken(null)
   let response: Response
   try {
     response = await sendRequest(request.path, request.method, {
@@ -1124,7 +1135,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   const data: unknown = response.status === 204 ? undefined : await response.json().catch(() => undefined)
   if (!response.ok) {
-    if (response.status === 401 && !publicAction) sessionToken = null
+    if (response.status === 401 && !publicAction && sessionToken === activeToken) setSessionToken(null)
     const detail = data && typeof data === 'object' && 'detail' in data ? data.detail : undefined
     // FastAPI 的默认 404 文案没有操作语境，提示用户核对桌面端与服务端版本。
     if (response.status === 404 && detail === 'Not Found') {
@@ -1135,10 +1146,10 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   if (action === 'login') {
     if (!data || typeof data !== 'object' || !('token' in data) || typeof data.token !== 'string'
       || !('user' in data) || !data.user) throw new Error('登录响应格式不匹配')
-    sessionToken = data.token
+    setSessionToken(data.token, true)
     return data.user
   }
-  if (action === 'logout' || action === 'changePassword') sessionToken = null
+  if (action === 'logout' || action === 'changePassword') setSessionToken(null)
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
   if (action === 'customerImportPreview') validateCustomerImportPreview(data,
     customerImportNames(payload))

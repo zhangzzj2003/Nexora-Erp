@@ -255,7 +255,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 按仓库库存预警
 
-第 55 版新增规则与修订证据两张静态 ORM 表，共 131 张。`app/inventory/warnings.py` 从已确认流水逐仓逐物料 Decimal 汇总，提供范围查询、详情与带版本阈值维护；沿用 `inventory.view`，新增 `inventory_warning.manage`。规则与审计同事务，过期版本返回 409，未配置不参与预警，停用差额返回 null。桌面窗口可定时读取并提示状态变化，失焦时由桌面应用显示系统通知；服务端约每 60 秒核对规则并用 ORM 留存首次异常、再次异常和恶化事件，桌面可翻阅历史；服务端不主动推送系统通知、邮件或预测。升级与使用见 [库存预警规则](../docs/inventory-warnings.md)。
+第 55 版新增规则与修订证据两张静态 ORM 表，共 131 张。`app/inventory/warnings.py` 从已确认流水逐仓逐物料 Decimal 汇总，提供范围查询、详情与带版本阈值维护；沿用 `inventory.view`，新增 `inventory_warning.manage`。规则与审计同事务，过期版本返回 409，未配置不参与预警，停用差额返回 null。桌面窗口可定时读取并提示状态变化，失焦时由桌面应用显示系统通知；服务端约每 60 秒核对规则并用 ORM 留存首次异常、再次异常和恶化事件，桌面可翻阅历史；窗口关闭但托盘仍运行且保持登录时，桌面进程轮询服务端事件并显示系统通知。服务端不主动推送系统通知、邮件或预测。升级与使用见 [库存预警规则](../docs/inventory-warnings.md)。
 
 ## 实物批次数据基础
 
