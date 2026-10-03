@@ -23,7 +23,9 @@ MOVEMENT_LINKS = {
     'shipment_id': ('shipment',), 'shipment_reversal_id': ('shipment_reversal',),
     'sales_return_id': ('sales_return',), 'sales_return_reversal_id': ('sales_return_reversal',),
     'purchase_return_id': ('purchase_return',), 'purchase_return_reversal_id': ('purchase_return_reversal',),
-    'material_issue_id': ('material_issue',), 'material_return_id': ('material_return',),
+    'material_issue_id': ('material_issue',),
+    'material_issue_reversal_id': ('material_issue_reversal',),
+    'material_return_id': ('material_return',),
     'production_completion_id': ('production_completion',),
     'production_completion_reversal_id': ('production_completion_reversal',),
 }

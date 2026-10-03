@@ -2,7 +2,7 @@
 
 [简体中文](development.zh-CN.md) · [Project overview](../README.en.md)
 
-This guide covers setup, architecture, business boundaries, testing and building. Status reflects database version 65 and auditable manual CRM opportunity probabilities. [Home statistics (Chinese)](home-statistics.md) use one ORM read snapshot and existing permissions for business net amounts, daily sources, effective documents and current pending work/stock. Database version 65 has 147 static ORM tables. [Equipment maintenance (Chinese)](equipment-maintenance.md) provides the register, calendar plans and manual-meter operating-hour plans, independent execution/acceptance, downtime and original material documents; declared service costs do not create payables or journals. Bilingual documentation does not mean the application supports an English UI.
+This guide covers setup, architecture, business boundaries, testing and building. Status reflects database version 66 and auditable reversal of posted production material issues. [Home statistics (Chinese)](home-statistics.md) use one ORM read snapshot and existing permissions for business net amounts, daily sources, effective documents and current pending work/stock. Database version 66 has 148 static ORM tables. [Equipment maintenance (Chinese)](equipment-maintenance.md) provides the register, calendar plans and manual-meter operating-hour plans, independent execution/acceptance, downtime and original material documents; declared service costs do not create payables or journals. Bilingual documentation does not mean the application supports an English UI.
 
 ## Environment and startup
 

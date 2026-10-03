@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 from app.access.security import require
 from app.core.models import (Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotEvidenceGroup,
                              PhysicalLotEvidenceGroupPair, PhysicalLotEvidencePair,
-                             PhysicalLotMovementCheckpoint, PhysicalLotMovementEvidence, StockMovement, Warehouse)
+                             PhysicalLotMovementCheckpoint, PhysicalLotMovementEvidence, StockMovement, Warehouse,
+                             MaterialIssueReversal)
 from app.core.orm import add_model, orm_session
 from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.inventory.physical_lots import lot_balance, unassigned_stock_quantity
@@ -88,6 +89,15 @@ def _assigned_to_movement(db: Session, movement_id: int) -> Decimal:
     evidence = db.scalars(select(PhysicalLotMovementEvidence.quantity).where(
         PhysicalLotMovementEvidence.movement_id == movement_id))
     return sum((Decimal(value) for value in (*allocations, *evidence)), Decimal(0))
+
+
+def _ensure_movement_evidence_mutable(db: Session, movement: StockMovement) -> None:
+    # 原领料冲销已固定当时的批次归属，后补证不得再改变原反向配对。
+    if movement.source_type == 'material_issue_reversal' or (
+            movement.source_type == 'material_issue' and db.scalar(
+                select(MaterialIssueReversal.id).where(
+                    MaterialIssueReversal.material_issue_id == movement.source_id)) is not None):
+        raise HTTPException(409, '领料已冲销，不能再修改原单或冲销流水的批次补证')
 
 
 def _result(db: Session, record: PhysicalLotMovementEvidence, username: str) -> dict:
@@ -173,6 +183,7 @@ def add_movement_evidence(data: MovementEvidenceInput, movement_id: int = Path(g
         movement = db.get(StockMovement, movement_id)
         if movement is None:
             raise HTTPException(404, '库存流水不存在')
+        _ensure_movement_evidence_mutable(db, movement)
         if movement.id <= _checkpoint(db).movement_id:
             raise HTTPException(422, '该流水已纳入历史未识别期初，不能重复分配')
         remaining = Decimal(movement.quantity) - _assigned_to_movement(db, movement.id)
@@ -225,6 +236,7 @@ def reverse_movement_evidence(data: ReverseMovementEvidenceInput, record_id: int
                 PhysicalLotMovementEvidence.original_evidence_id == record_id)) is not None:
             raise HTTPException(409, '逐笔补证已冲销')
         movement = db.get(StockMovement, original.movement_id)
+        _ensure_movement_evidence_mutable(db, movement)
         quantity = Decimal(original.quantity)
         if quantity > 0 and lot_balance(db, movement.warehouse_id, original.lot_id) < quantity:
             raise HTTPException(409, '补证批次已被后续单据使用，不能冲销')
@@ -241,6 +253,8 @@ def _create_pair(db: Session, data: EvidencePairInput, user: dict) -> dict:
     outbound = db.get(StockMovement, data.outbound_movement_id)
     if inbound is None or outbound is None:
         raise HTTPException(404, '待补证库存流水不存在')
+    _ensure_movement_evidence_mutable(db, inbound)
+    _ensure_movement_evidence_mutable(db, outbound)
     if (inbound.id <= checkpoint or outbound.id <= checkpoint
             or inbound.id >= outbound.id
             or inbound.warehouse_id != outbound.warehouse_id
@@ -302,6 +316,8 @@ def _reverse_pair(db: Session, pair_id: int, data: ReverseMovementEvidenceInput,
     if db.scalar(select(PhysicalLotEvidencePair.id).where(
             PhysicalLotEvidencePair.original_pair_id == pair_id)) is not None:
         raise HTTPException(409, '成对补证已冲销')
+    _ensure_movement_evidence_mutable(db, db.get(StockMovement, original.inbound_movement_id))
+    _ensure_movement_evidence_mutable(db, db.get(StockMovement, original.outbound_movement_id))
     lot = db.get(PhysicalLot, original.lot_id)
     # 新建批次的首次来源若已被其他证据引用，撤销来源会留下无法解释的追溯链。
     first_evidence_id = db.scalar(select(func.min(PhysicalLotMovementEvidence.id)).where(

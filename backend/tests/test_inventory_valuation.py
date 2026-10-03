@@ -138,7 +138,7 @@ def test_v35_upgrade_preserves_stock_and_adds_cost_permissions(monkeypatch, tmp_
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 65
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 66
         assert db.execute("SELECT name FROM materials WHERE sku = 'OLD'").fetchone()[0] == "旧物料"
         assert db.execute("SELECT COUNT(*) FROM inventory_cost_inputs").fetchone()[0] == 0
         grants = set(db.execute("""SELECT role_code FROM role_permissions

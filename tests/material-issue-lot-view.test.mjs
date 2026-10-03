@@ -13,7 +13,7 @@ materialIssues,error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(f
 workOrders:ref([]),warehouses:ref([]),selectedIssueOrder:ref(null),
 materialIssueForm:ref({work_order_id:0,warehouse_id:1,reference:'',lines:[]}),
 can:()=>true,localTime:value=>value,selectIssueOrder(){},createMaterialIssue(){},
-loadAvailableMaterialIssueLots(){},postMaterialIssue(){},cancelMaterialIssue(){},selectReturnIssue(){}}});`
+loadAvailableMaterialIssueLots(){},postMaterialIssue(){},cancelMaterialIssue(){},reverseMaterialIssue(){},selectReturnIssue(){}}});`
 
 test('生产领料显示批次证据、旧单差额和选批确认入口',async t=>{
   const server=await createServer({configFile:false,plugins:[{name:'issue-view-fixture',enforce:'pre',
@@ -39,13 +39,16 @@ test('生产领料显示批次证据、旧单差额和选批确认入口',async 
     reference:'',status:'posted',created_at:'2026-10-03',created_by_name:'admin',lines:[
       {...line,physical_lots:[{id:8,code:'LEGACY-W1-M3',quantity:'1.000',source_kind:'legacy'}]}]}
   store.materialIssues=[issue,{...issue,id:3,lines:[{...line,physical_lots:[]}]},
+    {...issue,id:5,status:'reversed',reversal_reason:'错误确认',reversed_at:'2026-10-03'},
     {...issue,id:4,status:'draft',lines:[{...line,physical_lots:[]}]}]
   const {default:Component}=await server.ssrLoadModule(
     '/src/renderer/src/views/workspace/production/MaterialIssuesView.vue')
   const html=await renderToString(createSSRApp({render:()=>h(Component)}).use(pinia))
   assert.match(html,/LEGACY-W1-M3/)
   assert.match(html,/历史未识别/)
-  assert.match(html,/旧确认未指定实物批次/)
+  assert.match(html,/原确认未指定实物批次/)
+  assert.match(html,/已冲销/)
+  assert.match(html,/冲销原因：错误确认/)
   assert.match(html,/指定批次并确认/)
-  assert.equal((html.match(/旧确认未指定实物批次/g)??[]).length,1)
+  assert.equal((html.match(/原确认未指定实物批次/g)??[]).length,1)
 })

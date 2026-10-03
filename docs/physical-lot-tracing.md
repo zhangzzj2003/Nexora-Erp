@@ -11,7 +11,7 @@
 - `POST /api/v1/production-completions/{id}/post` 在原 `production_completion.post` 权限下，合格数量大于零时可提交 `lots: [{quantity, manufactured_on, expires_on}]`。服务端以 `P` 和完工单号生成逐批内部编号，不把成品批次误记成供应商批号；批次数量之和必须等于质检合格数量。整批不合格只确认报工，不生成成品库存流水或实物批次。冲销沿原分配扣回，已耗用则返回 409 并整单回滚；旧客户端省略批次请求体仍按原流程确认并留下差额。桌面端确认时录入批次并核对服务端返回的固定证据。完工成本结算仍沿原单据与金额规则，不由实物批次推算成本。
 - `GET /api/v1/warehouse-outbounds/{id}/available-lots` 沿用 `other_outbound.post`，对其他用途出库和已提交采购退货的待确认出库单返回来源仓库正余额批次。桌面端逐行选择，明确标记历史未识别批次。`POST /api/v1/warehouse-outbounds/{id}/post` 可提交 `lines: [{outbound_line_id, lots: [{lot_id, quantity}]}]`，逐行数量精确守恒；服务端在 ORM 写事务中校验物料、仓库、余额和重复选择。冲销按原分配回到原仓原批次，保留原选择证据。采购退货共用确认地址，按退货原单生成库存流水并固定所选批次；旧兼容 `/purchase-returns/{id}/post` 仍不带批次请求体。旧客户端省略请求体维持原行为，形成可见差额。
 - `GET /api/v1/shipments/{id}/available-lots` 沿用 `shipment.post`，对销售出库草稿返回出库仓的正余额批次。`POST /api/v1/shipments/{id}/post` 可提交 `lines: [{shipment_line_id, lots: [{lot_id, quantity}]}]`，逐行守恒并固定原批次，冲销回到原仓原批次。旧客户端省略请求体仍可确认，差额可在批次核对页看到。
-- `GET /api/v1/material-issues/{id}/available-lots` 沿用 `material_issue.post`，只对生产领料草稿返回来源仓的正余额批次。`POST /api/v1/material-issues/{id}/post` 可提交 `lines: [{material_issue_line_id, lots: [{lot_id, quantity}]}]`；逐行精确守恒，确认时在同一 ORM 写事务内重核工单剩余需料、库存和批次余额并固定分配。桌面端显示原批次证据，缺失时提示旧确认差额。旧客户端省略请求体仍可确认；领料暂无直接冲销接口，退料通过独立单据回仓。
+- `GET /api/v1/material-issues/{id}/available-lots` 沿用 `material_issue.post`，只对生产领料草稿返回来源仓的正余额批次。`POST /api/v1/material-issues/{id}/post` 可提交 `lines: [{material_issue_line_id, lots: [{lot_id, quantity}]}]`；逐行精确守恒，确认时在同一 ORM 写事务内重核工单剩余需料、库存和批次余额并固定分配。桌面端显示原批次证据，缺失时提示旧确认差额。旧客户端省略请求体仍可确认；第 66 版已提供已确认领料的整单冲销：未结期间且无有效报工、退料、人工核价或成本结算时，追加原仓正向流水，沿原分配回到原批次；历史未分配流水保持差额。实际剩余材料返仓仍使用独立退料单。
 - `GET /api/v1/material-returns/{id}/available-lots` 沿用 `material_return.post`，只对退料草稿返回原领料行已分配批次及扣除既往已确认退料后的剩余可退量。`POST /api/v1/material-returns/{id}/post` 可提交 `lines: [{return_line_id, lots: [{lot_id, quantity, supplier_lot, manufactured_on, expires_on}]}]`；选择已有批次时必须属于原领料行且不超过该批次剩余可退量，实物无法对应时可登记明确标为“退料新批次”的来源。每行精确守恒，回仓流水与批次分配在同一 ORM 写事务内固定。旧客户端省略请求体仍可确认并留下可见差额；退料目前没有直接冲销接口。
 - `GET /api/v1/sales-returns/{id}/available-lots` 沿用 `sales_return.post`，只对退货草稿返回原出库行已分配批次及扣除未冲销既往退货后的可退批次数量。`POST /api/v1/sales-returns/{id}/post` 可提交 `lines: [{return_line_id, lots: [{lot_id, quantity, supplier_lot, manufactured_on, expires_on}]}]`；选择已有批次时必须属于原出库行且不能超过该批次可退量，实际实物无法归回原批次时可登记标为“退货新批次”的来源。每行数量精确等于退货量，回仓流水与批次分配在同一 ORM 写事务内固定，冲销沿原分配从退回仓扣回，批次不足则整单回滚。旧客户端省略请求体仍可确认，旧出库未登记的批次不得猜测，其差额可见。
 - `GET /api/v1/transfers/{id}/available-lots` 沿用 `transfer.post`，只返回调拨草稿来源仓的正余额批次。`POST /api/v1/transfers/{id}/post` 可提交 `lines: [{transfer_line_id, lots: [{lot_id, quantity}]}]`；逐行数量守恒，出仓与入仓两笔流水在同一 ORM 写事务中分配同一批次。冲销逐笔引用两侧原分配，目标仓该批次已被耗用则返回 409 并整单回滚。旧客户端省略批次请求体仍可调拨，但两个仓库的未分配量会进入差额诊断。
@@ -43,7 +43,7 @@
 | 其他用途出库（已实现） | 人工选择来源仓库正余额批次 | 按原分配回到原仓原批次并保留关联 |
 | 采购退货（已实现） | 人工选择原入库仓库正余额批次，固定在退货流水上 | 冲销沿原退货分配回原仓原批次 |
 | 销售出库（已实现） | 人工选择出库仓库正余额批次，固定在出库流水上 | 出库冲销沿原分配回到原仓原批次；有效销售退货须先冲销 |
-| 生产领料（已实现） | 人工选择来源仓库正余额批次，确认时固定领料分配 | 暂无直接冲销；退料按原领料批次的可退量核对，无法对应时登记新批次 |
+| 生产领料（已实现） | 人工选择来源仓库正余额批次，确认时固定领料分配 | 已确认领料可在无下游依赖时按原批次整单冲销；退料按原领料批次的可退量核对，无法对应时登记新批次 |
 | 仓库调拨及调拨冲销（已实现） | 来源仓逐行选择正余额批次，两仓等量转移同一批次 | 沿两侧原分配回拨；目标仓原批次已耗用则拒绝整单冲销 |
 | 销售退货（已实现） | 原出库已记录批次可按剩余可退量归回；无法对应时登记“退货新批次”，不伪造原来源 | 冲销只扣本次回仓分配，已被耗用则拒绝 |
 | 生产退料（已实现） | 原领料已记录批次可按剩余可退量归回；无法对应时登记“退料新批次”，不伪造原来源 | 暂无直接冲销接口，原退料和批次分配保留审计 |

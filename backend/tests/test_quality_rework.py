@@ -317,10 +317,10 @@ def test_v50_upgrade_preserves_records_and_static_models(quality_erp,remove_qual
         db.execute('PRAGMA user_version=50')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 65
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 66
         assert db.execute('SELECT * FROM work_orders').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
-        assert len(Base.metadata.tables) == 147
+        assert len(Base.metadata.tables) == 148
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'quality.%'").fetchone()[0] == 7
     assert api('GET',ROOT)['cases'][0]['work_order_id'] == original['id']
 

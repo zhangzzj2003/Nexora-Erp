@@ -28,6 +28,7 @@ PAIRED_SOURCES = {
     "purchase_return_reversal": "purchase_return",
     "stocktake_reversal": "stocktake",
     "adjustment_reversal": "adjustment",
+    "material_issue_reversal": "material_issue",
 }
 
 

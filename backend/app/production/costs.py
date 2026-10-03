@@ -12,6 +12,7 @@ from app.access.security import require
 from app.core.period_lock import ensure_date_unlocked, ensure_movement_unlocked
 from app.core.orm import orm_session, model_data
 from app.core.models import (User, Material, Bom, WorkOrder, WorkOrderLine, MaterialIssue,
+    MaterialIssueReversal,
     MaterialIssueLine, MaterialReturn, MaterialReturnLine, StockMovement, ProductionCostEntry,
     ProductionCostReversal, ProductionSettlementSource)
 from app.inventory.valuation import calculate_valuation
@@ -122,7 +123,9 @@ def cost_report(session: Session) -> dict:
             .join(MaterialIssue, MaterialIssue.id == MaterialIssueLine.material_issue_id)
             .join(WorkOrderLine, WorkOrderLine.id == MaterialIssueLine.work_order_line_id)
             .join(Material, Material.id == WorkOrderLine.component_material_id)
-            .where(MaterialIssue.work_order_id == order.id, MaterialIssue.status == 'posted')):
+            .where(MaterialIssue.work_order_id == order.id, MaterialIssue.status == 'posted',
+                ~select(MaterialIssueReversal.id).where(
+                    MaterialIssueReversal.material_issue_id == MaterialIssue.id).exists())):
             net = Decimal(line.quantity) - returned_quantity(session, line.id)
             if net <= 0:
                 continue
@@ -194,7 +197,8 @@ def record_material_valuation(payload: MaterialValuationInput,
         if line is None:
             raise HTTPException(422, '领料明细不存在')
         issue = session.get(MaterialIssue, line.material_issue_id)
-        if issue.status != 'posted':
+        if issue.status != 'posted' or session.scalar(select(MaterialIssueReversal.id).where(
+                MaterialIssueReversal.material_issue_id == issue.id)) is not None:
             raise HTTPException(409, '只有已确认领料明细可以核价')
         ensure_unsettled(session, issue.work_order_id)
         movement_id = session.scalar(select(StockMovement.id).where(

@@ -164,6 +164,14 @@ export function createProductionActions(
     )
   }
 
+  async function reverseMaterialIssue(issueId: number, reason: string): Promise<void> {
+    if (!window.nexora) return
+    await perform(
+      () => window.nexora!.callApi('reverseMaterialIssue', { issueId, reason }),
+      `生产领料单 #${issueId} 已冲销，库存与工单可领量已按原单更正。`
+    )
+  }
+
   function selectReturnIssue(issueId: number): void {
     const issue = materialIssues.value.find((item) => item.id === issueId)
     materialReturnForm.value = {
@@ -375,6 +383,7 @@ export function createProductionActions(
     postMaterialIssue,
     loadAvailableMaterialIssueLots,
     cancelMaterialIssue,
+    reverseMaterialIssue,
     selectReturnIssue,
     createMaterialReturn,
     postMaterialReturn,

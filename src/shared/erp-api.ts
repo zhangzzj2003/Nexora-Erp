@@ -719,7 +719,7 @@ export interface MaterialIssue {
   warehouse_id: number
   warehouse_name: string
   reference: string
-  status: 'draft' | 'posted' | 'cancelled'
+  status: 'draft' | 'posted' | 'cancelled' | 'reversed'
   created_by: number
   created_by_name: string
   posted_by: number | null
@@ -727,6 +727,10 @@ export interface MaterialIssue {
   created_at: string
   posted_at: string | null
   cancelled_at: string | null
+  reversal_id: number | null
+  reversal_reason: string | null
+  reversed_by: number | null
+  reversed_at: string | null
   lines: MaterialIssueLine[]
 }
 export interface MaterialReturnLine {
@@ -1015,7 +1019,7 @@ export interface Movement {
   material_name: string
   unit: string
   quantity: string
-  source_type: 'receipt' | 'receipt_reversal' | 'other_inbound' | 'other_inbound_reversal' | 'other_outbound' | 'other_outbound_reversal' | 'adjustment' | 'adjustment_reversal' | 'transfer_out' | 'transfer_in' | 'transfer_reversal_out' | 'transfer_reversal_in' | 'stocktake' | 'stocktake_reversal' | 'shipment' | 'shipment_reversal' | 'sales_return' | 'sales_return_reversal' | 'purchase_return' | 'purchase_return_reversal' | 'material_issue' | 'material_return' | 'production_completion' | 'production_completion_reversal'
+  source_type: 'receipt' | 'receipt_reversal' | 'other_inbound' | 'other_inbound_reversal' | 'other_outbound' | 'other_outbound_reversal' | 'adjustment' | 'adjustment_reversal' | 'transfer_out' | 'transfer_in' | 'transfer_reversal_out' | 'transfer_reversal_in' | 'stocktake' | 'stocktake_reversal' | 'shipment' | 'shipment_reversal' | 'sales_return' | 'sales_return_reversal' | 'purchase_return' | 'purchase_return_reversal' | 'material_issue' | 'material_issue_reversal' | 'material_return' | 'production_completion' | 'production_completion_reversal'
   source_id: number
   source_line_id: number
   receipt_id: number | null
@@ -1037,6 +1041,7 @@ export interface Movement {
   purchase_return_id: number | null
   purchase_return_reversal_id: number | null
   material_issue_id: number | null
+  material_issue_reversal_id: number | null
   material_return_id: number | null
   production_completion_id: number | null
   production_completion_reversal_id: number | null
@@ -1259,6 +1264,7 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   availableMaterialIssueLots: {input: {issueId: number}; output: MaterialIssueLotOptions}
   postMaterialIssue: { input: { issueId: number; lines?: MaterialIssueLotLineInput[] }; output: MaterialIssue }
   cancelMaterialIssue: { input: { issueId: number }; output: MaterialIssue }
+  reverseMaterialIssue: { input: { issueId: number; reason: string }; output: MaterialIssue }
   materialReturns: { input: undefined; output: MaterialReturn[] }
   createMaterialReturn: { input: { material_issue_id: number; reason: string; lines: { material_issue_line_id: number; quantity: string }[] }; output: MaterialReturn }
   availableMaterialReturnLots: {input: {returnId: number}; output: MaterialReturnLotOptions}

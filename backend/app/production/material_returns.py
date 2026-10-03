@@ -13,6 +13,7 @@ from app.core.models import (
     Material,
     MaterialIssue,
     MaterialIssueLine,
+    MaterialIssueReversal,
     MaterialReturn,
     MaterialReturnLine,
     PhysicalLot,
@@ -139,6 +140,9 @@ def checked_lines(db: Session, issue_id: int, lines: list[tuple[int, Decimal]]) 
         raise HTTPException(422, "原领料单不存在")
     if issue["status"] != "posted":
         raise HTTPException(409, "只有已确认领料单可退料")
+    if db.scalar(select(MaterialIssueReversal.id).where(
+            MaterialIssueReversal.material_issue_id == issue_id)) is not None:
+        raise HTTPException(409, "原领料已冲销，不能再退料")
     if issue["work_order_status"] != "in_progress":
         raise HTTPException(409, "只有生产中的工单可退料")
     known = {

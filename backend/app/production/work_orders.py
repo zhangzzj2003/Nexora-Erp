@@ -14,6 +14,7 @@ from app.core.models import (
     Material,
     MaterialIssue,
     MaterialIssueLine,
+    MaterialIssueReversal,
     MaterialReturn,
     MaterialReturnLine,
     ProductionCompletion,
@@ -46,7 +47,7 @@ class WorkOrderInput(BaseModel):
 
 
 def issued_quantity(db: Session, work_order_line_id: int) -> Decimal:
-    # 原领料和退料都保留，工单可领量按已确认单据的净数量计算。
+    # 原领料、冲销和退料都保留，可领量只累计仍有效的已确认单据。
     issued = sum(
         (
             Decimal(row)
@@ -57,6 +58,8 @@ def issued_quantity(db: Session, work_order_line_id: int) -> Decimal:
                 .where(
                     MaterialIssueLine.work_order_line_id == work_order_line_id,
                     MaterialIssue.status == "posted",
+                    ~select(MaterialIssueReversal.id).where(
+                        MaterialIssueReversal.material_issue_id == MaterialIssue.id).exists(),
                 )
             )
         ),

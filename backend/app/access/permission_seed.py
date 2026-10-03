@@ -22,7 +22,7 @@ DEFAULT_PERMISSION_LABELS = {"users.manage": "管理用户与角色", "catalog.m
               "finance.record": "登记收付款", "finance.reverse": "冲销收付款",
               "finance.view": "查看应收应付",
               "material_issue.cancel": "取消生产领料单", "material_issue.create": "创建生产领料单",
-              "material_issue.post": "确认生产领料",
+              "material_issue.post": "确认生产领料", "material_issue.reverse": "冲销已确认生产领料",
               "material_return.cancel": "取消生产退料单", "material_return.create": "创建生产退料单",
               "material_return.post": "确认生产退料", "production.view": "查看生产业务",
               "production_completion.cancel": "取消完工报工单",

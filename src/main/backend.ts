@@ -923,6 +923,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
         ...(source.lines === undefined ? {} : {body: materialIssueLotBody({lines: source.lines})})}
     }
     case 'cancelMaterialIssue': return { method: 'POST', path: `/api/v1/material-issues/${positiveId(payload, 'issueId')}/cancel` }
+    case 'reverseMaterialIssue': {
+      const issueId = positiveId(payload, 'issueId')
+      const fields = payload as ErpOperations['reverseMaterialIssue']['input']
+      if (typeof fields.reason !== 'string' || !fields.reason.trim()
+        || fields.reason.trim().length > 200 || /[\x00-\x1f]/.test(fields.reason))
+        throw Error('生产领料冲销原因无效')
+      return { method: 'POST', path: `/api/v1/material-issues/${issueId}/reverse`,
+        body: { reason: fields.reason.trim() } }
+    }
     case 'materialReturns': return { method: 'GET', path: '/api/v1/material-returns' }
     case 'createMaterialReturn': return { method: 'POST', path: '/api/v1/material-returns', body: payload }
     case 'availableMaterialReturnLots': return {method: 'GET',

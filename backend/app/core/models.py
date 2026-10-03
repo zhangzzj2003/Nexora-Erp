@@ -809,6 +809,15 @@ class MaterialIssueLine(Base):
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class MaterialIssueReversal(Base):
+    __tablename__ = 'material_issue_reversals'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    material_issue_id: Mapped[int] = mapped_column(Integer, ForeignKey('material_issues.id'), nullable=False, unique=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class MaterialReturn(Base):
     __tablename__ = 'material_returns'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
