@@ -26,6 +26,7 @@ MOVEMENT_LINKS = {
     'material_issue_id': ('material_issue',),
     'material_issue_reversal_id': ('material_issue_reversal',),
     'material_return_id': ('material_return',),
+    'material_return_reversal_id': ('material_return_reversal',),
     'production_completion_id': ('production_completion',),
     'production_completion_reversal_id': ('production_completion_reversal',),
 }

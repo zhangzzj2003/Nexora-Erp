@@ -30,7 +30,7 @@
 
 统一前缀 `/api/v1/after-sales`：GET 概览；GET `/cases/{id}` 证据；POST `/cases` 建草稿；PUT `/cases/{id}` 修订；POST `/cases/{id}/{action}` 执行状态操作；POST `/cases/{id}/labor` 以十进制文本登记最多两位小数的正工时；POST `/cases/{id}/labor/{entry_id}/reverse` 更正原记录。工时接口核对版本、权限、客户归属和实际依据；交接、检验与交付操作必须填实际依据，维修检验必须明确合格或不合格。
 
-数据库第 52 版新增 `AfterSalesCase`、`AfterSalesChange`、`AfterSalesCustody` 三张声明式模型，当时共 122 张静态 ORM 表；第 64 版新增 `AfterSalesLabor`；第 65 版增加商机概率列；第 66 版增加生产领料冲销表，当前共 148 张。业务 CRUD 使用 ORM 会话，关联草稿、版本、保管、工时与审计在同一写事务提交或回滚。迁移失败连同新表、权限及版本回滚，保留旧销售记录；不在启动时反射或重建旧表。
+数据库第 52 版新增 `AfterSalesCase`、`AfterSalesChange`、`AfterSalesCustody` 三张声明式模型，当时共 122 张静态 ORM 表；第 64 版新增 `AfterSalesLabor`；第 65 版增加商机概率列；第 66 版增加生产领料冲销表；第 67 版增加生产退料冲销表，当前共 149 张。业务 CRUD 使用 ORM 会话，关联草稿、版本、保管、工时与审计在同一写事务提交或回滚。迁移失败连同新表、权限及版本回滚，保留旧销售记录；不在启动时反射或重建旧表。
 
 后端测试 `backend/tests/test_after_sales.py` 覆盖正常与更正流程、实际收费及凭证、客户物品隔离、耗材闸口、历史作者独立审核、工时精度与权限、并发占用、审计失败回滚、锁期归档及 v51/v63 升级。桌面测试 `tests/after-sales.test.mjs` 覆盖固定 IPC 路径与字段、异步身份隔离、断线保留、冲突恢复及操作权限。
 

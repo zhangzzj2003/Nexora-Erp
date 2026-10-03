@@ -32,7 +32,7 @@ SOURCE_LABELS = {
     'stocktake': '盘点差异', 'stocktake_reversal': '盘点冲销',
     'adjustment': '库存调整', 'adjustment_reversal': '库存调整冲销',
     'material_issue': '生产领料', 'material_issue_reversal': '生产领料冲销',
-    'material_return': '生产退料',
+    'material_return': '生产退料', 'material_return_reversal': '生产退料冲销',
     'production_completion': '生产完工', 'production_completion_reversal': '生产完工冲销',
     'production_charge': '生产费用', 'production_charge_reversal': '生产费用冲销',
     'payment_record': '收付款登记',

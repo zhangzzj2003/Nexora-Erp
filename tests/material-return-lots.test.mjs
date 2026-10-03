@@ -53,3 +53,21 @@ test('生产退料 IPC 限定回仓批次字段并核对服务端凭据', async 
   assert.equal(materialReturnLotBody({lines}).lines[0].lots[0].injected, undefined)
   assert.equal(physicalLotKindLabel('material_return'), '退料新批次')
 })
+
+test('生产退料冲销 IPC 限定编号和原因', async t => {
+  const calls = []
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls.push({path: url.pathname, body: options.body})
+    if (url.pathname.endsWith('/login')) return Response.json({token: 'test-token', user: {id: 1}})
+    return Response.json({id: 3, status: 'reversed'})
+  })
+  await callBackend('login', {})
+  await callBackend('reverseMaterialReturn', {returnId: 3, reason: '  登记错误  '})
+  assert.equal(calls.at(-1).path, '/api/v1/material-returns/3/reverse')
+  assert.deepEqual(JSON.parse(calls.at(-1).body), {reason: '登记错误'})
+  const before = calls.length
+  await assert.rejects(callBackend('reverseMaterialReturn', {returnId: '../users', reason: '原因'}))
+  await assert.rejects(callBackend('reverseMaterialReturn', {returnId: 3, reason: ' '}))
+  await assert.rejects(callBackend('reverseMaterialReturn', {returnId: 3, reason: '错误\n原因'}))
+  assert.equal(calls.length, before)
+})

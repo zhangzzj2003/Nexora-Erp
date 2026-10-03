@@ -39,6 +39,7 @@ const movementNames: Record<string, string> = { receipt: '采购入库', receipt
   transfer_reversal_in: '调拨冲销入库', transfer_reversal_out: '调拨冲销出库', stocktake: '盘点', stocktake_reversal: '盘点冲销',
   adjustment: '库存调整', adjustment_reversal: '库存调整冲销', material_issue: '生产领料',
   material_issue_reversal: '生产领料冲销', material_return: '生产退料',
+  material_return_reversal: '生产退料冲销',
   production_completion: '生产完工', production_completion_reversal: '生产完工冲销' }
 </script>
 

@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 66:
+        if version > 67:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2194,3 +2194,16 @@ def migrate() -> None:
             db.execute("INSERT INTO permissions(code,label,group_code) VALUES ('material_issue.reverse','冲销已确认生产领料','production.material_issue')")
             db.execute("INSERT INTO role_permissions(role_code,permission_code) VALUES ('admin','material_issue.reverse')")
             db.execute('PRAGMA user_version = 66')
+
+        if version < 67:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE material_return_reversals (
+                id INTEGER PRIMARY KEY,
+                material_return_id INTEGER NOT NULL UNIQUE REFERENCES material_returns(id),
+                reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute("INSERT INTO permissions(code,label,group_code) VALUES ('material_return.reverse','冲销已确认生产退料','production.material_return')")
+            db.execute("INSERT INTO role_permissions(role_code,permission_code) VALUES ('admin','material_return.reverse')")
+            db.execute('PRAGMA user_version = 67')

@@ -39,7 +39,8 @@ const {
   createMaterialReturn,
   loadAvailableMaterialReturnLots,
   postMaterialReturn,
-  cancelMaterialReturn
+  cancelMaterialReturn,
+  reverseMaterialReturn
 } = store
 
 const activeReturnId = ref(0)
@@ -47,6 +48,7 @@ const lotOptions = ref<MaterialReturnLotOptions | null>(null)
 const lotDrafts = ref<MaterialReturnLotLineInput[]>([])
 const lotLoading = ref(false)
 const lotLoadError = ref('')
+const reversalReasons = ref<Record<number, string>>({})
 let loadTicket = 0
 const activeReturn = computed(() => materialReturns.value.find(item =>
   item.id === activeReturnId.value && item.status === 'draft') ?? null)
@@ -148,6 +150,13 @@ async function confirmLotPost(): Promise<void> {
 const createOpen = ref(false)
 async function submitCreate(): Promise<void> {
   await submitCreateDialog(createMaterialReturn, { busy, error, notice }, createOpen)
+}
+async function submitReverse(item: MaterialReturn): Promise<void> {
+  const reason = reversalReasons.value[item.id]?.trim() ?? ''
+  if (!reason || busy.value || connectionLost.value || item.status !== 'posted') return
+  await reverseMaterialReturn(item.id, reason)
+  if (materialReturns.value.some(record => record.id === item.id && record.status === 'reversed'))
+    delete reversalReasons.value[item.id]
 }
 // 只筛选当前列表快照，原有单据状态与跨页面草稿保持不变。
 const recordQuery = ref('')
@@ -308,17 +317,20 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-status="{ row: item }">
         <span class="pill" :class="item.status">
-          {{ { draft: '草稿', posted: '已确认', cancelled: '已取消' }[item.status] }}
+          {{ { draft: '草稿', posted: '已确认', cancelled: '已取消', reversed: '已冲销' }[item.status] }}
         </span>
+        <small v-if="item.reversal_reason" class="muted">
+          {{ item.reversed_at ? localTime(item.reversed_at) : '' }} · 冲销原因：{{ item.reversal_reason }}
+        </small>
       </template>
       <template #cell-details="{ row: item }">
         <div class="workspace-record-lines">
           <span v-for="line in item.lines" :key="line.id">
             {{ line.material_name }} × {{ line.quantity }} {{ line.unit }}
-            <small v-if="item.status === 'posted' && line.physical_lots.length" class="return-lot-proof">
+            <small v-if="['posted', 'reversed'].includes(item.status) && line.physical_lots.length" class="return-lot-proof">
               实物批次：{{ line.physical_lots.map(lot => `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`).join('、') }}
             </small>
-            <small v-else-if="item.status === 'posted'" class="return-lot-proof">旧确认未指定实物批次，数量在批次核对页显示为差额。</small>
+            <small v-else-if="['posted', 'reversed'].includes(item.status)" class="return-lot-proof">旧确认未指定实物批次，数量在批次核对页显示为差额。</small>
           </span>
         </div>
       </template>
@@ -344,6 +356,14 @@ const filteredRecords = computed(() =>
           >
             取消
           </AppButton>
+          <template v-if="item.status === 'posted' && can('material_return.reverse')">
+            <label>冲销原因
+              <AppInput v-model.trim="reversalReasons[item.id]" maxlength="200" placeholder="填写错误确认依据" />
+            </label>
+            <AppButton type="button" variant="secondary" size="small"
+              :disabled="busy || connectionLost || !reversalReasons[item.id]?.trim()"
+              @click="submitReverse(item)">冲销已确认退料</AppButton>
+          </template>
         </div>
       </template>
       <template #empty>

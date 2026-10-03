@@ -4,6 +4,7 @@ from sqlalchemy import select, update, func
 from sqlalchemy.orm import Session
 from sqlalchemy.engine import RowMapping
 from decimal import Decimal
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -16,8 +17,12 @@ from app.core.models import (
     MaterialIssueReversal,
     MaterialReturn,
     MaterialReturnLine,
+    MaterialReturnReversal,
     PhysicalLot,
     PhysicalLotAllocation,
+    PhysicalLotMovementEvidence,
+    ProductionCompletion,
+    ProductionCompletionReversal,
     StockMovement,
     User,
     Warehouse,
@@ -25,9 +30,12 @@ from app.core.models import (
     WorkOrderLine,
 )
 from app.access.security import require
-from app.inventory.physical_lots import LotPart, post_lot_movement
+from app.inventory.physical_lots import LotPart, post_lot_movement, unassigned_stock_quantity
+from app.inventory.warehouse import balance
 from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.production.work_orders import issued_quantity, posted_completion_totals, required_for_output
+from app.production.cost_lock import ensure_unsettled
+from app.core.period_lock import ensure_date_unlocked, ensure_movement_unlocked
 
 router = APIRouter(prefix="/api/v1")
 
@@ -77,6 +85,17 @@ class MaterialReturnPostInput(BaseModel):
     lines: list[MaterialReturnLotLineInput] = Field(min_length=1, max_length=100)
 
 
+class MaterialReturnReverseInput(BaseModel):
+    reason: str = Field(min_length=1, max_length=200)
+
+    @field_validator('reason')
+    @classmethod
+    def trim_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError('冲销原因不能为空')
+        return value.strip()
+
+
 def source_lot_remaining(db: Session, issue_line_id: int) -> dict[int, Decimal]:
     """原领料批次减去已确认退回原批次的数量，新发现批次不冒充原批次。"""
     issued: dict[int, Decimal] = {}
@@ -95,7 +114,9 @@ def source_lot_remaining(db: Session, issue_line_id: int) -> dict[int, Decimal]:
                         MaterialReturn.id == MaterialReturnLine.material_return_id).where(
                             StockMovement.source_type == 'material_return',
                             MaterialReturnLine.material_issue_line_id == issue_line_id,
-                            MaterialReturn.status == 'posted')):
+                            MaterialReturn.status == 'posted',
+                            ~select(MaterialReturnReversal.id).where(
+                                MaterialReturnReversal.material_return_id == MaterialReturn.id).exists())):
         returned[lot_id] = returned.get(lot_id, Decimal(0)) + Decimal(quantity)
     return {lot_id: quantity - returned.get(lot_id, Decimal(0))
             for lot_id, quantity in issued.items()}
@@ -113,6 +134,8 @@ def returned_quantity(db: Session, issue_line_id: int) -> Decimal:
                 .where(
                     MaterialReturnLine.material_issue_line_id == issue_line_id,
                     MaterialReturn.status == "posted",
+                    ~select(MaterialReturnReversal.id).where(
+                        MaterialReturnReversal.material_return_id == MaterialReturn.id).exists(),
                 )
             )
         ),
@@ -208,6 +231,8 @@ def material_return_data(db: Session, return_id: int) -> dict:
     )
     if not row:
         raise HTTPException(404, "生产退料单不存在")
+    reversal = db.scalar(select(MaterialReturnReversal).where(
+        MaterialReturnReversal.material_return_id == return_id))
     lines = (
         db.execute(
             select(
@@ -244,7 +269,12 @@ def material_return_data(db: Session, return_id: int) -> dict:
                             StockMovement.source_line_id == line['id']).order_by(
                                 PhysicalLotAllocation.id))]
         result_lines.append({**dict(line), 'physical_lots': lots})
-    return {**dict(row), 'lines': result_lines}
+    return {**dict(row), 'status': 'reversed' if reversal else row['status'],
+            'reversal_id': reversal.id if reversal else None,
+            'reversal_reason': reversal.reason if reversal else None,
+            'reversed_by': reversal.created_by if reversal else None,
+            'reversed_at': reversal.created_at if reversal else None,
+            'lines': result_lines}
 
 
 @router.get("/material-returns")
@@ -460,4 +490,96 @@ def cancel_material_return(return_id: int, user: dict = Depends(require("materia
             .where((MaterialReturn.id == return_id))
             .values(status="cancelled", cancelled_by=user["id"], cancelled_at=func.current_timestamp())
         )
+        return material_return_data(db, return_id)
+
+
+@router.post('/material-returns/{return_id}/reverse', status_code=201)
+def reverse_material_return(return_id: int, payload: MaterialReturnReverseInput,
+                            user: dict = Depends(require('material_return.reverse'))) -> dict:
+    with orm_session(write=True) as db:
+        material_return = db.get(MaterialReturn, return_id)
+        if material_return is None:
+            raise HTTPException(404, '生产退料单不存在')
+        if material_return.status != 'posted':
+            raise HTTPException(409, '只有已确认的生产退料单可冲销')
+        if db.scalar(select(MaterialReturnReversal.id).where(
+                MaterialReturnReversal.material_return_id == return_id)) is not None:
+            raise HTTPException(409, '此生产退料单已冲销')
+        issue = db.get(MaterialIssue, material_return.material_issue_id)
+        order = db.get(WorkOrder, issue.work_order_id)
+        if order.status != 'in_progress':
+            raise HTTPException(409, '工单当前状态不允许冲销退料')
+        ensure_unsettled(db, order.id)
+        if db.scalar(select(ProductionCompletion.id).where(
+                ProductionCompletion.work_order_id == order.id,
+                (ProductionCompletion.status.in_(('draft', 'inspected')) | (
+                    (ProductionCompletion.status == 'posted') & ~select(ProductionCompletionReversal.id)
+                    .where(ProductionCompletionReversal.production_completion_id == ProductionCompletion.id)
+                    .exists())))) is not None:
+            raise HTTPException(409, '工单仍有有效报工，须先取消或冲销报工')
+        ensure_date_unlocked(db, datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
+        lines = list(db.execute(select(MaterialReturnLine, WorkOrderLine).join(
+            MaterialIssueLine, MaterialIssueLine.id == MaterialReturnLine.material_issue_line_id).join(
+                WorkOrderLine, WorkOrderLine.id == MaterialIssueLine.work_order_line_id).where(
+                    MaterialReturnLine.material_return_id == return_id).order_by(
+                        MaterialReturnLine.id)))
+        originals = list(db.scalars(select(StockMovement).where(
+            StockMovement.source_type == 'material_return', StockMovement.source_id == return_id)))
+        movement_by_line = {movement.source_line_id: movement for movement in originals}
+        if len(originals) != len(lines) or len(movement_by_line) != len(lines):
+            raise HTTPException(409, '原退料库存流水不完整，无法安全冲销')
+        stock_needed: dict[int, Decimal] = {}
+        unassigned_needed: dict[int, Decimal] = {}
+        movement_parts = []
+        for line, order_line in lines:
+            quantity = Decimal(line.quantity)
+            original = movement_by_line.get(line.id)
+            if (original is None or original.warehouse_id != issue.warehouse_id
+                    or original.material_id != order_line.component_material_id
+                    or Decimal(original.quantity) != quantity):
+                raise HTTPException(409, '原退料库存流水与单据不一致，无法安全冲销')
+            if issued_quantity(db, order_line.id) + quantity > Decimal(order_line.required_quantity):
+                raise HTTPException(409, '退料冲销后工单将超出组件需料，须先更正后续补领')
+            ensure_movement_unlocked(db, original.id)
+            stock_needed[original.material_id] = stock_needed.get(original.material_id, Decimal(0)) + quantity
+            allocations = list(db.scalars(select(PhysicalLotAllocation).where(
+                PhysicalLotAllocation.movement_id == original.id).order_by(PhysicalLotAllocation.id)))
+            evidence = list(db.scalars(select(PhysicalLotMovementEvidence).where(
+                PhysicalLotMovementEvidence.movement_id == original.id)))
+            if allocations and evidence:
+                raise HTTPException(409, '原退料同时存在批次分配和现场补证，须先核对来源')
+            if allocations:
+                if sum((Decimal(part.quantity) for part in allocations), Decimal(0)) != quantity:
+                    raise HTTPException(409, '原退料批次分配不完整，无法冲销')
+                parts = [LotPart(part.lot_id, -Decimal(part.quantity), part.id) for part in allocations]
+            elif evidence:
+                amounts: dict[int, Decimal] = {}
+                for part in evidence:
+                    amounts[part.lot_id] = amounts.get(part.lot_id, Decimal(0)) + Decimal(part.quantity)
+                if sum(amounts.values(), Decimal(0)) != quantity or any(
+                        value <= 0 for value in amounts.values()):
+                    raise HTTPException(409, '原退料现场补证未完整归批，无法冲销')
+                parts = [LotPart(lot_id, -amount) for lot_id, amount in amounts.items()]
+            else:
+                parts = []
+                unassigned_needed[original.material_id] = (
+                    unassigned_needed.get(original.material_id, Decimal(0)) + quantity)
+            movement_parts.append((line, original, parts))
+        for material_id, quantity in stock_needed.items():
+            if balance(db, issue.warehouse_id, material_id) < quantity:
+                raise HTTPException(409, f'原退料仓物料 #{material_id} 库存不足，无法冲销')
+        for material_id, quantity in unassigned_needed.items():
+            if unassigned_stock_quantity(db, issue.warehouse_id, material_id) < quantity:
+                raise HTTPException(409, f'原退料未分配物料 #{material_id} 的批次差额不足，无法冲销')
+        reversal = add_model(db, MaterialReturnReversal(
+            material_return_id=return_id, reason=payload.reason, created_by=user['id']))
+        for line, original, parts in movement_parts:
+            movement = StockMovement(
+                warehouse_id=original.warehouse_id, material_id=original.material_id,
+                quantity=str(-Decimal(line.quantity)), source_type='material_return_reversal',
+                source_id=reversal.id, source_line_id=line.id, created_by=user['id'])
+            if parts:
+                post_lot_movement(db, movement, parts)
+            else:
+                db.add(movement)
         return material_return_data(db, return_id)

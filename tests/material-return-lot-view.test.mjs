@@ -14,7 +14,7 @@ workOrders:ref([]),materialIssues:ref([]),
 materialReturnForm:ref({material_issue_id:0,reason:'',lines:[]}),
 selectedReturnIssue:ref(null),can:()=>true,localTime:value=>value,
 selectReturnIssue(){},createMaterialReturn(){},loadAvailableMaterialReturnLots(){},
-postMaterialReturn(){},cancelMaterialReturn(){}}});`
+postMaterialReturn(){},cancelMaterialReturn(){},reverseMaterialReturn(){}}});`
 
 test('生产退料显示回仓批次证据与旧单据差额', async t => {
   const server = await createServer({configFile: false, plugins: [{name: 'return-lot-view-fixture', enforce: 'pre',
@@ -41,7 +41,8 @@ test('生产退料显示回仓批次证据与旧单据差额', async t => {
     created_by_name: 'admin', lines: [
       {...line, physical_lots: [{id: 8, code: 'MR2-L7-P1', quantity: '1.000',
         source_kind: 'material_return'}]}]}
-  store.materialReturns = [record, {...record, id: 3, lines: [{...line, physical_lots: []}]},
+  store.materialReturns = [record, {...record, id: 3, status: 'reversed', reversal_reason: '退料录错',
+    reversed_at: '2026-10-03', lines: [{...line, physical_lots: []}]},
     {...record, id: 4, status: 'draft', lines: [{...line, physical_lots: []}]}]
   const {default: Component} = await server.ssrLoadModule(
     '/src/renderer/src/views/workspace/production/MaterialReturnsView.vue')
@@ -50,5 +51,8 @@ test('生产退料显示回仓批次证据与旧单据差额', async t => {
   assert.match(html, /退料新批次/)
   assert.match(html, /旧确认未指定实物批次/)
   assert.match(html, /核对批次并确认退料/)
+  assert.match(html, /冲销已确认退料/)
+  assert.match(html, /退料录错/)
+  assert.match(html, /已冲销/)
   assert.equal((html.match(/旧确认未指定实物批次/g) ?? []).length, 1)
 })

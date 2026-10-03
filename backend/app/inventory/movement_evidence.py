@@ -13,7 +13,7 @@ from app.access.security import require
 from app.core.models import (Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotEvidenceGroup,
                              PhysicalLotEvidenceGroupPair, PhysicalLotEvidencePair,
                              PhysicalLotMovementCheckpoint, PhysicalLotMovementEvidence, StockMovement, Warehouse,
-                             MaterialIssueReversal)
+                             MaterialIssueReversal, MaterialReturnReversal)
 from app.core.orm import add_model, orm_session
 from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.inventory.physical_lots import lot_balance, unassigned_stock_quantity
@@ -98,6 +98,11 @@ def _ensure_movement_evidence_mutable(db: Session, movement: StockMovement) -> N
                 select(MaterialIssueReversal.id).where(
                     MaterialIssueReversal.material_issue_id == movement.source_id)) is not None):
         raise HTTPException(409, '领料已冲销，不能再修改原单或冲销流水的批次补证')
+    if movement.source_type == 'material_return_reversal' or (
+            movement.source_type == 'material_return' and db.scalar(
+                select(MaterialReturnReversal.id).where(
+                    MaterialReturnReversal.material_return_id == movement.source_id)) is not None):
+        raise HTTPException(409, '退料已冲销，不能再修改原单或冲销流水的批次补证')
 
 
 def _result(db: Session, record: PhysicalLotMovementEvidence, username: str) -> dict:

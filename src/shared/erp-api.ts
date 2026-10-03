@@ -752,7 +752,11 @@ export interface MaterialReturn {
   warehouse_id: number
   warehouse_name: string
   reason: string
-  status: 'draft' | 'posted' | 'cancelled'
+  status: 'draft' | 'posted' | 'cancelled' | 'reversed'
+  reversal_id: number | null
+  reversal_reason: string | null
+  reversed_by: number | null
+  reversed_at: string | null
   created_by: number
   created_by_name: string
   posted_by: number | null
@@ -1019,7 +1023,7 @@ export interface Movement {
   material_name: string
   unit: string
   quantity: string
-  source_type: 'receipt' | 'receipt_reversal' | 'other_inbound' | 'other_inbound_reversal' | 'other_outbound' | 'other_outbound_reversal' | 'adjustment' | 'adjustment_reversal' | 'transfer_out' | 'transfer_in' | 'transfer_reversal_out' | 'transfer_reversal_in' | 'stocktake' | 'stocktake_reversal' | 'shipment' | 'shipment_reversal' | 'sales_return' | 'sales_return_reversal' | 'purchase_return' | 'purchase_return_reversal' | 'material_issue' | 'material_issue_reversal' | 'material_return' | 'production_completion' | 'production_completion_reversal'
+  source_type: 'receipt' | 'receipt_reversal' | 'other_inbound' | 'other_inbound_reversal' | 'other_outbound' | 'other_outbound_reversal' | 'adjustment' | 'adjustment_reversal' | 'transfer_out' | 'transfer_in' | 'transfer_reversal_out' | 'transfer_reversal_in' | 'stocktake' | 'stocktake_reversal' | 'shipment' | 'shipment_reversal' | 'sales_return' | 'sales_return_reversal' | 'purchase_return' | 'purchase_return_reversal' | 'material_issue' | 'material_issue_reversal' | 'material_return' | 'material_return_reversal' | 'production_completion' | 'production_completion_reversal'
   source_id: number
   source_line_id: number
   receipt_id: number | null
@@ -1043,6 +1047,7 @@ export interface Movement {
   material_issue_id: number | null
   material_issue_reversal_id: number | null
   material_return_id: number | null
+  material_return_reversal_id: number | null
   production_completion_id: number | null
   production_completion_reversal_id: number | null
   created_by: number | null
@@ -1270,6 +1275,7 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   availableMaterialReturnLots: {input: {returnId: number}; output: MaterialReturnLotOptions}
   postMaterialReturn: { input: { returnId: number; lines?: MaterialReturnLotLineInput[] }; output: MaterialReturn }
   cancelMaterialReturn: { input: { returnId: number }; output: MaterialReturn }
+  reverseMaterialReturn: { input: { returnId: number; reason: string }; output: MaterialReturn }
   productionCompletions: { input: undefined; output: ProductionCompletion[] }
   createProductionCompletion: { input: { work_order_id: number; reported_quantity: string; reference: string }; output: ProductionCompletion }
   inspectProductionCompletion: { input: { completionId: number; accepted_quantity: string; qc_note: string }; output: ProductionCompletion }

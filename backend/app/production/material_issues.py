@@ -16,6 +16,7 @@ from app.core.models import (
     MaterialIssueLine,
     MaterialIssueReversal,
     MaterialReturn,
+    MaterialReturnReversal,
     ProductionCompletion,
     ProductionCompletionReversal,
     ProductionCostEntry,
@@ -419,7 +420,9 @@ def reverse_material_issue(issue_id: int, payload: MaterialIssueReversalInput,
         ensure_unsettled(db, order.id)
         if db.scalar(select(MaterialReturn.id).where(
                 MaterialReturn.material_issue_id == issue_id,
-                MaterialReturn.status != 'cancelled')) is not None:
+                MaterialReturn.status != 'cancelled',
+                ~select(MaterialReturnReversal.id).where(
+                    MaterialReturnReversal.material_return_id == MaterialReturn.id).exists())) is not None:
             raise HTTPException(409, '原领料仍有退料单，须先取消草稿；已确认退料不可直接冲销领料')
         if db.scalar(select(ProductionCompletion.id).where(
                 ProductionCompletion.work_order_id == order.id,

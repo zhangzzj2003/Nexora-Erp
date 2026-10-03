@@ -29,6 +29,7 @@ PAIRED_SOURCES = {
     "stocktake_reversal": "stocktake",
     "adjustment_reversal": "adjustment",
     "material_issue_reversal": "material_issue",
+    "material_return_reversal": "material_return",
 }
 
 
@@ -149,10 +150,16 @@ def calculate_valuation(session: Session, *, through_date: str | None = None) ->
             if unit_cost is None:
                 unpriced.append(row["id"])
         else:
-            unit_cost = (before_value / before_quantity
-                         if before_quantity > 0 and before_value is not None else None)
-            if unit_cost is None:
-                cost_source = "unpriced"
+            if row['source_type'] == 'material_return_reversal':
+                paired = ('material_return', row['source_line_id'])
+                unit_cost = source_costs.get(paired)
+                cost_source = 'linked_movement' if unit_cost is not None else 'unpriced'
+                movement_dependencies = set(source_dependencies.get(paired, set()))
+            else:
+                unit_cost = (before_value / before_quantity
+                             if before_quantity > 0 and before_value is not None else None)
+                if unit_cost is None:
+                    cost_source = "unpriced"
         # 分摊额以分为最小单位；内部单价保持精度，不能由四位展示单价倒算金额。
         amount = (Decimal(allocation['amount']) if allocation is not None
                   else quantity * unit_cost if unit_cost is not None else None)

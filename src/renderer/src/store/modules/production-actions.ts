@@ -232,6 +232,14 @@ export function createProductionActions(
     )
   }
 
+  async function reverseMaterialReturn(returnId: number, reason: string): Promise<void> {
+    if (!window.nexora) return
+    await perform(
+      () => window.nexora!.callApi('reverseMaterialReturn', {returnId, reason}),
+      `生产退料单 #${returnId} 已冲销，组件重新计入工单净领料。`
+    )
+  }
+
   function selectCompletionOrder(orderId: number): void {
     const order = workOrders.value.find((item) => item.id === orderId)
     completionForm.value = {
@@ -389,6 +397,7 @@ export function createProductionActions(
     postMaterialReturn,
     loadAvailableMaterialReturnLots,
     cancelMaterialReturn,
+    reverseMaterialReturn,
     selectCompletionOrder,
     createProductionCompletion,
     inspectProductionCompletion,

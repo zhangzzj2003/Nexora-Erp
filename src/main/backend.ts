@@ -942,6 +942,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
         ...(source.lines === undefined ? {} : {body: materialReturnLotBody({lines: source.lines})})}
     }
     case 'cancelMaterialReturn': return { method: 'POST', path: `/api/v1/material-returns/${positiveId(payload, 'returnId')}/cancel` }
+    case 'reverseMaterialReturn': {
+      const returnId = positiveId(payload, 'returnId')
+      const fields = payload as ErpOperations['reverseMaterialReturn']['input']
+      if (typeof fields.reason !== 'string' || !fields.reason.trim()
+        || fields.reason.trim().length > 200 || /[\x00-\x1f]/.test(fields.reason))
+        throw Error('生产退料冲销原因无效')
+      return {method: 'POST', path: `/api/v1/material-returns/${returnId}/reverse`,
+        body: {reason: fields.reason.trim()}}
+    }
     case 'productionCompletions': return { method: 'GET', path: '/api/v1/production-completions' }
     case 'createProductionCompletion': return { method: 'POST', path: '/api/v1/production-completions', body: payload }
     case 'inspectProductionCompletion': {

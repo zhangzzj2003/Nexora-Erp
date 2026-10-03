@@ -17,6 +17,7 @@ from app.core.models import (
     MaterialIssueReversal,
     MaterialReturn,
     MaterialReturnLine,
+    MaterialReturnReversal,
     ProductionCompletion,
     ProductionCompletionReversal,
     User,
@@ -76,6 +77,8 @@ def issued_quantity(db: Session, work_order_line_id: int) -> Decimal:
                 .where(
                     MaterialIssueLine.work_order_line_id == work_order_line_id,
                     MaterialReturn.status == "posted",
+                    ~select(MaterialReturnReversal.id).where(
+                        MaterialReturnReversal.material_return_id == MaterialReturn.id).exists(),
                 )
             )
         ),

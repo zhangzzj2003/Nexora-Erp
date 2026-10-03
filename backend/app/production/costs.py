@@ -13,7 +13,7 @@ from app.core.period_lock import ensure_date_unlocked, ensure_movement_unlocked
 from app.core.orm import orm_session, model_data
 from app.core.models import (User, Material, Bom, WorkOrder, WorkOrderLine, MaterialIssue,
     MaterialIssueReversal,
-    MaterialIssueLine, MaterialReturn, MaterialReturnLine, StockMovement, ProductionCostEntry,
+    MaterialIssueLine, MaterialReturn, MaterialReturnLine, MaterialReturnReversal, StockMovement, ProductionCostEntry,
     ProductionCostReversal, ProductionSettlementSource)
 from app.inventory.valuation import calculate_valuation
 from app.production.cost_lock import active_settlement, ensure_unsettled
@@ -83,7 +83,10 @@ class CostReversalInput(BaseModel):
 def returned_quantity(session: Session, issue_line_id: int) -> Decimal:
     return sum((Decimal(value) for value in session.scalars(select(MaterialReturnLine.quantity)
         .join(MaterialReturn, MaterialReturn.id == MaterialReturnLine.material_return_id)
-        .where(MaterialReturnLine.material_issue_line_id == issue_line_id, MaterialReturn.status == 'posted'))), Decimal(0))
+        .where(MaterialReturnLine.material_issue_line_id == issue_line_id,
+               MaterialReturn.status == 'posted',
+               ~select(MaterialReturnReversal.id).where(
+                   MaterialReturnReversal.material_return_id == MaterialReturn.id).exists()))), Decimal(0))
 
 
 def entry_data(session: Session, entry_id: int) -> dict:

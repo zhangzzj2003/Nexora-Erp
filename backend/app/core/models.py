@@ -840,6 +840,15 @@ class MaterialReturnLine(Base):
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class MaterialReturnReversal(Base):
+    __tablename__ = 'material_return_reversals'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    material_return_id: Mapped[int] = mapped_column(Integer, ForeignKey('material_returns.id'), nullable=False, unique=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class ProductionCompletion(Base):
     __tablename__ = 'production_completions'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
