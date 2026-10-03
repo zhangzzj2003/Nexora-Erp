@@ -200,7 +200,7 @@ def test_v54_upgrade_preserves_business_and_is_idempotent(erp,remove_inventory_w
         remove_inventory_warning_schema(db);db.execute('PRAGMA user_version=54')
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==64
+        assert db.execute('PRAGMA user_version').fetchone()[0]==65
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()==before
         assert db.execute('SELECT * FROM materials ORDER BY id').fetchall()==material_before
         assert db.execute('SELECT * FROM material_code_sequences ORDER BY prefix').fetchall()==codes_before

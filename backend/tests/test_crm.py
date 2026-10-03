@@ -15,7 +15,7 @@ from app.core.database import migrate
 from app.core.models import Base, CrmChange, CrmQuote, CrmOpportunity, SalesOrder, SalesOrderLine, Material, StockMovement, User
 from app.core.orm import orm_session
 from app.main import app
-from app.sales import crm_rules, crm_quotes
+from app.sales import crm_rules, crm_quotes, crm_forecast
 
 B = '/api/v1'
 C = B + '/crm'
@@ -26,6 +26,7 @@ def seeded(monkeypatch, tmp_path):
     monkeypatch.setenv('NEXORA_DB_PATH', str(tmp_path/'crm.db'))
     monkeypatch.setattr(crm_rules,'today',lambda:'2030-01-01')
     monkeypatch.setattr(crm_quotes,'today',lambda:'2030-01-01')
+    monkeypatch.setattr(crm_forecast,'today',lambda:'2030-01-01')
     with TestClient(app,client=('127.0.0.1',12000),raise_server_exceptions=False) as client:
         assert client.post(B+'/setup/admin',json={'username':'admin','password':'secure-pass-123'}).status_code == 201
         def login(name):
@@ -55,6 +56,95 @@ def base_records(seed):
         'valid_until':'2030-01-31','terms':'双方确认后另行安排交货',
         'lines':[{'material_id':mid,'quantity':'1.005','unit_price':'0.9999'} for mid in materials]}
     return contact.json(),opportunity.json(),data
+
+
+def test_opportunity_probability_forecast_scope_rounding_and_audit(seeded):
+    client, admin, _, seller, viewer, customer, other, _ = seeded
+    _, old, _ = base_records(seeded)
+    assert old['probability_percent'] is None
+    assert client.get(C+'/forecast', headers=viewer).status_code == 403
+    assert client.get(C+'/forecast', headers=seller).json() == {
+        'currency': 'CNY', 'rated_count': 0, 'unrated_count': 1,
+        'estimated_amount': '0.00', 'weighted_amount': '0.00', 'rows': []}
+
+    payload = {'customer_id': customer, 'title': '新增预测', 'owner_id': 3,
+               'estimated_amount': '100.01', 'probability_percent': 50,
+               'expected_close_date': '2030-01-31'}
+    for invalid in (-1, 101, True, '50', 50.5):
+        assert client.post(C+'/opportunities', headers=seller,
+                           json={**payload, 'probability_percent': invalid}).status_code == 422
+    first = client.post(C+'/opportunities', headers=seller, json=payload)
+    assert first.status_code == 201, first.text
+    first = first.json()
+    assert first['probability_percent'] == 50
+    hidden = client.post(C+'/opportunities', headers=admin,
+                         json={**payload, 'customer_id': other, 'title': '其他客户',
+                               'probability_percent': 100})
+    assert hidden.status_code == 201, hidden.text
+    forecast = client.get(C+'/forecast', headers=seller).json()
+    assert forecast['rated_count'] == 1
+    assert forecast['unrated_count'] == 1
+    assert forecast['estimated_amount'] == '100.01'
+    assert forecast['weighted_amount'] == '50.01'
+    assert forecast['rows'][0]['id'] == first['id']
+    assert forecast['rows'][0]['weighted_amount'] == '50.01'
+    assert forecast['rows'][0]['overdue'] is False
+    assert client.get(C+'/forecast', headers=admin).json()['rated_count'] == 2
+
+    path = C+f'/opportunities/{first["id"]}'
+    edit = {key: payload[key] for key in ('customer_id', 'title', 'owner_id',
+            'estimated_amount', 'expected_close_date')}
+    edit.update(version=first['version'], reason='保留旧客户端评估')
+    saved = client.put(path, headers=seller, json=edit)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['probability_percent'] == 50
+    assert client.put(path, headers=seller, json={**edit, 'probability_percent': 80}).status_code == 409
+    changed = client.put(path, headers=seller, json={**edit, 'version': 2,
+                           'probability_percent': 0, 'reason': '客户暂缓采购'})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()['probability_percent'] == 0
+    audit = client.get(C+f'/records/opportunity/{first["id"]}/changes', headers=seller).json()
+    assert audit[0]['before']['probability_percent'] == 50
+    assert audit[0]['after']['probability_percent'] == 0
+    assert client.get(C+'/forecast', headers=seller).json()['weighted_amount'] == '0.00'
+
+
+def test_forecast_excludes_closed_opportunities_and_reopen_resets_assessment(seeded):
+    client, admin, _, seller, _, customer, _, _ = seeded
+    payload = {'customer_id': customer, 'title': '待核商机', 'owner_id': 3,
+               'estimated_amount': '80.00', 'probability_percent': 75,
+               'expected_close_date': '2030-01-31'}
+    created = client.post(C+'/opportunities', headers=seller, json=payload).json()
+    assert client.get(C+'/forecast', headers=seller).json()['weighted_amount'] == '60.00'
+    closed = client.put(C+f'/opportunities/{created["id"]}', headers=seller,
+                        json={**payload, 'stage': 'lost', 'version': 1,
+                              'reason': '项目终止'})
+    assert closed.status_code == 200, closed.text
+    assert client.get(C+'/forecast', headers=seller).json()['rated_count'] == 0
+    reopened = client.post(C+f'/opportunities/{created["id"]}/reopen', headers=seller,
+                           json={'version': 2, 'reason': '客户重新启动项目'})
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()['probability_percent'] is None
+    assert client.get(C+'/forecast', headers=seller).json()['unrated_count'] == 1
+    audit = client.get(C+f'/records/opportunity/{created["id"]}/changes', headers=admin).json()
+    assert audit[0]['before']['probability_percent'] == 75
+    assert audit[0]['after']['probability_percent'] is None
+
+
+def test_probability_migration_preserves_old_opportunities_as_unrated(seeded, monkeypatch):
+    client, admin, _, _, _, _, _, _ = seeded
+    _, opportunity, _ = base_records(seeded)
+    path = os.environ['NEXORA_DB_PATH']
+    with sqlite3.connect(path) as db:
+        db.execute('ALTER TABLE crm_opportunities DROP COLUMN probability_percent')
+        db.execute('PRAGMA user_version = 64')
+    migrate()
+    migrate()
+    with sqlite3.connect(path) as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 65
+        assert db.execute('SELECT probability_percent FROM crm_opportunities WHERE id = ?',
+                          (opportunity['id'],)).fetchone()[0] is None
+    assert client.get(C+'/forecast', headers=admin).json()['unrated_count'] == 1
 
 
 def action(client,headers,record,command,reason='核对依据',status=200,**extra):
@@ -407,7 +497,7 @@ def test_v60_owner_upgrade_keeps_existing_customers_unassigned(seeded, remove_eq
         db.execute('PRAGMA user_version=60')
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 64
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 65
         assert db.execute('SELECT id,name FROM customers ORDER BY id').fetchall() == names
         assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == 2
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
@@ -671,7 +761,7 @@ def test_v49_upgrade_is_idempotent_preserves_business_and_models(seeded,remove_c
         db.execute('PRAGMA user_version=49')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 64
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 65
         assert db.execute('SELECT id,name,created_at FROM customers ORDER BY id').fetchall() == before
         assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == len(before)
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []

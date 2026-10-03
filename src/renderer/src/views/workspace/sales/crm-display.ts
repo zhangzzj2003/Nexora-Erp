@@ -27,7 +27,7 @@ export function quoteActions(quote: CrmQuote, permissions: string[], userId: num
 export function crmSnapshotRows(kind: CrmKind, source: Record<string,unknown>): {label:string; value:string}[] {
   const labels: Record<string,string>={version:'版本',customer_id:'客户编号',contact_id:'联系人编号',opportunity_id:'商机编号',
     name:'联系人姓名',job_title:'职务',phone:'电话',email:'邮箱',is_active:'启用状态',note:'说明',title:'商机名称',
-    owner_id:'负责人编号',estimated_amount:'预估金额（元）',expected_close_date:'预计成交日',subject:'跟进事项',due_date:'跟进期限',result:'跟进结果',
+    owner_id:'负责人编号',estimated_amount:'预估金额（元）',probability_percent:'成交概率（%）',expected_close_date:'预计成交日',subject:'跟进事项',due_date:'跟进期限',result:'跟进结果',
     reference:'报价编号',valid_until:'报价有效期',terms:'商务条款',total_amount:'报价金额（元）',sales_order_id:'销售订单编号',acceptance_reference:'客户接受依据'}
   const result=Object.entries(labels).filter(([key])=>key in source).map(([key,label])=>({label,value:key==='is_active' ? source[key]?'启用':'停用' : source[key]==null || source[key]===''?'未填写':String(source[key])}))
   if('stage' in source)result.push({label:'商机阶段',value:crmStageLabel[source.stage as keyof typeof crmStageLabel]??'状态待核对'})
@@ -51,6 +51,7 @@ export function crmFormError(kind: CrmKind, forms: CrmForms): string {
     const item=forms.opportunity
     if(!item.customer_id || !item.owner_id || !item.title.trim())return '请选择客户、负责人并填写商机名称。'
     if(!amountValid(item.estimated_amount,100_000_000_000,2))return '预估金额须非负、最多两位小数且不超过一千亿元。'
+    if(item.probability_percent!==null && (!Number.isSafeInteger(item.probability_percent) || item.probability_percent<0 || item.probability_percent>100))return '成交概率须为 0 至 100 的整数，或留空表示未评估。'
     return dateFieldError(item.expected_close_date,{required:true,min:'1900-01-01',max:'2199-12-31'}) ? '请填写有效的预计成交日。' : ''
   }
   const item=forms.quote

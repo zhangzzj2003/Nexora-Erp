@@ -40,6 +40,7 @@ class OpportunityInput(StrictInput):
     owner_id: int = Field(strict=True, gt=0)
     stage: Literal['prospect','qualified','proposal','negotiation','lost'] = 'prospect'
     estimated_amount: Decimal
+    probability_percent: int | None = Field(default=None, strict=True, ge=0, le=100)
     expected_close_date: str
     note: str = Field(default='', max_length=1000)
     _date = field_validator('expected_close_date')(valid_date)
@@ -130,6 +131,7 @@ def create_opportunity(payload: OpportunityInput, user: dict = Depends(require('
         require_owner(db,payload.owner_id)
         row = CrmOpportunity(customer_id=payload.customer_id,version=1,created_by=user['id'])
         copy_fields(row,payload,OPPORTUNITY_FIELDS)
+        row.probability_percent = payload.probability_percent
         add_model(db,row)
         audit(db,'opportunity',row,'create',None,'建立商机',user['id'])
         return record_data(db,'opportunity',row)
@@ -152,6 +154,9 @@ def edit_opportunity(identifier: int, payload: OpportunityEdit, user: dict = Dep
         require_owner(db,payload.owner_id)
         before = raw_data(db,'opportunity',row)
         copy_fields(row,payload,OPPORTUNITY_FIELDS)
+        # 旧版客户端未提交概率时保留原评估；明确提交 null 才清空。
+        if 'probability_percent' in payload.model_fields_set:
+            row.probability_percent = payload.probability_percent
         row.version += 1
         audit(db,'opportunity',row,'edit',before,payload.reason,user['id'])
         return record_data(db,'opportunity',row)
@@ -168,6 +173,7 @@ def reopen(identifier: int, payload: VersionInput, user: dict = Depends(require(
             raise HTTPException(409,'关联销售订单尚未取消，不可重开')
         before = raw_data(db,'opportunity',row)
         row.stage = 'prospect'
+        row.probability_percent = None
         row.version += 1
         audit(db,'opportunity',row,'reopen',before,payload.reason,user['id'])
         return record_data(db,'opportunity',row)

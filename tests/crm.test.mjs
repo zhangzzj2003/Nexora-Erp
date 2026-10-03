@@ -8,6 +8,7 @@ import { parseContactCsv, parseContactCsvBytes } from '../src/renderer/src/views
 import { parseOpportunityCsv, parseOpportunityCsvBytes } from '../src/renderer/src/views/workspace/sales/opportunity-import.ts'
 import { validateContactImportPreview, validateContactImportResult } from '../src/shared/contact-import-validation.ts'
 import { validateOpportunityImportPreview, validateOpportunityImportResult } from '../src/shared/opportunity-import-validation.ts'
+import { validateCrmForecast } from '../src/shared/crm-forecast-validation.ts'
 import { canVisitRoute,routeByKey } from '../src/renderer/src/router/workspace-routes.ts'
 
 const permissions=['crm.view','crm_contact.manage','crm_activity.manage','crm_opportunity.manage','crm_quote.create','crm_quote.submit','crm_quote.convert','sales_order.create']
@@ -82,7 +83,7 @@ test('联系人导入写入成功后即使刷新失败也不提示重复提交',
   assert.deepEqual(calls[0],['importContacts',{rows:importRows,reason:'资料核对',allow_similar:false}])
   state.user.value={id:2,permissions:['crm.view']}
   assert.equal(await actions.importContactRows(importRows,'资料核对',false),false)
-  assert.equal(calls.length,3)
+  assert.equal(calls.length,4)
 })
 
 test('商机 CSV 校验列、编号、金额、日期与 UTF-8',()=>{
@@ -140,7 +141,7 @@ test('商机导入写入成功后刷新失败仍报告成功，撤权后阻止�
   assert.deepEqual(calls[0],['importOpportunities',{rows:opportunityRows,reason:'名单核对',allow_similar:false}])
   state.user.value={id:2,permissions:['crm.view']}
   assert.equal(await actions.importOpportunityRows(opportunityRows,'名单核对',false),false)
-  assert.equal(calls.length,3)
+  assert.equal(calls.length,4)
 })
 
 test('CRM 入口不被普通销售查看权限放开，审核和转单按实际阶段授权',()=>{
@@ -165,8 +166,10 @@ test('表单约束拒绝非法日期、精度、重复行和不完整归属',()=
     assert.ok(crmFormError('quote',{...forms,quote:{...quoteInput,...patch}}))
   }
   assert.ok(crmFormError('contact',forms));assert.ok(crmFormError('activity',forms));assert.ok(crmFormError('opportunity',forms))
-  forms.opportunity={customer_id:1,contact_id:null,title:'设备',owner_id:1,stage:'qualified',estimated_amount:'1.001',expected_close_date:'2030-01-31',note:''}
+  forms.opportunity={customer_id:1,contact_id:null,title:'设备',owner_id:1,stage:'qualified',estimated_amount:'1.001',probability_percent:null,expected_close_date:'2030-01-31',note:''}
   assert.ok(crmFormError('opportunity',forms));forms.opportunity.estimated_amount='100.01';assert.equal(crmFormError('opportunity',forms),'')
+  for(const invalid of [-1,101,1.5,NaN]){forms.opportunity.probability_percent=invalid;assert.match(crmFormError('opportunity',forms),/成交概率/)}
+  forms.opportunity.probability_percent=0;assert.equal(crmFormError('opportunity',forms),'')
   assert.ok(crmSnapshotRows('quote',{...quote,party:{customer_name:'固定客户',contact_name:'王女士'}}).some(row=>row.label==='报价客户' && row.value==='固定客户'))
 })
 
@@ -184,6 +187,27 @@ test('IPC 白名单阻止路径注入、状态和金额伪造，清除表格内�
   await assert.rejects(callBackend('changeCrmQuote',{id:1,version:3,action:'post'}),/不允许/)
   await assert.rejects(callBackend('closeCrmActivity',{id:1,version:1,action:'convert'}),/不允许/)
   await assert.rejects(callBackend('saveCrmQuote',{...quoteInput,lines:null}),/明细无效/)
+  assert.equal(requests.length,2)
+})
+
+test('商机预测 IPC 限定概率并校验服务端汇总',async t=>{
+  const old=globalThis.fetch;t.after(()=>{globalThis.fetch=old});const requests=[]
+  const forecast={currency:'CNY',rated_count:1,unrated_count:2,estimated_amount:'100.01',weighted_amount:'50.01',
+    rows:[{id:1,customer_id:2,customer_name:'客户甲',title:'项目',owner_name:'销售员',stage:'prospect',
+      expected_close_date:'2030-01-31',estimated_amount:'100.01',probability_percent:50,weighted_amount:'50.01',overdue:false}]}
+  globalThis.fetch=async(url,config)=>{const path=new URL(url).pathname;requests.push({path,body:config.body?JSON.parse(config.body):null});
+    return new Response(JSON.stringify(path.endsWith('/login')?{token:'test',user:{id:1}}:path.endsWith('/forecast')?forecast:{}),{status:200})}
+  await callBackend('login',{});requests.length=0
+  const input={customer_id:2,contact_id:null,title:'项目',owner_id:1,stage:'prospect',estimated_amount:'100.01',
+    probability_percent:50,expected_close_date:'2030-01-31',note:''}
+  await callBackend('saveCrmOpportunity',{...input,created_by:99,weighted_amount:'0.00'})
+  assert.deepEqual(requests[0],{path:'/api/v1/crm/opportunities',body:input})
+  for(const probability_percent of [-1,101,1.5,'50',true])await assert.rejects(
+    callBackend('saveCrmOpportunity',{...input,probability_percent}),/成交概率/)
+  assert.deepEqual(await callBackend('crmForecast',undefined),forecast)
+  validateCrmForecast(forecast)
+  assert.throws(()=>validateCrmForecast({...forecast,rows:[{...forecast.rows[0],probability_percent:101}]}))
+  assert.throws(()=>validateCrmForecast({...forecast,rated_count:2}))
   assert.equal(requests.length,2)
 })
 
@@ -266,7 +290,7 @@ test('只读 CRM 可读资料证据，缺少原单权限不能转单',async t=>{
   assert.equal(await actions.closeCrmActivity({id:1,version:1},'complete','完成'),false)
   state.user.value={id:2,permissions:['crm.view','crm_quote.convert']}
   assert.equal(await actions.convertCrmQuote(quote,'接受依据','转单'),false)
-  assert.deepEqual(calls,['crmOptions','crmOverview'])
+  assert.deepEqual(calls,['crmOptions','crmOverview','crmForecast'])
 })
 
 test('详情读取失败保留编辑表单并提供错误，不打开过期记录编辑',async t=>{

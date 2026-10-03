@@ -21,7 +21,7 @@
 | `purchase/` | `PurchaseReceiptsView.vue` | 确认采购入库时逐行登记实物批次，并查看原批次及冲销状态 |
 | `purchase/` | `PurchaseReturnsView.vue` | 处理采购退货 |
 | `sales/` | `SalesOrdersView.vue` | 建立和管理销售订单；客户资料独立维护，订单弹窗提供快捷入口并保留草稿 |
-| `sales/` | `CustomerRelationsView.vue` | 按客户维护联系人、跟进、商机，支持联系人及商机 CSV 导入；固定报价独立审核后登记接受依据转销售草稿 |
+| `sales/` | `CustomerRelationsView.vue` | 按客户维护联系人、跟进、商机，支持联系人及商机 CSV 导入与手工概率加权预测；固定报价独立审核后登记接受依据转销售草稿 |
 | `sales/` | `SalesShipmentsView.vue` | 处理销售出库 |
 | `sales/` | `SalesReturnsView.vue` | 处理销售退货，确认时核对原出库批次或登记退货新批次，展示来源证据与旧单差额 |
 | `sales/` | `AfterSalesView.vue`、`AfterSalesEditor.vue`、`AfterSalesEvidence.vue` | 售后来源、内联编制、独立审批、退换修办理与保管/收费证据；状态及操作使用 `after-sales-actions.ts` |
@@ -99,7 +99,7 @@
 
 `production/MaterialPlanningView.vue` 提供独立 `mrp.view` 入口及固定计划、需求编排、参数三种工作模式。`MrpEditor.vue` 安排来源日期，`MrpEvidence.vue` 展示日期净需求、来源与审计，`MrpPolicies.vue` 维护版本参数；`mrp-actions.ts` 统一 Pinia 状态、撤权清理、迟到响应和转单。日期使用既有 Naive 控件与校验指令，表格沿用公共控件。断线保留输入，来源变化后新建重算，规则见 [MRP](../../../../../docs/material-planning.md)。
 
-`sales/CustomerRelationsView.vue` 提供 `crm.view` 入口与四类列表；`CrmEditor.vue` 在页内编辑，`ContactImportDialog.vue` 和 `OpportunityImportDialog.vue` 分别解析、预检本地联系人及商机 CSV，`CrmEvidence.vue` 展示固定报价及前后变更，`CrmDate.vue` 复用现有日期校验方式。`crm-actions.ts` 保存 Pinia 表单，负责版本操作、权限清理、批量写入、迟到响应和双权限转单；审批与转单使用保护焦点弹窗，失败保留依据。规则和边界见 [客户关系](../../../../../docs/customer-relations.md)。
+`sales/CustomerRelationsView.vue` 提供 `crm.view` 入口与四类列表；`CrmEditor.vue` 在页内编辑，`ContactImportDialog.vue` 和 `OpportunityImportDialog.vue` 分别解析、预检本地联系人及商机 CSV；商机列表汇总可见范围的加权预测，`CrmEvidence.vue` 展示固定报价及前后变更，`CrmDate.vue` 复用现有日期校验方式。`crm-actions.ts` 保存 Pinia 表单，负责版本操作、权限清理、批量写入、迟到响应和双权限转单；审批与转单使用保护焦点弹窗，失败保留依据。规则和边界见 [客户关系](../../../../../docs/customer-relations.md)。
 
 `production/QualityDispositionView.vue` 提供独立 `quality.view` 入口，`QualityEditor.vue` 编制报废及返工，`QualityEvidence.vue` 核对冻结检验、追加材料与前后变更；`quality-actions.ts` 管理 Pinia 草稿、版本、断线及权限清理。生产工单、报工与成本显示关联来源；规则见 [不合格品处置与返工](../../../../../docs/quality-rework.md)。
 

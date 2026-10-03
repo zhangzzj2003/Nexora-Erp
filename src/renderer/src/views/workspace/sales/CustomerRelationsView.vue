@@ -15,7 +15,7 @@ import OpportunityImportDialog from './OpportunityImportDialog.vue'
 import { crmKindLabel,crmQuoteLabel,crmActivityLabel,crmStageLabel,crmCommandLabel,quoteActions } from './crm-display'
 
 const store=usePiniaAppStore()
-const {crmOverview:overview,crmOptions:options,crmDetail:detail,crmError:failure,crmLoading:loading,crmForms:forms,crmOwnerChanges:ownerChanges,busy,user,connectionLost,error}=storeToRefs(store)
+const {crmOverview:overview,crmForecast:forecast,crmOptions:options,crmDetail:detail,crmError:failure,crmLoading:loading,crmForms:forms,crmOwnerChanges:ownerChanges,busy,user,connectionLost,error}=storeToRefs(store)
 const mode=ref<CrmKind>('activity');const editor=ref<CrmKind|null>(null);const customer=ref(0);const query=ref('')
 const contactImportOpen=ref(false)
 const opportunityImportOpen=ref(false)
@@ -104,6 +104,12 @@ onUnmounted(()=>store.clearCrmDetail())
     <p>按客户追踪联系人、跟进和商机；报价经独立审核后，登记客户接受依据并转销售订单草稿。</p>
     <p v-if="connectionLost" role="alert">服务端连接中断，当前资料和可执行动作已失效。未保存的输入保留，恢复连接后重新读取再保存。</p>
     <p v-if="failure" role="alert">{{ failure }} 请刷新资料后重试。</p>
+    <section v-if="mode==='opportunity' && forecast && !editor" class="card crm-forecast" aria-label="商机预测">
+      <h2>开放商机预测</h2>
+      <p>已评估 {{ forecast.rated_count }} 项 · 未评估 {{ forecast.unrated_count }} 项。仅按当前可见客户汇总；已丢单、已转单不参与计算。</p>
+      <p>已评估预估金额 {{ forecast.estimated_amount }} 元 · 加权预计金额 <strong>{{ forecast.weighted_amount }} 元</strong>（人民币，逐项四舍五入到分）</p>
+      <p v-if="!forecast.rated_count" class="muted">暂无已评估的开放商机，请在商机修订中填写成交概率。</p>
+    </section>
     <CrmEditor v-if="editor && store.can(permission(editor))" :kind="editor" @saved="editor=null" @close="editor=null" @create-opportunity="newRecord('opportunity')" />
     <template v-else>
       <WorkspaceTable :title="crmKindLabel[mode]" :show-title="false" :columns="columns" :data="records" :min-table-width="1050" :loading="loading">
@@ -111,7 +117,7 @@ onUnmounted(()=>store.clearCrmDetail())
         <template #cell-title="{row}"><strong>{{ rowTitle(row) }}</strong><span class="crm-secondary muted">#{{ row.id }} · {{ row.created_by_name }}</span></template>
         <template #cell-context="{row}"><template v-if="mode==='contact'"><span>{{ (row as CrmContact).phone || '未填写电话' }}</span><span class="crm-secondary muted">{{ (row as CrmContact).email || '未填写邮箱' }}</span></template>
           <template v-else><span>{{ mode==='quote' ? (row as CrmQuote).total_amount+' 元' : (row as CrmOpportunity|CrmActivity).owner_name }}</span><span class="crm-secondary muted">{{ mode==='quote'?'有效至':mode==='opportunity'?'预计成交':'跟进期限' }} {{ deadline(row) }}</span>
-          <span v-if="mode==='opportunity'" class="crm-secondary muted">预估 {{ (row as CrmOpportunity).estimated_amount }} 元</span></template></template>
+          <span v-if="mode==='opportunity'" class="crm-secondary muted">预估 {{ (row as CrmOpportunity).estimated_amount }} 元 · 成交概率 {{ (row as CrmOpportunity).probability_percent===null?'未评估':`${(row as CrmOpportunity).probability_percent}%` }}</span></template></template>
         <template #cell-status="{row}">{{ rowStatus(row) }}<span v-if="mode==='activity' && (row as CrmActivity).overdue" class="crm-secondary">已逾期</span><span v-if="mode==='quote' && (row as CrmQuote).expired" class="crm-secondary">有效期已过</span></template>
         <template #cell-actions="{row}"><div class="crm-toolbar">
           <AppButton size="small" :disabled="disabled" @click="store.loadCrmDetail(mode,row.id)">详情与依据</AppButton>

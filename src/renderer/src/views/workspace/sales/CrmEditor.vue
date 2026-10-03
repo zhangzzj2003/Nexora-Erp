@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import { NInputNumber } from 'naive-ui'
 import type { CrmKind } from '../../../../../shared/crm-api'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
@@ -43,7 +44,7 @@ async function save(): Promise<void> {
     <div class="section-heading"><h2>{{ isEdit ? '修订' : '新建' }}{{ crmKindLabel[kind] }}</h2><AppButton :disabled="busy" @click="emit('close')">返回列表</AppButton></div>
     <p v-if="kind==='quote'">人民币报价不含税费和折扣计算。提交时固定客户、联系人和物料资料；之后须由未参与编制的账号独立审核。</p>
     <p v-if="kind==='quote' && opportunities.length===1 && !isEdit">暂无开放商机，须先建立销售商机才能编制报价。<AppButton v-if="store.can('crm_opportunity.manage')" variant="text" :disabled="disabled" @click="emit('createOpportunity')">建立销售商机</AppButton></p>
-    <p v-else-if="kind==='opportunity'">预估金额只用于销售跟进，不代表订单、收入或收款。“已转单”由批准报价转订单后自动登记。</p>
+    <p v-else-if="kind==='opportunity'">逐条填写成交概率；留空表示未评估，不计入加权预测。预估金额和预测金额不代表订单、收入或收款。“已转单”由批准报价转订单后自动登记。</p>
     <p v-else-if="kind==='activity'">这里只登记待办和实际跟进结果，不会发送邮件、短信或提醒。结束后原记录保留，更正可另建跟进。</p>
     <form @submit.prevent="save">
       <div v-if="kind==='contact'" class="form-grid">
@@ -72,6 +73,7 @@ async function save(): Promise<void> {
         <label>商机阶段<WorkspaceSelect v-model="forms.opportunity.stage" :options="Object.entries(crmStageLabel).filter(([key])=>key!=='won' && (isEdit || key!=='lost')).map(([value,label])=>({value,label}))" :disabled="disabled || (isEdit && forms.opportunity.stage==='lost')" /></label>
         <label>预计成交日<CrmDate v-model="forms.opportunity.expected_close_date" :disabled="disabled" /></label>
         <label>预估金额（元）<AppInput v-model.trim="forms.opportunity.estimated_amount" type="number" min="0" max="100000000000" step="0.01" required :disabled="disabled" /></label>
+        <label>成交概率（%）<NInputNumber v-model:value="forms.opportunity.probability_percent" :min="0" :max="100" :precision="0" clearable placeholder="未评估" :disabled="disabled" /></label>
         <label>商机说明<AppInput v-model.trim="forms.opportunity.note" maxlength="1000" :disabled="disabled" /></label>
       </div>
       <template v-else>

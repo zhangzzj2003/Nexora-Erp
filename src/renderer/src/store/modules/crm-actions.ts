@@ -6,7 +6,7 @@ import { displayError } from '../../utils/formatters.ts'
 
 export function emptyCrmForms(): CrmForms {
   return { contact: {customer_id:0,name:'',job_title:'',phone:'',email:'',note:'',is_active:true},
-    opportunity: {customer_id:0,contact_id:null,title:'',owner_id:0,stage:'prospect',estimated_amount:'0.00',expected_close_date:'',note:''},
+    opportunity: {customer_id:0,contact_id:null,title:'',owner_id:0,stage:'prospect',estimated_amount:'0.00',probability_percent:null,expected_close_date:'',note:''},
     activity: {customer_id:0,contact_id:null,opportunity_id:null,subject:'',owner_id:0,due_date:'',note:''},
     quote: {opportunity_id:0,contact_id:null,reference:'',valid_until:'',terms:'',lines:[{material_id:0,quantity:'1',unit_price:'0'}]} }
 }
@@ -17,7 +17,7 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
   const available = () => !!window.nexora && !state.connectionLost.value
   function clearCrmDetail(): void { details++; state.crmDetail.value=null; state.crmChanges.value=[] }
   function invalidate(): void {
-    reads++;ownerReads++;clearCrmDetail();state.crmOptions.value=null;state.crmOverview.value=null;state.crmOwnerChanges.value=[];state.crmLoading.value=false;state.crmError.value=''
+    reads++;ownerReads++;clearCrmDetail();state.crmOptions.value=null;state.crmOverview.value=null;state.crmForecast.value=null;state.crmOwnerChanges.value=[];state.crmLoading.value=false;state.crmError.value=''
   }
   watch(()=>`${state.user.value?.id}:${state.user.value?.permissions.join('|')}`,()=>{
     owner++;invalidate();state.crmForms.value=emptyCrmForms();state.crmEdit.value={}
@@ -28,12 +28,12 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
     if (!can('crm.view') || !available() || state.crmLoading.value) return false
     const ticket=++reads;const session=owner;state.crmLoading.value=true;state.crmError.value='';clearCrmDetail()
     try {
-      const [options,overview]=await Promise.all([window.nexora!.callApi('crmOptions',undefined),window.nexora!.callApi('crmOverview',undefined)])
+      const [options,overview,forecast]=await Promise.all([window.nexora!.callApi('crmOptions',undefined),window.nexora!.callApi('crmOverview',undefined),window.nexora!.callApi('crmForecast',undefined)])
       if (session!==owner || ticket!==reads || !can('crm.view')) return false
-      state.crmOptions.value=options;state.crmOverview.value=overview
+      state.crmOptions.value=options;state.crmOverview.value=overview;state.crmForecast.value=forecast
       return true
     } catch (error) {
-      if (session===owner && ticket===reads) {state.crmOptions.value=null;state.crmOverview.value=null;state.crmError.value=displayError(error)}
+      if (session===owner && ticket===reads) {state.crmOptions.value=null;state.crmOverview.value=null;state.crmForecast.value=null;state.crmError.value=displayError(error)}
       return false
     } finally {if(session===owner && ticket===reads)state.crmLoading.value=false}
   }
@@ -78,7 +78,7 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
       const opportunity=row as CrmOpportunity
       if(opportunity.stage==='won')return false
       state.crmForms.value.opportunity={customer_id:opportunity.customer_id,contact_id:opportunity.contact_id,title:opportunity.title,
-        owner_id:opportunity.owner_id,stage:opportunity.stage,estimated_amount:opportunity.estimated_amount,
+        owner_id:opportunity.owner_id,stage:opportunity.stage,estimated_amount:opportunity.estimated_amount,probability_percent:opportunity.probability_percent,
         expected_close_date:opportunity.expected_close_date,note:opportunity.note}
     }else {
       const quote=row as CrmQuote

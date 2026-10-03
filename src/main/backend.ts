@@ -20,6 +20,7 @@ import {validateEquipmentResult} from '../shared/equipment-validation.ts'
 import {validateCustomerImportPreview,validateCustomerImportResult} from '../shared/customer-import-validation.ts'
 import {validateContactImportPreview,validateContactImportResult} from '../shared/contact-import-validation.ts'
 import {validateOpportunityImportPreview,validateOpportunityImportResult} from '../shared/opportunity-import-validation.ts'
+import {validateCrmForecast} from '../shared/crm-forecast-validation.ts'
 import { request as httpsRequest } from 'node:https'
 
 export interface BackendTarget {
@@ -401,6 +402,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'crmOptions': return { method: 'GET', path: '/api/v1/crm/options' }
     case 'crmOverview': return { method: 'GET', path: '/api/v1/crm/overview' }
+    case 'crmForecast': return { method: 'GET', path: '/api/v1/crm/forecast' }
     case 'contactImportPreview': return { method: 'POST', path: '/api/v1/crm/contacts/import-preview',
       body: { rows: contactImportRows(payload) } }
     case 'importContacts': {
@@ -439,12 +441,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'saveCrmQuote': {
       const source = payload as Record<string, unknown>
       const fields = action==='saveCrmContact' ? ['customer_id','name','job_title','phone','email','note','is_active']
-        : action==='saveCrmOpportunity' ? ['customer_id','contact_id','title','owner_id','stage','estimated_amount','expected_close_date','note']
+        : action==='saveCrmOpportunity' ? ['customer_id','contact_id','title','owner_id','stage','estimated_amount','probability_percent','expected_close_date','note']
         : action==='createCrmActivity' ? ['customer_id','contact_id','opportunity_id','subject','owner_id','due_date','note']
         : ['opportunity_id','contact_id','reference','valid_until','terms']
       const body: Record<string, unknown> = Object.fromEntries(fields.map(key=>[key,source[key]]))
       for (const field of ['customer_id','owner_id','opportunity_id','contact_id']) {
         if (fields.includes(field) && (source[field] != null || ['customer_id','owner_id'].includes(field))) body[field]=positiveId(payload,field)
+      }
+      if (action==='saveCrmOpportunity' && source.probability_percent !== undefined) {
+        if (source.probability_percent !== null && (!Number.isSafeInteger(source.probability_percent)
+          || (source.probability_percent as number) < 0 || (source.probability_percent as number) > 100)) throw new Error('成交概率须为 0 至 100 的整数')
       }
       if (action==='saveCrmQuote') {
         if (!Array.isArray(source.lines) || source.lines.length < 1 || source.lines.length > 100) throw new Error('报价明细无效')
@@ -1065,6 +1071,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     opportunityImportRows(payload))
   if (action === 'importOpportunities') validateOpportunityImportResult(data,
     opportunityImportRows(payload))
+  if (action === 'crmForecast') validateCrmForecast(data)
   if (action === 'postReceipt') {
     const request = payload as ErpOperations['postReceipt']['input']
     if (request.lines) validatePostedReceiptLots(data, request.receiptId, receiptLotBody({lines: request.lines}).lines)

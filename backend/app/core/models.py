@@ -1,6 +1,6 @@
 """业务 ORM 模型；金额保留文本精度，库结构由版本迁移维护。"""
 
-from sqlalchemy import ForeignKey, Integer, Text, text
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, Text, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -25,6 +25,7 @@ class CrmContact(Base):
 
 class CrmOpportunity(Base):
     __tablename__ = 'crm_opportunities'
+    __table_args__ = (CheckConstraint('probability_percent BETWEEN 0 AND 100', name='crm_opportunity_probability_range'),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     customer_id: Mapped[int] = mapped_column(Integer, ForeignKey('customers.id'), nullable=False)
     contact_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('crm_contacts.id'))
@@ -32,6 +33,7 @@ class CrmOpportunity(Base):
     owner_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
     stage: Mapped[str] = mapped_column(Text, nullable=False)
     estimated_amount: Mapped[str] = mapped_column(Text, nullable=False)
+    probability_percent: Mapped[int | None] = mapped_column(Integer)
     expected_close_date: Mapped[str] = mapped_column(Text, nullable=False)
     note: Mapped[str] = mapped_column(Text, nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)

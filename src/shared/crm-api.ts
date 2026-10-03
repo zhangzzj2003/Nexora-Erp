@@ -25,12 +25,19 @@ export interface ContactImportResult {
 }
 export interface CrmOpportunityInput {
   customer_id: number; contact_id: number | null; title: string; owner_id: number
-  stage: Exclude<CrmStage, 'won'>; estimated_amount: string; expected_close_date: string; note: string
+  stage: Exclude<CrmStage, 'won'>; estimated_amount: string; probability_percent: number | null; expected_close_date: string; note: string
 }
 export interface CrmOpportunity extends CrmBase, Omit<CrmOpportunityInput,'stage'> {
   stage: CrmStage; owner_name: string; orders: { quote_id: number; sales_order_id: number; status: string }[]
 }
-export type OpportunityImportRow = Omit<CrmOpportunityInput, 'stage'>
+export type OpportunityImportRow = Omit<CrmOpportunityInput, 'stage' | 'probability_percent'>
+export interface CrmForecast {
+  currency: 'CNY'; rated_count: number; unrated_count: number
+  estimated_amount: string; weighted_amount: string
+  rows: {id: number; customer_id: number; customer_name: string; title: string; owner_name: string
+    stage: Exclude<CrmStage, 'won' | 'lost'>; expected_close_date: string; estimated_amount: string
+    probability_percent: number; weighted_amount: string; overdue: boolean}[]
+}
 export interface OpportunityImportPreview {
   rows: {
     row: number; customer_id: number; customer_name: string; title: string
@@ -84,6 +91,7 @@ export interface CrmEditTarget {kind: CrmKind; id: number; version: number; reas
 export interface CrmOperations {
   crmOptions: {input: undefined; output: CrmOptions}
   crmOverview: {input: undefined; output: CrmOverview}
+  crmForecast: {input: undefined; output: CrmForecast}
   contactImportPreview: {input: {rows: ContactImportRow[]}; output: ContactImportPreview}
   importContacts: {input: {rows: ContactImportRow[]; reason: string; allow_similar: boolean}; output: ContactImportResult}
   opportunityImportPreview: {input: {rows: OpportunityImportRow[]}; output: OpportunityImportPreview}
