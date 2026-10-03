@@ -1,4 +1,5 @@
 import {createInventoryWarningActions} from './modules/inventory-warning-actions'
+import {createInventoryWarningAlerts} from './modules/inventory-warning-alerts'
 import {createPhysicalLotActions} from './modules/physical-lot-actions'
 import {
   computed,
@@ -257,6 +258,7 @@ function createAppStore() {
   const qualityActions = createQualityActions(state, perform)
   const afterSalesActions = createAfterSalesActions(state, perform)
   const inventoryWarningActions = createInventoryWarningActions(state, perform)
+  const inventoryWarningAlerts = createInventoryWarningAlerts(state)
   const physicalLotActions = createPhysicalLotActions(state)
   const equipmentActions = createEquipmentActions(state, perform)
   const dashboardActions = createDashboardActions(state)
@@ -291,6 +293,7 @@ function createAppStore() {
         .catch(() => '')
     if (!initialized) return
     await checkConnection()
+    if (initialized) inventoryWarningAlerts.start()
     // 窗口可能在异步连接检查期间关闭，关闭后不再启动轮询。
     if (initialized)
       healthTimer = setInterval(() => {
@@ -301,6 +304,7 @@ function createAppStore() {
   function dispose(): void {
     initialized = false
     workspaceRefresh.dispose()
+    inventoryWarningAlerts.stop()
     void stopScan()
     if (healthTimer) clearInterval(healthTimer)
     healthTimer = null

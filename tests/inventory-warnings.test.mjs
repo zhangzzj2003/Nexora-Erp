@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {createAppState} from '../src/renderer/src/store/state.ts'
 import {createInventoryWarningActions} from '../src/renderer/src/store/modules/inventory-warning-actions.ts'
+import {createInventoryWarningAlerts} from '../src/renderer/src/store/modules/inventory-warning-alerts.ts'
 import {warningThresholdValid} from '../src/shared/inventory-warning-api.ts'
 import {validateInventoryWarningResult} from '../src/shared/inventory-warning-validation.ts'
 import {callBackend} from '../src/main/backend.ts'
@@ -100,4 +101,64 @@ test('迟到或排队写入不能写入新账号，写后刷新断线保留输�
   dropped.state.warningForm.value={...input};const saving=dropped.actions.saveWarningRule()
   await new Promise(done=>setImmediate(done));dropped.state.connectionLost.value=true;read.resolve(overview)
   assert.equal(await saving,false);assert.equal(dropped.state.warningForm.value.reason,'备货依据')
+})
+
+test('应用内提醒只在首次异常和状态恶化时出现，恢复后再次异常会重新提示',async t=>{
+  const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
+  let current={...overview,rows:[row]}
+  globalThis.window={nexora:{callApi:async()=>current}}
+  const state=createAppState();state.screen.value='app';state.user.value={id:1,permissions:['inventory.view']}
+  const alerts=createInventoryWarningAlerts(state)
+  await alerts.poll();const first=state.warningAlert.value
+  assert.match(first.content,/低库存 1 项/)
+  await alerts.poll();assert.equal(state.warningAlert.value,first)
+  current={...overview,rows:[{...row,status:'out_of_stock',quantity:'0',shortage:'1.000'}]}
+  await alerts.poll();assert.match(state.warningAlert.value.content,/缺货 1 项/)
+  const worsened=state.warningAlert.value
+  await alerts.poll();assert.equal(state.warningAlert.value,worsened)
+  current={...overview,rows:[{...row,status:'normal',quantity:'2.000',shortage:'0.000'}]}
+  await alerts.poll();assert.equal(state.warningAlert.value,worsened)
+  current={...overview,rows:[row]}
+  await alerts.poll();assert.match(state.warningAlert.value.content,/低库存 1 项/)
+  assert.notEqual(state.warningAlert.value.id,first.id)
+  alerts.stop()
+})
+
+test('提醒在无权、断线及迟到的旧账号响应时失效，失败不重置比较基线',async t=>{
+  const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
+  let calls=0;let result=overview
+  globalThis.window={nexora:{callApi:async()=>{calls++;if(result instanceof Error)throw result;return result}}}
+  const state=createAppState();state.screen.value='app';state.user.value={id:1,permissions:[]}
+  const alerts=createInventoryWarningAlerts(state)
+  await alerts.poll();assert.equal(calls,0)
+  state.user.value={id:1,permissions:['inventory.view']}
+  await alerts.poll();const initial=state.warningAlert.value
+  result=Error('短暂读取失败');await alerts.poll()
+  result=overview;await alerts.poll();assert.equal(state.warningAlert.value,initial)
+  const pending=deferred();globalThis.window.nexora.callApi=()=>pending.promise
+  const old=alerts.poll();state.user.value={id:2,permissions:['inventory.view']}
+  pending.resolve(overview);await old
+  assert.equal(state.warningAlert.value,null)
+  globalThis.window.nexora.callApi=async()=>overview
+  await alerts.poll();assert.match(state.warningAlert.value.content,/低库存/)
+  state.connectionLost.value=true;assert.equal(state.warningAlert.value,null)
+  await alerts.poll();assert.equal(calls,3)
+  alerts.stop()
+})
+
+test('窗口启动后登录立即提醒，释放时停止定时读取',async t=>{
+  const originalWindow=globalThis.window,originalSetInterval=globalThis.setInterval,originalClearInterval=globalThis.clearInterval
+  t.after(()=>{globalThis.window=originalWindow;globalThis.setInterval=originalSetInterval;globalThis.clearInterval=originalClearInterval})
+  let calls=0,interval,cleared=false
+  globalThis.setInterval=callback=>{interval=callback;return 17}
+  globalThis.clearInterval=id=>{assert.equal(id,17);cleared=true}
+  globalThis.window={nexora:{callApi:async()=>{calls++;return overview}}}
+  const state=createAppState(),alerts=createInventoryWarningAlerts(state)
+  alerts.start();assert.equal(calls,0)
+  state.user.value={id:1,permissions:['inventory.view']};state.screen.value='app'
+  await new Promise(done=>setImmediate(done))
+  assert.equal(calls,1);assert.match(state.warningAlert.value.content,/低库存/)
+  interval();await new Promise(done=>setImmediate(done))
+  assert.equal(calls,2)
+  alerts.stop();assert.equal(cleared,true);assert.equal(state.warningAlert.value,null)
 })
