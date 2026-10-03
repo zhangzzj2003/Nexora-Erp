@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+import { NModal, NUpload } from 'naive-ui'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -10,11 +10,53 @@ import { submitCreateDialog } from '../../../utils/create-dialog'
 import { usePiniaAppStore } from '../../../store/app-store'
 
 const store = usePiniaAppStore()
-const { bankOverview, bankAccountForm, bankLineForm, bankMatchForm, bankReverseReasons,
+const { bankOverview, bankAccountForm, bankCsvForm, bankCsvPreview, bankLineForm, bankMatchForm, bankReverseReasons,
   busy, error, notice, connectionLost } = storeToRefs(store)
-const { can, localTime, createBankAccount, importBankLine, matchBankLine, reverseBankMatch } = store
+const { can, localTime, createBankAccount, importBankLine, previewBankCsv, importBankCsv,
+  matchBankLine, reverseBankMatch } = store
 const accountOpen = ref(false)
 const lineOpen = ref(false)
+const csvOpen = ref(false)
+const csvError = ref('')
+const csvReading = ref(false)
+let fileRevision = 0
+watch(() => [bankCsvForm.value.account_id, bankCsvForm.value.content_base64], () => { bankCsvPreview.value = null })
+watch(csvOpen, open => { if (!open) { fileRevision++; csvReading.value = false } })
+watch(connectionLost, lost => { if (lost) { csvOpen.value = false; bankCsvPreview.value = null } })
+async function selectCsv(data: { file: { file?: File | null } }): Promise<void> {
+  const file = data.file.file
+  fileRevision++
+  const revision = fileRevision
+  bankCsvForm.value.file_name = ''
+  bankCsvForm.value.content_base64 = ''
+  bankCsvPreview.value = null
+  csvError.value = ''
+  if (!file) return
+  if (file.size > 1_048_576 || !file.name.toLowerCase().endsWith('.csv')) {
+    csvError.value = '仅支持不超过 1 MiB 的 CSV 文件。'
+    return
+  }
+  csvReading.value = true
+  try {
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onerror = () => reject(new Error('文件读取失败'))
+      reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '')
+      reader.readAsDataURL(file)
+    })
+    if (revision !== fileRevision || !csvOpen.value) return
+    bankCsvForm.value.file_name = file.name
+    bankCsvForm.value.content_base64 = base64
+  } catch {
+    if (revision === fileRevision) csvError.value = '文件读取失败，请重新选择。'
+  } finally {
+    if (revision === fileRevision) csvReading.value = false
+  }
+}
+async function submitCsv(): Promise<void> {
+  if (connectionLost.value || !can('bank_reconciliation.record') || !bankCsvPreview.value?.can_import) return
+  await submitCreateDialog(importBankCsv, { busy, error, notice }, csvOpen)
+}
 const matchOpen = ref(false)
 
 const unmatchedLines = computed(() => bankOverview.value?.lines.filter(item => item.match_id === null) ?? [])
@@ -58,6 +100,7 @@ async function submitMatch(): Promise<void> {
 }
 const lineColumns = [{ key: 'document', title: '银行流水' }, { key: 'actions', title: '勾对', width: '170' }]
 const matchColumns = [{ key: 'document', title: '勾对证据' }, { key: 'actions', title: '操作', width: '280' }]
+const importColumns = [{ key: 'document', title: '导入文件' }]
 </script>
 
 <template>
@@ -65,7 +108,7 @@ const matchColumns = [{ key: 'document', title: '勾对证据' }, { key: 'action
     <div class="section-heading">
       <div><p class="eyebrow">BANK RECONCILIATION</p><h2>银行流水勾对</h2></div>
     </div>
-    <p class="muted">将人工取得的银行流水逐笔登记，再与订单或历史分户收付款按金额和方向勾对。登记内容需与银行原始凭据核实；本页不连接银行，也不生成会计凭证。</p>
+    <p class="muted">将人工取得的银行流水逐笔登记或从 UTF-8 CSV 导入，再与订单或历史分户收付款按金额和方向勾对。请核实银行原始凭据；本页不连接银行，也不生成会计凭证。</p>
     <div class="form-grid">
       <div>银行账户：{{ bankOverview?.accounts.length ?? 0 }} 个</div>
       <div>待勾对流水：{{ unmatchedLines.length }} 笔</div>
@@ -82,6 +125,29 @@ const matchColumns = [{ key: 'document', title: '勾对证据' }, { key: 'action
         </div>
         <AppButton type="submit" variant="primary" :disabled="busy || connectionLost">保存账户</AppButton>
       </form>
+    </NModal>
+
+    <NModal v-if="can('bank_reconciliation.record')" v-model:show="csvOpen" preset="card"
+      :mask-closable="!busy" :style="{ width: 'min(800px, calc(100vw - 32px))' }">
+      <h2>导入银行 CSV</h2>
+      <p class="muted">表头固定为 transaction_id,occurred_on,amount,counterparty,note。日期使用 YYYY-MM-DD，入账金额为正，出账为负；最多 500 笔、1 MiB。预检后再确认整批导入。</p>
+      <div class="form-grid">
+        <label>银行账户<WorkspaceSelect v-model="bankCsvForm.account_id" required
+          :options="(bankOverview?.accounts ?? []).map(item => ({ value: item.id, label: `${item.code} · ${item.name}` }))" /></label>
+        <NUpload accept=".csv,text/csv" :default-upload="false" :show-file-list="false" :file-list="[]" @change="selectCsv">
+          <AppButton type="button" :disabled="busy || csvReading || connectionLost">选择 CSV 文件</AppButton>
+        </NUpload>
+      </div>
+      <p v-if="bankCsvForm.file_name" class="muted">已选择：{{ bankCsvForm.file_name }}</p>
+      <p v-if="csvError" class="muted">{{ csvError }}</p>
+      <AppButton type="button" :disabled="busy || csvReading || connectionLost || !bankCsvForm.account_id || !bankCsvForm.content_base64" @click="previewBankCsv">预检文件</AppButton>
+      <div v-if="bankCsvPreview">
+        <p>共 {{ bankCsvPreview.row_count }} 笔 · SHA-256 {{ bankCsvPreview.sha256 }}</p>
+        <p v-if="bankCsvPreview.duplicate_file">该账户已导入相同文件。</p>
+        <p v-if="bankCsvPreview.existing_transaction_ids.length">已有交易号：{{ bankCsvPreview.existing_transaction_ids.join('、') }}</p>
+        <p v-for="item in bankCsvPreview.sample" :key="item.transaction_id" class="muted">{{ item.occurred_on }} · {{ item.transaction_id }} · ¥{{ item.amount }} · {{ item.counterparty }}</p>
+        <AppButton type="button" variant="primary" :disabled="busy || connectionLost || !bankCsvPreview.can_import" @click="submitCsv">确认整批导入</AppButton>
+      </div>
     </NModal>
 
     <NModal v-if="can('bank_reconciliation.record')" v-model:show="lineOpen" preset="card"
@@ -118,13 +184,21 @@ const matchColumns = [{ key: 'document', title: '勾对证据' }, { key: 'action
       <template #actions>
         <AppButton v-if="can('bank_reconciliation.account')" type="button" @click="accountOpen = true">登记账户</AppButton>
         <AppButton v-if="can('bank_reconciliation.record')" type="button" variant="primary" :disabled="!bankOverview?.accounts.length" @click="lineOpen = true">登记流水</AppButton>
+        <AppButton v-if="can('bank_reconciliation.record')" type="button" :disabled="!bankOverview?.accounts.length" @click="csvOpen = true">导入 CSV</AppButton>
       </template>
       <template #cell-document="{ row: item }">
         <strong>#{{ item.id }} · {{ item.account_code }} · ¥{{ item.amount }}</strong>
-        <p class="muted">{{ item.occurred_on }} · 交易号 {{ item.transaction_id }} · {{ item.counterparty }} · 登记人 {{ item.created_by_name }}<span v-if="item.note"> · {{ item.note }}</span></p>
+        <p class="muted">{{ item.occurred_on }} · 交易号 {{ item.transaction_id }} · {{ item.counterparty }} · 登记人 {{ item.created_by_name }}<span v-if="item.import_batch_id"> · 导入批次 #{{ item.import_batch_id }}</span><span v-if="item.note"> · {{ item.note }}</span></p>
       </template>
       <template #cell-actions="{ row: item }">
         <AppButton v-if="can('bank_reconciliation.match')" type="button" :disabled="busy || connectionLost" @click="beginMatch(item.id)">选择收付款</AppButton>
+      </template>
+    </WorkspaceTable>
+
+    <WorkspaceTable title="CSV 导入记录" :columns="importColumns" :data="bankOverview?.imports ?? []" :min-table-width="700">
+      <template #cell-document="{ row: item }">
+        <strong>#{{ item.id }} · {{ item.file_name }} · {{ item.row_count }} 笔</strong>
+        <p class="muted">账户 #{{ item.account_id }} · {{ localTime(item.created_at) }} · {{ item.created_by_name }} · SHA-256 {{ item.sha256 }}</p>
       </template>
     </WorkspaceTable>
 

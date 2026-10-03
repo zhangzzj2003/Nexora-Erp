@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 69:
+        if version > 70:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2268,3 +2268,18 @@ def migrate() -> None:
             db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                 [(role, code) for role in ('admin','finance') for code, _ in operations])
             db.execute('PRAGMA user_version = 69')
+
+        if version < 70:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_import_batches (
+                id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+                file_name TEXT NOT NULL, sha256 TEXT NOT NULL, row_count INTEGER NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(account_id, sha256))''')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(bank_statement_lines)')}
+            if 'import_batch_id' not in columns:
+                db.execute('ALTER TABLE bank_statement_lines ADD COLUMN import_batch_id INTEGER REFERENCES bank_import_batches(id)')
+            db.execute('CREATE INDEX IF NOT EXISTS bank_statement_lines_import_batch ON bank_statement_lines(import_batch_id,id)')
+            db.execute('PRAGMA user_version = 70')

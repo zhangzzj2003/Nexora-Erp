@@ -2,17 +2,22 @@
 
 from datetime import date
 from decimal import Decimal
+import base64
+import binascii
+import csv
+import hashlib
+import io
 import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.models import (BankAccount, BankMatch, BankMatchReversal, BankStatementLine,
+from app.core.models import (BankAccount, BankImportBatch, BankMatch, BankMatchReversal, BankStatementLine,
     PaymentRecord, SubledgerOpeningLine, SubledgerPayment, User)
 from app.core.orm import add_model, model_data, orm_session
 
@@ -91,6 +96,63 @@ class LineBatchInput(BaseModel):
     lines: list[LineInput] = Field(min_length=1, max_length=500)
 
 
+class CsvImportInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    account_id: int = Field(gt=0, strict=True)
+    file_name: str = Field(min_length=1, max_length=120)
+    content_base64: str = Field(min_length=1, max_length=1_398_104)
+
+    @field_validator('file_name')
+    @classmethod
+    def valid_file_name(cls, value: str) -> str:
+        result = clean(value, '文件名')
+        if '/' in result or '\\' in result or not result.lower().endswith('.csv'):
+            raise ValueError('仅支持 CSV 文件名')
+        return result
+
+
+def parse_csv(data: CsvImportInput) -> tuple[str, list[LineInput]]:
+    try:
+        raw = base64.b64decode(data.content_base64, validate=True)
+        if len(raw) > 1_048_576:
+            raise HTTPException(422, 'CSV 文件不能超过 1 MiB')
+        content = raw.decode('utf-8-sig')
+    except (binascii.Error, UnicodeError):
+        raise HTTPException(422, 'CSV 须为有效的 UTF-8 文件') from None
+    if '\x00' in content:
+        raise HTTPException(422, 'CSV 含有无效字符')
+    try:
+        rows = csv.reader(io.StringIO(content, newline=''), strict=True)
+        if next(rows, None) != ['transaction_id', 'occurred_on', 'amount', 'counterparty', 'note']:
+            raise HTTPException(422, 'CSV 表头必须为 transaction_id,occurred_on,amount,counterparty,note')
+        lines = []
+        for number, row in enumerate(rows, start=2):
+            if len(row) != 5 or len(lines) >= 500:
+                raise HTTPException(422, f'CSV 第 {number} 行列数无效或超过 500 笔')
+            try:
+                lines.append(LineInput.model_validate(dict(zip(
+                    ('transaction_id', 'occurred_on', 'amount', 'counterparty', 'note'), row))))
+            except ValidationError:
+                raise HTTPException(422, f'CSV 第 {number} 行字段无效') from None
+    except csv.Error:
+        raise HTTPException(422, 'CSV 格式无效') from None
+    if not lines:
+        raise HTTPException(422, 'CSV 至少需要一笔银行流水')
+    references = [line.transaction_id for line in lines]
+    if len(references) != len(set(references)):
+        raise HTTPException(422, '同一 CSV 内银行交易号不能重复')
+    return hashlib.sha256(raw).hexdigest(), lines
+
+
+def csv_conflicts(db: Session, account_id: int, digest: str, lines: list[LineInput]) -> tuple[bool, list[str]]:
+    duplicate_file = db.scalar(select(BankImportBatch.id).where(
+        BankImportBatch.account_id == account_id, BankImportBatch.sha256 == digest)) is not None
+    existing = list(db.scalars(select(BankStatementLine.transaction_id).where(
+        BankStatementLine.account_id == account_id,
+        BankStatementLine.transaction_id.in_([line.transaction_id for line in lines]))))
+    return duplicate_file, existing
+
+
 class MatchInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     statement_line_id: int = Field(gt=0, strict=True)
@@ -150,6 +212,8 @@ def overview_data(db: Session) -> dict:
     by_source = {(item.source_type, item.source_id): item.id for item in active}
     accounts = [dict(**model_data(item), created_by_name=users.get(item.created_by))
         for item in db.scalars(select(BankAccount).order_by(BankAccount.code))]
+    imports = [dict(**model_data(item), created_by_name=users.get(item.created_by))
+        for item in db.scalars(select(BankImportBatch).order_by(BankImportBatch.id.desc()))]
     lines = [dict(**model_data(item), account_code=db.get(BankAccount, item.account_id).code,
         match_id=by_line.get(item.id), created_by_name=users.get(item.created_by))
         for item in db.scalars(select(BankStatementLine).order_by(BankStatementLine.id.desc()))]
@@ -160,7 +224,7 @@ def overview_data(db: Session) -> dict:
         reversal=(dict(**model_data(reversals[item.id]),
             created_by_name=users.get(reversals[item.id].created_by)) if item.id in reversals else None))
         for item in matches]
-    return dict(currency='CNY', accounts=accounts, lines=lines, sources=sources, matches=evidence)
+    return dict(currency='CNY', accounts=accounts, imports=imports, lines=lines, sources=sources, matches=evidence)
 
 
 @router.get('/overview')
@@ -199,6 +263,44 @@ def import_lines(data: LineBatchInput, user: dict = Depends(require('bank_reconc
             return dict(account_id=account.id, line_ids=ids, imported_count=len(ids))
     except IntegrityError:
         raise HTTPException(409, '此账户的银行交易号已登记，整批未写入') from None
+
+
+@router.post('/imports/csv/preview')
+def preview_csv(data: CsvImportInput, _: dict = Depends(require('bank_reconciliation.record'))) -> dict:
+    digest, lines = parse_csv(data)
+    with orm_session() as db:
+        if db.get(BankAccount, data.account_id) is None:
+            raise HTTPException(404, '银行账户不存在')
+        duplicate_file, existing = csv_conflicts(db, data.account_id, digest, lines)
+    return dict(sha256=digest, row_count=len(lines), duplicate_file=duplicate_file,
+        existing_transaction_ids=existing, can_import=not duplicate_file and not existing,
+        sample=[dict(transaction_id=line.transaction_id, occurred_on=line.occurred_on,
+            amount=money(line.amount), counterparty=line.counterparty) for line in lines[:20]])
+
+
+@router.post('/imports/csv', status_code=201)
+def import_csv(data: CsvImportInput, user: dict = Depends(require('bank_reconciliation.record'))) -> dict:
+    digest, lines = parse_csv(data)
+    try:
+        with orm_session(write=True) as db:
+            if db.get(BankAccount, data.account_id) is None:
+                raise HTTPException(404, '银行账户不存在')
+            duplicate_file, existing = csv_conflicts(db, data.account_id, digest, lines)
+            if duplicate_file or existing:
+                raise HTTPException(409, '文件或银行交易号已导入，整批未写入')
+            batch = add_model(db, BankImportBatch(account_id=data.account_id,
+                file_name=data.file_name, sha256=digest, row_count=len(lines), created_by=user['id']))
+            ids = []
+            for line in lines:
+                item = add_model(db, BankStatementLine(account_id=data.account_id,
+                    transaction_id=line.transaction_id, occurred_on=line.occurred_on,
+                    amount=money(line.amount), counterparty=line.counterparty, note=line.note,
+                    import_batch_id=batch.id, created_by=user['id']))
+                ids.append(item.id)
+            return dict(batch_id=batch.id, account_id=data.account_id, sha256=digest,
+                line_ids=ids, imported_count=len(ids))
+    except IntegrityError:
+        raise HTTPException(409, '文件或银行交易号已导入，整批未写入') from None
 
 
 @router.post('/matches', status_code=201)

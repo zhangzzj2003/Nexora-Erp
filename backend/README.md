@@ -114,7 +114,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 数据库第 39 版增加成本结算、分摊、来源依赖和独立冲销表。GET `/api/v1/production-costs/settlements` 查看历史；POST 同路径传入 `work_order_id`、`reference`、可选 `note`，仅可结算全部报工、无未处理草稿且净领料全部核价的工单。成本按合格入库数量累计比例分摊到各完工批次，以分为单位处理尾差；没有合格成品时拒绝结算。完工入库在库存计价中返回 `cost_source: production_settlement` 与 `settlement_id`，内部分摊金额不由四位展示单价倒算。POST `/{id}/reverse` 按原因冲销结算，原快照保留；有关联后续有效工单结算时拒绝冲销。结算冻结该工单费用、完工来源和有关核价依赖，先冲销后才能更正。结算、冲销分别要求 `production_cost.settle`、`production_cost.reopen`，默认授予管理员和财务员；查看沿用 `production_cost.view`。成本规则与边界见 [完工成本规则](../docs/production-cost-settlement.md)。
 
-现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 155 张静态模型表及第 69 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
+现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 156 张静态模型表及第 70 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
 
 ## 多仓库库存与调拨
 
@@ -202,7 +202,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 已过账总账报表
 
-已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 69 版，客户端和服务端须同步升级。
+已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 70 版，客户端和服务端须同步升级。
 
 ## 正式期初余额
 
@@ -259,7 +259,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 银行流水勾对
 
-第 69 版新增银行账户、流水、勾对及撤销四张 ORM 模型表，共 155 张静态模型表。`app/finance/bank_reconciliation.py` 提供 `/api/v1/finance/bank-reconciliation/overview`、`/accounts`、`/lines/import`、`/matches` 和 `/matches/{id}/reverse`；查看、账户维护、流水登记、勾对和撤销分别使用独立权限。桌面可登记账户和逐笔流水并查看历史；批量接口一次最多 500 笔，重复交易号整批回滚。精确金额和方向匹配订单及历史分户收付款，撤销追加证据。人工录入不等于银行核实，不改变应收应付或总账；银行直连和余额调节尚未实现。规则及边界见[银行流水勾对](../docs/bank-reconciliation.md)。
+第 69 版新增银行账户、流水、勾对及撤销四张 ORM 模型表；第 70 版增加 CSV 导入批次来源表及流水来源列，共 156 张静态模型表。`app/finance/bank_reconciliation.py` 提供 `/api/v1/finance/bank-reconciliation/overview`、`/accounts`、`/lines/import`、`/imports/csv/preview`、`/imports/csv`、`/matches` 和 `/matches/{id}/reverse`；查看、账户维护、流水登记、勾对和撤销分别使用独立权限。桌面可登记账户、逐笔流水或上传 UTF-8 CSV 并查看来源批次和历史；CSV 文件最多 1 MiB、500 笔，预检后整批写入。账户内重复文件摘要或交易号均拒绝，整批回滚。精确金额和方向匹配订单及历史分户收付款，撤销追加证据。人工录入不等于银行核实，不改变应收应付或总账；银行直连和余额调节尚未实现。规则及边界见[银行流水勾对](../docs/bank-reconciliation.md)。
 
 ## 实物批次数据基础
 

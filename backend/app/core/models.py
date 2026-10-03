@@ -1434,6 +1434,17 @@ class BankAccount(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
+class BankImportBatch(Base):
+    __tablename__ = 'bank_import_batches'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey('bank_accounts.id'), nullable=False)
+    file_name: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class BankStatementLine(Base):
     __tablename__ = 'bank_statement_lines'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -1443,6 +1454,7 @@ class BankStatementLine(Base):
     amount: Mapped[str] = mapped_column(Text, nullable=False)
     counterparty: Mapped[str] = mapped_column(Text, nullable=False)
     note: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    import_batch_id: Mapped[int | None] = mapped_column(ForeignKey('bank_import_batches.id'), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 

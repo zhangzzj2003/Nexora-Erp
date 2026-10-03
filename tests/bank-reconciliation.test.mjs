@@ -34,6 +34,8 @@ test('银行写操作失败保留草稿和撤销原因，成功后清空', async
     connectionLost: ref(false),
     bankOverview: ref(null),
     bankAccountForm: ref({ code: 'MAIN', name: '基本户' }),
+    bankCsvForm: ref({ account_id: 2, file_name: 'bank.csv', content_base64: 'YQ==' }),
+    bankCsvPreview: ref(null),
     bankLineForm: ref({ account_id: 2, transaction_id: 'T-1', occurred_on: '2026-10-03', amount: '10.00', counterparty: '', note: '' }),
     bankMatchForm: ref({ statement_line_id: 3, source_type: 'order_payment', source_id: 4, reason: '流水原件' }),
     bankReverseReasons: ref({ 5: '关联错误' })
@@ -73,6 +75,8 @@ test('切换账号后清除银行快照，旧写入返回不能覆盖新账号�
     user: ref({ id: 1, permissions: ['bank_reconciliation.account'] }),
     connectionLost: ref(false), bankOverview: ref({ accounts: [{ id: 1 }] }),
     bankAccountForm: ref({ code: 'OLD', name: '旧账户' }),
+    bankCsvForm: ref({ account_id: 1, file_name: 'old.csv', content_base64: 'YQ==' }),
+    bankCsvPreview: ref(null),
     bankLineForm: ref({ account_id: 1, transaction_id: 'OLD', occurred_on: '', amount: '', counterparty: '', note: '' }),
     bankMatchForm: ref({ statement_line_id: 1, source_type: 'order_payment', source_id: 1, reason: '旧' }),
     bankReverseReasons: ref({ 1: '旧原因' })
@@ -82,6 +86,7 @@ test('切换账号后清除银行快照，旧写入返回不能覆盖新账号�
   state.user.value = { id: 2, permissions: ['bank_reconciliation.account'] }
   assert.equal(state.bankOverview.value, null)
   assert.equal(state.bankAccountForm.value.code, '')
+  assert.equal(state.bankCsvForm.value.file_name, '')
   state.bankAccountForm.value = { code: 'NEW', name: '新账户' }
   finish({})
   await pending
@@ -109,6 +114,12 @@ test('主进程固定银行接口并拒绝无效金额、来源和路径编号',
   const goodLine = { transaction_id: 'T-1', occurred_on: '2026-10-03', amount: '-10.00', counterparty: '', note: '' }
   await callBackend('importBankLines', { account_id: 2, lines: [goodLine] })
   assert.equal(calls.at(-1).path, '/api/v1/finance/bank-reconciliation/lines/import')
+  await callBackend('previewBankCsv', { account_id: 2, file_name: 'bank.csv', content_base64: 'YQ==' })
+  assert.equal(calls.at(-1).path, '/api/v1/finance/bank-reconciliation/imports/csv/preview')
+  await callBackend('importBankCsv', { account_id: 2, file_name: 'bank.csv', content_base64: 'YQ==' })
+  assert.equal(calls.at(-1).path, '/api/v1/finance/bank-reconciliation/imports/csv')
+  await assert.rejects(callBackend('importBankCsv', { account_id: 2, file_name: '../bank.csv', content_base64: 'YQ==' }), /CSV 文件名无效/)
+  await assert.rejects(callBackend('importBankCsv', { account_id: 2, file_name: 'bank.csv', content_base64: 'invalid!' }), /CSV 文件内容无效/)
   await assert.rejects(callBackend('importBankLines', { account_id: 2, lines: [{ ...goodLine, amount: '1e2' }] }), /银行金额无效/)
   await assert.rejects(callBackend('importBankLines', { account_id: 2, lines: [goodLine, goodLine] }), /同批银行交易号不能重复/)
   await assert.rejects(callBackend('matchBankLine', { statement_line_id: 3, source_type: 'other', source_id: 4, reason: '错误' }), /收付款来源无效/)
@@ -118,4 +129,36 @@ test('主进程固定银行接口并拒绝无效金额、来源和路径编号',
   await callBackend('reverseBankMatch', { matchId: 5, reason: '关联错误', extra: 'ignored' })
   assert.equal(calls.at(-1).path, '/api/v1/finance/bank-reconciliation/matches/5/reverse')
   assert.deepEqual(JSON.parse(calls.at(-1).body), { reason: '关联错误' })
+})
+
+test('CSV 预检绑定当前草稿，导入成功后清除文件', async t => {
+  const original = globalThis.window
+  t.after(() => { globalThis.window = original })
+  const calls = []
+  globalThis.window = { nexora: { async callApi(action, payload) {
+    calls.push([action, structuredClone(payload)])
+    return action === 'previewBankCsv' ? { can_import: true, sha256: 'digest', row_count: 1 } : {}
+  } } }
+  const state = {
+    server: ref({ id: 'server-a', fingerprint: 'trusted' }),
+    user: ref({ id: 1, permissions: ['bank_reconciliation.record'] }),
+    connectionLost: ref(false), bankOverview: ref(null),
+    bankAccountForm: ref({ code: '', name: '' }),
+    bankCsvForm: ref({ account_id: 2, file_name: 'bank.csv', content_base64: 'YQ==' }),
+    bankCsvPreview: ref(null),
+    bankLineForm: ref({ account_id: 0, transaction_id: '', occurred_on: '', amount: '', counterparty: '', note: '' }),
+    bankMatchForm: ref({ statement_line_id: 0, source_type: 'order_payment', source_id: 0, reason: '' }),
+    bankReverseReasons: ref({})
+  }
+  const actions = createBankReconciliationActions(state, async action => { await action() })
+  await actions.previewBankCsv()
+  assert.equal(state.bankCsvPreview.value.can_import, true)
+  state.bankCsvForm.value = { ...state.bankCsvForm.value, account_id: 3 }
+  await actions.importBankCsv()
+  assert.deepEqual(calls.map(item => item[0]), ['previewBankCsv'])
+  state.bankCsvForm.value = { ...state.bankCsvForm.value, account_id: 2 }
+  await actions.importBankCsv()
+  assert.equal(state.bankCsvForm.value.file_name, '')
+  assert.equal(state.bankCsvPreview.value, null)
+  assert.deepEqual(calls.map(item => item[0]), ['previewBankCsv', 'importBankCsv'])
 })

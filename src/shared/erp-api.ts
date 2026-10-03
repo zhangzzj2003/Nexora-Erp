@@ -623,11 +623,14 @@ export interface PaymentRecord {
   currency: 'CNY'
 }
 export interface BankAccount { id: number; code: string; name: string; created_by: number; created_by_name: string; created_at: string }
-export interface BankStatementLine { id: number; account_id: number; account_code: string; transaction_id: string; occurred_on: string; amount: string; counterparty: string; note: string; match_id: number | null; created_by: number; created_by_name: string; created_at: string }
+export interface BankImportBatch { id: number; account_id: number; file_name: string; sha256: string; row_count: number; created_by: number; created_by_name: string; created_at: string }
+export interface BankCsvInput { account_id: number; file_name: string; content_base64: string }
+export interface BankCsvPreview { sha256: string; row_count: number; duplicate_file: boolean; existing_transaction_ids: string[]; can_import: boolean; sample: Pick<BankStatementLine, 'transaction_id' | 'occurred_on' | 'amount' | 'counterparty'>[] }
+export interface BankStatementLine { id: number; account_id: number; account_code: string; transaction_id: string; occurred_on: string; amount: string; counterparty: string; note: string; import_batch_id: number | null; match_id: number | null; created_by: number; created_by_name: string; created_at: string }
 export interface BankPaymentSource { source_type: 'order_payment' | 'subledger_payment'; source_id: number; label: string; kind: 'receivable' | 'payable'; action: string; bank_amount: string; reference: string; created_at: string; match_id: number | null }
 export interface BankMatchReversal { id: number; match_id: number; reason: string; created_by: number; created_by_name: string; created_at: string }
 export interface BankMatch { id: number; statement_line_id: number; source_type: BankPaymentSource['source_type']; source_id: number; reason: string; created_by: number; created_by_name: string; created_at: string; reversal: BankMatchReversal | null }
-export interface BankReconciliationOverview { currency: 'CNY'; accounts: BankAccount[]; lines: BankStatementLine[]; sources: BankPaymentSource[]; matches: BankMatch[] }
+export interface BankReconciliationOverview { currency: 'CNY'; accounts: BankAccount[]; imports: BankImportBatch[]; lines: BankStatementLine[]; sources: BankPaymentSource[]; matches: BankMatch[] }
 export interface FinanceOverview {
   report: ReceivablesPayables
   accounts: FinanceAccount[]
@@ -1262,6 +1265,8 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   bankReconciliationOverview: { input: undefined; output: BankReconciliationOverview }
   createBankAccount: { input: { code: string; name: string }; output: BankAccount }
   importBankLines: { input: { account_id: number; lines: { transaction_id: string; occurred_on: string; amount: string; counterparty: string; note: string }[] }; output: { account_id: number; line_ids: number[]; imported_count: number } }
+  previewBankCsv: { input: BankCsvInput; output: BankCsvPreview }
+  importBankCsv: { input: BankCsvInput; output: { batch_id: number; account_id: number; sha256: string; line_ids: number[]; imported_count: number } }
   matchBankLine: { input: { statement_line_id: number; source_type: BankPaymentSource['source_type']; source_id: number; reason: string }; output: BankMatch }
   reverseBankMatch: { input: { matchId: number; reason: string }; output: BankMatchReversal }
   createPaymentRecord: { input: { kind: 'receivable' | 'payable'; order_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; note: string }; output: PaymentRecord }

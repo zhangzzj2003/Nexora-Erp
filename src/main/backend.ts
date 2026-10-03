@@ -183,6 +183,20 @@ function bankText(value: unknown, label: string, max: number, required = true): 
   return value.trim()
 }
 
+function bankCsvBody(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('银行 CSV 参数无效')
+  const value = payload as Record<string, unknown>
+  const account_id = positiveId(value, 'account_id')
+  const file_name = bankText(value.file_name, 'CSV 文件名', 120)
+  if (/[\\/]/.test(file_name) || !file_name.toLowerCase().endsWith('.csv')) throw new Error('CSV 文件名无效')
+  const content_base64 = value.content_base64
+  if (typeof content_base64 !== 'string' || !content_base64.length || content_base64.length > 1_398_104
+    || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(content_base64)) {
+    throw new Error('CSV 文件内容无效')
+  }
+  return { account_id, file_name, content_base64 }
+}
+
 function bankBody(payload: unknown, kind: 'account' | 'lines' | 'match' | 'reverse'): Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('银行勾对参数无效')
   const value = payload as Record<string, unknown>
@@ -958,6 +972,8 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'bankReconciliationOverview': return { method: 'GET', path: '/api/v1/finance/bank-reconciliation/overview' }
     case 'createBankAccount': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/accounts', body: bankBody(payload, 'account') }
     case 'importBankLines': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/lines/import', body: bankBody(payload, 'lines') }
+    case 'previewBankCsv': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/imports/csv/preview', body: bankCsvBody(payload) }
+    case 'importBankCsv': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/imports/csv', body: bankCsvBody(payload) }
     case 'matchBankLine': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/matches', body: bankBody(payload, 'match') }
     case 'reverseBankMatch': return { method: 'POST', path: `/api/v1/finance/bank-reconciliation/matches/${positiveId(payload, 'matchId')}/reverse`, body: bankBody(payload, 'reverse') }
     case 'createPaymentRecord': return { method: 'POST', path: '/api/v1/finance/payment-records', body: payload }

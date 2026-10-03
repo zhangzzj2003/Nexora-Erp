@@ -65,6 +65,7 @@ import type {
   WarehouseOutbound,
   PaymentRecord,
   BankReconciliationOverview,
+  BankCsvPreview,
   Permission,
   ProductionCompletion,
   ProductionCostReport,
@@ -265,6 +266,8 @@ export function createAppState() {
   const paymentRecords = ref<PaymentRecord[]>([])
   const bankOverview = ref<BankReconciliationOverview | null>(null)
   const bankAccountForm = ref({ code: '', name: '' })
+  const bankCsvForm = ref({ account_id: 0, file_name: '', content_base64: '' })
+  const bankCsvPreview = ref<BankCsvPreview | null>(null)
   const bankLineForm = ref({ account_id: 0, transaction_id: '', occurred_on: '', amount: '', counterparty: '', note: '' })
   const bankMatchForm = ref<{ statement_line_id: number; source_type: 'order_payment' | 'subledger_payment'; source_id: number; reason: string }>({ statement_line_id: 0, source_type: 'order_payment', source_id: 0, reason: '' })
   const bankReverseReasons = ref<Record<number, string>>({})
@@ -616,6 +619,8 @@ export function createAppState() {
     paymentRecords,
     bankOverview,
     bankAccountForm,
+    bankCsvForm,
+    bankCsvPreview,
     bankLineForm,
     bankMatchForm,
     bankReverseReasons,
