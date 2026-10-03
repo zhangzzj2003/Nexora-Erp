@@ -12,6 +12,7 @@ const desktopApi: DesktopApi = {
   callApi: (action, payload) => ipcRenderer.invoke('erp:call', action, payload),
   saveReportCsv: (fileName, csv) => ipcRenderer.invoke('report:save-csv', fileName, csv),
   saveCrmQuotePdf: (id) => ipcRenderer.invoke('crm:save-quote-pdf', id),
+  notifyInventoryWarning: (notice) => ipcRenderer.invoke('inventory:notify-warning', notice),
   startup: () => ipcRenderer.invoke('connection:startup'),
   recentServers: () => ipcRenderer.invoke('connection:recent'),
   prepareConnection: (address, port) => ipcRenderer.invoke('connection:prepare', address, port),

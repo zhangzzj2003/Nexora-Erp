@@ -49,6 +49,8 @@ export function createInventoryWarningAlerts(state: AppState) {
         const count = [missing && `缺货 ${missing} 项`, low && `低库存 ${low} 项`].filter(Boolean).join('、')
         const examples = changed.slice(0, 2).map(row => `${row.warehouse_code} / ${row.sku}`).join('，')
         state.warningAlert.value = { id: ++sequence, content: `库存预警：${count}（${examples}${changed.length > 2 ? ' 等' : ''}）。请到库存预警页核对。` }
+        // 系统通知仅在应用窗口失焦时由主进程显示；失败不影响应用内提醒。
+        void window.nexora.notifyInventoryWarning({ outOfStock: missing, low }).catch(() => {})
       }
     } catch {
       // 读取失败不把旧状态当作库存恢复，也不以失效数据弹出提醒。

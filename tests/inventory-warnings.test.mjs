@@ -5,7 +5,9 @@ import {createInventoryWarningActions} from '../src/renderer/src/store/modules/i
 import {createInventoryWarningAlerts} from '../src/renderer/src/store/modules/inventory-warning-alerts.ts'
 import {warningThresholdValid} from '../src/shared/inventory-warning-api.ts'
 import {validateInventoryWarningResult} from '../src/shared/inventory-warning-validation.ts'
+import {inventoryWarningNoticeBody,validateInventoryWarningNotice} from '../src/shared/inventory-warning-notification.ts'
 import {callBackend} from '../src/main/backend.ts'
+import {showInventoryWarningNotification} from '../src/main/inventory-notifications.ts'
 import {canVisitRoute,routeByKey} from '../src/renderer/src/router/workspace-routes.ts'
 
 const permissions=['inventory.view','inventory_warning.manage']
@@ -139,8 +141,9 @@ test('迟到或排队写入不能写入新账号，写后刷新断线保留输�
 
 test('应用内提醒只在首次异常和状态恶化时出现，恢复后再次异常会重新提示',async t=>{
   const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
+  const notices=[]
   let current={...overview,rows:[row]}
-  globalThis.window={nexora:{callApi:async()=>current}}
+  globalThis.window={nexora:{callApi:async()=>current,notifyInventoryWarning:async notice=>{notices.push(notice);return true}}}
   const state=createAppState();state.screen.value='app';state.user.value={id:1,permissions:['inventory.view']}
   const alerts=createInventoryWarningAlerts(state)
   await alerts.poll();const first=state.warningAlert.value
@@ -155,13 +158,58 @@ test('应用内提醒只在首次异常和状态恶化时出现，恢复后再�
   current={...overview,rows:[row]}
   await alerts.poll();assert.match(state.warningAlert.value.content,/低库存 1 项/)
   assert.notEqual(state.warningAlert.value.id,first.id)
+  assert.deepEqual(notices,[{outOfStock:0,low:1},{outOfStock:1,low:0},{outOfStock:0,low:1}])
+  alerts.stop()
+})
+
+test('系统通知只接收有限数量并且不在锁屏文案中泄露仓库或物料',()=>{
+  assert.deepEqual(validateInventoryWarningNotice({outOfStock:2,low:3,extra:'忽略'}),{outOfStock:2,low:3})
+  assert.equal(inventoryWarningNoticeBody({outOfStock:2,low:3}),
+    '缺货 2 项、低库存 3 项。请打开 Nexora ERP 查看库存预警。')
+  for(const bad of [null,[],{}, {outOfStock:0,low:0}, {outOfStock:-1,low:0},
+    {outOfStock:1.5,low:0},{outOfStock:'1',low:0},{outOfStock:10001,low:0}]) {
+    assert.throws(()=>validateInventoryWarningNotice(bad),/参数无效/)
+  }
+})
+
+test('系统通知只在失焦且受支持时出现，点击可打开桌面窗口',()=>{
+  const created=[];let opened=0
+  const create=(title,body)=>{
+    const item={title,body,shown:false,click:null,
+      on(event,listener){assert.equal(event,'click');this.click=listener},show(){this.shown=true}}
+    created.push(item);return item
+  }
+  const open=()=>{opened++}
+  const payload={outOfStock:1,low:2}
+  assert.equal(showInventoryWarningNotification(payload,true,true,create,open),false)
+  assert.equal(showInventoryWarningNotification(payload,false,false,create,open),false)
+  assert.equal(created.length,0)
+  assert.throws(()=>showInventoryWarningNotification({outOfStock:0,low:0},false,true,create,open),/参数无效/)
+  assert.equal(showInventoryWarningNotification(payload,false,true,create,open),true)
+  assert.equal(created[0].title,'Nexora ERP 库存预警')
+  assert.match(created[0].body,/缺货 1 项、低库存 2 项/)
+  assert.equal(created[0].shown,true)
+  created[0].click();assert.equal(opened,1)
+})
+
+test('系统通知被操作系统拒绝时，应用内提醒与去重仍可用',async t=>{
+  const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
+  let calls=0
+  globalThis.window={nexora:{callApi:async()=>overview,
+    notifyInventoryWarning:async()=>{calls++;throw Error('系统通知不可用')}}}
+  const state=createAppState();state.screen.value='app';state.user.value={id:1,permissions:['inventory.view']}
+  const alerts=createInventoryWarningAlerts(state)
+  await alerts.poll()
+  assert.match(state.warningAlert.value.content,/低库存 1 项/)
+  await alerts.poll();assert.equal(calls,1)
   alerts.stop()
 })
 
 test('提醒在无权、断线及迟到的旧账号响应时失效，失败不重置比较基线',async t=>{
   const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
-  let calls=0;let result=overview
-  globalThis.window={nexora:{callApi:async()=>{calls++;if(result instanceof Error)throw result;return result}}}
+  let calls=0;let result=overview;const notices=[]
+  globalThis.window={nexora:{callApi:async()=>{calls++;if(result instanceof Error)throw result;return result},
+    notifyInventoryWarning:async notice=>{notices.push(notice);return true}}}
   const state=createAppState();state.screen.value='app';state.user.value={id:1,permissions:[]}
   const alerts=createInventoryWarningAlerts(state)
   await alerts.poll();assert.equal(calls,0)
@@ -177,6 +225,7 @@ test('提醒在无权、断线及迟到的旧账号响应时失效，失败不�
   await alerts.poll();assert.match(state.warningAlert.value.content,/低库存/)
   state.connectionLost.value=true;assert.equal(state.warningAlert.value,null)
   await alerts.poll();assert.equal(calls,3)
+  assert.deepEqual(notices,[{outOfStock:0,low:1},{outOfStock:0,low:1}])
   alerts.stop()
 })
 
@@ -186,7 +235,7 @@ test('窗口启动后登录立即提醒，释放时停止定时读取',async t=>
   let calls=0,interval,cleared=false
   globalThis.setInterval=callback=>{interval=callback;return 17}
   globalThis.clearInterval=id=>{assert.equal(id,17);cleared=true}
-  globalThis.window={nexora:{callApi:async()=>{calls++;return overview}}}
+  globalThis.window={nexora:{callApi:async()=>{calls++;return overview},notifyInventoryWarning:async()=>true}}
   const state=createAppState(),alerts=createInventoryWarningAlerts(state)
   alerts.start();assert.equal(calls,0)
   state.user.value={id:1,permissions:['inventory.view']};state.screen.value='app'

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, Tray } from 'electron'
 import { extname, join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
@@ -8,6 +8,7 @@ import type { HostInput } from '../shared/desktop-api'
 import { keepDesktopInTray, trayServiceLabel } from './tray-state'
 import { windowChromeOptions } from './window-chrome'
 import { windowOverlayTheme } from '../shared/window-chrome'
+import { showInventoryWarningNotification } from './inventory-notifications'
 import { activateSaved, approveConnection, createHost, disconnect, finishHostSetup, hostFingerprint, hostStatus,
   loadConnections, prepareConnection, recentProfiles, restartHost, resume, shutdownConnections,
   startDiscovery, stopDiscovery, stopHost, upgradeHost } from './connections'
@@ -103,6 +104,8 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Windows 通知使用与安装包一致的应用标识，避免被系统归入临时 Electron 进程。
+  if (process.platform === 'win32') app.setAppUserModelId('com.nexora.erp')
   try { loadConnections() }
   catch (error) { startupError = error instanceof Error ? error.message : '连接配置无法读取' }
   ensureTray()
@@ -128,6 +131,11 @@ app.whenReady().then(() => {
     // 业务通道仅接受当前主窗口主框架的调用。
     assertMainWindow(event)
     return callBackend(action, payload)
+  })
+  ipcMain.handle('inventory:notify-warning', (event, payload: unknown) => {
+    assertMainWindow(event)
+    return showInventoryWarningNotification(payload, mainWindow?.isFocused() ?? true,
+      Notification.isSupported(), (title, body) => new Notification({ title, body }), openMainWindow)
   })
   ipcMain.handle('report:save-csv', async (event, fileName: unknown, csv: unknown) => {
     assertMainWindow(event)

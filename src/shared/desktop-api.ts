@@ -1,4 +1,5 @@
 import type { ErpOperations } from './erp-api'
+import type { InventoryWarningNotice } from './inventory-warning-notification'
 
 // 渲染进程只能调用这里列出的桌面能力，后续新增接口也应先定义清楚类型。
 export type BackendHealth =
@@ -46,6 +47,7 @@ export interface DesktopApi {
   getBackendHealth: () => Promise<BackendHealth>
   saveReportCsv: (fileName: string, csv: string) => Promise<string | null>
   saveCrmQuotePdf: (id: number) => Promise<string | null>
+  notifyInventoryWarning: (notice: InventoryWarningNotice) => Promise<boolean>
   callApi: <K extends keyof ErpOperations>(action: K, payload: ErpOperations[K]['input']) => Promise<ErpOperations[K]['output']>
   startup: () => Promise<StartupState>
   recentServers: () => Promise<ServerProfile[]>
