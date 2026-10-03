@@ -44,6 +44,16 @@ export interface Customer { id: number; name: string; owner_id: number | null; v
 export interface CustomerDuplicateCandidate {
   id: number; name: string; match: 'same_name' | 'similar_name'
 }
+export interface CustomerImportPreview {
+  rows: {
+    row: number; name: string; candidates: CustomerDuplicateCandidate[]
+    batch_candidates: number[]; can_import: boolean; requires_confirmation: boolean
+  }[]
+  can_import: boolean; requires_confirmation: boolean
+}
+export interface CustomerImportResult {
+  batch_reference: string; created: Customer[]
+}
 export interface Warehouse { id: number; code: string; name: string; version: number }
 export interface MasterDataChange<T> {
   id: number; action: 'create' | 'update' | 'delete'; before: T | null; after: T | null
@@ -1127,6 +1137,8 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   createSupplier: { input: { name: string }; output: Supplier }
   customers: { input: undefined; output: Customer[] }
   customerDuplicateCandidates: { input: { name: string }; output: CustomerDuplicateCandidate[] }
+  customerImportPreview: { input: { names: string[] }; output: CustomerImportPreview }
+  importCustomers: { input: { names: string[]; reason: string; allow_similar: boolean }; output: CustomerImportResult }
   createCustomer: { input: { name: string }; output: Customer }
   materialCategories: { input: undefined; output: MaterialCategory[] }
   materials: { input: undefined; output: Material[] }

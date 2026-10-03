@@ -99,6 +99,71 @@ def test_customer_duplicate_candidates_respect_owner_scope_and_do_not_write(seed
         customer, other, extended.json()['id']}
 
 
+def test_customer_import_previews_scope_and_writes_atomic_owner_audit(seeded):
+    client, admin, _, seller, viewer, customer, other, _ = seeded
+    preview = client.post(B+'/customers/import-preview', headers=seller,
+                          json={'names': ['客户乙', '客 户-甲', '上海华星', '上海华星有限公司']})
+    assert preview.status_code == 200
+    rows = preview.json()['rows']
+    assert rows[0]['candidates'] == []  # 其他负责人客户不可见。
+    assert rows[1]['candidates'] == [{'id': customer, 'name': '客户甲',
+                                     'match': 'same_name'}]
+    assert rows[3]['batch_candidates'] == [3]
+    assert preview.json()['can_import'] is False
+    assert preview.json()['requires_confirmation'] is True
+    assert client.post(B+'/customers/import-preview', headers=viewer,
+                       json={'names': ['新客户']}).status_code == 403
+
+    names = ['批量客户甲', '批量客户乙']
+    result = client.post(B+'/customers/import', headers=seller,
+                         json={'names': names, 'reason': '经客户资料核对'})
+    assert result.status_code == 201, result.text
+    data = result.json()
+    assert len(data['batch_reference']) == 16
+    assert [row['name'] for row in data['created']] == names
+    assert all(row['owner_id'] == 3 for row in data['created'])
+    for index, row in enumerate(data['created'], start=1):
+        changes = client.get(B+f'/customers/{row["id"]}/owner-changes', headers=admin).json()
+        assert len(changes) == 1
+        assert f'{data["batch_reference"]} 第{index}条：经客户资料核对' in changes[0]['reason']
+    assert client.post(B+'/customers/import', headers=seller,
+                       json={'names': names, 'reason': '重复执行'}).status_code == 409
+    assert {row['name'] for row in client.get(B+'/customers', headers=seller).json()
+            if row['name'].startswith('批量客户')} == set(names)
+
+    # 隐藏的同名客户依赖数据库唯一约束，且整个导入批次必须回滚。
+    conflict = client.post(B+'/customers/import', headers=seller,
+                           json={'names': ['回滚客户', '客户乙'], 'reason': '原资料导入'})
+    assert conflict.status_code == 409
+    variant = client.post(B+'/customers/import', headers=seller,
+                          json={'names': ['回滚客户', '客 户-乙'], 'reason': '原资料导入'})
+    assert variant.status_code == 409
+    assert all(row['name'] != '回滚客户' for row in client.get(B+'/customers', headers=admin).json())
+
+
+def test_customer_import_rechecks_similar_names_and_rejects_invalid_batches(seeded):
+    client, admin, _, seller, _, _, _, _ = seeded
+    created = client.post(B+'/customers', headers=seller,
+                          json={'name': '上海华星有限公司'})
+    assert created.status_code == 201
+    payload = {'names': ['新增客户', '上海华星'], 'reason': '销售资料导入'}
+    preview = client.post(B+'/customers/import-preview', headers=seller,
+                          json={'names': payload['names']}).json()
+    assert preview['can_import'] is True
+    assert preview['requires_confirmation'] is True
+    assert client.post(B+'/customers/import', headers=seller, json=payload).status_code == 409
+    assert all(row['name'] != '新增客户' for row in client.get(B+'/customers', headers=admin).json())
+    accepted = client.post(B+'/customers/import', headers=seller,
+                           json={**payload, 'allow_similar': True})
+    assert accepted.status_code == 201, accepted.text
+    for invalid in ({'names': []}, {'names': ['客户A', '客 户-A']},
+                    {'names': ['\n']}, {'names': ['合格'], 'extra': 1},
+                    {'names': ['合格'], 'reason': '依据', 'allow_similar': 'true'}):
+        endpoint = '/import' if 'reason' in invalid else '/import-preview'
+        assert client.post(B+'/customers'+endpoint, headers=seller,
+                           json=invalid).status_code == 422
+
+
 def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
     client,admin,reviewer,seller,_,customer,other,materials = seeded
     assert client.post(B+'/customers',headers=seller,json={

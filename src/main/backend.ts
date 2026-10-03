@@ -17,6 +17,7 @@ import type { BackendHealth } from '../shared/desktop-api'
 import type { ErpOperations } from '../shared/erp-api'
 import {validateDashboardResult} from '../shared/dashboard-api.ts'
 import {validateEquipmentResult} from '../shared/equipment-validation.ts'
+import {validateCustomerImportPreview,validateCustomerImportResult} from '../shared/customer-import-validation.ts'
 import { request as httpsRequest } from 'node:https'
 
 export interface BackendTarget {
@@ -105,6 +106,17 @@ function positiveId(payload: unknown, key: string): number {
     throw new Error('记录编号无效')
   }
   return value
+}
+
+function customerImportNames(payload: unknown): string[] {
+  const names = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>).names : undefined
+  if (!Array.isArray(names) || names.length < 1 || names.length > 100
+    || names.some(name => typeof name !== 'string' || !name.trim()
+      || name.trim().length > 120 || /[\x00-\x1f]/.test(name))) {
+    throw new Error('客户导入名单无效')
+  }
+  return names.map(name => (name as string).trim())
 }
 
 function equipmentHours(value: unknown, maximum: number, allowZero: boolean): string {
@@ -490,6 +502,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
         ? (payload as Record<string, unknown>).name : undefined
       if (typeof name !== 'string' || !name.trim() || name.trim().length > 120) throw new Error('客户名称无效')
       return { method: 'POST', path: '/api/v1/customers/duplicate-candidates', body: { name: name.trim() } }
+    }
+    case 'customerImportPreview': return { method: 'POST', path: '/api/v1/customers/import-preview',
+      body: { names: customerImportNames(payload) } }
+    case 'importCustomers': {
+      const names = customerImportNames(payload)
+      const source = payload as Record<string, unknown>
+      if (typeof source.reason !== 'string' || !source.reason.trim() || source.reason.trim().length > 200
+        || typeof source.allow_similar !== 'boolean') throw new Error('客户导入依据或相似名称确认无效')
+      return { method: 'POST', path: '/api/v1/customers/import',
+        body: { names, reason: source.reason.trim(), allow_similar: source.allow_similar } }
     }
     case 'createCustomer': return { method: 'POST', path: '/api/v1/customers', body: payload }
     case 'materials': return { method: 'GET', path: '/api/v1/materials' }
@@ -965,6 +987,10 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   if (action === 'logout' || action === 'changePassword') sessionToken = null
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
+  if (action === 'customerImportPreview') validateCustomerImportPreview(data,
+    customerImportNames(payload))
+  if (action === 'importCustomers') validateCustomerImportResult(data,
+    customerImportNames(payload))
   if (action === 'postReceipt') {
     const request = payload as ErpOperations['postReceipt']['input']
     if (request.lines) validatePostedReceiptLots(data, request.receiptId, receiptLotBody({lines: request.lines}).lines)

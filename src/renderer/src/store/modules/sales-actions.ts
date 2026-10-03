@@ -1,6 +1,7 @@
 import type { AppState } from '../state'
 import type {ShipmentLotLineInput,ShipmentLotOptions} from '../../../../shared/shipment-lot-api'
 import type {SalesReturnLotLineInput,SalesReturnLotOptions} from '../../../../shared/sales-return-lot-api'
+import type {CustomerImportResult} from '../../../../shared/erp-api'
 
 // 销售单据操作独立维护；写入后由统一入口刷新服务端快照。
 export function createSalesActions(
@@ -26,6 +27,30 @@ export function createSalesActions(
       })
       customerForm.value = { name: '' }
     }, '客户已创建。')
+  }
+
+  async function importCustomerNames(names: string[], reason: string,
+                                     allowSimilar: boolean): Promise<CustomerImportResult | null> {
+    if (!window.nexora) return null
+    const completion: { result?: CustomerImportResult } = {}
+    const actorId = state.user.value?.id
+    await perform(async () => {
+      completion.result = await window.nexora!.callApi('importCustomers', {
+        names, reason, allow_similar: allowSimilar
+      })
+    }, '客户已批量导入。')
+    if (actorId !== state.user.value?.id) {
+      state.notice.value = ''
+      return completion.result ?? null
+    }
+    if (completion.result) {
+      // 写入已成功但快照刷新失败时仍返回结果，避免重复提交同一批次。
+      state.notice.value = state.error.value
+        ? `已导入 ${completion.result.created.length} 位客户，批次摘要 ${completion.result.batch_reference}；名单刷新失败，请使用工作台刷新。`
+        : `已导入 ${completion.result.created.length} 位客户，批次摘要 ${completion.result.batch_reference}。`
+      state.error.value = ''
+    }
+    return completion.result ?? null
   }
 
   async function createSalesOrder(): Promise<void> {
@@ -210,6 +235,7 @@ export function createSalesActions(
 
   return {
     createCustomer,
+    importCustomerNames,
     createSalesOrder,
     confirmSalesOrder,
     cancelSalesOrder,
