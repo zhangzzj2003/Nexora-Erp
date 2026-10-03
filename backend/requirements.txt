@@ -2,6 +2,7 @@ fastapi>=0.115,<1.0
 SQLAlchemy>=2.0,<2.1
 uvicorn>=0.30,<1.0
 cryptography>=43,<47
+reportlab>=4.2,<5
 zeroconf>=0.147,<1.0
 ifaddr>=0.2,<1.0
 pywin32>=306; sys_platform == "win32"

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { createAppState } from '../src/renderer/src/store/state.ts'
 import { createCrmActions,emptyCrmForms } from '../src/renderer/src/store/modules/crm-actions.ts'
 import { crmFormError,quoteActions,crmSnapshotRows } from '../src/renderer/src/views/workspace/sales/crm-display.ts'
-import { callBackend } from '../src/main/backend.ts'
+import { callBackend, fetchCrmQuotePdf } from '../src/main/backend.ts'
 import { parseContactCsv, parseContactCsvBytes } from '../src/renderer/src/views/workspace/sales/contact-import.ts'
 import { parseOpportunityCsv, parseOpportunityCsvBytes } from '../src/renderer/src/views/workspace/sales/opportunity-import.ts'
 import { validateContactImportPreview, validateContactImportResult } from '../src/shared/contact-import-validation.ts'
@@ -188,6 +188,56 @@ test('IPC 白名单阻止路径注入、状态和金额伪造，清除表格内�
   await assert.rejects(callBackend('closeCrmActivity',{id:1,version:1,action:'convert'}),/不允许/)
   await assert.rejects(callBackend('saveCrmQuote',{...quoteInput,lines:null}),/明细无效/)
   assert.equal(requests.length,2)
+})
+
+test('报价 PDF 只走固定路径，核对文件格式与会话边界',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous})
+  const requests=[];let contentType='application/pdf';let content='%PDF-1.7\n报价内容\n%%EOF'
+  globalThis.fetch=async(url,config)=>{
+    const path=new URL(url).pathname
+    requests.push({path,authorization:config.headers.Authorization})
+    if(path.endsWith('/login'))return new Response(JSON.stringify({token:'pdf-token',user:{id:1}}))
+    if(path.endsWith('/logout'))return new Response('{}')
+    return new Response(content,{headers:{'content-type':contentType}})
+  }
+  await callBackend('login',{})
+  const file=await fetchCrmQuotePdf(7)
+  assert.equal(file.id,7)
+  assert.deepEqual(requests.at(-1),{path:'/api/v1/crm/quotes/7/pdf',authorization:'Bearer pdf-token'})
+  assert.equal(file.isCurrent(),true)
+  assert.equal(file.bytes.toString(),content)
+  for(const id of [0,true,1.5,'7/../../users'])await assert.rejects(fetchCrmQuotePdf(id),/编号无效/)
+  assert.equal(requests.length,2)
+  contentType='text/html'
+  await assert.rejects(fetchCrmQuotePdf(7),/文件格式无效/)
+  contentType='application/pdf';content='not a pdf'
+  await assert.rejects(fetchCrmQuotePdf(7),/文件格式无效/)
+  content='%PDF-'+'.'.repeat(5_000_000)+'%%EOF'
+  await assert.rejects(fetchCrmQuotePdf(7),/大小限制/)
+  await callBackend('logout',undefined)
+  assert.equal(file.isCurrent(),false)
+  await assert.rejects(fetchCrmQuotePdf(7),/请先登录/)
+})
+
+test('报价 PDF 保存只对已批准记录开放，取消或换号不显示成功',async t=>{
+  const {state,actions}=fixture(t,()=>Promise.resolve({}))
+  const saved=[]
+  globalThis.window.nexora.saveCrmQuotePdf=async id=>{saved.push(id);return null}
+  assert.equal(await actions.exportCrmQuotePdf({...quote,status:'draft'}),false)
+  assert.equal(saved.length,0)
+  assert.equal(await actions.exportCrmQuotePdf(quote),false)
+  assert.deepEqual(saved,[1])
+  assert.equal(state.notice.value,'')
+  globalThis.window.nexora.saveCrmQuotePdf=async id=>{saved.push(id);return `quote-${id}.pdf`}
+  assert.equal(await actions.exportCrmQuotePdf(quote),true)
+  assert.match(state.notice.value,/已保存固定报价 PDF/)
+  const pending=deferred()
+  globalThis.window.nexora.saveCrmQuotePdf=()=>pending.promise
+  const old=actions.exportCrmQuotePdf(quote)
+  state.user.value={id:2,permissions:['crm.view']};pending.resolve('old.pdf')
+  assert.equal(await old,false)
+  state.user.value={id:3,permissions:[]}
+  assert.equal(await actions.exportCrmQuotePdf(quote),false)
 })
 
 test('商机预测 IPC 限定概率并校验服务端汇总',async t=>{

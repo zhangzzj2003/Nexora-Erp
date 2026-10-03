@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } from 'electron'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
-import { callBackend, getBackendHealth } from './backend'
+import { callBackend, fetchCrmQuotePdf, getBackendHealth } from './backend'
 import type { ErpOperations } from '../shared/erp-api'
 import type { HostInput } from '../shared/desktop-api'
 import { keepDesktopInTray, trayServiceLabel } from './tray-state'
@@ -142,6 +142,20 @@ app.whenReady().then(() => {
     })
     if (selected.canceled || !selected.filePath) return null
     await writeFile(selected.filePath, csv, { encoding: 'utf8' })
+    return selected.filePath
+  })
+  ipcMain.handle('crm:save-quote-pdf', async (event, id: unknown) => {
+    assertMainWindow(event)
+    const file = await fetchCrmQuotePdf(id)
+    if (!mainWindow) throw new Error('窗口不可用')
+    const selected = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: `quote-${file.id}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    })
+    if (selected.canceled || !selected.filePath) return null
+    assertMainWindow(event)
+    if (!file.isCurrent()) throw new Error('会话已变化，请重新导出报价')
+    if (extname(selected.filePath).toLowerCase() !== '.pdf') throw new Error('请选择 PDF 文件名')
+    await writeFile(selected.filePath, file.bytes)
     return selected.filePath
   })
   ipcMain.handle('connection:startup', async (event) => {

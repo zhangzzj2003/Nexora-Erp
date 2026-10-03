@@ -45,6 +45,7 @@ export interface DesktopApi {
   getVersion: () => Promise<string>
   getBackendHealth: () => Promise<BackendHealth>
   saveReportCsv: (fileName: string, csv: string) => Promise<string | null>
+  saveCrmQuotePdf: (id: number) => Promise<string | null>
   callApi: <K extends keyof ErpOperations>(action: K, payload: ErpOperations[K]['input']) => Promise<ErpOperations[K]['output']>
   startup: () => Promise<StartupState>
   recentServers: () => Promise<ServerProfile[]>

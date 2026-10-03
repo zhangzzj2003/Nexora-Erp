@@ -46,6 +46,24 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
       state.crmDetail.value={kind,record};state.crmChanges.value=changes;return true
     }catch(error){if(session===owner && ticket===details)state.crmError.value=displayError(error);return false}
   }
+  async function exportCrmQuotePdf(item: CrmQuote): Promise<boolean> {
+    if (!can('crm.view') || !available() || state.busy.value
+      || !['approved', 'converted'].includes(item.status)) return false
+    const session = owner
+    state.busy.value = true
+    state.error.value = ''
+    try {
+      const saved = await window.nexora!.saveCrmQuotePdf(item.id)
+      if (session !== owner || !can('crm.view')) return false
+      if (saved) state.notice.value = '已保存固定报价 PDF；导出文件不代表销售订单或收款。'
+      return !!saved
+    } catch (cause) {
+      if (session === owner) state.error.value = displayError(cause)
+      return false
+    } finally {
+      if (session === owner) state.busy.value = false
+    }
+  }
   async function loadCustomerOwnerChanges(id:number): Promise<boolean> {
     if(!can('customer.assign') || !available())return false
     const session=owner;const ticket=++ownerReads;state.crmOwnerChanges.value=[];state.crmError.value=''
@@ -155,7 +173,7 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
     await loadCrm()
     return session === owner
   }
-  return {loadCrm,loadCrmDetail,loadCustomerOwnerChanges,assignCustomerOwner,
+  return {loadCrm,loadCrmDetail,exportCrmQuotePdf,loadCustomerOwnerChanges,assignCustomerOwner,
     clearCrmDetail,editCrm,startNewCrm,saveCrm,importContactRows,importOpportunityRows,
     closeCrmActivity:(item: CrmActivity, action:'complete'|'cancel',reason:string)=>write('crm_activity.manage',
       ()=>window.nexora!.callApi('closeCrmActivity',{id:item.id,version:item.version,action,reason}),'跟进状态已登记，原记录保留。','activity'),

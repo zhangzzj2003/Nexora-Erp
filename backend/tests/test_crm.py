@@ -3,19 +3,21 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
+from io import BytesIO
 import os
 import sqlite3
 
 import pytest
+from pypdf import PdfReader
 from fastapi.testclient import TestClient
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.core.database import migrate
-from app.core.models import Base, CrmChange, CrmQuote, CrmOpportunity, SalesOrder, SalesOrderLine, Material, StockMovement, User
+from app.core.models import Base, CrmChange, CrmQuote, CrmOpportunity, Customer, SalesOrder, SalesOrderLine, Material, StockMovement, User
 from app.core.orm import orm_session
 from app.main import app
-from app.sales import crm_rules, crm_quotes, crm_forecast
+from app.sales import crm_rules, crm_quotes, crm_forecast, crm_quote_pdf
 
 B = '/api/v1'
 C = B + '/crm'
@@ -160,6 +162,85 @@ def approved(seed,data):
     assert quote.status_code == 201,quote.text
     quote = action(client,admin,quote.json(),'submit')
     return action(client,reviewer,quote,'approve')
+
+
+def pdf_text(content: bytes) -> tuple[PdfReader, str]:
+    reader = PdfReader(BytesIO(content))
+    return reader, '\n'.join(page.extract_text() for page in reader.pages)
+
+
+def test_approved_quote_pdf_uses_frozen_snapshot_and_no_write(seeded):
+    client, admin, reviewer, seller, viewer, customer, other, materials = seeded
+    _, opportunity, payload = base_records(seeded)
+    draft = client.post(C+'/quotes', headers=admin, json=payload).json()
+    path = C+f'/quotes/{draft["id"]}/pdf'
+    assert client.get(path, headers=admin).status_code == 409
+    assert client.get(path, headers=viewer).status_code == 403
+    submitted = action(client, admin, draft, 'submit')
+    assert client.get(path, headers=admin).status_code == 409
+    quote = action(client, reviewer, submitted, 'approve')
+    changes_before = client.get(C+f'/records/quote/{quote["id"]}/changes', headers=admin).json()
+    with orm_session(write=True) as db:
+        db.get(Customer, customer).name = '客户更名后'
+        db.get(Material, materials[0]).name = '物料更名后'
+    response = client.get(path, headers=seller)
+    assert response.status_code == 200, response.text
+    assert response.headers['content-type'].startswith('application/pdf')
+    assert response.headers['cache-control'] == 'no-store'
+    assert response.headers['content-disposition'] == f'attachment; filename="quote-{quote["id"]}.pdf"'
+    assert response.content.startswith(b'%PDF-')
+    reader, text = pdf_text(response.content)
+    assert len(reader.pages) == 1
+    for value in ('固定报价', 'Q-1', '客户甲', '王女士', '物料0', '人民币', '2.00', payload['terms']):
+        assert value in text
+    assert '客户更名后' not in text and '物料更名后' not in text
+    assert client.get(C+f'/records/quote/{quote["id"]}/changes', headers=admin).json() == changes_before
+    assert client.get(C+'/quotes/999999/pdf', headers=admin).status_code == 404
+
+    other_contact = client.post(C+'/contacts', headers=admin,
+                                json={'customer_id': other, 'name': '乙方联系人'}).json()
+    other_opportunity = client.post(C+'/opportunities', headers=admin, json={
+        'customer_id': other, 'title': '乙方项目', 'owner_id': 1,
+        'estimated_amount': '2', 'expected_close_date': '2030-01-31'}).json()
+    other_quote = approved(seeded, {**payload, 'opportunity_id': other_opportunity['id'],
+                                    'contact_id': other_contact['id'], 'reference': 'Q-other'})
+    assert client.get(C+f'/quotes/{other_quote["id"]}/pdf', headers=seller).status_code == 404
+
+
+def test_quote_pdf_labels_historical_copy_and_rejects_cancelled(seeded, monkeypatch):
+    client, admin, _, seller, _, _, _, _ = seeded
+    _, opportunity, payload = base_records(seeded)
+    quote = approved(seeded, payload)
+    monkeypatch.setattr(crm_quote_pdf, 'today', lambda: '2030-02-01')
+    response = client.get(C+f'/quotes/{quote["id"]}/pdf', headers=admin)
+    assert response.status_code == 200
+    assert '有效期已过' in pdf_text(response.content)[1]
+    separate = client.post(C+'/quotes', headers=admin,
+                           json={**payload, 'reference': 'Q-cancel'}).json()
+    separate = action(client, admin, separate, 'submit')
+    separate = action(client, seeded[2], separate, 'approve')
+    separate = action(client, admin, separate, 'cancel')
+    assert client.get(C+f'/quotes/{separate["id"]}/pdf', headers=admin).status_code == 409
+    converted = action(client, seller, quote, 'convert', acceptance_reference='客户接受依据',
+                       opportunity_version=opportunity['version'])
+    assert '已转销售订单' in pdf_text(client.get(C+f'/quotes/{converted["id"]}/pdf',
+                                       headers=admin).content)[1]
+
+
+def test_quote_pdf_paginates_many_lines_and_escapes_terms(seeded):
+    client, admin, _, _, _, _, _, _ = seeded
+    _, _, payload = base_records(seeded)
+    quote = approved(seeded, payload)
+    with orm_session() as db:
+        snapshot = crm_rules.raw_data(db, 'quote', db.get(CrmQuote, quote['id']))
+    snapshot['terms'] = '<script>客户条款</script>\n' + '长期交货安排。'*80
+    snapshot['lines'] = [{**snapshot['lines'][0], 'position': index,
+                          'material_name': '超长物料名称'*12} for index in range(1, 101)]
+    content = crm_quote_pdf.quote_pdf(snapshot, '2030-01-01')
+    reader, text = pdf_text(content)
+    assert len(reader.pages) > 1
+    assert all('物料编码' in page.extract_text() for page in reader.pages[:-1])
+    assert '<script>客户条款</script>' in text
 
 
 def test_customer_duplicate_candidates_respect_owner_scope_and_do_not_write(seeded):

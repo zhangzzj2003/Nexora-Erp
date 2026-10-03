@@ -7,6 +7,8 @@ import { checkBackendBuildEnvironment, selectBackendPython } from './backend-bui
 const cache = join(process.cwd(), 'build', 'pyinstaller-cache')
 mkdirSync(cache, { recursive: true })
 const python = selectBackendPython(process.cwd())
+const dataSeparator = process.platform === 'win32' ? ';' : ':'
+const quoteFontSource = join(process.cwd(), 'backend', 'app', 'sales', 'fonts')
 try {
   checkBackendBuildEnvironment(python)
 } catch (error) {
@@ -15,6 +17,7 @@ try {
 }
 const result = spawnSync(python, ['-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir',
   '--name', 'nexora-server', '--distpath', 'build', '--workpath', 'build/pyinstaller',
+  '--add-data', `${quoteFontSource}${dataSeparator}app/sales/fonts`,
   '--specpath', 'build/pyinstaller', 'backend/launcher.py'], {
   stdio: 'inherit', env: { ...process.env, PYINSTALLER_CONFIG_DIR: cache }
 })

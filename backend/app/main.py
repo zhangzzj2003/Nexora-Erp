@@ -39,6 +39,7 @@ from app.sales.crm_forecast import router as crm_forecast_router
 from app.sales.returns import router as sales_returns_router
 from app.sales.crm import router as crm_router
 from app.sales.crm_quotes import router as crm_quotes_router
+from app.sales.crm_quote_pdf import router as crm_quote_pdf_router
 from app.sales.after_sales import router as after_sales_router
 from app.sales.after_sales_labor import router as after_sales_labor_router
 from app.production.boms import router as production_router
@@ -110,7 +111,7 @@ for router in (
     inventory_router, stock_router, warnings_router, physical_lots_router, movement_evidence_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
     warehouse_inbounds_router, warehouse_outbounds_router,
     purchase_router, purchase_requests_router, goods_receipts_router,
-    purchase_returns_router, sales_router, customer_import_router, contact_import_router, opportunity_import_router, crm_forecast_router, sales_returns_router, crm_router, crm_quotes_router, after_sales_labor_router, after_sales_router,
+    purchase_returns_router, sales_router, customer_import_router, contact_import_router, opportunity_import_router, crm_forecast_router, sales_returns_router, crm_router, crm_quotes_router, crm_quote_pdf_router, after_sales_labor_router, after_sales_router,
     production_router, work_orders_router, material_issues_router,
     material_returns_router, production_completions_router, production_costs_router, production_settlements_router, mrp_router, quality_router, equipment_router, equipment_hours_router,
     finance_router, finance_ledger_router, journals_router, ledger_reports_router, opening_balances_router, subledger_openings_router, period_closing_router, business_journals_router, profit_transfers_router, statements_router, auxiliary_router, reports_router, dashboard_router,

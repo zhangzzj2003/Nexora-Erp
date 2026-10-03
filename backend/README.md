@@ -46,7 +46,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 基础资料与供货关系
 
-客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。第 61 版增加客户负责人、版本和归属变更 ORM 表；第 65 版增加商机可空概率列及按可见客户范围的预测查询 `app/sales/crm_forecast.py`，`app/sales/customer_scope.py` 为 CRM 及销售单据提供统一服务端归属边界。旧客户保持未分配，由管理员凭依据分配；新客户默认归创建账号。提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。
+客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。第 61 版增加客户负责人、版本和归属变更 ORM 表；第 65 版增加商机可空概率列及按可见客户范围的预测查询 `app/sales/crm_forecast.py`，`app/sales/customer_scope.py` 为 CRM 及销售单据提供统一服务端归属边界。旧客户保持未分配，由管理员凭依据分配；新客户默认归创建账号。提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。`app/sales/crm_quote_pdf.py` 使用只读 ORM 快照和随服务打包的 OFL 中文字体导出已批准或已转单报价；桌面固定 IPC 保存，不自动发送。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。
 
 客户新增前可通过 `POST /api/v1/customers/duplicate-candidates` 查询当前账号可见范围内的相似名称；候选来自客户 ORM 模型，仅读取并提示，不自动合并或阻止用户确认后的新增。接口要求 `customer.manage`，细则见 [客户关系规则](../docs/customer-relations.md)。
 

@@ -9,7 +9,7 @@ import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { crmKindLabel,crmAuditLabel,crmQuoteLabel,crmSnapshotRows } from './crm-display'
 const store=usePiniaAppStore()
-const {crmDetail:detail,crmChanges:changes}=storeToRefs(store)
+const {crmDetail:detail,crmChanges:changes,busy}=storeToRefs(store)
 const quote=computed(()=>detail.value?.kind==='quote' ? detail.value.record as CrmQuote : null)
 const snapshot=computed(()=>detail.value ? crmSnapshotRows(detail.value.kind,detail.value.record as unknown as Record<string,unknown>) : [])
 function auditLines(source:Record<string,unknown>): {material_name:string; quantity:string; unit_price:string; line_total:string}[] {
@@ -29,6 +29,7 @@ function auditLines(source:Record<string,unknown>): {material_name:string; quant
         <p v-if="quote.status==='submitted' && quote.review_blocked.includes(store.user?.id ?? 0)">您已参与此报价的编制或提交，请由其他有审核权限的账号处理。</p>
         <p>{{ quote.terms || '未填写商务条款' }}</p>
         <p v-if="quote.sales_order_id">已转销售订单 #{{ quote.sales_order_id }} · {{ quote.sales_order_status==='cancelled' ? '原订单已取消，原报价不能再次转单' : '须继续原订单确认与出库流程' }} · 客户接受依据：{{ quote.acceptance_reference }}</p>
+        <AppButton v-if="['approved','converted'].includes(quote.status)" :disabled="busy" @click="store.exportCrmQuotePdf(quote)">导出固定报价 PDF</AppButton>
         <AppButton v-if="quote.sales_order_id && store.can('sales.view')" @click="store.navigateToRoute('sales')">打开销售订单列表</AppButton>
       </template>
       <dl v-else class="crm-facts"><template v-for="row in snapshot" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></template></dl>

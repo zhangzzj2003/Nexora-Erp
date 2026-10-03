@@ -61,8 +61,9 @@ function backendBase(): URL {
 }
 
 async function sendRequest(path: string, method: string, headers: Record<string, string>, body?: unknown,
-                           timeout = 10000, targetOverride?: BackendTarget): Promise<Response> {
-  const target = targetOverride ?? selectedTarget
+                           timeout = 10000, targetOverride?: BackendTarget | null,
+                           maxResponseBytes?: number): Promise<Response> {
+  const target = targetOverride === undefined ? selectedTarget : targetOverride
   if (!target) {
     // 开发环境仍支持显式配置的旧地址，桌面向导连接一律走证书固定的 HTTPS。
     return fetch(new URL(path, backendBase()), {
@@ -77,9 +78,18 @@ async function sendRequest(path: string, method: string, headers: Record<string,
       rejectUnauthorized: true, timeout
     }, (incoming) => {
       const chunks: Buffer[] = []
-      incoming.on('data', (chunk: Buffer) => chunks.push(chunk))
+      let size = 0
+      incoming.on('data', (chunk: Buffer) => {
+        size += chunk.length
+        if (maxResponseBytes !== undefined && size > maxResponseBytes) {
+          req.destroy(new Error('服务端返回的文件过大'))
+          return
+        }
+        chunks.push(chunk)
+      })
       incoming.on('end', () => resolve(new Response(incoming.statusCode === 204 ? null : Buffer.concat(chunks), {
-        status: incoming.statusCode ?? 500
+        status: incoming.statusCode ?? 500,
+        headers: { 'content-type': String(incoming.headers['content-type'] ?? '') }
       })))
     })
     req.on('timeout', () => req.destroy(new Error('连接超时')))
@@ -87,6 +97,51 @@ async function sendRequest(path: string, method: string, headers: Record<string,
     if (body !== undefined) req.write(JSON.stringify(body))
     req.end()
   })
+}
+
+export async function fetchCrmQuotePdf(value: unknown): Promise<{ id: number; bytes: Buffer; isCurrent: () => boolean }> {
+  const id = positiveId({ id: value }, 'id')
+  if (!sessionToken) throw new Error('请先登录')
+  const token = sessionToken
+  const target = selectedTarget
+  let response: Response
+  try {
+    response = await sendRequest(`/api/v1/crm/quotes/${id}/pdf`, 'GET',
+      { Authorization: `Bearer ${token}` }, undefined, 20000, target, 5_000_000)
+  } catch (cause) {
+    if (cause instanceof Error && cause.message === '服务端返回的文件过大') throw cause
+    throw new Error('无法读取报价 PDF，请检查网络、服务状态和证书。')
+  }
+  if (!response.ok) {
+    if (response.status === 401 && sessionToken === token) sessionToken = null
+    const data: unknown = await response.json().catch(() => undefined)
+    const detail = data && typeof data === 'object' && 'detail' in data ? data.detail : undefined
+    throw new Error(typeof detail === 'string' ? detail : `报价 PDF 请求失败（HTTP ${response.status}）`)
+  }
+  if (!response.headers.get('content-type')?.toLowerCase().startsWith('application/pdf')) {
+    throw new Error('服务端返回的报价文件格式无效')
+  }
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('服务端未返回报价文件')
+  const chunks: Buffer[] = []
+  let size = 0
+  for (;;) {
+    const { done, value: chunk } = await reader.read()
+    if (done) break
+    size += chunk.byteLength
+    if (size > 5_000_000) {
+      await reader.cancel()
+      throw new Error('报价 PDF 超过大小限制')
+    }
+    chunks.push(Buffer.from(chunk))
+  }
+  const bytes = Buffer.concat(chunks)
+  if (bytes.length < 16 || !bytes.subarray(0, 5).equals(Buffer.from('%PDF-'))
+    || !bytes.subarray(-1024).includes(Buffer.from('%%EOF'))) {
+    throw new Error('服务端返回的报价文件格式无效')
+  }
+  return { id, bytes, isCurrent: () => sessionToken === token
+    && (target === null ? selectedTarget === null : sameBackendIdentity(selectedTarget, target)) }
 }
 
 export async function getServerInfo(target?: BackendTarget): Promise<{ id: string; name: string; version: string; ready: boolean }> {
