@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 63:
+        if version > 64:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2154,3 +2154,21 @@ def migrate() -> None:
             db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                            [(role,'equipment.meter') for role in ('admin','planner','warehouse')])
             db.execute('PRAGMA user_version = 63')
+
+        if version < 64:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE after_sales_labor (
+                id INTEGER PRIMARY KEY,
+                case_id INTEGER NOT NULL REFERENCES after_sales_cases(id),
+                action TEXT NOT NULL CHECK(action IN ('record','reverse')),
+                hours TEXT NOT NULL,
+                original_id INTEGER UNIQUE REFERENCES after_sales_labor(id),
+                reason TEXT NOT NULL, evidence TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX after_sales_labor_case ON after_sales_labor(case_id,id)')
+            db.execute("INSERT INTO permissions(code,label,group_code) VALUES ('after_sales.labor','登记与更正维修工时','sales.after_sales')")
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                           [(role,'after_sales.labor') for role in ('admin','warehouse')])
+            db.execute('PRAGMA user_version = 64')

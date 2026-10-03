@@ -86,6 +86,12 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
     return saved
   }
   return {loadAfterSales,loadAfterSalesDetail,clearAfterSalesDetail,startAfterSalesCase,editAfterSalesCase,saveAfterSalesCase,
+    recordAfterSalesLabor:(row:AfterSalesEvidence,hours:string,reason:string,evidence:string)=>write('after_sales.labor',
+      ()=>window.nexora!.callApi('recordAfterSalesLabor',{id:row.id,version:row.version,hours,reason,evidence}),
+      '维修实际工时已登记，原始证据保留；工时不自动形成成本或收费。'),
+    reverseAfterSalesLabor:(row:AfterSalesEvidence,entryId:number,reason:string,evidence:string)=>write('after_sales.labor',
+      ()=>window.nexora!.callApi('reverseAfterSalesLabor',{id:row.id,version:row.version,entry_id:entryId,reason,evidence}),
+      '维修工时已追加反向更正，原始证据保留。'),
     changeAfterSalesCase:(row:AfterSalesEvidence,action:AfterSalesAction,reason:string,evidence:string,inspection_result?:'pass'|'fail')=>write(
       ['approve','reject'].includes(action)?'after_sales.review':`after_sales.${action}`,
       ()=>window.nexora!.callApi('changeAfterSalesCase',{id:row.id,version:row.version,action,reason,evidence,inspection_result}),

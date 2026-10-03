@@ -361,11 +361,11 @@ def test_v52_upgrade_is_idempotent_and_preserves_old_business(erp,remove_equipme
         db.execute('PRAGMA user_version=52')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==63
+        assert db.execute('PRAGMA user_version').fetchone()[0]==64
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'equipment.%'").fetchone()[0]==10
-    assert len(Base.metadata.tables)==146
+    assert len(Base.metadata.tables)==147
 
 
 def test_v52_migration_failure_does_not_leave_partial_tables(erp,remove_equipment_schema,monkeypatch):
@@ -486,6 +486,10 @@ def test_hour_inputs_reject_float_and_invalid_combinations(erp):
 
 
 def remove_hour_schema(db):
+    # 回放旧版本迁移时也撤下后续售后工时结构，避免第 64 版重复建表。
+    db.execute('DROP TABLE IF EXISTS after_sales_labor')
+    db.execute("DELETE FROM role_permissions WHERE permission_code='after_sales.labor'")
+    db.execute("DELETE FROM permissions WHERE code='after_sales.labor'")
     db.execute('DROP INDEX maintenance_hour_occurrence')
     for column in ('plan_meter_reading_id', 'plan_due_hours', 'hour_plan_id'):
         db.execute(f'ALTER TABLE maintenance_jobs DROP COLUMN {column}')
@@ -502,7 +506,7 @@ def test_v62_hour_migration_preserves_calendar_business_and_is_idempotent(erp):
         remove_hour_schema(db)
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 63
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 64
         assert db.execute('SELECT id,status,plan_id FROM maintenance_jobs ORDER BY id').fetchall() == old_jobs
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code='equipment.meter'").fetchone()[0] == 1

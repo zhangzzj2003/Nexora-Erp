@@ -1,4 +1,4 @@
-"""售后来源、数量占用、客户物品保管及收费证据，共用调用方 ORM 会话。"""
+"""售后来源、数量占用、客户物品保管、工时及收费证据，共用调用方 ORM 会话。"""
 
 import json
 from decimal import Decimal
@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.core.models import (AfterSalesCase, AfterSalesChange, AfterSalesCustody,
+from app.core.models import (AfterSalesCase, AfterSalesChange, AfterSalesCustody, AfterSalesLabor,
     ShipmentLine, Shipment, ShipmentReversal, SalesOrderLine, SalesOrder, Customer, Material,
     SalesReturn, SalesReturnReversal, WarehouseOutbound, WarehouseOutboundReversal, User)
 from app.core.orm import model_data
@@ -113,6 +113,17 @@ def audit(db, row, action, before, user_id, reason, evidence=''):
     db.flush()
 
 
+def labor_data(db, row, cutoff=None):
+    query = select(AfterSalesLabor).where(AfterSalesLabor.case_id == row.id)
+    if cutoff is not None:
+        query = query.where(AfterSalesLabor.created_at < cutoff)
+    entries = [{**model_data(item), 'created_by_name': db.get(User, item.created_by).username}
+        for item in db.scalars(query.order_by(AfterSalesLabor.id))]
+    total = sum((Decimal(item['hours']) * (1 if item['action'] == 'record' else -1)
+        for item in entries), Decimal(0))
+    return entries, str(total.quantize(Decimal('0.01')))
+
+
 def case_data(db, row):
     result = model_data(row)
     result['frozen_source'] = json.loads(result.pop('source_json'))
@@ -126,6 +137,7 @@ def case_data(db, row):
             .order_by(AfterSalesCustody.id))]
     result['custody_quantity'] = str(sum((Decimal(item['quantity']) * (1 if item['action']=='receive' else -1)
         for item in result['custody']), Decimal(0)))
+    result['labor'], result['labor_hours'] = labor_data(db, row)
     result['changes'] = [dict(id=item.id, action=item.action, reason=item.reason, evidence=item.evidence,
         changed_by=item.changed_by, changed_by_name=db.get(User, item.changed_by).username, created_at=item.created_at,
         before=json.loads(item.before_json) if item.before_json else None, after=json.loads(item.after_json))
@@ -141,7 +153,7 @@ def case_data(db, row):
 
 
 def archive_cases(db, end_date):
-    """结账固定截至期末的方案和保管记录，不能混入期末后的状态更正。"""
+    """结账固定截至期末的方案、保管和工时记录，不混入期末后的更正。"""
     cutoff = end_date + ' 24:00:00'
     result = []
     for row in db.scalars(select(AfterSalesCase).where(AfterSalesCase.created_at < cutoff)
@@ -154,9 +166,11 @@ def archive_cases(db, end_date):
         custody = [{**model_data(item), 'created_by_name': db.get(User, item.created_by).username}
             for item in db.scalars(select(AfterSalesCustody).where(AfterSalesCustody.case_id == row.id,
                 AfterSalesCustody.created_at < cutoff).order_by(AfterSalesCustody.id))]
+        labor, labor_hours = labor_data(db, row, cutoff)
         result.append(dict(case=header, source=json.loads(header['source_json']),
             custody=custody, custody_quantity=str(sum((Decimal(item['quantity']) *
                 (1 if item['action'] == 'receive' else -1) for item in custody), Decimal(0))),
+            labor=labor, labor_hours=labor_hours,
             changes=[dict(id=item.id, action=item.action, reason=item.reason, evidence=item.evidence,
                 changed_by=item.changed_by, changed_by_name=db.get(User, item.changed_by).username,
                 created_at=item.created_at, before=json.loads(item.before_json) if item.before_json else None,

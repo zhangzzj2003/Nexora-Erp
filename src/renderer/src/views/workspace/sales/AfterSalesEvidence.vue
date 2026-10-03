@@ -22,6 +22,11 @@ const store=usePiniaAppStore()
     <template v-if="row.kind==='repair'">
       <p>{{ row.charge_mode==='free'?'明确免费维修':`整单维修服务费 ${row.fee_amount} 元` }}；{{ repairFeeState(row) }}。</p>
       <p>客户物品在管 {{ row.custody_quantity }} {{ row.frozen_source.unit }}，不计入公司可售库存。</p>
+      <p>已记录净维修工时 {{ row.labor_hours }} 小时。工时只是实际作业证据，不自动形成维修收费或人工成本。</p>
+      <ul v-if="row.labor.length"><li v-for="entry in row.labor" :key="entry.id">
+        #{{ entry.id }} · {{ entry.action==='record'?'登记':'更正' }} {{ entry.hours }} 小时<span v-if="entry.original_id"> · 原记录 #{{ entry.original_id }}</span>
+        · {{ entry.created_by_name }} · {{ store.localTime(entry.created_at) }}<p>{{ entry.reason }}；依据：{{ entry.evidence }}</p>
+      </li></ul>
       <ul v-if="row.parts.length"><li v-for="part in row.parts" :key="part.material_id">{{ part.sku }} · {{ part.material_name }} · 公司耗材 {{ part.quantity }} {{ part.unit }}</li></ul>
       <p v-else>不使用公司耗材。</p>
       <p v-if="row.parts_outbound_id">耗材出库 #{{ row.parts_outbound_id }} · {{ ({draft:'待确认',posted:'已确认',cancelled:'已取消',reversed:'已冲销'})[row.parts_status!] }}</p>

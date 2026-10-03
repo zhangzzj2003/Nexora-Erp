@@ -4,8 +4,18 @@ import pytest
 
 
 @pytest.fixture
-def remove_equipment_hour_schema():
+def remove_after_sales_labor_schema():
     def remove(db):
+        db.execute('DROP TABLE IF EXISTS after_sales_labor')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='after_sales.labor'")
+        db.execute("DELETE FROM permissions WHERE code='after_sales.labor'")
+    return remove
+
+
+@pytest.fixture
+def remove_equipment_hour_schema(remove_after_sales_labor_schema):
+    def remove(db):
+        remove_after_sales_labor_schema(db)
         # 旧库升级夹具必须撤掉新版小时结构，才能真实重放第 63 版迁移。
         db.execute('DROP INDEX IF EXISTS maintenance_hour_occurrence')
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}

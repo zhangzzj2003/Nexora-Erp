@@ -385,7 +385,7 @@ def test_permissions_options_and_migration(journals, remove_journal_schema):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 63
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 64
         assert db.execute("SELECT count(*) FROM ledger_accounts").fetchone()[0] == 2
         assert (
             db.execute(

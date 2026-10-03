@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.main import app
 from app.core.database import migrate
-from app.core.models import Base, AfterSalesChange, AfterSalesCase, AfterSalesCustody
+from app.core.models import Base, AfterSalesChange, AfterSalesCase, AfterSalesCustody, AfterSalesLabor, Customer, RolePermission
 from app.core.orm import orm_session
 from app.finance.business_sources import business_sources
 
@@ -76,6 +76,82 @@ def approved(erp,data):
     row=api('POST',ROOT,data,status=201)
     row=action(api,row,'submit')
     return action(api,row,'approve',actor='reviewer')
+
+
+def test_repair_labor_record_and_reversal_keep_evidence_without_financial_side_effects(erp):
+    _,api,_,_,_,_,order=erp
+    row=action(api,approved(erp,payload(erp,charge_mode='charge',fee_amount='5')),'receive')
+    path=f'{ROOT}/{row["id"]}/labor'
+    api('POST',path,{'version':row['version'],'hours':'1.234','reason':'维修',
+        'evidence':'工单记录'},status=422)
+    api('POST',path,{'version':row['version'],'hours':1.25,'reason':'维修',
+        'evidence':'工单记录'},status=422)
+    api('POST',path,{'version':row['version'],'hours':'1.25','reason':'维修',
+        'evidence':'工单记录'},actor='seller',status=403)
+    row=api('POST',path,{'version':row['version'],'hours':'1.25','reason':'完成拆修',
+        'evidence':'维修工单 R-1'},actor='warehouse',status=201)
+    original=row['labor'][0]
+    assert row['labor_hours']=='1.25' and original['hours']=='1.25'
+    assert original['created_by_name']=='warehouse' and row['changes'][-1]['action']=='labor_record'
+    api('POST',path,{'version':row['version']-1,'hours':'2','reason':'并发旧版本',
+        'evidence':'工单 R-2'},status=409)
+    row=api('POST',path,{'version':row['version'],'hours':'0.75','reason':'检验返工',
+        'evidence':'维修工单 R-2'},status=201)
+    assert row['labor_hours']=='2.00'
+    correction=f'{path}/{original["id"]}/reverse'
+    row=api('POST',correction,{'version':row['version'],'reason':'原计时重复',
+        'evidence':'复核记录 R-3'})
+    assert row['labor_hours']=='0.75' and row['labor'][-1]['original_id']==original['id']
+    assert row['labor'][0]['hours']=='1.25' and row['changes'][-1]['action']=='labor_reverse'
+    api('POST',correction,{'version':row['version'],'reason':'重复更正',
+        'evidence':'复核记录 R-3'},status=409)
+    assert api('GET',f'{ROOT}/{row["id"]}')['labor_hours']=='0.75'
+    account=next(item for item in api('GET','finance/accounts') if item['kind']=='receivable' and item['order_id']==order['id'])
+    assert account['business_amount']=='100.00'
+    with orm_session() as db:
+        assert len(list(db.scalars(select(AfterSalesLabor).where(AfterSalesLabor.case_id==row['id']))))==3
+    row=action(api,row,'inspect',inspection_result='pass')
+    row=action(api,row,'close')
+    api('POST',path,{'version':row['version'],'hours':'1','reason':'结案后补录',
+        'evidence':'迟到记录'},status=409)
+    assert row['labor_hours']=='0.75'
+
+
+def test_labor_rejects_other_case_and_non_repair(erp):
+    _,api,_,_,_,_,_=erp
+    first=action(api,approved(erp,payload(erp)),'receive')
+    second=action(api,approved(erp,payload(erp,reference='AFTER-2',quantity='1')),'receive')
+    path=f'{ROOT}/{first["id"]}/labor'
+    first=api('POST',path,{'version':first['version'],'hours':'1','reason':'维修',
+        'evidence':'工单 R-1'},status=201)
+    api('POST',f'{ROOT}/{second["id"]}/labor/{first["labor"][0]["id"]}/reverse',
+        {'version':second['version'],'reason':'跨单更正','evidence':'复核'},status=404)
+    returned=approved(erp,payload(erp,kind='return',reference='AFTER-3',quantity='1'))
+    api('POST',f'{ROOT}/{returned["id"]}/labor',
+        {'version':returned['version'],'hours':'1','reason':'非维修','evidence':'测试'},status=409)
+
+
+def test_labor_audit_failure_rolls_back_record_and_version(erp,monkeypatch):
+    _,api,_,_,_,_,_=erp
+    row=action(api,approved(erp,payload(erp)),'receive')
+    def failed_audit(*_args,**_kwargs):
+        raise RuntimeError('模拟审计写入失败')
+    monkeypatch.setattr('app.sales.after_sales_labor.audit',failed_audit)
+    api('POST',f'{ROOT}/{row["id"]}/labor',{'version':row['version'],'hours':'2.50',
+        'reason':'维修计时','evidence':'维修工单 R-4'},status=500)
+    current=api('GET',f'{ROOT}/{row["id"]}')
+    assert current['version']==row['version'] and current['labor']==[] and current['labor_hours']=='0.00'
+
+
+def test_labor_scope_hides_case_before_reporting_stale_version(erp):
+    _,api,_,_,_,_,_=erp
+    row=action(api,approved(erp,payload(erp)),'receive')
+    with orm_session(write=True) as db:
+        db.add(RolePermission(role_code='seller',permission_code='after_sales.labor'))
+        db.get(Customer,row['frozen_source']['customer_id']).owner_id=1
+    api('POST',f'{ROOT}/{row["id"]}/labor',{'version':row['version']-1,'hours':'1.00',
+        'reason':'旧版本','evidence':'工单'},actor='seller',status=404)
+    assert api('GET',f'{ROOT}/{row["id"]}')['labor']==[]
 
 
 def test_paid_repair_keeps_customer_goods_out_of_stock_and_reconciles_original_order(erp):
@@ -250,10 +326,39 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==63
+        assert db.execute('PRAGMA user_version').fetchone()[0]==64
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
-    assert len(Base.metadata.tables)==146
+    assert len(Base.metadata.tables)==147
+
+
+def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_after_sales_labor_schema,monkeypatch):
+    import app.core.database as database
+    _,api,_,_,_,_,_=erp
+    case=approved(erp,payload(erp))
+    with database.connection() as db:
+        remove_after_sales_labor_schema(db)
+        db.execute('PRAGMA user_version=63')
+    original=database.connection
+    @contextmanager
+    def failing():
+        with original() as db:
+            db.set_authorizer(lambda operation,name,*_: sqlite3.SQLITE_DENY if operation==sqlite3.SQLITE_CREATE_TABLE
+                and name=='after_sales_labor' else sqlite3.SQLITE_OK)
+            yield db
+    monkeypatch.setattr(database,'connection',failing)
+    with pytest.raises(Exception):
+        migrate()
+    monkeypatch.setattr(database,'connection',original)
+    with original() as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0]==63
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_labor'").fetchone()
+        assert not db.execute("SELECT 1 FROM permissions WHERE code='after_sales.labor'").fetchone()
+    migrate();migrate()
+    with original() as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0]==64
+        assert db.execute('SELECT status FROM after_sales_cases WHERE id=?',(case['id'],)).fetchone()[0]=='approved'
+        assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.labor'").fetchone()[0]==2
 
 
 def test_exchange_cancelled_during_processing_has_a_complete_correction_path(erp):
@@ -332,6 +437,8 @@ def test_closing_archives_open_custody_and_fee_and_rolls_back_locked_corrections
         'receive'),'inspect',inspection_result='pass')
     closed=action(api,closed,'close')
     held=action(api,approved(erp,payload(erp,reference='HELD',quantity='1')),'receive')
+    held=api('POST',f'{ROOT}/{held["id"]}/labor',{'version':held['version'],'hours':'1.50',
+        'reason':'维修诊断','evidence':'维修工单 R-9'},status=201)
     api('POST','finance/accounting-periods',dict(code='AFTER-YEAR',name='售后测试年',
         start_date='2026-01-01',end_date='2026-12-31',reason='核对客户保管'),status=201)
     monkeypatch.setattr('app.finance.period_closing.utc_today',lambda:'2027-01-01')
@@ -342,9 +449,12 @@ def test_closing_archives_open_custody_and_fee_and_rolls_back_locked_corrections
     evidence=api('GET',path+'/closings')[0]['evidence']['after_sales']
     assert evidence[0]['case']['fee_amount']=='5.50' and evidence[0]['custody_quantity']=='0'
     assert evidence[1]['case']['status']=='received' and evidence[1]['custody_quantity']=='1'
+    assert evidence[1]['labor_hours']=='1.50' and evidence[1]['labor'][0]['evidence']=='维修工单 R-9'
     assert evidence[1]['custody'][0]['evidence']=='交接检验记录 A-002'
     action(api,closed,'reverse',status=409)
     action(api,held,'cancel',status=409)
+    api('POST',f'{ROOT}/{held["id"]}/labor',{'version':held['version'],'hours':'1',
+        'reason':'锁期追加','evidence':'迟到工单'},status=409)
     assert api('GET',f'{ROOT}/{held["id"]}')==held
     assert api('GET',path+'/closings')[0]['evidence']['after_sales']==evidence
 

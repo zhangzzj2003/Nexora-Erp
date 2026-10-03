@@ -15,6 +15,7 @@ const store=usePiniaAppStore()
 const {afterSalesOverview:overview,afterSalesDetail:detail,afterSalesLoading:loading,afterSalesError:failure,busy,user,connectionLost,error}=storeToRefs(store)
 const mode=ref<'sources'|'records'>('sources'),editor=ref(false),query=ref(''),preparing=ref(false),reason=ref(''),evidence=ref(''),inspection=ref<'pass'|'fail'|''>('')
 const command=ref<{row:AfterSalesEvidence;action:AfterSalesAction}|null>(null)
+const laborCommand=ref<{row:AfterSalesEvidence;entryId:number|null}|null>(null),laborHours=ref('')
 const disabled=computed(()=>busy.value||loading.value||preparing.value||connectionLost.value)
 const sources=computed(()=>(overview.value?.sources??[]).filter(row=>[row.shipment_id,row.sales_order_id,row.customer_name,row.sku,row.material_name].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const records=computed(()=>(overview.value?.cases??[]).filter(row=>[row.reference,row.frozen_source.customer_name,row.frozen_source.sku,afterSalesKind[row.kind],afterSalesStatus[row.status]].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
@@ -28,9 +29,27 @@ async function prepare(id:number,action:AfterSalesAction):Promise<void>{
   try{if(await store.loadAfterSalesDetail(id)&&detail.value&&actions(detail.value).includes(action))command.value={row:detail.value,action}}finally{preparing.value=false}
 }
 async function execute():Promise<void>{if(command.value&&await store.changeAfterSalesCase(command.value.row,command.value.action,reason.value,evidence.value,inspection.value||undefined))command.value=null}
+async function prepareLabor(entryId:number|null):Promise<void>{
+  if(disabled.value||!detail.value||!store.can('after_sales.labor'))return
+  const id=detail.value.id;preparing.value=true;laborCommand.value=null;laborHours.value='';reason.value='';evidence.value='';error.value=''
+  try{
+    if(await store.loadAfterSalesDetail(id)&&detail.value&&detail.value.kind==='repair'&&['received','repaired'].includes(detail.value.status)){
+      const active=entryId===null||detail.value.labor.some(entry=>entry.id===entryId&&entry.action==='record'&&
+        !detail.value!.labor.some(reverse=>reverse.original_id===entryId))
+      if(active)laborCommand.value={row:detail.value,entryId}
+    }
+  }finally{preparing.value=false}
+}
+async function executeLabor():Promise<void>{
+  if(!laborCommand.value)return
+  const {row,entryId}=laborCommand.value
+  const saved=entryId===null?await store.recordAfterSalesLabor(row,laborHours.value,reason.value,evidence.value)
+    :await store.reverseAfterSalesLabor(row,entryId,reason.value,evidence.value)
+  if(saved)laborCommand.value=null
+}
 function selectMode(value:'sources'|'records'):void{if(busy.value)return;mode.value=value;editor.value=false;query.value='';store.clearAfterSalesDetail()}
-watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{command.value=null;editor.value=false;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
-watch(connectionLost,()=>{command.value=null;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
+watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{command.value=null;laborCommand.value=null;editor.value=false;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
+watch(connectionLost,()=>{command.value=null;laborCommand.value=null;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
 onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSalesDetail())
 </script>
 <template>
@@ -57,6 +76,11 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
         <template #empty>尚无售后记录。选择原出库编制申请，提交后独立审核。</template>
       </WorkspaceTable>
       <AfterSalesEvidenceView v-if="detail" :row="detail" />
+      <div v-if="detail?.kind==='repair'&&['received','repaired'].includes(detail.status)&&store.can('after_sales.labor')" class="after-toolbar">
+        <AppButton :disabled="disabled" @click="prepareLabor(null)">登记实际维修工时</AppButton>
+        <AppButton v-for="entry in detail.labor.filter(item=>item.action==='record'&&!detail!.labor.some(reverse=>reverse.original_id===item.id))"
+          :key="entry.id" :disabled="disabled" @click="prepareLabor(entry.id)">更正工时 #{{ entry.id }}</AppButton>
+      </div>
     </template>
     <NModal :show="!!command" preset="card" :title="command?afterSalesCommand[command.action]:''" style="width:min(800px,calc(100vw - 48px));max-height:calc(100vh - 48px);overflow:auto" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value&&!busy)command=null}">
       <form v-if="command" class="after-operation" @submit.prevent="execute">
@@ -71,6 +95,18 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
         <label>实际交接、检验或客户确认依据<AppInput v-model.trim="evidence" maxlength="400" :required="['receive','inspect','close'].includes(command.action)||(['received','repaired'].includes(command.row.status)&&command.action==='cancel')" :disabled="busy" /></label>
         <p v-if="error" role="alert">{{ error }} 原因和依据已保留；请重新加载最新证据后核对。</p>
         <div class="after-toolbar"><AppButton type="submit" variant="primary" :disabled="busy||connectionLost||!reason.trim()||(command.action==='inspect'&&!inspection)">{{ busy?'正在处理…':afterSalesCommand[command.action] }}</AppButton><AppButton :disabled="busy" @click="command=null">返回核对</AppButton></div>
+      </form>
+    </NModal>
+    <NModal :show="!!laborCommand" preset="card" :title="laborCommand?.entryId?'更正维修工时':'登记实际维修工时'" style="width:min(700px,calc(100vw - 48px))" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value&&!busy)laborCommand=null}">
+      <form v-if="laborCommand" class="after-operation" @submit.prevent="executeLabor">
+        <p>{{ laborCommand.row.reference }} · 净工时 {{ laborCommand.row.labor_hours }} 小时 · v{{ laborCommand.row.version }}</p>
+        <p v-if="laborCommand.entryId">更正原记录 #{{ laborCommand.entryId }} 将追加等量反向记录，保留原记录与证据。</p>
+        <label v-else>实际维修小时<AppInput v-model.trim="laborHours" type="number" min="0.01" max="100000" step="0.01" required :disabled="busy" /></label>
+        <label>原因<AppInput v-model.trim="reason" maxlength="200" required :disabled="busy" /></label>
+        <label>实际依据<AppInput v-model.trim="evidence" maxlength="400" required :disabled="busy" /></label>
+        <p>工时仅作作业留痕，不自动形成收费、应付或总账人工成本。</p>
+        <p v-if="error" role="alert">{{ error }} 输入已保留；请重新加载最新证据后核对。</p>
+        <div class="after-toolbar"><AppButton type="submit" variant="primary" :disabled="disabled||!reason.trim()||!evidence.trim()||(!laborCommand.entryId&&!laborHours.trim())">确认记录</AppButton><AppButton :disabled="busy" @click="laborCommand=null">返回核对</AppButton></div>
       </form>
     </NModal>
   </section>

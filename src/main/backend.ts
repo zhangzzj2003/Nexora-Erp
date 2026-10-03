@@ -307,6 +307,19 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return {method:'POST',path:`/api/v1/after-sales/cases/${positiveId(source,'id')}/${source.action}`,
         body:{version:positiveId(source,'version'),reason:source.reason,evidence:source.evidence,inspection_result:source.inspection_result??null}}
     }
+    case 'recordAfterSalesLabor': {
+      const source=payload as ErpOperations['recordAfterSalesLabor']['input']
+      if(!source || typeof source.hours!=='string' || !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(source.hours)
+        || Number(source.hours)<=0 || Number(source.hours)>100000)throw new Error('维修工时无效')
+      return {method:'POST',path:`/api/v1/after-sales/cases/${positiveId(source,'id')}/labor`,
+        body:{version:positiveId(source,'version'),hours:source.hours,reason:source.reason,evidence:source.evidence}}
+    }
+    case 'reverseAfterSalesLabor': {
+      const source=payload as ErpOperations['reverseAfterSalesLabor']['input']
+      if(!source)throw new Error('维修工时记录无效')
+      return {method:'POST',path:`/api/v1/after-sales/cases/${positiveId(source,'id')}/labor/${positiveId(source,'entry_id')}/reverse`,
+        body:{version:positiveId(source,'version'),reason:source.reason,evidence:source.evidence}}
+    }
     case 'qualityOverview': return { method:'GET', path:'/api/v1/production-quality' }
     case 'qualityDetail': return { method:'GET', path:`/api/v1/production-quality/dispositions/${positiveId(payload,'id')}` }
     case 'saveQualityDisposition': {

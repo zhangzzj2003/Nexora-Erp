@@ -7,7 +7,7 @@ import {financialSource} from '../src/renderer/src/utils/formatters.ts'
 import {callBackend} from '../src/main/backend.ts'
 import {canVisitRoute,routeByKey} from '../src/renderer/src/router/workspace-routes.ts'
 const permissions=['after_sales.view','after_sales.create','after_sales.submit','after_sales.review','after_sales.process',
-  'after_sales.receive','after_sales.inspect','after_sales.close','after_sales.cancel','after_sales.reverse','sales_return.create','sales_order.create']
+  'after_sales.receive','after_sales.inspect','after_sales.close','after_sales.cancel','after_sales.reverse','after_sales.labor','sales_return.create','sales_order.create']
 const row={id:1,version:3,status:'submitted',kind:'repair',current_source_valid:true,author_ids:[1]}
 const input={shipment_line_id:1,reference:'A-1',kind:'repair',quantity:'2',complaint:'产品故障',solution:'维修后交还',charge_mode:'charge',
   fee_amount:'10.50',customer_acceptance:'客户确认服务费 A-1',warehouse_id:1,replacement_material_id:null,replacement_quantity:null,
@@ -52,6 +52,39 @@ test('IPC 只发送编制字段及固定动作，拒绝编号、检验结果和�
   await assert.rejects(callBackend('saveAfterSalesCase',{...input,id:1,version:0}),/编号无效/)
   await assert.rejects(callBackend('changeAfterSalesCase',{id:1,version:3,action:'inspect',inspection_result:'auto'}),/检验结果无效/)
   assert.equal(requests.length,2)
+})
+test('维修工时 IPC 使用固定路径与字段，拒绝金额精度和记录编号注入',async t=>{
+  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original})
+  const requests=[];globalThis.fetch=async(url,options)=>{
+    requests.push([new URL(url).pathname,JSON.parse(options.body)])
+    return new Response(JSON.stringify(row),{status:200})
+  }
+  await callBackend('recordAfterSalesLabor',{id:1,version:3,hours:'1.25',reason:'维修',evidence:'工单',status:'closed'})
+  await callBackend('reverseAfterSalesLabor',{id:1,version:4,entry_id:2,reason:'重复计时',evidence:'复核',hours:'999'})
+  assert.deepEqual(requests,[
+    ['/api/v1/after-sales/cases/1/labor',{version:3,hours:'1.25',reason:'维修',evidence:'工单'}],
+    ['/api/v1/after-sales/cases/1/labor/2/reverse',{version:4,reason:'重复计时',evidence:'复核'}]
+  ])
+  await assert.rejects(callBackend('recordAfterSalesLabor',{id:1,version:3,hours:'1.234',reason:'维修',evidence:'工单'}),/工时无效/)
+  await assert.rejects(callBackend('recordAfterSalesLabor',{id:1,version:3,hours:1.25,reason:'维修',evidence:'工单'}),/工时无效/)
+  await assert.rejects(callBackend('reverseAfterSalesLabor',{id:1,version:3,entry_id:'../users',reason:'更正',evidence:'复核'}),/编号无效/)
+  assert.equal(requests.length,2)
+})
+test('维修工时操作校验独立权限并在成功后刷新证据',async t=>{
+  const calls=[]
+  const {state,actions}=fixture(t,async(operation,input)=>{
+    calls.push([operation,input]);return operation==='afterSalesOverview'?overview:row
+  })
+  state.user.value={id:1,permissions:['after_sales.view']}
+  assert.equal(await actions.recordAfterSalesLabor(row,'1.25','维修','工单'),false)
+  assert.equal(calls.length,0)
+  state.user.value={id:1,permissions}
+  assert.equal(await actions.recordAfterSalesLabor(row,'1.25','维修','工单'),true)
+  assert.deepEqual(calls[0],['recordAfterSalesLabor',{id:1,version:3,hours:'1.25',reason:'维修',evidence:'工单'}])
+  assert.deepEqual(calls.slice(1).map(([operation])=>operation),['afterSalesOverview','afterSalesDetail'])
+  calls.length=0
+  assert.equal(await actions.reverseAfterSalesLabor(row,5,'重复计时','复核'),true)
+  assert.deepEqual(calls[0],['reverseAfterSalesLabor',{id:1,version:3,entry_id:5,reason:'重复计时',evidence:'复核'}])
 })
 test('较旧证据与断线迟到结果不覆盖当前，同账号草稿和版本保留',async t=>{
   const pending=deferred();const {state,actions}=fixture(t,(_action,data)=>data?.id===1?pending.promise:Promise.resolve({...row,id:2}))

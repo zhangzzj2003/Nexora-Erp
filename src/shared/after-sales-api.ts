@@ -25,6 +25,9 @@ export interface AfterSalesEvidence extends Omit<AfterSalesInput,'parts'|'reason
   parts:(AfterSalesPart&{sku:string; material_name:string; unit:string})[]
   custody_quantity:string
   custody:{id:number; case_id:number; action:'receive'|'return'; quantity:string; evidence:string; created_by:number; created_by_name:string; created_at:string}[]
+  labor_hours:string
+  labor:{id:number;case_id:number;action:'record'|'reverse';hours:string;original_id:number|null;
+    reason:string;evidence:string;created_by:number;created_by_name:string;created_at:string}[]
   changes:{id:number; action:string; reason:string; evidence:string; changed_by:number; changed_by_name:string; created_at:string;
     before:Record<string,unknown>|null; after:Record<string,unknown>}[]
 }
@@ -34,12 +37,14 @@ export interface AfterSalesOverview {
 }
 export interface AfterSalesArchive {
   case: Pick<AfterSalesEvidence, 'id'|'reference'|'kind'|'status'|'quantity'|'charge_mode'|'fee_amount'|'customer_acceptance'|'solution'>
-  source: AfterSalesSource; custody_quantity:string
-  custody: AfterSalesEvidence['custody']; changes: AfterSalesEvidence['changes']
+  source: AfterSalesSource; custody_quantity:string; labor_hours:string
+  custody: AfterSalesEvidence['custody']; labor:AfterSalesEvidence['labor']; changes: AfterSalesEvidence['changes']
 }
 export interface AfterSalesOperations {
   afterSalesOverview:{input:undefined;output:AfterSalesOverview}
   afterSalesDetail:{input:{id:number};output:AfterSalesEvidence}
   saveAfterSalesCase:{input:AfterSalesInput&{id?:number;version?:number};output:AfterSalesEvidence}
   changeAfterSalesCase:{input:{id:number;version:number;action:AfterSalesAction;reason:string;evidence:string;inspection_result?:'pass'|'fail'|null};output:AfterSalesEvidence}
+  recordAfterSalesLabor:{input:{id:number;version:number;hours:string;reason:string;evidence:string};output:AfterSalesEvidence}
+  reverseAfterSalesLabor:{input:{id:number;version:number;entry_id:number;reason:string;evidence:string};output:AfterSalesEvidence}
 }

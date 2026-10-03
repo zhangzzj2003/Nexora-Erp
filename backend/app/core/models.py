@@ -1204,6 +1204,19 @@ class AfterSalesCustody(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
+class AfterSalesLabor(Base):
+    __tablename__ = "after_sales_labor"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("after_sales_cases.id"), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    hours: Mapped[str] = mapped_column(Text, nullable=False)
+    original_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("after_sales_labor.id"), unique=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
 class Customer(Base):
     __tablename__ = 'customers'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

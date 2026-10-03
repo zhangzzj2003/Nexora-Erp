@@ -106,7 +106,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 数据库第 39 版增加成本结算、分摊、来源依赖和独立冲销表。GET `/api/v1/production-costs/settlements` 查看历史；POST 同路径传入 `work_order_id`、`reference`、可选 `note`，仅可结算全部报工、无未处理草稿且净领料全部核价的工单。成本按合格入库数量累计比例分摊到各完工批次，以分为单位处理尾差；没有合格成品时拒绝结算。完工入库在库存计价中返回 `cost_source: production_settlement` 与 `settlement_id`，内部分摊金额不由四位展示单价倒算。POST `/{id}/reverse` 按原因冲销结算，原快照保留；有关联后续有效工单结算时拒绝冲销。结算冻结该工单费用、完工来源和有关核价依赖，先冲销后才能更正。结算、冲销分别要求 `production_cost.settle`、`production_cost.reopen`，默认授予管理员和财务员；查看沿用 `production_cost.view`。成本规则与边界见 [完工成本规则](../docs/production-cost-settlement.md)。
 
-现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 146 张静态模型表及第 63 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
+现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 147 张静态模型表及第 64 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
 
 ## 多仓库库存与调拨
 
@@ -194,7 +194,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 已过账总账报表
 
-已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 63 版，客户端和服务端须同步升级。
+已过账总账的科目明细和试算平衡见 [报表规则](../docs/ledger-reports.md)。`app/finance/ledger_reports.py` 使用 ORM 和 Decimal，接口为 `/api/v1/finance/ledger-reports/options`、`/query`，沿用 `journal.view`。日期范围包含首尾，期初由已确认启用余额加以前的已过账分录累计，冲销仅过账后计入；返回筛选、期间、行、合计和同快照 CSV。新增凭证 GET `/{id}` 支持下钻。正式期初录入见下节；期间结账及业务来源凭证草稿另行提供；数据库当前为第 64 版，客户端和服务端须同步升级。
 
 ## 正式期初余额
 
@@ -235,7 +235,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 售后退换修
 
-第 52 版新增售后方案、审计和客户物品保管三张静态 ORM 表，共 122 张。路由与规则位于 `app/sales/after_sales.py` 和 `after_sales_rules.py`；业务 CRUD 均为 ORM。维修费与追加式更正进入原订单应收，客户物品不计公司库存；`repair_income` 须显式映射科目。独立审核、关联单据权限、版本、并发占用、锁期与固定归档见 [售后规则](../docs/after-sales.md)。
+第 52 版新增售后方案、审计和客户物品保管三张静态 ORM 表，共 122 张。路由与规则位于 `app/sales/after_sales.py`、`after_sales_labor.py` 和 `after_sales_rules.py`；业务 CRUD 均为 ORM。维修费与追加式更正进入原订单应收，客户物品不计公司库存；`repair_income` 须显式映射科目。第 64 版新增维修工时追加记录的静态 ORM 表，登记和更正不自动形成收费或人工成本。独立审核、关联单据权限、版本、并发占用、锁期与固定归档见 [售后规则](../docs/after-sales.md)。
 
 ## 设备维护
 
@@ -251,7 +251,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 实物批次数据基础
 
-第 56 版新增批次、历史未识别期初和流水分配三张静态 ORM 表；第 57 版新增历史批次补证记录表；第 58 版新增旧流水检查点和逐笔补证两张表；第 59 版新增成对补证关联表；第 60 版新增成组补证及配对关联两张表，当时共 140 张；第 61 版增加客户归属审计表；第 62 版增加供应商与仓库资料审计两张表；第 63 版增加三张运行小时维护表，当前共 146 张。升级只按逐仓净结存建立未识别期初，不伪造原采购/销售批号。`app/inventory/physical_lots.py` 提供沿用 `inventory.view` 的只读 `/api/v1/inventory/physical-lots/overview` 与 `/{lot_id}/history`，返回逐批余额、正式库存差额、历史期初及分配来源；桌面端可按仓库和物料筛选并核对流水。采购入库确认 `POST /api/v1/receipts/{id}/post` 可提交 `lines: [{receipt_line_id, lots: [{quantity, supplier_lot, manufactured_on, expires_on}]}]`；其他入库确认 `POST /api/v1/warehouse-inbounds/{id}/post` 同样可提交批次，只将明细键改为 `inbound_line_id`；合格完工入库确认 `POST /api/v1/production-completions/{id}/post` 可提交 `lots: [{quantity, manufactured_on, expires_on}]`，不伪造供应商批号。三类入库均按确认数量精确守恒；同一 ORM 写事务写库存流水、批次及分配，冲销反向引用原分配，实际批次不足时返回 409 并整体回滚。旧客户端省略请求体仍可确认，未登记数量明确成为批次差额；其他用途出库确认也可提交 `lines: [{outbound_line_id, lots: [{lot_id, quantity}]}]` 并逐行扣减可用批次，冲销回到原仓原批次。采购退货的关联仓库出库也可提交相同批次请求体；销售出库 `/shipments/{id}/post` 可提交 `lines: [{shipment_line_id, lots: [{lot_id, quantity}]}]`，`/{id}/available-lots` 沿用 `shipment.post`；仓库调拨 `/transfers/{id}/post` 可提交 `lines: [{transfer_line_id, lots: [{lot_id, quantity}]}]`，`/{id}/available-lots` 沿用 `transfer.post`。盘点 `/stocktakes/{id}/available-lots` 沿用 `stocktake.post`，`/{id}/post` 可逐行提交差异绝对值对应的 `lots`，盘亏选已有批次、盘盈可选已有批次或登记“盘点发现”新批次，零差异不产生分配；冲销沿原批次回写，余额不足整单回滚。库存调整 `/stock-adjustments/{id}/available-lots` 沿用 `adjustment.post`；已审批单 `/{id}/post` 可逐行指定已有批次，正向调整也可创建标为“调整新增”的新批次，负向只扣已有批次；冲销沿原分配，余额不足整单回滚。上述确认和冲销均固定原分配。销售退货 `/sales-returns/{id}/available-lots` 沿用 `sales_return.post` 返回原出库批次剩余可退量；`/{id}/post` 可逐行指定原批次或登记“退货新批次”，冲销沿本次实际回仓批次反向扣除。旧客户端省略请求体仍可确认并显示差额。生产领退料已接入，未来新增来源仍须逐项接入，详见 [批次基础与设计草案](../docs/physical-lot-tracing.md)。
+第 56 版新增批次、历史未识别期初和流水分配三张静态 ORM 表；第 57 版新增历史批次补证记录表；第 58 版新增旧流水检查点和逐笔补证两张表；第 59 版新增成对补证关联表；第 60 版新增成组补证及配对关联两张表，当时共 140 张；第 61 版增加客户归属审计表；第 62 版增加供应商与仓库资料审计两张表；第 63 版增加三张运行小时维护表；第 64 版增加售后维修工时表，当前共 147 张。升级只按逐仓净结存建立未识别期初，不伪造原采购/销售批号。`app/inventory/physical_lots.py` 提供沿用 `inventory.view` 的只读 `/api/v1/inventory/physical-lots/overview` 与 `/{lot_id}/history`，返回逐批余额、正式库存差额、历史期初及分配来源；桌面端可按仓库和物料筛选并核对流水。采购入库确认 `POST /api/v1/receipts/{id}/post` 可提交 `lines: [{receipt_line_id, lots: [{quantity, supplier_lot, manufactured_on, expires_on}]}]`；其他入库确认 `POST /api/v1/warehouse-inbounds/{id}/post` 同样可提交批次，只将明细键改为 `inbound_line_id`；合格完工入库确认 `POST /api/v1/production-completions/{id}/post` 可提交 `lots: [{quantity, manufactured_on, expires_on}]`，不伪造供应商批号。三类入库均按确认数量精确守恒；同一 ORM 写事务写库存流水、批次及分配，冲销反向引用原分配，实际批次不足时返回 409 并整体回滚。旧客户端省略请求体仍可确认，未登记数量明确成为批次差额；其他用途出库确认也可提交 `lines: [{outbound_line_id, lots: [{lot_id, quantity}]}]` 并逐行扣减可用批次，冲销回到原仓原批次。采购退货的关联仓库出库也可提交相同批次请求体；销售出库 `/shipments/{id}/post` 可提交 `lines: [{shipment_line_id, lots: [{lot_id, quantity}]}]`，`/{id}/available-lots` 沿用 `shipment.post`；仓库调拨 `/transfers/{id}/post` 可提交 `lines: [{transfer_line_id, lots: [{lot_id, quantity}]}]`，`/{id}/available-lots` 沿用 `transfer.post`。盘点 `/stocktakes/{id}/available-lots` 沿用 `stocktake.post`，`/{id}/post` 可逐行提交差异绝对值对应的 `lots`，盘亏选已有批次、盘盈可选已有批次或登记“盘点发现”新批次，零差异不产生分配；冲销沿原批次回写，余额不足整单回滚。库存调整 `/stock-adjustments/{id}/available-lots` 沿用 `adjustment.post`；已审批单 `/{id}/post` 可逐行指定已有批次，正向调整也可创建标为“调整新增”的新批次，负向只扣已有批次；冲销沿原分配，余额不足整单回滚。上述确认和冲销均固定原分配。销售退货 `/sales-returns/{id}/available-lots` 沿用 `sales_return.post` 返回原出库批次剩余可退量；`/{id}/post` 可逐行指定原批次或登记“退货新批次”，冲销沿本次实际回仓批次反向扣除。旧客户端省略请求体仍可确认并显示差额。生产领退料已接入，未来新增来源仍须逐项接入，详见 [批次基础与设计草案](../docs/physical-lot-tracing.md)。
 
 第 57 版 `POST /api/v1/inventory/physical-lots/reclassifications` 要求 `physical_lot.reclassify`，提交历史未识别批次、仓库、精确数量、至少 10 字的现场依据及可选真实批号/日期。服务端在 ORM 写事务内核对旧批次现存量与正式库存差额，建立明确标为现场补证的新批次，保留转出/转入、操作人与时间；不改正式库存流水和移动加权成本。原批次及新批次历史均可下钻查看补证记录。`POST /api/v1/inventory/physical-lots/reclassifications/{id}/reverse` 可凭原因追加冲销，若新批次现存量不足或已冲销则拒绝。该接口只处理第 56 版迁移形成的历史未识别结存，不替代旧客户端未分配流水的逐笔补证。
 
