@@ -235,6 +235,81 @@ def test_contact_import_duplicate_confirmation_and_invalid_rows(seeded):
                              'reason': '依据', 'allow_similar': 'true'}).status_code == 422
 
 
+def test_opportunity_import_is_atomic_scoped_and_audited(seeded):
+    client, admin, _, seller, viewer, customer, other, _ = seeded
+    contact = client.post(C+'/contacts', headers=seller,
+                          json={'customer_id': customer, 'name': '王女士'}).json()
+    rows = [{'customer_id': customer, 'title': '项目甲', 'owner_id': 3,
+             'estimated_amount': '100.25', 'expected_close_date': '2030-02-01',
+             'contact_id': contact['id']},
+            {'customer_id': customer, 'title': '项目乙', 'owner_id': 3,
+             'estimated_amount': '0.00', 'expected_close_date': '2030-03-01'}]
+    assert client.post(C+'/opportunities/import-preview', headers=viewer,
+                       json={'rows': rows}).status_code == 403
+    checked = client.post(C+'/opportunities/import-preview', headers=seller,
+                          json={'rows': rows})
+    assert checked.status_code == 200, checked.text
+    assert checked.json()['rows'][0]['contact_name'] == '王女士'
+    assert checked.json()['rows'][0]['customer_name'] == '客户甲'
+    assert not checked.json()['requires_confirmation']
+    hidden = rows + [{**rows[0], 'customer_id': other, 'title': '隐藏客户项目', 'contact_id': None}]
+    for endpoint, body in (('/import-preview', {'rows': hidden}),
+                           ('/import', {'rows': hidden, 'reason': '原清单'})):
+        response = client.post(C+'/opportunities'+endpoint, headers=seller, json=body)
+        assert response.status_code == 404
+        assert '客户乙' not in response.text
+    assert client.get(C+'/overview', headers=admin).json()['opportunities'] == []
+    result = client.post(C+'/opportunities/import', headers=seller,
+                         json={'rows': rows, 'reason': '经客户预算核对'})
+    assert result.status_code == 201, result.text
+    data = result.json()
+    assert len(data['batch_reference']) == 16
+    assert [row['title'] for row in data['created']] == ['项目甲', '项目乙']
+    for index, item in enumerate(data['created'], start=1):
+        record = client.get(C+f'/records/opportunity/{item["id"]}', headers=seller).json()
+        changes = client.get(C+f'/records/opportunity/{item["id"]}/changes', headers=seller).json()
+        assert record['stage'] == 'prospect' and record['version'] == 1
+        assert record['estimated_amount'] == rows[index - 1]['estimated_amount']
+        assert changes[0]['action'] == 'create'
+        assert f'{data["batch_reference"]} 第{index}条：经客户预算核对' in changes[0]['reason']
+    assert client.post(C+'/opportunities/import', headers=seller,
+                       json={'rows': rows, 'reason': '网络超时重试', 'allow_similar': True}).status_code == 409
+
+
+def test_opportunity_import_rechecks_duplicates_and_links(seeded):
+    client, admin, _, seller, _, customer, other, _ = seeded
+    rows = [{'customer_id': customer, 'title': '同名项目', 'owner_id': 3,
+             'estimated_amount': '10.00', 'expected_close_date': '2030-02-01'},
+            {'customer_id': customer, 'title': '同名-项目', 'owner_id': 3,
+             'estimated_amount': '20.00', 'expected_close_date': '2030-03-01'}]
+    preview = client.post(C+'/opportunities/import-preview', headers=seller,
+                          json={'rows': rows}).json()
+    assert preview['rows'][1]['batch_rows'] == [1]
+    assert client.post(C+'/opportunities/import', headers=seller,
+                       json={'rows': rows, 'reason': '原名单'}).status_code == 409
+    assert client.get(C+'/overview', headers=admin).json()['opportunities'] == []
+    accepted = client.post(C+'/opportunities/import', headers=seller,
+                           json={'rows': rows, 'reason': '确认是两次独立需求',
+                                 'allow_similar': True})
+    assert accepted.status_code == 201, accepted.text
+    again = [{**rows[0], 'title': '同 名项目'}]
+    duplicate = client.post(C+'/opportunities/import-preview', headers=seller,
+                            json={'rows': again}).json()
+    assert duplicate['rows'][0]['existing_opportunity_ids'] == [accepted.json()['created'][0]['id'],
+                                                                accepted.json()['created'][1]['id']]
+    for invalid in ({'rows': [{**rows[0], 'owner_id': 99999}]},
+                    {'rows': [{**rows[0], 'contact_id': 99999}]},
+                    {'rows': [{**rows[0], 'customer_id': other}]}):
+        status = 404 if invalid['rows'][0].get('customer_id') == other else 422
+        assert client.post(C+'/opportunities/import-preview', headers=seller,
+                           json=invalid).status_code == status
+    for invalid in ({'rows': []}, {'rows': [{**rows[0], 'estimated_amount': '1.001'}]},
+                    {'rows': [{**rows[0], 'expected_close_date': '2030-02-30'}]},
+                    {'rows': [{**rows[0], 'stage': 'won'}]}):
+        assert client.post(C+'/opportunities/import-preview', headers=seller,
+                           json=invalid).status_code == 422
+
+
 def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
     client,admin,reviewer,seller,_,customer,other,materials = seeded
     assert client.post(B+'/customers',headers=seller,json={

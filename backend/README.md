@@ -54,6 +54,8 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 联系人 CSV 导入的预检和提交路由位于 `app/sales/contact_import.py`，通过现有 CRM 归属边界检查客户，用 ORM 模型在同一事务中建立联系人和逐条变更审计。导入只建立启用联系人，发现同客户同名时要求显式确认；列格式和限制见 [客户关系规则](../docs/customer-relations.md)。
 
+商机 CSV 导入的预检和提交路由位于 `app/sales/opportunity_import.py`，使用 ORM 会话检查客户归属、启用负责人及客户联系人，并在同一写事务中建立初步接洽商机和逐条审计。同客户同名商机须显式确认；预估金额不生成销售单、收入或总账记录。列格式和限制见 [客户关系规则](../docs/customer-relations.md)。
+
 物料、供应商、仓库分别通过 `/materials`、`/suppliers`、`/warehouses`（统一前缀 `/api/v1`）提供 GET 列表、POST 新增、PUT `/{id}` 修改和 DELETE `/{id}` 删除。查看要求 `inventory.view`，物料和供应商写入要求 `catalog.manage`，仓库写入要求 `warehouse.manage`。重复编码或名称冲突返回 409，记录不存在返回 404；被业务单据或库存引用的记录不能删除，默认 1 号主仓库也不能删除。修改名称会反映在引用该档案的历史查询中；物料资料有编辑版本与前后审计，供应商和仓库第 62 版增加版本、修改原因及新增/修改/删除的 ORM 审计，详见 [档案版本审计](../docs/master-data-audit.md)。
 
 数据库第 28 版新增 `supplier_materials` 多对多关联表。GET `/supplier-materials` 返回供应商与物料编号；PUT `/suppliers/{supplier_id}/materials/{material_id}` 幂等绑定，DELETE 同路径解绑，写入要求 `catalog.manage`。同一物料可绑定多个供应商，供应商也可绑定多个物料；解绑不删除物料、不改动库存和采购记录。删除未被业务引用的资料会清理其绑定关系；删除失败时关系与资料一并回滚。不同规格使用不同物料编码维护，可在名称中填写规格型号。

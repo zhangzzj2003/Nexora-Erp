@@ -5,7 +5,9 @@ import { createCrmActions,emptyCrmForms } from '../src/renderer/src/store/module
 import { crmFormError,quoteActions,crmSnapshotRows } from '../src/renderer/src/views/workspace/sales/crm-display.ts'
 import { callBackend } from '../src/main/backend.ts'
 import { parseContactCsv, parseContactCsvBytes } from '../src/renderer/src/views/workspace/sales/contact-import.ts'
+import { parseOpportunityCsv, parseOpportunityCsvBytes } from '../src/renderer/src/views/workspace/sales/opportunity-import.ts'
 import { validateContactImportPreview, validateContactImportResult } from '../src/shared/contact-import-validation.ts'
+import { validateOpportunityImportPreview, validateOpportunityImportResult } from '../src/shared/opportunity-import-validation.ts'
 import { canVisitRoute,routeByKey } from '../src/renderer/src/router/workspace-routes.ts'
 
 const permissions=['crm.view','crm_contact.manage','crm_activity.manage','crm_opportunity.manage','crm_quote.create','crm_quote.submit','crm_quote.convert','sales_order.create']
@@ -14,6 +16,7 @@ const quoteInput={opportunity_id:1,contact_id:null,reference:'Q-1',valid_until:'
 const overview={contacts:[],activities:[],opportunities:[],quotes:[]}
 const options={customers:[],owners:[],materials:[]}
 const importRows=[{customer_id:4,name:'王女士',job_title:'采购',phone:'100',email:'',note:'重点客户'}]
+const opportunityRows=[{customer_id:4,title:'新设备',owner_id:2,estimated_amount:'1200.50',expected_close_date:'2030-01-31',contact_id:null,note:''}]
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}
 function fixture(t,callApi,perform=run=>run()){
   const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
@@ -79,6 +82,64 @@ test('联系人导入写入成功后即使刷新失败也不提示重复提交',
   assert.deepEqual(calls[0],['importContacts',{rows:importRows,reason:'资料核对',allow_similar:false}])
   state.user.value={id:2,permissions:['crm.view']}
   assert.equal(await actions.importContactRows(importRows,'资料核对',false),false)
+  assert.equal(calls.length,3)
+})
+
+test('商机 CSV 校验列、编号、金额、日期与 UTF-8',()=>{
+  const compact='customer_id,title,owner_id,estimated_amount,expected_close_date\n4,新设备,2,1200.50,2030-01-31'
+  assert.deepEqual(parseOpportunityCsv(compact),opportunityRows)
+  assert.deepEqual(parseOpportunityCsvBytes(new TextEncoder().encode(compact).buffer),opportunityRows)
+  assert.deepEqual(parseOpportunityCsv('\uFEFF客户编号,商机名称,负责人编号,预计金额,预计成交日期,联系人编号,备注\r\n4,"新,设备",2,0,2030-01-31,6,"备注""甲"""\r\n'),
+    [{customer_id:4,title:'新,设备',owner_id:2,estimated_amount:'0',expected_close_date:'2030-01-31',contact_id:6,note:'备注"甲"'}])
+  assert.throws(()=>parseOpportunityCsvBytes(Uint8Array.from([0xff,0xfe]).buffer))
+  for(const line of ['0,新设备,2,1,2030-01-31','4,新设备,0,1,2030-01-31',
+    '4,新设备,2,1.001,2030-01-31','4,新设备,2,1,2030-02-30',
+    '4,"未闭合,2,1,2030-01-31','4,新设备,2,1,2030-01-31,多余列']){
+    assert.throws(()=>parseOpportunityCsv(compact.split('\n')[0]+'\n'+line))
+  }
+  assert.throws(()=>parseOpportunityCsv(compact+'\n\n5,次商机,2,1,2030-01-31'))
+})
+
+test('商机导入 IPC 清理额外字段并校验预检和提交响应',async t=>{
+  const old=globalThis.fetch;t.after(()=>{globalThis.fetch=old});const requests=[]
+  globalThis.fetch=async(url,config)=>{
+    const path=new URL(url).pathname,body=config.body?JSON.parse(config.body):null
+    requests.push({path,body})
+    const output=path.endsWith('/import-preview')?{rows:body.rows.map((row,index)=>({
+      row:index+1,customer_id:row.customer_id,customer_name:'客户甲',title:row.title,
+      owner_id:row.owner_id,owner_name:'销售员',contact_name:'',existing_opportunity_ids:[],batch_rows:[],requires_confirmation:false
+    })),requires_confirmation:false}: {batch_reference:'0123456789abcdef',created:body.rows.map((row,index)=>({
+      id:index+1,customer_id:row.customer_id,title:row.title,version:1}))}
+    return new Response(JSON.stringify(output),{status:200})
+  }
+  await callBackend('opportunityImportPreview',{rows:[{...opportunityRows[0],stage:'won',created_by:99}],path:'/users'})
+  await callBackend('importOpportunities',{rows:opportunityRows,reason:' 名单核对 ',allow_similar:true})
+  assert.deepEqual(requests,[
+    {path:'/api/v1/crm/opportunities/import-preview',body:{rows:opportunityRows}},
+    {path:'/api/v1/crm/opportunities/import',body:{rows:opportunityRows,reason:'名单核对',allow_similar:true}}
+  ])
+  for(const rows of [[],[{...opportunityRows[0],owner_id:'2/../../users'}],
+    [{...opportunityRows[0],estimated_amount:'1e3'}],Array(101).fill(opportunityRows[0])]){
+    await assert.rejects(callBackend('opportunityImportPreview',{rows}),/商机导入|编号无效|金额无效/)
+  }
+  assert.equal(requests.length,2)
+  const preview={rows:[{row:1,customer_id:4,customer_name:'客户甲',title:'新设备',owner_id:2,
+    owner_name:'销售员',contact_name:'',existing_opportunity_ids:[],batch_rows:[],requires_confirmation:false}],requires_confirmation:false}
+  validateOpportunityImportPreview(preview,opportunityRows)
+  validateOpportunityImportResult({batch_reference:'0123456789abcdef',created:[{id:1,customer_id:4,title:'新设备',version:1}]},opportunityRows)
+  assert.throws(()=>validateOpportunityImportPreview({...preview,rows:[{...preview.rows[0],owner_id:3}]},opportunityRows))
+  assert.throws(()=>validateOpportunityImportResult({batch_reference:'0123456789abcdef',created:[{id:1,customer_id:5,title:'新设备',version:1}]},opportunityRows))
+})
+
+test('商机导入写入成功后刷新失败仍报告成功，撤权后阻止导入',async t=>{
+  const calls=[];const {state,actions}=fixture(t,async(action,data)=>{
+    calls.push([action,data]);if(action==='importOpportunities')return {created:[{id:9}]}
+    throw Error('刷新失败')
+  })
+  assert.equal(await actions.importOpportunityRows(opportunityRows,'名单核对',false),true)
+  assert.deepEqual(calls[0],['importOpportunities',{rows:opportunityRows,reason:'名单核对',allow_similar:false}])
+  state.user.value={id:2,permissions:['crm.view']}
+  assert.equal(await actions.importOpportunityRows(opportunityRows,'名单核对',false),false)
   assert.equal(calls.length,3)
 })
 

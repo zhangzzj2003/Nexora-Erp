@@ -1,6 +1,6 @@
 import { watch } from 'vue'
 import type { CrmKind, CrmRecord, CrmQuote, CrmQuoteAction, CrmActivity, CrmOpportunity, CrmContact, CrmForms } from '../../../../shared/crm-api'
-import type { ContactImportRow } from '../../../../shared/crm-api'
+import type { ContactImportRow, OpportunityImportRow } from '../../../../shared/crm-api'
 import type { AppState } from '../state'
 import { displayError } from '../../utils/formatters.ts'
 
@@ -141,8 +141,22 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
     await loadCrm()
     return session === owner
   }
+  async function importOpportunityRows(rows: OpportunityImportRow[], reason: string, allow_similar: boolean): Promise<boolean> {
+    if (!can('crm_opportunity.manage') || !available() || state.busy.value) return false
+    const session = owner
+    let saved = false
+    await perform(async () => {
+      if (session !== owner || !can('crm_opportunity.manage') || !available()) return
+      await window.nexora!.callApi('importOpportunities', { rows, reason, allow_similar })
+      saved = true
+    }, '商机已批量建立，逐条变更依据已留存；预估金额不计收入。')
+    if (!saved || session !== owner) return false
+    // 已写入的商机不能因列表刷新失败而让用户误以为需要再次导入。
+    await loadCrm()
+    return session === owner
+  }
   return {loadCrm,loadCrmDetail,loadCustomerOwnerChanges,assignCustomerOwner,
-    clearCrmDetail,editCrm,startNewCrm,saveCrm,importContactRows,
+    clearCrmDetail,editCrm,startNewCrm,saveCrm,importContactRows,importOpportunityRows,
     closeCrmActivity:(item: CrmActivity, action:'complete'|'cancel',reason:string)=>write('crm_activity.manage',
       ()=>window.nexora!.callApi('closeCrmActivity',{id:item.id,version:item.version,action,reason}),'跟进状态已登记，原记录保留。','activity'),
     reopenCrmOpportunity:(item:CrmOpportunity,reason:string)=>write('crm_opportunity.manage',

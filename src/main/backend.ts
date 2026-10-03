@@ -19,6 +19,7 @@ import {validateDashboardResult} from '../shared/dashboard-api.ts'
 import {validateEquipmentResult} from '../shared/equipment-validation.ts'
 import {validateCustomerImportPreview,validateCustomerImportResult} from '../shared/customer-import-validation.ts'
 import {validateContactImportPreview,validateContactImportResult} from '../shared/contact-import-validation.ts'
+import {validateOpportunityImportPreview,validateOpportunityImportResult} from '../shared/opportunity-import-validation.ts'
 import { request as httpsRequest } from 'node:https'
 
 export interface BackendTarget {
@@ -136,6 +137,31 @@ function contactImportRows(payload: unknown): ErpOperations['contactImportPrevie
     return { customer_id: positiveId(row, 'customer_id'), name: field('name', 120, true),
       job_title: field('job_title', 120), phone: field('phone', 80),
       email: field('email', 160), note: field('note', 1000) }
+  })
+}
+
+function opportunityImportRows(payload: unknown): ErpOperations['opportunityImportPreview']['input']['rows'] {
+  const rows = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>).rows : undefined
+  if (!Array.isArray(rows) || rows.length < 1 || rows.length > 100) throw new Error('商机导入名单无效')
+  return rows.map(row => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('商机导入明细无效')
+    const source = row as Record<string, unknown>
+    const text = (key: string, maximum: number, required = false): string => {
+      const value = source[key]
+      if (typeof value !== 'string' || value.trim().length > maximum || /[\x00-\x1f]/.test(value)
+        || (required && !value.trim())) throw new Error('商机导入明细无效')
+      return value.trim()
+    }
+    const estimated_amount = text('estimated_amount', 18, true)
+    if (!/^\d+(?:\.\d{1,2})?$/.test(estimated_amount) || Number(estimated_amount) > 100_000_000_000)
+      throw new Error('商机预估金额无效')
+    const expected_close_date = text('expected_close_date', 10, true)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expected_close_date)) throw new Error('预计成交日期无效')
+    return {customer_id: positiveId(row, 'customer_id'), title: text('title', 160, true),
+      owner_id: positiveId(row, 'owner_id'), estimated_amount, expected_close_date,
+      contact_id: source.contact_id == null ? null : positiveId(row, 'contact_id'),
+      note: text('note', 1000)}
   })
 }
 
@@ -383,6 +409,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       if (typeof source.reason !== 'string' || !source.reason.trim() || source.reason.trim().length > 200
         || typeof source.allow_similar !== 'boolean') throw new Error('联系人导入依据或同名确认无效')
       return { method: 'POST', path: '/api/v1/crm/contacts/import',
+        body: { rows, reason: source.reason.trim(), allow_similar: source.allow_similar } }
+    }
+    case 'opportunityImportPreview': return { method: 'POST', path: '/api/v1/crm/opportunities/import-preview',
+      body: { rows: opportunityImportRows(payload) } }
+    case 'importOpportunities': {
+      const rows = opportunityImportRows(payload)
+      const source = payload as Record<string, unknown>
+      if (typeof source.reason !== 'string' || !source.reason.trim() || source.reason.trim().length > 200
+        || typeof source.allow_similar !== 'boolean') throw new Error('商机导入依据或同名确认无效')
+      return { method: 'POST', path: '/api/v1/crm/opportunities/import',
         body: { rows, reason: source.reason.trim(), allow_similar: source.allow_similar } }
     }
     case 'customerOwnerChanges': return { method: 'GET', path: `/api/v1/customers/${positiveId(payload,'id')}/owner-changes` }
@@ -1025,6 +1061,10 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     contactImportRows(payload))
   if (action === 'importContacts') validateContactImportResult(data,
     contactImportRows(payload))
+  if (action === 'opportunityImportPreview') validateOpportunityImportPreview(data,
+    opportunityImportRows(payload))
+  if (action === 'importOpportunities') validateOpportunityImportResult(data,
+    opportunityImportRows(payload))
   if (action === 'postReceipt') {
     const request = payload as ErpOperations['postReceipt']['input']
     if (request.lines) validatePostedReceiptLots(data, request.receiptId, receiptLotBody({lines: request.lines}).lines)

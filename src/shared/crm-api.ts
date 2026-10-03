@@ -30,6 +30,18 @@ export interface CrmOpportunityInput {
 export interface CrmOpportunity extends CrmBase, Omit<CrmOpportunityInput,'stage'> {
   stage: CrmStage; owner_name: string; orders: { quote_id: number; sales_order_id: number; status: string }[]
 }
+export type OpportunityImportRow = Omit<CrmOpportunityInput, 'stage'>
+export interface OpportunityImportPreview {
+  rows: {
+    row: number; customer_id: number; customer_name: string; title: string
+    owner_id: number; owner_name: string; contact_name: string
+    existing_opportunity_ids: number[]; batch_rows: number[]; requires_confirmation: boolean
+  }[]
+  requires_confirmation: boolean
+}
+export interface OpportunityImportResult {
+  batch_reference: string; created: { id: number; customer_id: number; title: string; version: number }[]
+}
 export interface CrmActivityInput {
   customer_id: number; contact_id: number | null; opportunity_id: number | null; subject: string
   owner_id: number; due_date: string; note: string
@@ -74,6 +86,8 @@ export interface CrmOperations {
   crmOverview: {input: undefined; output: CrmOverview}
   contactImportPreview: {input: {rows: ContactImportRow[]}; output: ContactImportPreview}
   importContacts: {input: {rows: ContactImportRow[]; reason: string; allow_similar: boolean}; output: ContactImportResult}
+  opportunityImportPreview: {input: {rows: OpportunityImportRow[]}; output: OpportunityImportPreview}
+  importOpportunities: {input: {rows: OpportunityImportRow[]; reason: string; allow_similar: boolean}; output: OpportunityImportResult}
   customerOwnerChanges: {input: {id: number}; output: CustomerOwnerChange[]}
   assignCustomerOwner: {input: {id: number; owner_id: number; version: number; reason: string}; output: CrmOptions['customers'][number]}
   crmDetail: {input: {kind: CrmKind; id: number}; output: CrmRecord}
