@@ -361,11 +361,11 @@ def test_v52_upgrade_is_idempotent_and_preserves_old_business(erp,remove_equipme
         db.execute('PRAGMA user_version=52')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==62
+        assert db.execute('PRAGMA user_version').fetchone()[0]==63
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
-        assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'equipment.%'").fetchone()[0]==9
-    assert len(Base.metadata.tables)==143
+        assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'equipment.%'").fetchone()[0]==10
+    assert len(Base.metadata.tables)==146
 
 
 def test_v52_migration_failure_does_not_leave_partial_tables(erp,remove_equipment_schema,monkeypatch):
@@ -389,4 +389,143 @@ def test_v52_migration_failure_does_not_leave_partial_tables(erp,remove_equipmen
         assert db.execute('PRAGMA user_version').fetchone()[0]==52
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='equipment_assets'").fetchone()
         assert not db.execute("SELECT 1 FROM permissions WHERE code='equipment.view'").fetchone()
+    migrate()
+
+
+def meter_input(erp, hours, previous=None, **extra):
+    return {**dict(equipment_id=erp[4]['id'], hours=hours, reference=f'METER-{hours}',
+        reason='现场表计拍照登记', previous_reading_id=previous, correction=False), **extra}
+
+
+def hour_plan_input(erp, **extra):
+    return {**dict(equipment_id=erp[4]['id'], reference='PH-1', title='每十小时检查',
+        interval_hours='10.00', next_due_hours='110.00', enabled=True,
+        reason='建立按实际运行小时维护的规则'), **extra}
+
+
+def test_hour_plan_due_acceptance_and_audited_reversal(erp):
+    api = erp[1]
+    initial = api('POST', ROOT+'/meter-readings', meter_input(erp, '100.00'), status=201)
+    plan = api('POST', ROOT+'/hour-plans', hour_plan_input(erp), status=201)
+    assert not plan['due'] and plan['current_hours'] == '100.00'
+    row = api('POST', ROOT+'/jobs', job_input(erp, kind='preventive',
+        hour_plan_id=plan['id']), status=201)
+    assert row['plan_due_hours'] == '110.00' and row['plan_meter_reading_id'] == initial['id']
+    action(api, row, 'submit', status=409)
+    reading = api('POST', ROOT+'/meter-readings', meter_input(erp, '110.00', initial['id']), status=201)
+    assert api('GET', ROOT+f'/hour-plans/{plan["id"]}')['due']
+    row = action(api, row, 'submit')
+    row = action(api, row, 'approve', actor='reviewer')
+    row = action(api, row, 'start')
+    row = action(api, row, 'report', solution='达到保养小时后检查完毕', labor_hours='0.50', service_amount='0')
+    row = action(api, row, 'accept', actor='reviewer')
+    advanced = api('GET', ROOT+f'/hour-plans/{plan["id"]}')
+    assert advanced['next_due_hours'] == '120.00' and not advanced['due']
+    assert row['plan_roll']['reading_id'] == reading['id']
+    assert [change['action'] for change in advanced['changes']] == ['create', 'advance']
+    row = action(api, row, 'reverse')
+    assert row['plan_roll']['reversal_effect'] == 'restored_due'
+    restored = api('GET', ROOT+f'/hour-plans/{plan["id"]}')
+    assert restored['next_due_hours'] == '110.00' and restored['due']
+    assert [change['action'] for change in restored['changes']] == ['create', 'advance', 'restore_due']
+
+
+def test_meter_correction_and_stale_reading_are_auditable(erp):
+    api = erp[1]
+    first = api('POST', ROOT+'/meter-readings', meter_input(erp, '20'), status=201)
+    api('POST', ROOT+'/meter-readings', meter_input(erp, '19', first['id']), status=409)
+    api('POST', ROOT+'/meter-readings', meter_input(erp, '19', first['id'], correction=True),
+        actor='observer', status=403)
+    corrected = api('POST', ROOT+'/meter-readings', meter_input(erp, '19', first['id'],
+        correction=True), actor='planner', status=201)
+    assert corrected['correction'] and corrected['previous_reading_id'] == first['id']
+    api('POST', ROOT+'/meter-readings', meter_input(erp, '21', first['id']), status=409)
+    api('POST', ROOT+'/meter-readings', meter_input(erp, '21', corrected['id'],
+        reference=first['reference']), status=409)
+    readings = api('GET', ROOT+f'/meter-readings?equipment_id={erp[4]["id"]}')
+    assert [row['id'] for row in readings] == [corrected['id'], first['id']]
+    assert api('GET', ROOT+f'/assets/{erp[4]["id"]}')['meter_reading']['hours'] == '19.00'
+
+
+def test_hour_plan_requires_baseline_and_rechecks_source(erp):
+    api = erp[1]
+    api('POST', ROOT+'/hour-plans', hour_plan_input(erp), status=409)
+    first = api('POST', ROOT+'/meter-readings', meter_input(erp, '100'), status=201)
+    plan = api('POST', ROOT+'/hour-plans', hour_plan_input(erp), status=201)
+    api('POST', ROOT+'/plans', plan_input(erp, reference=plan['reference']), status=409)
+    row = api('POST', ROOT+'/jobs', job_input(erp, kind='preventive',
+        hour_plan_id=plan['id']), status=201)
+    api('POST', ROOT+'/jobs', job_input(erp, reference='M-2', kind='preventive',
+        hour_plan_id=plan['id']), status=409)
+    api('PUT', ROOT+f'/hour-plans/{plan["id"]}', {**hour_plan_input(erp),
+        'version':plan['version'], 'enabled':False}, status=409)
+    action(api, row, 'cancel')
+    plan = api('PUT', ROOT+f'/hour-plans/{plan["id"]}', {**hour_plan_input(erp),
+        'version':plan['version'], 'next_due_hours':'100.00'})
+    row = api('POST', ROOT+'/jobs', job_input(erp, reference='M-2', kind='preventive',
+        hour_plan_id=plan['id']), status=201)
+    row = action(api, row, 'submit')
+    lower = api('POST', ROOT+'/meter-readings', meter_input(erp, '90', first['id'],
+        correction=True), actor='planner', status=201)
+    action(api, row, 'approve', actor='reviewer', status=409)
+    api('POST', ROOT+'/meter-readings', meter_input(erp, '100', lower['id'],
+        reference='METER-100-复核'), status=201)
+    row = action(api, row, 'approve', actor='reviewer')
+    assert row['status'] == 'approved'
+
+
+def test_hour_inputs_reject_float_and_invalid_combinations(erp):
+    api = erp[1]
+    api('POST', ROOT+'/meter-readings', meter_input(erp, 1.5), status=422)
+    api('POST', ROOT+'/meter-readings', meter_input(erp, '-1'), status=422)
+    api('POST', ROOT+'/meter-readings', meter_input(erp, '1.001'), status=422)
+    api('POST', ROOT+'/hour-plans', hour_plan_input(erp, interval_hours=1.5), status=422)
+    api('POST', ROOT+'/jobs', job_input(erp, kind='preventive'), status=422)
+    api('POST', ROOT+'/jobs', job_input(erp, kind='preventive', plan_id=1,
+        hour_plan_id=1), status=422)
+
+
+def remove_hour_schema(db):
+    db.execute('DROP INDEX maintenance_hour_occurrence')
+    for column in ('plan_meter_reading_id', 'plan_due_hours', 'hour_plan_id'):
+        db.execute(f'ALTER TABLE maintenance_jobs DROP COLUMN {column}')
+    for table in ('maintenance_hour_plan_changes', 'maintenance_hour_plans', 'equipment_meter_readings'):
+        db.execute(f'DROP TABLE {table}')
+    db.execute("DELETE FROM role_permissions WHERE permission_code='equipment.meter'")
+    db.execute("DELETE FROM permissions WHERE code='equipment.meter'")
+    db.execute('PRAGMA user_version=62')
+
+
+def test_v62_hour_migration_preserves_calendar_business_and_is_idempotent(erp):
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        old_jobs = db.execute('SELECT id,status,plan_id FROM maintenance_jobs ORDER BY id').fetchall()
+        remove_hour_schema(db)
+    migrate(); migrate()
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 63
+        assert db.execute('SELECT id,status,plan_id FROM maintenance_jobs ORDER BY id').fetchall() == old_jobs
+        assert db.execute('PRAGMA foreign_key_check').fetchall() == []
+        assert db.execute("SELECT COUNT(*) FROM permissions WHERE code='equipment.meter'").fetchone()[0] == 1
+
+
+def test_v62_hour_migration_rolls_back_on_schema_failure(erp, monkeypatch):
+    from contextlib import contextmanager
+    from app.core import database
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        remove_hour_schema(db)
+    original = database.connection
+    @contextmanager
+    def fail_hour_plan():
+        with original() as db:
+            db.set_authorizer(lambda operation, name, *_: sqlite3.SQLITE_DENY
+                if operation == sqlite3.SQLITE_CREATE_TABLE and name == 'maintenance_hour_plans'
+                else sqlite3.SQLITE_OK)
+            yield db
+    with monkeypatch.context() as scoped:
+        scoped.setattr(database, 'connection', fail_hour_plan)
+        with pytest.raises(sqlite3.DatabaseError):
+            migrate()
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 62
+        assert db.execute("SELECT 1 FROM sqlite_master WHERE name='equipment_meter_readings'").fetchone() is None
     migrate()

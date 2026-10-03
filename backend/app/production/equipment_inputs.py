@@ -74,6 +74,7 @@ class JobInput(Input):
     equipment_id: int = Field(gt=0, strict=True)
     kind: Literal['preventive','corrective']
     plan_id: int | None = Field(default=None, gt=0, strict=True)
+    hour_plan_id: int | None = Field(default=None, gt=0, strict=True)
     work_order_id: int | None = Field(default=None, gt=0, strict=True)
     assigned_to: int = Field(gt=0, strict=True)
     request_note: str = Field(min_length=1, max_length=600)
@@ -82,8 +83,8 @@ class JobInput(Input):
 
     @model_validator(mode='after')
     def links(self):
-        if (self.kind == 'preventive') != (self.plan_id is not None):
-            raise ValueError('周期维护必须关联计划，故障维护不能关联周期计划')
+        if (self.kind == 'preventive') != ((self.plan_id is not None) != (self.hour_plan_id is not None)):
+            raise ValueError('周期维护须且只能关联一种计划，故障维护不能关联计划')
         if bool(self.parts) != (self.warehouse_id is not None):
             raise ValueError('耗材须指定仓库，无耗材不能指定仓库')
         if len({part.material_id for part in self.parts}) != len(self.parts):

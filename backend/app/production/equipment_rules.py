@@ -2,11 +2,12 @@
 
 import json
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.core.models import (EquipmentAsset, MaintenancePlan, MaintenanceJob, MaintenanceChange,
+from app.core.models import (EquipmentAsset, MaintenancePlan, MaintenanceHourPlan, MaintenanceJob, MaintenanceChange,
     MaintenanceDowntime, User, UserRole, RolePermission, Material, WorkOrder,
     WarehouseOutbound, WarehouseOutboundReversal)
 from app.core.orm import model_data
@@ -91,12 +92,20 @@ def validate_job(db, payload, user, identifier=None):
     if equipment.status != 'active':
         raise HTTPException(409, '设备须处于启用状态')
     plan = get(db, MaintenancePlan, payload.plan_id, '维护计划') if payload.plan_id else None
+    hour_plan = get(db, MaintenanceHourPlan, payload.hour_plan_id, '运行小时计划') if payload.hour_plan_id else None
     if plan and (not plan.enabled or plan.equipment_id != equipment.id):
         raise HTTPException(409, '维护计划须启用且属于所选设备')
     if plan and db.scalar(select(MaintenanceJob.id).where(MaintenanceJob.plan_id == plan.id,
             MaintenanceJob.plan_due_date == plan.next_due, MaintenanceJob.status.not_in(('cancelled','reversed')),
             MaintenanceJob.id != identifier if identifier is not None else MaintenanceJob.id > 0)):
         raise HTTPException(409, '本次计划到期已有关联工单，不能重复领取')
+    if hour_plan and (not hour_plan.enabled or hour_plan.equipment_id != equipment.id):
+        raise HTTPException(409, '运行小时计划须启用且属于所选设备')
+    if hour_plan and db.scalar(select(MaintenanceJob.id).where(MaintenanceJob.hour_plan_id == hour_plan.id,
+            MaintenanceJob.plan_due_hours == hour_plan.next_due_hours,
+            MaintenanceJob.status.not_in(('cancelled','reversed')),
+            MaintenanceJob.id != identifier if identifier is not None else MaintenanceJob.id > 0)):
+        raise HTTPException(409, '本次运行小时阈值已有关联工单，不能重复领取')
     if payload.assigned_to not in {actor.id for actor in executors(db)}:
         raise HTTPException(422, '执行人须为启用且有设备维护执行权限的账号')
     order = None
@@ -109,10 +118,10 @@ def validate_job(db, payload, user, identifier=None):
         require_warehouse(db, payload.warehouse_id)
     for part in payload.parts:
         get(db, Material, part.material_id, '耗材物料')
-    return equipment, plan, order
+    return equipment, plan, hour_plan, order
 
 
-def frozen_links(db, row, *, check_executor=True, check_work_order=True):
+def frozen_links(db, row, *, check_executor=True, check_work_order=True, check_meter_due=False):
     equipment = get(db, EquipmentAsset, row.equipment_id, '设备')
     if equipment.status != 'active':
         raise HTTPException(409, '设备已停用或报废')
@@ -120,6 +129,15 @@ def frozen_links(db, row, *, check_executor=True, check_work_order=True):
         plan = get(db, MaintenancePlan, row.plan_id, '维护计划')
         if not plan.enabled or plan.version != row.plan_version or plan.next_due != row.plan_due_date:
             raise HTTPException(409, '计划来源已变化，请取消旧工单后重新编制')
+    if row.hour_plan_id:
+        plan = get(db, MaintenanceHourPlan, row.hour_plan_id, '运行小时计划')
+        if not plan.enabled or plan.version != row.plan_version or plan.next_due_hours != row.plan_due_hours:
+            raise HTTPException(409, '运行小时计划来源已变化，请取消旧工单后重新编制')
+        if check_meter_due:
+            from app.production.equipment_hours import latest_reading
+            reading = latest_reading(db, row.equipment_id)
+            if reading is None or Decimal(reading.hours) < Decimal(row.plan_due_hours):
+                raise HTTPException(409, '设备当前运行小时尚未达到保养阈值')
     if check_work_order and row.work_order_id and get(db, WorkOrder, row.work_order_id, '生产工单').status == 'cancelled':
         raise HTTPException(409, '关联生产工单已取消，请取消维护工单后重新编制')
     if check_executor and row.assigned_to not in {actor.id for actor in executors(db)}:

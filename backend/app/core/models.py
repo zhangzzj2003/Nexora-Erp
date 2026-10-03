@@ -1660,6 +1660,43 @@ class MaintenancePlan(Base):
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
+class EquipmentMeterReading(Base):
+    __tablename__ = 'equipment_meter_readings'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    equipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment_assets.id'), nullable=False)
+    hours: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    previous_reading_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('equipment_meter_readings.id'))
+    correction: Mapped[int] = mapped_column(Integer, nullable=False)
+    recorded_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    recorded_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+class MaintenanceHourPlan(Base):
+    __tablename__ = 'maintenance_hour_plans'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    equipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment_assets.id'), nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    interval_hours: Mapped[str] = mapped_column(Text, nullable=False)
+    next_due_hours: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+class MaintenanceHourPlanChange(Base):
+    __tablename__ = 'maintenance_hour_plan_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_id: Mapped[int] = mapped_column(Integer, ForeignKey('maintenance_hour_plans.id'), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
 class MaintenanceJob(Base):
     __tablename__ = 'maintenance_jobs'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -1669,6 +1706,9 @@ class MaintenanceJob(Base):
     plan_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('maintenance_plans.id'))
     plan_version: Mapped[int | None] = mapped_column(Integer)
     plan_due_date: Mapped[str | None] = mapped_column(Text)
+    hour_plan_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('maintenance_hour_plans.id'))
+    plan_due_hours: Mapped[str | None] = mapped_column(Text)
+    plan_meter_reading_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('equipment_meter_readings.id'))
     work_order_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('work_orders.id'))
     assigned_to: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
     request_note: Mapped[str] = mapped_column(Text, nullable=False)

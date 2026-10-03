@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
 from app.access.security import require
-from app.core.models import (EquipmentAsset, MaintenancePlan, MaintenanceJob, MaintenanceDowntime,
+from app.core.models import (EquipmentAsset, EquipmentMeterReading, MaintenancePlan, MaintenanceHourPlan,
+    MaintenanceJob, MaintenanceDowntime,
     Material, Warehouse, WorkOrder, WarehouseOutbound, WarehouseOutboundLine)
 from app.core.orm import orm_session, add_model, model_data
 from app.production.equipment_inputs import (EquipmentInput, EquipmentEdit, PlanInput, PlanEdit,
@@ -16,12 +17,19 @@ from app.production.equipment_inputs import (EquipmentInput, EquipmentEdit, Plan
 from app.production.equipment_rules import (now, encoded, permission, get, version, unique, active_jobs,
     audit, independent, executors, validate_job, frozen_links, parts_status, parts_ready,
     changes, downtime_data, job_data, RUNNING)
+from app.production.equipment_hours import (latest_reading, reading_data, hour_plan_data,
+                                            hours_text, audit_hour_plan)
 
 router = APIRouter(prefix='/api/v1/equipment')
 
 
 def equipment_data(db, row, user, detail=False):
     result = model_data(row)
+    meter = latest_reading(db, row.id)
+    result['meter_reading'] = reading_data(db, meter) if meter else None
+    result['meter_readings'] = [reading_data(db, item) for item in db.scalars(
+        select(EquipmentMeterReading).where(EquipmentMeterReading.equipment_id == row.id)
+        .order_by(EquipmentMeterReading.id.desc()))] if detail else []
     result['serial_number'] = row.serial_number or ''
     result['running_job_ids'] = list(db.scalars(select(MaintenanceJob.id).where(
         MaintenanceJob.equipment_id == row.id, MaintenanceJob.status.in_(RUNNING))))
@@ -46,6 +54,8 @@ def overview(user: dict = Depends(require('equipment.view'))):
         return {'as_of': now(), 'equipment': [equipment_data(db, row, user) for row in db.scalars(
                 select(EquipmentAsset).order_by(EquipmentAsset.id))],
             'plans': [plan_data(db, row, user) for row in db.scalars(select(MaintenancePlan).order_by(MaintenancePlan.id))],
+            'hour_plans': [hour_plan_data(db, row, user) for row in db.scalars(
+                select(MaintenanceHourPlan).order_by(MaintenanceHourPlan.id))],
             'jobs': [job_data(db, row, user, False) for row in db.scalars(select(MaintenanceJob).order_by(MaintenanceJob.id.desc()))],
             'executors': [{'id': actor.id, 'username': actor.username} for actor in executors(db)],
             'materials': [{'id': row.id, 'sku': row.sku, 'name': row.name, 'unit': row.unit}
@@ -71,7 +81,9 @@ def save_equipment(db, payload, user, row=None):
         if active_jobs(db, equipment_id=row.id) and (row.code != payload.code or row.serial_number != (payload.serial_number or None)):
             raise HTTPException(409, '设备有未结束维护工单，不能改绑设备编号或序列号')
         if payload.status != 'active' and (active_jobs(db, equipment_id=row.id) or db.scalar(
-                select(MaintenancePlan.id).where(MaintenancePlan.equipment_id == row.id, MaintenancePlan.enabled == 1))):
+                select(MaintenancePlan.id).where(MaintenancePlan.equipment_id == row.id, MaintenancePlan.enabled == 1))
+                or db.scalar(select(MaintenanceHourPlan.id).where(
+                    MaintenanceHourPlan.equipment_id == row.id, MaintenanceHourPlan.enabled == 1))):
             raise HTTPException(409, '先结束维护工单并停用周期计划，再停用或报废设备')
     values = payload.model_dump(exclude={'reason','version'})
     values['serial_number'] = payload.serial_number or None
@@ -117,6 +129,8 @@ def save_plan(db, payload, user, row=None):
         if active_jobs(db, plan_id=row.id):
             raise HTTPException(409, '计划已有未结束工单，先取消或验收后再修订计划')
     unique(db, MaintenancePlan, 'reference', payload.reference, row.id if row else None)
+    if db.scalar(select(MaintenanceHourPlan.id).where(MaintenanceHourPlan.reference == payload.reference).limit(1)):
+        raise HTTPException(409, '计划编号已用于运行小时计划')
     values = payload.model_dump(exclude={'reason','version'})
     values['enabled'] = int(payload.enabled)
     before = model_data(row) if row else None
@@ -157,11 +171,15 @@ def save_job(db, payload, user, row=None):
             raise HTTPException(409, '只能修订草稿或驳回的维护工单')
         if row.work_order_id is not None:
             permission(user, 'production.view')
-    equipment, plan, order = validate_job(db, payload, user, row.id if row else None)
+    equipment, plan, hour_plan, order = validate_job(db, payload, user, row.id if row else None)
     unique(db, MaintenanceJob, 'reference', payload.reference, row.id if row else None)
     values = payload.model_dump(exclude={'reason','version','parts'})
+    meter = latest_reading(db, equipment.id) if hour_plan else None
     values.update(parts_json=encoded([{'material_id': part.material_id, 'quantity': str(part.quantity)} for part in payload.parts]),
-        plan_version=plan.version if plan else None, plan_due_date=plan.next_due if plan else None,
+        plan_version=(plan or hour_plan).version if (plan or hour_plan) else None,
+        plan_due_date=plan.next_due if plan else None,
+        plan_due_hours=hour_plan.next_due_hours if hour_plan else None,
+        plan_meter_reading_id=meter.id if meter else None,
         equipment_json=encoded(model_data(equipment)), work_order_json=encoded(model_data(order)) if order else '{}')
     before = model_data(row) if row else None
     if row is None:
@@ -224,7 +242,8 @@ def change_job(identifier: int, action: JobAction, payload: ActionInput,
         if action in ('submit','approve','start','report','accept'):
             # 已实际报工的证据不因执行人后续停用而失效；生产关联只说明影响，不代替维护实物记录。
             frozen_links(db, row, check_executor=action != 'accept',
-                check_work_order=action in ('submit','approve','start'))
+                check_work_order=action in ('submit','approve','start'),
+                check_meter_due=action in ('submit','approve','start'))
         if action == 'submit':
             if row.plan_due_date and row.plan_due_date > now()[:10]:
                 raise HTTPException(409, '周期计划尚未到期，不能提前提交')
@@ -270,6 +289,18 @@ def change_job(identifier: int, action: JobAction, payload: ActionInput,
                 plan.version += 1
                 audit(db, 'plan', plan, 'advance', previous, user, payload.reason, payload.evidence)
                 row.plan_roll_json = encoded({'before': previous, 'after': model_data(plan), 'reversal_effect': None})
+            elif row.hour_plan_id:
+                plan = get(db, MaintenanceHourPlan, row.hour_plan_id, '运行小时计划')
+                reading = latest_reading(db, row.equipment_id)
+                if reading is None:
+                    raise HTTPException(409, '设备缺少运行小时读数，不能推进保养计划')
+                previous = model_data(plan)
+                plan.next_due_hours = hours_text(max(Decimal(plan.next_due_hours), Decimal(reading.hours))
+                    + Decimal(plan.interval_hours))
+                plan.version += 1
+                audit_hour_plan(db, plan, 'advance', previous, user, payload.reason, payload.evidence)
+                row.plan_roll_json = encoded({'before': previous, 'after': model_data(plan),
+                                              'reading_id': reading.id, 'reversal_effect': None})
         elif action == 'cancel':
             if parts_status(db, row) == 'draft':
                 raise HTTPException(409, '先取消关联耗材出库草稿，再取消维护工单')
@@ -280,14 +311,23 @@ def change_job(identifier: int, action: JobAction, payload: ActionInput,
             row.status = 'reversed'
             roll = json.loads(row.plan_roll_json)
             if roll:
-                plan = get(db, MaintenancePlan, row.plan_id, '维护计划')
-                later = db.scalar(select(MaintenanceJob.id).where(MaintenanceJob.plan_id == plan.id,
-                    MaintenanceJob.id > row.id, MaintenanceJob.status.not_in(('cancelled','reversed'))))
+                plan = (get(db, MaintenanceHourPlan, row.hour_plan_id, '运行小时计划') if row.hour_plan_id
+                        else get(db, MaintenancePlan, row.plan_id, '维护计划'))
+                later = db.scalar(select(MaintenanceJob.id).where(
+                    (MaintenanceJob.hour_plan_id == plan.id if row.hour_plan_id
+                     else MaintenanceJob.plan_id == plan.id), MaintenanceJob.id > row.id,
+                    MaintenanceJob.status.not_in(('cancelled','reversed'))))
                 if not later and model_data(plan) == roll['after']:
                     previous = model_data(plan)
-                    plan.next_due = roll['before']['next_due']
+                    if row.hour_plan_id:
+                        plan.next_due_hours = roll['before']['next_due_hours']
+                    else:
+                        plan.next_due = roll['before']['next_due']
                     plan.version += 1
-                    audit(db, 'plan', plan, 'restore_due', previous, user, payload.reason, payload.evidence)
+                    if row.hour_plan_id:
+                        audit_hour_plan(db, plan, 'restore_due', previous, user, payload.reason, payload.evidence)
+                    else:
+                        audit(db, 'plan', plan, 'restore_due', previous, user, payload.reason, payload.evidence)
                     roll['reversal_effect'] = 'restored_due'
                 else:
                     roll['reversal_effect'] = 'retained_newer_schedule'

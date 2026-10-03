@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed} from 'vue'
+import {computed,ref} from 'vue'
 import {storeToRefs} from 'pinia'
 import {NCheckbox,NDatePicker} from 'naive-ui'
 import type {EquipmentEntity} from '../../../../../shared/equipment-api'
@@ -11,14 +11,20 @@ import {datePickerString,dateOutsideRange,vDateField} from '../../../utils/date-
 const props=defineProps<{kind:EquipmentEntity}>(),emit=defineEmits<{saved:[];close:[]}>(),store=usePiniaAppStore()
 const {equipmentForms:forms,equipmentEdit:edit,equipmentOverview:overview,busy,error,connectionLost}=storeToRefs(store)
 const disabled=computed(()=>busy.value || connectionLost.value)
-const label=computed(()=>props.kind==='asset'?'设备档案':props.kind==='plan'?'周期计划':'维护工单')
-const equipment=computed(()=>[{label:'选择设备',value:0,disabled:true},...(overview.value?.equipment??[]).map(row=>({label:`${row.code} · ${row.name}`,value:row.id,disabled:row.status!=='active' && (props.kind==='job' || forms.value.plan.enabled)}))])
+const label=computed(()=>props.kind==='asset'?'设备档案':props.kind==='plan'?'日历计划':props.kind==='hour_plan'?'运行小时计划':'维护工单')
+const planMode=ref<'calendar'|'hours'>(forms.value.job.hour_plan_id?'hours':'calendar')
+const equipment=computed(()=>[{label:'选择设备',value:0,disabled:true},...(overview.value?.equipment??[]).map(row=>({label:`${row.code} · ${row.name}`,value:row.id,
+  disabled:row.status!=='active' && (props.kind==='job' || (props.kind==='hour_plan'?forms.value.hour_plan.enabled:forms.value.plan.enabled))}))])
 const plans=computed(()=>[{label:'选择周期计划',value:null,disabled:true},...(overview.value?.plans??[]).filter(row=>row.equipment_id===forms.value.job.equipment_id).map(row=>({label:`${row.reference} · ${row.title} · ${row.next_due}`,value:row.id,disabled:!row.enabled || (!edit.value && row.open_job_ids.length>0)}))])
+const hourPlans=computed(()=>[{label:'选择运行小时计划',value:null,disabled:true},...(overview.value?.hour_plans??[]).filter(row=>row.equipment_id===forms.value.job.equipment_id)
+  .map(row=>({label:`${row.reference} · ${row.title} · ${row.next_due_hours} 小时`,value:row.id,
+    disabled:!row.enabled || (!edit.value && row.open_job_ids.length>0)}))])
 const executors=computed(()=>[{label:'选择启用的执行人',value:0,disabled:true},...(overview.value?.executors??[]).map(row=>({label:row.username,value:row.id}))])
 const warehouses=computed(()=>[{label:'选择耗材仓库',value:null,disabled:true},...(overview.value?.warehouses??[]).map(row=>({label:row.name,value:row.id}))])
 const materials=computed(()=>[{label:'选择耗材',value:0,disabled:true},...(overview.value?.materials??[]).map(row=>({label:`${row.sku} · ${row.name} · ${row.unit}`,value:row.id}))])
 const orders=computed(()=>[{label:'不关联生产工单',value:null},...(overview.value?.work_orders??[]).map(row=>({label:`生产工单 #${row.id}`,value:row.id}))])
 async function save():Promise<void>{if(await store.saveEquipmentRecord(props.kind))emit('saved')}
+function clearPlans():void{forms.value.job.plan_id=null;forms.value.job.hour_plan_id=null}
 </script>
 <template>
   <section class="equipment-editor" :aria-label="`编制${label}`">
@@ -31,7 +37,7 @@ async function save():Promise<void>{if(await store.saveEquipmentRecord(props.kin
         <label>序列号（选填）<AppInput v-model.trim="forms.asset.serial_number" maxlength="80" :disabled="disabled" /></label>
         <label>设备位置<AppInput v-model.trim="forms.asset.location" maxlength="120" required :disabled="disabled" /></label>
         <label>设备状态<WorkspaceSelect v-model="forms.asset.status" :options="[{label:'启用',value:'active'},{label:'停用',value:'inactive'},{label:'报废',value:'retired'}]" :disabled="disabled" /></label>
-        <p class="equipment-wide">未结束工单阻止改绑编号和序列号。停用或报废前须结束工单、停用周期计划；报废不能重新启用。</p>
+        <p class="equipment-wide">未结束工单阻止改绑编号和序列号。停用或报废前须结束工单、停用所有保养计划；报废不能重新启用。</p>
         <label class="equipment-wide">档案建立或修订原因<AppInput v-model.trim="forms.asset.reason" maxlength="200" required :disabled="disabled" /></label>
       </div>
       <div v-else-if="kind==='plan'" class="form-grid">
@@ -44,12 +50,24 @@ async function save():Promise<void>{if(await store.saveEquipmentRecord(props.kin
         <p class="equipment-wide">按服务端 UTC 日期判断到期。验收后以验收日期加间隔天数推进；已有未结束工单时不能修订计划。</p>
         <label class="equipment-wide">计划建立或修订原因<AppInput v-model.trim="forms.plan.reason" maxlength="200" required :disabled="disabled" /></label>
       </div>
+      <div v-else-if="kind==='hour_plan'" class="form-grid">
+        <label>计划设备<WorkspaceSelect v-model="forms.hour_plan.equipment_id" :options="equipment" required :disabled="disabled" /></label>
+        <label>计划依据编号<AppInput v-model.trim="forms.hour_plan.reference" maxlength="100" required :disabled="disabled" /></label>
+        <label class="equipment-wide">保养内容<AppInput v-model.trim="forms.hour_plan.title" maxlength="120" required :disabled="disabled" /></label>
+        <label>间隔运行小时<AppInput v-model="forms.hour_plan.interval_hours" type="number" min="0.01" max="1000000" step="0.01" required :disabled="disabled" /></label>
+        <label>下次到期表计小时<AppInput v-model="forms.hour_plan.next_due_hours" type="number" min="0" max="1000000000" step="0.01" required :disabled="disabled" /></label>
+        <NCheckbox v-model:checked="forms.hour_plan.enabled" :disabled="disabled">启用运行小时计划</NCheckbox>
+        <p class="equipment-wide">先登记设备表计基线。最新读数达到阈值才可提交保养工单；验收后按当前读数与原阈值的较大者加间隔推进。</p>
+        <label class="equipment-wide">计划建立或修订原因<AppInput v-model.trim="forms.hour_plan.reason" maxlength="200" required :disabled="disabled" /></label>
+      </div>
       <template v-else>
         <div class="form-grid">
-          <label>维护设备<WorkspaceSelect v-model="forms.job.equipment_id" :options="equipment" required :disabled="disabled" @change="forms.job.plan_id=null" /></label>
+          <label>维护设备<WorkspaceSelect v-model="forms.job.equipment_id" :options="equipment" required :disabled="disabled" @change="clearPlans" /></label>
           <label>维护依据编号<AppInput v-model.trim="forms.job.reference" maxlength="100" required :disabled="disabled" /></label>
-          <label>维护方式<WorkspaceSelect v-model="forms.job.kind" :options="[{label:'故障维修',value:'corrective'},{label:'周期保养',value:'preventive'}]" :disabled="disabled" @change="forms.job.plan_id=null" /></label>
-          <label v-if="forms.job.kind==='preventive'">周期计划<WorkspaceSelect v-model="forms.job.plan_id" :options="plans" required :disabled="disabled" /></label>
+          <label>维护方式<WorkspaceSelect v-model="forms.job.kind" :options="[{label:'故障维修',value:'corrective'},{label:'周期保养',value:'preventive'}]" :disabled="disabled" @change="clearPlans" /></label>
+          <label v-if="forms.job.kind==='preventive'">触发依据<WorkspaceSelect v-model="planMode" :options="[{label:'日历到期',value:'calendar'},{label:'运行小时到期',value:'hours'}]" :disabled="disabled" @change="clearPlans" /></label>
+          <label v-if="forms.job.kind==='preventive' && planMode==='calendar'">日历计划<WorkspaceSelect v-model="forms.job.plan_id" :options="plans" required :disabled="disabled" /></label>
+          <label v-if="forms.job.kind==='preventive' && planMode==='hours'">运行小时计划<WorkspaceSelect v-model="forms.job.hour_plan_id" :options="hourPlans" required :disabled="disabled" /></label>
           <label>指定执行人<WorkspaceSelect v-model="forms.job.assigned_to" :options="executors" required :disabled="disabled" /></label>
           <label v-if="store.can('production.view')">关联生产工单（选填）<WorkspaceSelect v-model="forms.job.work_order_id" :options="orders" :disabled="disabled" /></label>
           <label class="equipment-wide">维护要求或故障记录<AppInput v-model.trim="forms.job.request_note" maxlength="600" required :disabled="disabled" /></label>

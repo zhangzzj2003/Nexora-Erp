@@ -109,7 +109,7 @@ def test_legacy_evidence_reclassification_is_audited_and_keeps_stock(monkeypatch
             (legacy_id, '5.000'), (result['verified_lot_id'], '0.000')}
 
 
-def test_v56_upgrade_preserves_openings_and_adds_permission_once(monkeypatch, tmp_path):
+def test_v56_upgrade_preserves_openings_and_adds_permission_once(monkeypatch, tmp_path, remove_equipment_hour_schema):
     monkeypatch.setenv('NEXORA_DB_PATH', str(tmp_path / 'v56-reclass.db'))
     migrate()
     with orm_session(write=True) as db:
@@ -119,6 +119,7 @@ def test_v56_upgrade_preserves_openings_and_adds_permission_once(monkeypatch, tm
                                   checkpoint_movement_id=0, evidence='旧库存未识别'))
     with connection() as db:
         before = db.execute('SELECT * FROM physical_lot_openings').fetchall()
+        remove_equipment_hour_schema(db)
         db.execute('DROP TABLE physical_lot_evidence_group_pairs')
         db.execute('DROP TABLE physical_lot_evidence_groups')
         db.execute('DROP TABLE physical_lot_evidence_pairs')
@@ -134,7 +135,7 @@ def test_v56_upgrade_preserves_openings_and_adds_permission_once(monkeypatch, tm
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 62
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 63
         assert db.execute('SELECT * FROM physical_lot_openings').fetchall() == before
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='physical_lot.reclassify'").fetchone()[0] == 2
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []

@@ -18,6 +18,8 @@ const names:Record<string,string>={code:'设备编号',name:'设备名称',seria
   reference:'依据编号',equipment_id:'设备',kind:'维护方式',plan_id:'周期计划',plan_version:'计划版本',plan_due_date:'本次到期日',
   work_order_id:'关联生产工单',assigned_to:'执行人',request_note:'维护要求',warehouse_id:'耗材仓库',parts_outbound_id:'耗材出库单',
   solution:'处理结果',labor_hours:'实际工时',service_amount:'声明外委费用（元）',interval_days:'间隔天数',next_due:'下次到期日',
+  hour_plan_id:'运行小时计划',interval_hours:'间隔运行小时',next_due_hours:'下次到期表计小时',plan_due_hours:'本次小时阈值',
+  plan_meter_reading_id:'建单表计证据',
   enabled:'计划启停',version:'版本',equipment_json:'设备快照',parts_json:'耗材明细'}
 function value(key:string,entry:unknown):string{
   if(entry===null || entry===undefined || entry==='')return '未登记'

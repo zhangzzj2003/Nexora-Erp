@@ -154,10 +154,11 @@ def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
         (3,1,'客户正式移交'),(1,3,'分配销售负责人'),(None,1,'建立客户')]
 
 
-def test_v60_owner_upgrade_keeps_existing_customers_unassigned(seeded):
+def test_v60_owner_upgrade_keeps_existing_customers_unassigned(seeded, remove_equipment_hour_schema):
     client,admin,_,seller,_,customer,other,_ = seeded
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
         names=db.execute('SELECT id,name FROM customers ORDER BY id').fetchall()
+        remove_equipment_hour_schema(db)
         db.execute('DROP TABLE customer_owner_changes')
         db.execute('DROP INDEX customer_owner_lookup')
         db.execute('ALTER TABLE customers DROP COLUMN owner_id')
@@ -168,7 +169,7 @@ def test_v60_owner_upgrade_keeps_existing_customers_unassigned(seeded):
         db.execute('PRAGMA user_version=60')
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 62
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 63
         assert db.execute('SELECT id,name FROM customers ORDER BY id').fetchall() == names
         assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == 2
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
@@ -432,13 +433,13 @@ def test_v49_upgrade_is_idempotent_preserves_business_and_models(seeded,remove_c
         db.execute('PRAGMA user_version=49')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 62
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 63
         assert db.execute('SELECT id,name,created_at FROM customers ORDER BY id').fetchall() == before
         assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == len(before)
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE role_code='seller' AND permission_code='crm.view'").fetchone()[0] == 1
         assert not db.execute("SELECT 1 FROM role_permissions WHERE role_code='seller' AND permission_code='crm_quote.review'").fetchone()
-        assert len(Base.metadata.tables) == 143
+        assert len(Base.metadata.tables) == 146
 
 
 def test_crm_upgrade_failure_rolls_back_schema_and_permissions(seeded,remove_crm_schema,monkeypatch):

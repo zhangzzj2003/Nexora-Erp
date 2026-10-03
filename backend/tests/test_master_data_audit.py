@@ -83,10 +83,11 @@ def test_audit_failure_rolls_back_master_data(client, resource, payload, changed
         assert len(list(db.scalars(select(model)))) == 1
 
 
-def test_v61_upgrade_preserves_master_data_without_inventing_history(client):
+def test_v61_upgrade_preserves_master_data_without_inventing_history(client, remove_equipment_hour_schema):
     supplier = client.post('/api/v1/suppliers', json={'name': '历史供应商'}).json()['id']
     warehouse = client.post('/api/v1/warehouses', json={'code': 'OLD', 'name': '历史仓'}).json()['id']
     with connection() as db:
+        remove_equipment_hour_schema(db)
         db.execute('DROP TABLE supplier_changes')
         db.execute('DROP TABLE warehouse_changes')
         db.execute('ALTER TABLE suppliers DROP COLUMN version')
@@ -95,7 +96,7 @@ def test_v61_upgrade_preserves_master_data_without_inventing_history(client):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 62
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 63
         assert db.execute('SELECT version FROM suppliers WHERE id=?', (supplier,)).fetchone()[0] == 1
         assert db.execute('SELECT version FROM warehouses WHERE id=?', (warehouse,)).fetchone()[0] == 1
         assert db.execute('SELECT COUNT(*) FROM supplier_changes').fetchone()[0] == 0

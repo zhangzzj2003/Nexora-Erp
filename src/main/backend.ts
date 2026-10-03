@@ -107,6 +107,19 @@ function positiveId(payload: unknown, key: string): number {
   return value
 }
 
+function equipmentHours(value: unknown, maximum: number, allowZero: boolean): string {
+  if (typeof value !== 'string' || !/^\d+(?:\.\d{1,2})?$/.test(value)
+    || Number(value) > maximum || (!allowZero && Number(value) <= 0)) {
+    throw new Error('运行小时须为范围内的精确十进制文本，最多两位小数')
+  }
+  return value
+}
+
+function equipmentEvidence(value: unknown, label: string, maximum=200): string {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > maximum)throw new Error(`${label}无效`)
+  return value.trim()
+}
+
 function masterDataEdit(payload: unknown, warehouse: boolean): Record<string, string | number> {
   const source = payload && typeof payload === 'object' && !Array.isArray(payload)
     ? payload as Record<string, unknown> : {}
@@ -212,14 +225,25 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'equipmentOverview': return {method:'GET',path:'/api/v1/equipment/overview'}
     case 'equipmentDetail': return {method:'GET',path:`/api/v1/equipment/assets/${positiveId(payload,'id')}`}
     case 'maintenancePlanDetail': return {method:'GET',path:`/api/v1/equipment/plans/${positiveId(payload,'id')}`}
+    case 'maintenanceHourPlanDetail': return {method:'GET',path:`/api/v1/equipment/hour-plans/${positiveId(payload,'id')}`}
     case 'maintenanceJobDetail': return {method:'GET',path:`/api/v1/equipment/jobs/${positiveId(payload,'id')}`}
+    case 'recordEquipmentMeter': {
+      const source=payload as Record<string,unknown>
+      if(!source || typeof source!=='object' || Array.isArray(source) || typeof source.correction!=='boolean')throw new Error('设备读数无效')
+      const previous=source.previous_reading_id==null?null:positiveId(source,'previous_reading_id')
+      return {method:'POST',path:'/api/v1/equipment/meter-readings',body:{equipment_id:positiveId(source,'equipment_id'),
+        hours:equipmentHours(source.hours,1_000_000_000,true),reference:equipmentEvidence(source.reference,'读数依据',100),
+        reason:equipmentEvidence(source.reason,'读数原因'),previous_reading_id:previous,correction:source.correction}}
+    }
     case 'saveEquipment':
     case 'saveMaintenancePlan':
+    case 'saveMaintenanceHourPlan':
     case 'saveMaintenanceJob': {
       if(!payload || typeof payload!=='object' || Array.isArray(payload))throw new Error('设备维护资料无效')
       const source=payload as Record<string,unknown>
       const fields=action==='saveEquipment'?['code','name','serial_number','location','status','reason']
         :action==='saveMaintenancePlan'?['reference','title','interval_days','next_due','enabled','reason']
+        :action==='saveMaintenanceHourPlan'?['reference','title','interval_hours','next_due_hours','enabled','reason']
         :['reference','kind','request_note','reason']
       const body:Record<string,unknown>=Object.fromEntries(fields.map(key=>[key,source[key]]))
       if(action==='saveEquipment' && !['active','inactive','retired'].includes(String(source.status)))throw new Error('设备状态无效')
@@ -228,10 +252,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
         if(typeof source.enabled!=='boolean')throw new Error('计划启停选择无效')
         body.interval_days=positiveId(source,'interval_days')
       }
+      if(action==='saveMaintenanceHourPlan'){
+        if(typeof source.enabled!=='boolean')throw new Error('计划启停选择无效')
+        body.interval_hours=equipmentHours(source.interval_hours,1_000_000,false)
+        body.next_due_hours=equipmentHours(source.next_due_hours,1_000_000_000,true)
+      }
       if(action==='saveMaintenanceJob'){
         if(!['preventive','corrective'].includes(String(source.kind)))throw new Error('维护方式无效')
         body.assigned_to=positiveId(source,'assigned_to')
-        for(const key of ['plan_id','work_order_id','warehouse_id'])body[key]=source[key]==null?null:positiveId(source,key)
+        for(const key of ['plan_id','hour_plan_id','work_order_id','warehouse_id'])body[key]=source[key]==null?null:positiveId(source,key)
+        if((source.kind==='preventive')!==(!!body.plan_id!==!!body.hour_plan_id))throw new Error('维护计划关联无效')
         if(!Array.isArray(source.parts) || source.parts.length>100)throw new Error('维护耗材明细无效')
         body.parts=source.parts.map(row=>{
           if(!row || typeof row!=='object' || typeof row.quantity!=='string')throw new Error('耗材数量须为精确字符串')
@@ -240,7 +270,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       }
       const edit=source.id!==undefined
       if(edit)body.version=positiveId(source,'version')
-      const kind=action==='saveEquipment'?'assets':action==='saveMaintenancePlan'?'plans':'jobs'
+      const kind=action==='saveEquipment'?'assets':action==='saveMaintenancePlan'?'plans':action==='saveMaintenanceHourPlan'?'hour-plans':'jobs'
       return {method:edit?'PUT':'POST',path:`/api/v1/equipment/${kind}${edit?'/'+positiveId(source,'id'):''}`,body}
     }
     case 'changeMaintenanceJob': {

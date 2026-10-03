@@ -78,17 +78,18 @@ def test_grouped_movement_evidence_is_atomic_and_reversible(monkeypatch, tmp_pat
                 '2.000', '-1.000', '-1.000']
 
 
-def test_group_mismatch_rolls_back_all_pairs_and_v59_upgrade(monkeypatch, tmp_path):
+def test_group_mismatch_rolls_back_all_pairs_and_v59_upgrade(monkeypatch, tmp_path, remove_equipment_hour_schema):
     monkeypatch.setenv('NEXORA_DB_PATH', str(tmp_path / 'evidence-group-upgrade.db'))
     migrate()
     with connection() as db:
+        remove_equipment_hour_schema(db)
         db.execute('DROP TABLE physical_lot_evidence_group_pairs')
         db.execute('DROP TABLE physical_lot_evidence_groups')
         db.execute('PRAGMA user_version = 59')
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 62
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 63
     with TestClient(app, client=('127.0.0.1', 12345)) as client:
         client.post('/api/v1/setup/admin', json={'username': 'admin', 'password': 'secure-pass-123'})
         token = client.post('/api/v1/auth/login', json={

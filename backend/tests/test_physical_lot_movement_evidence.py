@@ -129,7 +129,7 @@ def test_checkpoint_excludes_preupgrade_movement(monkeypatch, tmp_path):
         assert listing['rows'] == []
 
 
-def test_v57_without_opening_uses_conservative_checkpoint(monkeypatch, tmp_path):
+def test_v57_without_opening_uses_conservative_checkpoint(monkeypatch, tmp_path, remove_equipment_hour_schema):
     monkeypatch.setenv('NEXORA_DB_PATH', str(tmp_path / 'empty-opening-upgrade.db'))
     migrate()
     with orm_session(write=True) as db:
@@ -138,6 +138,7 @@ def test_v57_without_opening_uses_conservative_checkpoint(monkeypatch, tmp_path)
             quantity='1.000', source_type='legacy_test', source_id=1, source_line_id=1))
         old_id = old.id
     with connection() as db:
+        remove_equipment_hour_schema(db)
         db.execute('DROP TABLE physical_lot_evidence_group_pairs')
         db.execute('DROP TABLE physical_lot_evidence_groups')
         db.execute('DROP TABLE physical_lot_evidence_pairs')

@@ -2,7 +2,7 @@
 
 [简体中文](development.zh-CN.md) · [Project overview](../README.en.md)
 
-This guide covers setup, architecture, business boundaries, testing and building. Status reflects this equipment maintenance implementation on 2026-10-01, starting from main commit `c1d3929`. [Home statistics (Chinese)](home-statistics.md) use one ORM read snapshot and existing permissions for business net amounts, daily sources, effective documents and current pending work/stock. Database version 54 has 129 static ORM tables. [Equipment maintenance (Chinese)](equipment-maintenance.md) adds register/calendar plans, independent execution/acceptance, downtime and original material documents; declared service costs do not create payables or journals. Bilingual documentation does not mean the application supports an English UI.
+This guide covers setup, architecture, business boundaries, testing and building. Status reflects database version 63 and the equipment operating-hour maintenance addition. [Home statistics (Chinese)](home-statistics.md) use one ORM read snapshot and existing permissions for business net amounts, daily sources, effective documents and current pending work/stock. Database version 63 has 146 static ORM tables. [Equipment maintenance (Chinese)](equipment-maintenance.md) provides the register, calendar plans and manual-meter operating-hour plans, independent execution/acceptance, downtime and original material documents; declared service costs do not create payables or journals. Bilingual documentation does not mean the application supports an English UI.
 
 ## Environment and startup
 

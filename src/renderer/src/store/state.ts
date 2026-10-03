@@ -114,7 +114,8 @@ export function createAppState() {
   const equipmentEdit=ref<{kind:EquipmentEntity;id:number;version:number}|null>(null)
   const equipmentForms=ref<EquipmentForms>({asset:{code:'',name:'',serial_number:'',location:'',status:'active',reason:''},
     plan:{equipment_id:0,reference:'',title:'',interval_days:30,next_due:'',enabled:true,reason:''},
-    job:{reference:'',equipment_id:0,kind:'corrective',plan_id:null,work_order_id:null,assigned_to:0,request_note:'',warehouse_id:null,parts:[],reason:''}})
+    hour_plan:{equipment_id:0,reference:'',title:'',interval_hours:'100.00',next_due_hours:'',enabled:true,reason:''},
+    job:{reference:'',equipment_id:0,kind:'corrective',plan_id:null,hour_plan_id:null,work_order_id:null,assigned_to:0,request_note:'',warehouse_id:null,parts:[],reason:''}})
   const dashboardResult = ref<DashboardResult|null>(null)
   const dashboardPeriod = ref<DashboardPeriod>('7d')
   const dashboardLoading = ref(false), dashboardError = ref('')

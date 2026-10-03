@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 62:
+        if version > 63:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2114,3 +2114,43 @@ def migrate() -> None:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
             db.execute('CREATE INDEX IF NOT EXISTS warehouse_change_history ON warehouse_changes(warehouse_id,id)')
             db.execute('PRAGMA user_version = 62')
+
+        if version < 63:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE equipment_meter_readings (
+                id INTEGER PRIMARY KEY,
+                equipment_id INTEGER NOT NULL REFERENCES equipment_assets(id),
+                hours TEXT NOT NULL, reference TEXT NOT NULL, reason TEXT NOT NULL,
+                previous_reading_id INTEGER REFERENCES equipment_meter_readings(id),
+                correction INTEGER NOT NULL CHECK(correction IN (0,1)),
+                recorded_by INTEGER NOT NULL REFERENCES users(id),
+                recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(equipment_id,reference))''')
+            db.execute('CREATE INDEX equipment_meter_history ON equipment_meter_readings(equipment_id,id)')
+            db.execute('''CREATE TABLE maintenance_hour_plans (
+                id INTEGER PRIMARY KEY,
+                equipment_id INTEGER NOT NULL REFERENCES equipment_assets(id),
+                reference TEXT NOT NULL UNIQUE, title TEXT NOT NULL,
+                interval_hours TEXT NOT NULL, next_due_hours TEXT NOT NULL,
+                enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+                version INTEGER NOT NULL CHECK(version>0),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX maintenance_hour_plan_equipment ON maintenance_hour_plans(equipment_id,id)')
+            db.execute('''CREATE TABLE maintenance_hour_plan_changes (
+                id INTEGER PRIMARY KEY,
+                plan_id INTEGER NOT NULL REFERENCES maintenance_hour_plans(id),
+                action TEXT NOT NULL, before_json TEXT, after_json TEXT NOT NULL,
+                reason TEXT NOT NULL, evidence TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX maintenance_hour_plan_history ON maintenance_hour_plan_changes(plan_id,id)')
+            db.execute('ALTER TABLE maintenance_jobs ADD COLUMN hour_plan_id INTEGER REFERENCES maintenance_hour_plans(id)')
+            db.execute('ALTER TABLE maintenance_jobs ADD COLUMN plan_due_hours TEXT')
+            db.execute('ALTER TABLE maintenance_jobs ADD COLUMN plan_meter_reading_id INTEGER REFERENCES equipment_meter_readings(id)')
+            db.execute("CREATE UNIQUE INDEX maintenance_hour_occurrence ON maintenance_jobs(hour_plan_id,plan_due_hours) WHERE hour_plan_id IS NOT NULL AND status NOT IN ('cancelled','reversed')")
+            db.execute("INSERT INTO permissions(code,label,group_code) VALUES ('equipment.meter','登记设备运行小时','production.equipment')")
+            db.executemany('INSERT INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                           [(role,'equipment.meter') for role in ('admin','planner','warehouse')])
+            db.execute('PRAGMA user_version = 63')

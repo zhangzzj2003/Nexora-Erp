@@ -4,8 +4,27 @@ import pytest
 
 
 @pytest.fixture
-def remove_physical_lot_schema():
+def remove_equipment_hour_schema():
     def remove(db):
+        # 旧库升级夹具必须撤掉新版小时结构，才能真实重放第 63 版迁移。
+        db.execute('DROP INDEX IF EXISTS maintenance_hour_occurrence')
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if 'maintenance_jobs' in tables:
+            columns = {row[1] for row in db.execute('PRAGMA table_info(maintenance_jobs)')}
+            for field in ('plan_meter_reading_id', 'plan_due_hours', 'hour_plan_id'):
+                if field in columns:
+                    db.execute(f'ALTER TABLE maintenance_jobs DROP COLUMN {field}')
+        for table in ('maintenance_hour_plan_changes', 'maintenance_hour_plans', 'equipment_meter_readings'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='equipment.meter'")
+        db.execute("DELETE FROM permissions WHERE code='equipment.meter'")
+    return remove
+
+
+@pytest.fixture
+def remove_physical_lot_schema(remove_equipment_hour_schema):
+    def remove(db):
+        remove_equipment_hour_schema(db)
         db.execute('DROP TABLE IF EXISTS customer_owner_changes')
         db.execute('DROP INDEX IF EXISTS customer_owner_lookup')
         fields = {row[1] for row in db.execute('PRAGMA table_info(customers)')}
@@ -66,9 +85,10 @@ def remove_material_schema(remove_inventory_warning_schema):
 def remove_equipment_schema(remove_material_schema):
     def remove(db):
         remove_material_schema(db)
-        for table in ('maintenance_changes','maintenance_downtimes','maintenance_jobs','maintenance_plans','equipment_assets'):
+        for table in ('maintenance_changes','maintenance_downtimes','maintenance_jobs','maintenance_hour_plan_changes','maintenance_hour_plans',
+                      'equipment_meter_readings','maintenance_plans','equipment_assets'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
-        for action in ('view','manage','create','submit','review','execute','accept','cancel','reverse'):
+        for action in ('view','manage','create','submit','review','execute','accept','cancel','reverse','meter'):
             code = 'equipment.' + action
             db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
             db.execute('DELETE FROM permissions WHERE code=?', (code,))

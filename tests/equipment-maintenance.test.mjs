@@ -6,14 +6,19 @@ import {maintenanceActions,equipmentChanges,maintenanceEffect,downtimeLabel} fro
 import {validateEquipmentResult} from '../src/shared/equipment-validation.ts'
 import {callBackend} from '../src/main/backend.ts'
 import {canVisitRoute,routeByKey} from '../src/renderer/src/router/workspace-routes.ts'
-const permissions=['equipment.view','equipment.manage','equipment.create','equipment.execute','equipment.accept','equipment.review','equipment.submit','equipment.cancel','equipment.reverse']
-const input={reference:'M-1',equipment_id:1,kind:'corrective',plan_id:null,work_order_id:null,assigned_to:1,request_note:'检查轴承',warehouse_id:null,parts:[],reason:'现场记录'}
-const row={...input,id:1,version:3,status:'draft',plan_version:null,plan_due_date:null,equipment_snapshot:{code:'EQ-1',name:'一号设备'},
+const permissions=['equipment.view','equipment.manage','equipment.meter','equipment.create','equipment.execute','equipment.accept','equipment.review','equipment.submit','equipment.cancel','equipment.reverse']
+const input={reference:'M-1',equipment_id:1,kind:'corrective',plan_id:null,hour_plan_id:null,work_order_id:null,assigned_to:1,request_note:'检查轴承',warehouse_id:null,parts:[],reason:'现场记录'}
+const row={...input,id:1,version:3,status:'draft',plan_version:null,plan_due_date:null,plan_due_hours:null,plan_meter_reading_id:null,equipment_snapshot:{code:'EQ-1',name:'一号设备'},
   work_order_snapshot:{},work_order_linked:false,work_order_current_status:null,parts_outbound_id:null,parts_status:null,
   solution:'',labor_hours:null,service_amount:null,plan_roll:{},created_by:1,created_by_name:'admin',assigned_to_name:'admin',author_ids:[1],
   reviewed_by:null,reported_by:null,accepted_by:null,created_at:'2026-10-01 12:00:00',started_at:null,reported_at:null,accepted_at:null,
   allowed_actions:['submit','cancel'],can_edit:true,downtime:null,changes:[]}
-const overview={as_of:'2026-10-01 12:00:00',equipment:[],plans:[],jobs:[row],executors:[{id:1,username:'admin'}],materials:[],warehouses:[],work_orders:[]}
+const overview={as_of:'2026-10-01 12:00:00',equipment:[],plans:[],hour_plans:[],jobs:[row],executors:[{id:1,username:'admin'}],materials:[],warehouses:[],work_orders:[]}
+const meter={id:1,equipment_id:1,hours:'100.00',reference:'METER-1',reason:'现场表计',previous_reading_id:null,
+  correction:false,recorded_by:1,recorded_by_name:'admin',recorded_at:'2026-10-01 12:00:00'}
+const hourPlan={id:1,equipment_id:1,reference:'PH-1',title:'每十小时检查',interval_hours:'10.00',next_due_hours:'110.00',
+  enabled:true,reason:'',version:1,created_by:1,created_at:'2026-10-01 12:00:00',current_hours:'100.00',
+  current_reading_id:1,due:false,open_job_ids:[],changes:[]}
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}
 function fixture(t,callApi,perform=run=>run()){
   const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
@@ -53,6 +58,59 @@ test('拒绝金额伪零、错误阶段动作、缺失证据数组和错误响�
     assert.throws(()=>validateEquipmentResult('maintenanceJobDetail',bad),/响应格式/)
   }
   assert.throws(()=>validateEquipmentResult('equipmentOverview',{...overview,executors:[{id:1}]}),/响应格式/)
+})
+test('运行小时 IPC 固定路径、精确输入和响应边界',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous})
+  const calls=[]
+  globalThis.fetch=async(url,options)=>{
+    const path=new URL(url).pathname;calls.push([path,options.body?JSON.parse(options.body):null])
+    const result=path.endsWith('/meter-readings')?meter:path.includes('/hour-plans')?hourPlan:{token:'test',user:{id:1}}
+    return new Response(JSON.stringify(result),{status:200})
+  }
+  await callBackend('login',{});calls.length=0
+  validateEquipmentResult('recordEquipmentMeter',meter)
+  validateEquipmentResult('maintenanceHourPlanDetail',hourPlan)
+  assert.throws(()=>validateEquipmentResult('maintenanceHourPlanDetail',{...hourPlan,current_hours:100}),/响应格式/)
+  await callBackend('recordEquipmentMeter',{equipment_id:1,hours:'100.25',reference:'METER-2',reason:'现场表计',
+    previous_reading_id:1,correction:false,untrusted:'x'})
+  assert.deepEqual(calls[0],['/api/v1/equipment/meter-readings',{equipment_id:1,hours:'100.25',
+    reference:'METER-2',reason:'现场表计',previous_reading_id:1,correction:false}])
+  await callBackend('saveMaintenanceHourPlan',{equipment_id:1,reference:'PH-1',title:'检查',interval_hours:'10.00',
+    next_due_hours:'110.00',enabled:true,reason:'建立',id:1,version:2,untrusted:'x'})
+  assert.deepEqual(calls[1],['/api/v1/equipment/hour-plans/1',{equipment_id:1,reference:'PH-1',title:'检查',
+    interval_hours:'10.00',next_due_hours:'110.00',enabled:true,reason:'建立',version:2}])
+  await assert.rejects(callBackend('recordEquipmentMeter',{equipment_id:1,hours:100,correction:false}),/精确十进制/)
+  await assert.rejects(callBackend('recordEquipmentMeter',{equipment_id:1,hours:'-1',correction:false}),/精确十进制/)
+  await assert.rejects(callBackend('recordEquipmentMeter',{equipment_id:1,hours:'1.001',correction:false}),/精确十进制/)
+  await assert.rejects(callBackend('saveMaintenanceHourPlan',{equipment_id:1,enabled:true,interval_hours:'0',next_due_hours:'1'}),/精确十进制/)
+  await assert.rejects(callBackend('saveMaintenanceJob',{...input,kind:'preventive',plan_id:1,hour_plan_id:1}),/关联无效/)
+  assert.equal(calls.length,2)
+})
+
+test('表计登记遵守更正权限、旧会话失效并刷新当前读数',async t=>{
+  const calls=[]
+  const asset={id:1,code:'EQ-1',name:'一号设备',location:'车间',serial_number:'',status:'active',version:1,
+    running_job_ids:[],meter_reading:meter,meter_readings:[meter],changes:[],created_at:'2026-10-01 12:00:00'}
+  const {state,actions}=fixture(t,async(action,data)=>{
+    calls.push([action,data])
+    return action==='equipmentOverview'?overview:action==='equipmentDetail'?asset:meter
+  })
+  const input={equipment_id:1,hours:'101.00',reference:'METER-2',reason:'现场复核',previous_reading_id:1,correction:false}
+  assert.equal(await actions.recordEquipmentMeter(input),true)
+  assert.deepEqual(calls.map(([action])=>action),['recordEquipmentMeter','equipmentOverview','equipmentDetail'])
+  assert.equal(state.equipmentDetail.value.row.meter_reading.hours,'100.00')
+  state.user.value={id:1,permissions:['equipment.view','equipment.meter']}
+  assert.equal(await actions.recordEquipmentMeter({...input,correction:true}),false)
+  assert.equal(calls.length,3)
+
+  const pending=deferred()
+  globalThis.window.nexora.callApi=(action,data)=>{calls.push([action,data]);return pending.promise}
+  const old=actions.recordEquipmentMeter(input)
+  state.user.value={id:2,permissions}
+  pending.resolve(meter)
+  assert.equal(await old,false)
+  assert.equal(state.equipmentOverview.value,null)
+  assert.equal(state.equipmentDetail.value,null)
 })
 test('旧详情和断线迟到读取失效，同账号输入与版本保留，换号撤权清除',async t=>{
   const pending=deferred();const {state,actions}=fixture(t,(_action,data)=>data?.id===1?pending.promise:Promise.resolve({...row,id:2}))
