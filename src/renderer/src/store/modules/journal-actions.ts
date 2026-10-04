@@ -1,4 +1,4 @@
-import type { Journal, JournalAction } from '../../../../shared/erp-api'
+import type { Journal, JournalAction, JournalAttachment, JournalAttachmentList } from '../../../../shared/erp-api'
 import type { AppState } from '../state'
 import { watch } from 'vue'
 
@@ -64,5 +64,35 @@ export function createJournalActions(state: AppState, perform: (action: () => Pr
     if (!window.nexora) throw new Error('请在桌面应用中查看凭证记录。')
     return window.nexora.callApi('journalChanges', { id })
   }
-  return { editJournal, saveJournal, changeJournalStatus, reverseJournal, loadJournalChanges }
+  async function loadJournalAttachments(id: number): Promise<JournalAttachmentList> {
+    if (!window.nexora) throw new Error('请在桌面应用中查看凭证附件。')
+    const identity = owner()
+    const result = await window.nexora.callApi('journalAttachments', { id })
+    if (identity !== owner()) throw new Error('会话或权限已变化，请重新读取凭证附件。')
+    return result
+  }
+  async function uploadJournalAttachment(id: number, reason: string): Promise<JournalAttachment | null> {
+    if (!window.nexora) throw new Error('请在桌面应用中上传凭证附件。')
+    const identity = owner()
+    const result = await window.nexora.uploadJournalAttachment(id, reason)
+    if (identity !== owner()) throw new Error('会话或权限已变化，请重新读取凭证附件。')
+    return result
+  }
+  async function reverseJournalAttachment(journalId: number, attachmentId: number,
+      reason: string): Promise<JournalAttachment> {
+    if (!window.nexora) throw new Error('请在桌面应用中撤销凭证附件。')
+    const identity = owner()
+    const result = await window.nexora.callApi('reverseJournalAttachment', { journalId, attachmentId, reason })
+    if (identity !== owner()) throw new Error('会话或权限已变化，请重新读取凭证附件。')
+    return result
+  }
+  async function saveJournalAttachment(journalId: number, attachmentId: number): Promise<string | null> {
+    if (!window.nexora) throw new Error('请在桌面应用中导出凭证附件。')
+    const identity = owner()
+    const result = await window.nexora.saveJournalAttachment(journalId, attachmentId)
+    if (identity !== owner()) throw new Error('会话或权限已变化，请重新读取凭证附件。')
+    return result
+  }
+  return { editJournal, saveJournal, changeJournalStatus, reverseJournal, loadJournalChanges,
+    loadJournalAttachments, uploadJournalAttachment, reverseJournalAttachment, saveJournalAttachment }
 }

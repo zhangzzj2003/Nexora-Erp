@@ -1,6 +1,6 @@
 # 手工总账凭证初版规则
 
-已实现单公司、人民币手工凭证。这是本项目的内部操作规则，不自动套用法定科目或替代业务方会计政策。[正式期初余额](opening-balances.md)已独立提供；[业务来源凭证](business-journals.md)已提供草稿生成；[辅助核算](auxiliary-accounting.md)与[公司财务报表](financial-statements.md)已提供，附件仍待实现；[期间结账与重开](period-closing.md)已另行提供。
+已实现单公司、人民币手工凭证。这是本项目的内部操作规则，不自动套用法定科目或替代业务方会计政策。[正式期初余额](opening-balances.md)已独立提供；[业务来源凭证](business-journals.md)已提供草稿生成；[辅助核算](auxiliary-accounting.md)与[公司财务报表](financial-statements.md)已提供，[总账凭证附件](journal-attachments.md)已提供；[期间结账与重开](period-closing.md)已另行提供。
 
 ## 金额与期间
 

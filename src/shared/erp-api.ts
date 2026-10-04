@@ -150,6 +150,12 @@ export interface Journal {
   business_source?: { key: string; evidence: BusinessJournalEvidence; mapping: BusinessJournalMapping; policy_version: number } | null
   profit_transfer?: { period_id: number; evidence: ProfitTransferEvidence; policy: ProfitTransferPolicy } | null
 }
+export interface JournalAttachment {
+  id: number; journal_id: number; file_name: string; media_type: 'application/pdf' | 'image/png' | 'image/jpeg'
+  byte_count: number; sha256: string; reason: string; created_by: number; created_by_name: string; created_at: string
+  reversal: { id: number; reason: string; created_by: number; created_by_name: string; created_at: string } | null
+}
+export interface JournalAttachmentList { journal_id: number; can_modify: boolean; items: JournalAttachment[] }
 export interface ProfitTransferPolicy {
   version: number; start_date: string; target_account_id: number | null; cost_account_ids: number[]
   changed_by?: number; created_at?: string
@@ -1290,6 +1296,9 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   changeJournalStatus: { input: { id: number; action: JournalAction; version: number; reason: string }; output: Journal }
   reverseJournal: { input: { id: number; version: number; reference: string; journal_date: string; reason: string }; output: Journal }
   journalChanges: { input: { id: number }; output: JournalChange[] }
+  journalAttachments: { input: { id: number }; output: JournalAttachmentList }
+  addJournalAttachment: { input: { id: number; file_name: string; content_base64: string; reason: string }; output: JournalAttachment }
+  reverseJournalAttachment: { input: { journalId: number; attachmentId: number; reason: string }; output: JournalAttachment }
   createLedgerAccount: { input: LedgerAccountInput; output: LedgerAccount }
   updateLedgerAccount: { input: { id: number; version: number; name: string; is_active: boolean; reason: string }; output: LedgerAccount }
   ledgerAccountChanges: { input: { id: number }; output: FinanceMetadataChange<LedgerAccount>[] }

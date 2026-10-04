@@ -270,9 +270,10 @@ def remove_journal_schema(remove_closing_schema):
             db.execute('DELETE FROM permissions WHERE code=?',(code,))
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permission_groups'").fetchone():
             db.execute("DELETE FROM permission_groups WHERE code='finance.opening_balances'")
-        for table in ('journal_changes', 'journal_lines', 'journals'):
+        for table in ('journal_attachment_reversals', 'journal_attachments',
+                      'journal_changes', 'journal_lines', 'journals'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
-        for operation in ('view','create','submit','review','post','cancel','reverse'):
+        for operation in ('view','create','submit','review','post','cancel','reverse','attachment'):
             code = 'journal.' + operation
             db.execute('DELETE FROM role_permissions WHERE permission_code = ?', (code,))
             db.execute('DELETE FROM permissions WHERE code = ?', (code,))

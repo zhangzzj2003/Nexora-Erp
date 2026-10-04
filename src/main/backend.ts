@@ -21,7 +21,9 @@ import {validateCustomerImportPreview,validateCustomerImportResult} from '../sha
 import {validateContactImportPreview,validateContactImportResult} from '../shared/contact-import-validation.ts'
 import {validateOpportunityImportPreview,validateOpportunityImportResult} from '../shared/opportunity-import-validation.ts'
 import {validateCrmForecast} from '../shared/crm-forecast-validation.ts'
+import {validateJournalAttachmentResult} from '../shared/journal-attachment-validation.ts'
 import { request as httpsRequest } from 'node:https'
+import { createHash } from 'node:crypto'
 
 export interface BackendTarget {
   host: string
@@ -100,7 +102,11 @@ async function sendRequest(path: string, method: string, headers: Record<string,
       })
       incoming.on('end', () => resolve(new Response(incoming.statusCode === 204 ? null : Buffer.concat(chunks), {
         status: incoming.statusCode ?? 500,
-        headers: { 'content-type': String(incoming.headers['content-type'] ?? '') }
+        headers: {
+          'content-type': String(incoming.headers['content-type'] ?? ''),
+          'x-nexora-sha256': String(incoming.headers['x-nexora-sha256'] ?? ''),
+          'x-nexora-file-extension': String(incoming.headers['x-nexora-file-extension'] ?? '')
+        }
       })))
     })
     req.on('timeout', () => req.destroy(new Error('连接超时')))
@@ -155,6 +161,63 @@ export async function fetchCrmQuotePdf(value: unknown): Promise<{ id: number; by
     && (target === null ? selectedTarget === null : sameBackendIdentity(selectedTarget, target)) }
 }
 
+export async function fetchJournalAttachment(journalValue: unknown, attachmentValue: unknown): Promise<{
+  journalId: number; attachmentId: number; extension: string; bytes: Buffer; isCurrent: () => boolean
+}> {
+  const journalId = positiveId({ id: journalValue }, 'id')
+  const attachmentId = positiveId({ id: attachmentValue }, 'id')
+  if (!sessionToken) throw new Error('请先登录')
+  const token = sessionToken
+  const target = selectedTarget
+  let response: Response
+  try {
+    response = await sendRequest(`/api/v1/finance/journals/${journalId}/attachments/${attachmentId}`,
+      'GET', { Authorization: `Bearer ${token}` }, undefined, 30000, target, 5 * 1024 * 1024)
+  } catch (cause) {
+    if (cause instanceof Error && cause.message === '服务端返回的文件过大') throw cause
+    throw new Error('无法读取凭证附件，请检查网络、服务状态和证书。')
+  }
+  if (!response.ok) {
+    if (response.status === 401 && sessionToken === token) setSessionToken(null)
+    const data: unknown = await response.json().catch(() => undefined)
+    const detail = data && typeof data === 'object' && 'detail' in data ? data.detail : undefined
+    throw new Error(typeof detail === 'string' ? detail : `凭证附件请求失败（HTTP ${response.status}）`)
+  }
+  const digest = response.headers.get('x-nexora-sha256') ?? ''
+  const extension = response.headers.get('x-nexora-file-extension') ?? ''
+  if (!response.headers.get('content-type')?.toLowerCase().startsWith('application/octet-stream')
+    || !/^[a-f0-9]{64}$/.test(digest) || !['.pdf', '.png', '.jpg', '.jpeg'].includes(extension)) {
+    throw new Error('服务端返回的凭证附件元数据无效')
+  }
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('服务端未返回凭证附件')
+  const chunks: Buffer[] = []
+  let size = 0
+  for (;;) {
+    const { done, value: chunk } = await reader.read()
+    if (done) break
+    size += chunk.byteLength
+    if (size > 5 * 1024 * 1024) {
+      await reader.cancel()
+      throw new Error('凭证附件超过大小限制')
+    }
+    chunks.push(Buffer.from(chunk))
+  }
+  const bytes = Buffer.concat(chunks)
+  if (!bytes.length || createHash('sha256').update(bytes).digest('hex') !== digest) {
+    throw new Error('凭证附件内容校验失败')
+  }
+  const valid = extension === '.pdf' ? bytes.subarray(0, 5).equals(Buffer.from('%PDF-'))
+    && bytes.subarray(-1024).includes(Buffer.from('%%EOF'))
+    : extension === '.png' ? bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    : bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]))
+      && bytes.subarray(-2).equals(Buffer.from([255, 217]))
+  if (!valid) throw new Error('服务端返回的凭证附件格式无效')
+  return { journalId, attachmentId, extension, bytes,
+    isCurrent: () => sessionToken === token &&
+      (target === null ? selectedTarget === null : sameBackendIdentity(selectedTarget, target)) }
+}
+
 export async function getServerInfo(target?: BackendTarget): Promise<{ id: string; name: string; version: string; ready: boolean }> {
   const response = await sendRequest('/api/v1/server/info', 'GET', {}, undefined, 5000, target)
   if (!response.ok) throw new Error(`服务端身份检查失败（HTTP ${response.status}）`)
@@ -195,6 +258,27 @@ function bankCsvBody(payload: unknown): Record<string, unknown> {
     throw new Error('CSV 文件内容无效')
   }
   return { account_id, file_name, content_base64 }
+}
+
+function journalAttachmentBody(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('凭证附件参数无效')
+  const value = payload as Record<string, unknown>
+  const file_name = value.file_name
+  const reason = value.reason
+  const content_base64 = value.content_base64
+  if (typeof file_name !== 'string' || !file_name.trim() || file_name.length > 120
+    || /[<>:"\/\\|?*\x00-\x1f]/.test(file_name) || file_name.trim().endsWith('.')
+    || !/\.(?:pdf|png|jpe?g)$/i.test(file_name)) throw new Error('凭证附件文件名无效')
+  if (typeof reason !== 'string' || !reason.trim() || reason.length > 200
+    || /[\x00-\x1f]/.test(reason)) throw new Error('附件依据无效')
+  if (typeof content_base64 !== 'string' || !content_base64.length
+    || content_base64.length > 6_990_508 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content_base64)) {
+    throw new Error('凭证附件内容无效')
+  }
+  const bytes = Buffer.from(content_base64, 'base64')
+  if (!bytes.length || bytes.length > 5 * 1024 * 1024
+    || bytes.toString('base64') !== content_base64) throw new Error('凭证附件内容无效')
+  return { file_name: file_name.trim(), content_base64, reason: reason.trim() }
 }
 
 function bankBalanceDate(value: unknown): string {
@@ -1015,6 +1099,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'journalOptions': return { method: 'GET', path: '/api/v1/finance/journals/options' }
     case 'journalChanges': return { method: 'GET', path: `/api/v1/finance/journals/${positiveId(payload, 'id')}/changes` }
+    case 'journalAttachments': return { method: 'GET', path: `/api/v1/finance/journals/${positiveId(payload, 'id')}/attachments` }
+    case 'addJournalAttachment': return { method: 'POST', path: `/api/v1/finance/journals/${positiveId(payload, 'id')}/attachments`,
+      body: journalAttachmentBody(payload) }
+    case 'reverseJournalAttachment': {
+      const reason = bankText((payload as ErpOperations['reverseJournalAttachment']['input']).reason, '撤销原因', 200)
+      return { method: 'POST', path: `/api/v1/finance/journals/${positiveId(payload, 'journalId')}/attachments/${positiveId(payload, 'attachmentId')}/reverse`,
+        body: { reason } }
+    }
     case 'createJournal': return { method: 'POST', path: '/api/v1/finance/journals', body: payload }
     case 'updateJournal': {
       const id = positiveId(payload, 'id')
@@ -1261,7 +1353,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     response = await sendRequest(request.path, request.method, {
         ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...(publicAction ? {} : { Authorization: `Bearer ${activeToken}` })
-      }, request.body)
+      }, request.body, action === 'addJournalAttachment' ? 30000 : 10000)
   } catch {
     throw new Error('无法连接服务端，请检查网络、服务状态和证书。')
   }
@@ -1381,6 +1473,10 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   validatePhysicalLotResult(action,data)
   validateEquipmentResult(action,data)
   validateMaterialResult(action, data)
+  if (action === 'journalAttachments' || action === 'addJournalAttachment' || action === 'reverseJournalAttachment') {
+    validateJournalAttachmentResult(action, data,
+      positiveId(payload, action === 'reverseJournalAttachment' ? 'journalId' : 'id'))
+  }
   return data
 }
 

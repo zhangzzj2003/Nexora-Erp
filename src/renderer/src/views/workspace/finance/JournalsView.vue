@@ -18,6 +18,7 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { displayError } from '../../../utils/formatters'
 import JournalHistory from './JournalHistory.vue'
+import JournalAttachments from './JournalAttachments.vue'
 import BusinessJournalPanel from './BusinessJournalPanel.vue'
 import BusinessSourceEvidence from './BusinessSourceEvidence.vue'
 import ProfitTransferPanel from './ProfitTransferPanel.vue'
@@ -494,6 +495,7 @@ async function confirm(): Promise<void> {
         >
         <NCollapse v-if="detail.business_source"><AppCollapseItem name="business" :title="`生成时的业务来源与科目配置（版本 ${detail.business_source.policy_version}）`"><BusinessSourceEvidence :source="detail.business_source.evidence" :mapping="detail.business_source.mapping" /></AppCollapseItem></NCollapse>
         <NCollapse v-if="detail.profit_transfer"><AppCollapseItem name="profit" title="生成时的损益余额、凭证来源与结转范围"><ProfitTransferEvidence :evidence="detail.profit_transfer.evidence" :can-open-journal="can('journal.view')" @open-journal="id => { detailId = id }" /></AppCollapseItem></NCollapse>
+        <JournalAttachments :key="detail.id" :journal-id="detail.id" />
         <JournalHistory
           :key="`${detail.id}:${detail.version}`"
           :load="() => loadJournalChanges(detail!.id)"

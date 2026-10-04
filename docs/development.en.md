@@ -2,7 +2,7 @@
 
 [简体中文](development.zh-CN.md) · [Project overview](../README.en.md)
 
-This guide covers setup, architecture, business boundaries, testing and building. Status reflects database version 72 and auditable bank balance reconciliation with opening outstanding items. [Home statistics (Chinese)](home-statistics.md) use one ORM read snapshot and existing permissions for business net amounts, daily sources, effective documents and current pending work/stock. Database version 72 has 166 static ORM tables. [Equipment maintenance (Chinese)](equipment-maintenance.md) provides the register, calendar plans and manual-meter operating-hour plans, independent execution/acceptance, downtime and original material documents; declared service costs do not create payables or journals. Bilingual documentation does not mean the application supports an English UI.
+This guide covers setup, architecture, business boundaries, testing and building. Status reflects database version 73, auditable bank balance reconciliation with opening outstanding items, and journal attachments. [Home statistics (Chinese)](home-statistics.md) use one ORM read snapshot and existing permissions for business net amounts, daily sources, effective documents and current pending work/stock. Database version 73 has 168 static ORM tables. [Equipment maintenance (Chinese)](equipment-maintenance.md) provides the register, calendar plans and manual-meter operating-hour plans, independent execution/acceptance, downtime and original material documents; declared service costs do not create payables or journals. Bilingual documentation does not mean the application supports an English UI.
 
 ## Environment and startup
 
