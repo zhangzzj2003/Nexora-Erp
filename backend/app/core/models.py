@@ -1375,6 +1375,8 @@ class SalesOrderLine(Base):
     material_id: Mapped[int] = mapped_column(Integer, ForeignKey('materials.id'), nullable=False)
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
     unit_price: Mapped[str] = mapped_column(Text, nullable=False)
+    warranty_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    warranty_basis: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
 
 
 class Shipment(Base):

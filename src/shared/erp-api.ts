@@ -943,6 +943,8 @@ export interface ProductionCostReport {
 // 销售订单剩余量由已确认的出库单计算，草稿不会预先扣减。
 export interface SalesOrderLine extends ReceiptLine {
   unit_price: string
+  warranty_days: number | null
+  warranty_basis: string
   shipped_quantity: string
   returned_quantity: string
   net_delivered_quantity: string
@@ -1379,7 +1381,7 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   confirmPurchaseOrder: { input: { orderId: number }; output: PurchaseOrder }
   cancelPurchaseOrder: { input: { orderId: number }; output: PurchaseOrder }
   salesOrders: { input: undefined; output: SalesOrder[] }
-  createSalesOrder: { input: { customer_id: number; reference: string; lines: { material_id: number; quantity: string; unit_price: string }[] }; output: SalesOrder }
+  createSalesOrder: { input: { customer_id: number; reference: string; lines: { material_id: number; quantity: string; unit_price: string; warranty_days: number | null; warranty_basis: string }[] }; output: SalesOrder }
   confirmSalesOrder: { input: { orderId: number }; output: SalesOrder }
   cancelSalesOrder: { input: { orderId: number }; output: SalesOrder }
   shipments: { input: undefined; output: Shipment[] }

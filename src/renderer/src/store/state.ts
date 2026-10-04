@@ -450,7 +450,7 @@ export function createAppState() {
   const salesForm = ref({
     customer_id: 0,
     reference: '',
-    lines: [{ material_id: 0, quantity: '1', unit_price: '0' }]
+    lines: [{ material_id: 0, quantity: '1', unit_price: '0', warranty_days: null as number | null, warranty_basis: '' }]
   })
   const shipmentForm = ref({
     sales_order_id: 0,

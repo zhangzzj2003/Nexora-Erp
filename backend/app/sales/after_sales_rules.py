@@ -37,6 +37,7 @@ def source(db, line_id, *, writable=False):
         customer_id=customer.id, customer_name=customer.name, material_id=material.id,
         sku=material.sku, material_name=material.name, unit=material.unit,
         quantity=line.quantity, unit_price=order_line.unit_price, posted_at=shipment.posted_at,
+        warranty_days=order_line.warranty_days, warranty_basis=order_line.warranty_basis,
         shipment_reference=shipment.reference, valid=valid)
 
 

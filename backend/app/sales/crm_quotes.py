@@ -206,7 +206,7 @@ def convert(identifier: int, payload: QuoteConversion, user: dict = Depends(requ
         before = raw_data(db,'quote',record)
         opportunity_before = raw_data(db,'opportunity',opportunity)
         order = create_sales_order_in_session(db,SalesOrderInput(customer_id=record.customer_id,
-            reference=record.reference, lines=[PurchaseOrderLineInput(material_id=line['material_id'],
+            reference=record.reference, lines=[dict(material_id=line['material_id'],
                 quantity=line['quantity'], unit_price=line['unit_price']) for line in before['lines']]),user['id'])
         record.status = 'converted'
         record.sales_order_id = order['id']

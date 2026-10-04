@@ -142,6 +142,11 @@ def apply_input(db, row, payload):
         AfterSalesCase.id != (row.id or 0))):
         raise HTTPException(409, '售后依据编号已使用，请使用新编号并保留历史')
     original = source(db, payload.shipment_line_id, writable=True)
+    if original['warranty_days'] is not None:
+        if (payload.warranty_days, payload.warranty_basis) not in (
+            (None, ''), (original['warranty_days'], original['warranty_basis'])
+        ):
+            raise HTTPException(409, '售后保修条款与原销售订单不一致，请刷新来源证据')
     if payload.warehouse_id:
         require_warehouse(db, payload.warehouse_id)
     if payload.replacement_material_id:
@@ -160,6 +165,10 @@ def apply_input(db, row, payload):
     for key in ('shipment_line_id','reference','kind','complaint','solution','charge_mode',
         'customer_acceptance','warehouse_id','replacement_material_id','warranty_days','warranty_basis'):
         setattr(row, key, getattr(payload,key))
+    if original['warranty_days'] is not None:
+        # 合同条款来自原订单；旧客户端留空时也按服务端来源固定证据。
+        row.warranty_days = original['warranty_days']
+        row.warranty_basis = original['warranty_basis']
     for key in ('quantity','fee_amount','replacement_quantity','replacement_unit_price'):
         value = getattr(payload,key)
         setattr(row, key, str(value) if value is not None else None)

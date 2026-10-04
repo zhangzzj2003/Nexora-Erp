@@ -18,6 +18,12 @@ watch(()=>form.value.kind,(kind,previous)=>{
   if(kind==='repair' && previous!==kind)form.value.charge_mode=''
   if(kind==='exchange'){form.value.replacement_quantity??=form.value.quantity;form.value.replacement_unit_price??='';form.value.replacement_material_id??=original.value?.material_id??null}
 })
+watch(()=>form.value.shipment_line_id,(lineId,previous)=>{
+  if(edit.value || lineId===previous)return
+  const selected=overview.value?.sources.find(row=>row.shipment_line_id===lineId)
+  form.value.warranty_days=selected?.warranty_days??null
+  form.value.warranty_basis=selected?.warranty_basis??''
+})
 async function save():Promise<void>{if(await store.saveAfterSalesCase())emit('saved')}
 </script>
 <template>
@@ -33,8 +39,9 @@ async function save():Promise<void>{if(await store.saveAfterSalesCase())emit('sa
         <label>处理方式<WorkspaceSelect v-model="form.kind" :options="[{label:'退货',value:'return'},{label:'换货',value:'exchange'},{label:'维修',value:'repair'}]" :disabled="busy" /></label>
         <label v-if="form.kind!=='repair'">退回公司库存的仓库<WorkspaceSelect v-model="form.warehouse_id" :options="warehouses" required :disabled="busy" /></label>
         <label class="after-wide">客户诉求与故障<AppInput v-model.trim="form.complaint" maxlength="400" required :disabled="busy" /></label>
-        <label>约定保修天数（可留空）<AppInput v-model="warrantyDays" type="number" min="1" max="36500" step="1" :disabled="busy" /></label>
-        <label class="after-wide">保修合同或承诺依据<AppInput v-model.trim="form.warranty_basis" maxlength="400" :required="form.warranty_days!==null" :disabled="busy" /></label>
+        <label>约定保修天数（可留空）<AppInput v-model="warrantyDays" type="number" min="1" max="36500" step="1" :disabled="busy || original?.warranty_days != null" /></label>
+        <label class="after-wide">保修合同或承诺依据<AppInput v-model.trim="form.warranty_basis" maxlength="400" :required="form.warranty_days!==null" :disabled="busy || original?.warranty_days != null" /></label>
+        <p v-if="original?.warranty_days != null" class="after-wide">保修条款已从原销售订单带入并固定；如条款有误，须核对原合同及订单证据。</p>
         <p class="after-wide">保修期限从原出库的 UTC 日期起算，建单日期作为申请日；没有可靠条款时两项都留空，显示“未确认”。期限判断仅供独立审核参考，不自动决定责任或收费。</p>
         <label class="after-wide">办理方案<AppInput v-model.trim="form.solution" maxlength="400" required :disabled="busy" /></label>
         <template v-if="form.kind==='exchange'">

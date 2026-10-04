@@ -151,7 +151,7 @@ def test_probability_migration_preserves_old_opportunities_as_unrated(seeded, mo
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 78
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 79
         assert db.execute('SELECT probability_percent FROM crm_opportunities WHERE id = ?',
                           (opportunity['id'],)).fetchone()[0] is None
     assert client.get(C+'/forecast', headers=admin).json()['unrated_count'] == 1
@@ -231,6 +231,9 @@ def test_quote_pdf_labels_historical_copy_and_rejects_cancelled(seeded, monkeypa
     assert client.get(C+f'/quotes/{separate["id"]}/pdf', headers=admin).status_code == 409
     converted = action(client, seller, quote, 'convert', acceptance_reference='客户接受依据',
                        opportunity_version=opportunity['version'])
+    order=next(item for item in client.get('/api/v1/sales-orders',headers=seller).json()
+        if item['id']==converted['sales_order_id'])
+    assert all(line['warranty_days'] is None and line['warranty_basis']=='' for line in order['lines'])
     assert '已转销售订单' in pdf_text(client.get(C+f'/quotes/{converted["id"]}/pdf',
                                        headers=admin).content)[1]
 
@@ -586,7 +589,7 @@ def test_v60_owner_upgrade_keeps_existing_customers_unassigned(seeded, remove_eq
         db.execute('PRAGMA user_version=60')
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 78
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 79
         assert db.execute('SELECT id,name FROM customers ORDER BY id').fetchall() == names
         assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == 2
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
@@ -850,7 +853,7 @@ def test_v49_upgrade_is_idempotent_preserves_business_and_models(seeded,remove_c
         db.execute('PRAGMA user_version=49')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 78
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 79
         assert db.execute('SELECT id,name,created_at FROM customers ORDER BY id').fetchall() == before
         assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == len(before)
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []

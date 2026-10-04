@@ -10,6 +10,7 @@ export interface AfterSalesAttachmentList {case_id:number; can_modify:boolean; i
 export interface AfterSalesSource {
   shipment_line_id:number; shipment_id:number; sales_order_id:number; customer_id:number; customer_name:string
   material_id:number; sku:string; material_name:string; unit:string; quantity:string; unit_price:string
+  warranty_days:number|null; warranty_basis:string
   posted_at:string; shipment_reference:string; valid:boolean
   replacement?:{material_id:number;sku:string;material_name:string;unit:string;quantity:string;unit_price:string}
 }

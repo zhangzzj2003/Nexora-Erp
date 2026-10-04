@@ -63,13 +63,15 @@ export function createSalesActions(
         lines: salesForm.value.lines.map((line) => ({
           material_id: line.material_id,
           quantity: line.quantity,
-          unit_price: line.unit_price
+          unit_price: line.unit_price,
+          warranty_days: line.warranty_days,
+          warranty_basis: line.warranty_basis
         }))
       })
       salesForm.value = {
         customer_id: 0,
         reference: '',
-        lines: [{ material_id: 0, quantity: '1', unit_price: '0' }]
+        lines: [{ material_id: 0, quantity: '1', unit_price: '0', warranty_days: null, warranty_basis: '' }]
       }
     }, '销售订单草稿已创建。')
   }

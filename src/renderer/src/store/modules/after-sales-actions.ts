@@ -42,7 +42,8 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
     if(!can('after_sales.create') || !available() || state.busy.value)return false
     const original=state.afterSalesOverview.value?.sources.find(row=>row.shipment_line_id===lineId)
     if(!original || Number(original.remaining_quantity)<=0)return false
-    state.afterSalesEdit.value=null;state.afterSalesForm.value={...emptyAfterSalesForm(),shipment_line_id:lineId,quantity:original.remaining_quantity}
+    state.afterSalesEdit.value=null;state.afterSalesForm.value={...emptyAfterSalesForm(),shipment_line_id:lineId,quantity:original.remaining_quantity,
+      warranty_days:original.warranty_days??null,warranty_basis:original.warranty_basis??''}
     clearAfterSalesDetail();state.error.value='';return true
   }
   async function editAfterSalesCase(id:number):Promise<boolean>{

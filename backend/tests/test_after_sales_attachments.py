@@ -124,7 +124,7 @@ def test_v73_upgrade_preserves_cases_and_replays_safely(erp):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 78
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 79
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?', (case['id'],)).fetchone()[0] == 'draft'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.attachment'").fetchone()[0] == 3
     api('POST', path(case['id']), attachment(), status=201)

@@ -1359,7 +1359,25 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'confirmPurchaseOrder': return { method: 'POST', path: `/api/v1/purchase-orders/${positiveId(payload, 'orderId')}/confirm` }
     case 'cancelPurchaseOrder': return { method: 'POST', path: `/api/v1/purchase-orders/${positiveId(payload, 'orderId')}/cancel` }
     case 'salesOrders': return { method: 'GET', path: '/api/v1/sales-orders' }
-    case 'createSalesOrder': return { method: 'POST', path: '/api/v1/sales-orders', body: payload }
+    case 'createSalesOrder': {
+      const source=payload as ErpOperations['createSalesOrder']['input']
+      if(!source || typeof source.reference!=='string' || source.reference.length>100 ||
+        !Array.isArray(source.lines) || source.lines.length<1 || source.lines.length>100)
+        throw new Error('销售订单输入无效')
+      const lines=source.lines.map(line=>{
+        if(!line || typeof line.quantity!=='string' || typeof line.unit_price!=='string')
+          throw new Error('销售订单明细无效')
+        const days=line.warranty_days??null,basis=line.warranty_basis??''
+        if(days!==null && (typeof days!=='number' || !Number.isInteger(days) || days<1 || days>36500))
+          throw new Error('保修天数无效')
+        if(typeof basis!=='string' || basis.length>400 || (days===null)!==(basis.trim()===''))
+          throw new Error('保修依据无效')
+        return {material_id:positiveId(line,'material_id'),quantity:line.quantity,unit_price:line.unit_price,
+          warranty_days:days,warranty_basis:basis.trim()}
+      })
+      return {method:'POST',path:'/api/v1/sales-orders',body:{customer_id:positiveId(source,'customer_id'),
+        reference:source.reference,lines}}
+    }
     case 'confirmSalesOrder': return { method: 'POST', path: `/api/v1/sales-orders/${positiveId(payload, 'orderId')}/confirm` }
     case 'cancelSalesOrder': return { method: 'POST', path: `/api/v1/sales-orders/${positiveId(payload, 'orderId')}/cancel` }
     case 'shipments': return { method: 'GET', path: '/api/v1/shipments' }

@@ -153,3 +153,20 @@ test('保修条款随草稿修订保留并显示中文审计差异',async t=>{
   assert.match(lines.join('；'),/保修天数：30 → 60/)
   assert.match(lines.join('；'),/保修依据：旧合同 → 补充协议/)
 })
+
+test('从原出库建立售后草稿时带入订单保修条款',async t=>{
+  const {state,actions}=fixture(t,async()=>row)
+  state.afterSalesOverview.value={...overview,sources:[{
+    shipment_line_id:3,remaining_quantity:'2',warranty_days:365,warranty_basis:'销售合同 W-365'
+  }]}
+  assert.equal(actions.startAfterSalesCase(3),true)
+  assert.equal(state.afterSalesForm.value.warranty_days,365)
+  assert.equal(state.afterSalesForm.value.warranty_basis,'销售合同 W-365')
+  assert.equal(state.afterSalesForm.value.quantity,'2')
+  state.afterSalesOverview.value={...overview,sources:[{
+    shipment_line_id:4,remaining_quantity:'1',warranty_days:null,warranty_basis:''
+  }]}
+  assert.equal(actions.startAfterSalesCase(4),true)
+  assert.equal(state.afterSalesForm.value.warranty_days,null)
+  assert.equal(state.afterSalesForm.value.warranty_basis,'')
+})

@@ -124,6 +124,16 @@ const filteredRecords = computed(() =>
               max="1000000000"
               step="0.0001"
               required /></label
+          ><label
+            >约定保修天数（可留空）<AppInput
+              :model-value="line.warranty_days === null ? '' : String(line.warranty_days)"
+              type="number"
+              min="1"
+              max="36500"
+              step="1"
+              @update:model-value="line.warranty_days = $event === '' ? null : Number($event)" /></label
+          ><label
+            >合同或承诺依据<AppInput v-model.trim="line.warranty_basis" maxlength="400" :required="line.warranty_days !== null" /></label
           ><AppButton
             type="button"
             :disabled="salesForm.lines.length === 1"
@@ -140,7 +150,9 @@ const filteredRecords = computed(() =>
               salesForm.lines.push({
                 material_id: 0,
                 quantity: '1',
-                unit_price: '0'
+                unit_price: '0',
+                warranty_days: null,
+                warranty_basis: ''
               })
             "
             variant="secondary"
@@ -212,6 +224,7 @@ const filteredRecords = computed(() =>
             {{ line.material_name }} · 已出库 {{ line.shipped_quantity }}/{{ line.quantity }} · 已退
             {{ line.returned_quantity }} · 净交付 {{ line.net_delivered_quantity }}
             {{ line.unit }} · ¥{{ line.unit_price }}/{{ line.unit }}
+            <template v-if="line.warranty_days !== null"> · 保修 {{ line.warranty_days }} 天（{{ line.warranty_basis }}）</template>
           </span>
         </div>
       </template>

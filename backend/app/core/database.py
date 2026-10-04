@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 78:
+        if version > 79:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2505,3 +2505,13 @@ def migrate() -> None:
             if 'warranty_basis' not in columns:
                 db.execute("ALTER TABLE after_sales_cases ADD COLUMN warranty_basis TEXT NOT NULL DEFAULT ''")
             db.execute('PRAGMA user_version = 78')
+
+        if version < 79:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(sales_order_lines)')}
+            if columns and 'warranty_days' not in columns:
+                db.execute('ALTER TABLE sales_order_lines ADD COLUMN warranty_days INTEGER')
+            if columns and 'warranty_basis' not in columns:
+                db.execute("ALTER TABLE sales_order_lines ADD COLUMN warranty_basis TEXT NOT NULL DEFAULT ''")
+            db.execute('PRAGMA user_version = 79')

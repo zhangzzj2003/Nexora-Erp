@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.orm import orm_session, add_model
 from app.core.models import (
@@ -65,11 +65,27 @@ class CustomerOwnerInput(BaseModel):
         return value.strip()
 
 
+class SalesOrderLineInput(PurchaseOrderLineInput):
+    warranty_days: int | None = Field(default=None, ge=1, le=36500, strict=True)
+    warranty_basis: str = Field(default='', max_length=400)
+
+    @field_validator('warranty_basis')
+    @classmethod
+    def trim_warranty_basis(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode='after')
+    def complete_warranty_terms(self):
+        if (self.warranty_days is None) != (self.warranty_basis == ''):
+            raise ValueError('保修天数和合同依据须同时填写，未确认条款时两者均留空')
+        return self
+
+
 class SalesOrderInput(BaseModel):
     customer_id: int = Field(gt=0)
     reference: str = Field(default="", max_length=100)
     # 销售和采购遵守同一物料数量、单价精度，避免两端金额算法漂移。
-    lines: list[PurchaseOrderLineInput] = Field(min_length=1, max_length=100)
+    lines: list[SalesOrderLineInput] = Field(min_length=1, max_length=100)
 
 
 class ShipmentInput(BaseModel):
@@ -187,6 +203,8 @@ def sales_order_data(db: Session, order_id: int) -> dict:
             Material.unit,
             SalesOrderLine.quantity,
             SalesOrderLine.unit_price,
+            SalesOrderLine.warranty_days,
+            SalesOrderLine.warranty_basis,
         )
         .select_from(SalesOrderLine)
         .join(Material, (Material.id == SalesOrderLine.material_id))
@@ -465,6 +483,8 @@ def create_sales_order_in_session(db: Session, payload: SalesOrderInput, user_id
                 material_id=line.material_id,
                 quantity=str(line.quantity),
                 unit_price=str(line.unit_price),
+                warranty_days=line.warranty_days,
+                warranty_basis=line.warranty_basis,
             )
             for line in payload.lines
         ]

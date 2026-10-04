@@ -80,6 +80,87 @@ def approved(erp,data):
     return action(api,row,'approve',actor='reviewer')
 
 
+def test_order_warranty_terms_follow_shipment_into_case_and_cannot_be_overridden(erp):
+    _,api,_,_,material,_,old_order=erp
+    old_case=api('POST',ROOT,payload(erp,reference='W-LEGACY'),status=201)
+    assert old_case['warranty_status']=='unknown'
+    order=api('POST','sales-orders',{'customer_id':old_order['customer_id'],'lines':[
+        {'material_id':material,'quantity':'2','unit_price':'10',
+         'warranty_days':365,'warranty_basis':'  销售合同 W-365  '}]},status=201)
+    assert order['lines'][0]['warranty_days']==365
+    assert order['lines'][0]['warranty_basis']=='销售合同 W-365'
+    api('POST',f'sales-orders/{order["id"]}/confirm')
+    shipment=api('POST','shipments',{'sales_order_id':order['id'],'warehouse_id':1,
+        'lines':[{'material_id':material,'quantity':'2'}]},status=201)
+    shipment=api('POST',f'shipments/{shipment["id"]}/post')
+    source_id=shipment['lines'][0]['id']
+    original=next(item for item in api('GET','after-sales')['sources'] if item['shipment_line_id']==source_id)
+    assert (original['warranty_days'],original['warranty_basis'])==(365,'销售合同 W-365')
+    data=payload(erp,reference='W-AUTO',shipment_line_id=source_id,quantity='1')
+    api('POST',ROOT,{**data,'warranty_days':30,'warranty_basis':'擅自修改'},status=409)
+    row=api('POST',ROOT,data,status=201)
+    assert (row['warranty_days'],row['warranty_basis'])==(365,'销售合同 W-365')
+    assert row['frozen_source']['warranty_days']==365
+    assert row['warranty_status']=='within_period'
+    api('PUT',f'{ROOT}/{row["id"]}',{**data,'version':row['version'],
+        'warranty_days':30,'warranty_basis':'擅自修改'},status=409)
+    assert api('GET',f'{ROOT}/{row["id"]}')['version']==row['version']
+    edited=api('PUT',f'{ROOT}/{row["id"]}',{**data,'version':row['version'],'solution':'核对后办理'},actor='seller')
+    assert edited['warranty_days']==365
+    with orm_session() as db:
+        archived=next(item for item in archive_cases(db,'2099-12-31') if item['case']['id']==row['id'])
+    assert archived['case']['warranty_basis']=='销售合同 W-365'
+
+
+@pytest.mark.parametrize('terms',[
+    {'warranty_days':30}, {'warranty_basis':'合同'},
+    {'warranty_days':0,'warranty_basis':'合同'},
+    {'warranty_days':True,'warranty_basis':'合同'},
+    {'warranty_days':30,'warranty_basis':'  '},
+])
+def test_order_warranty_rejects_incomplete_or_invalid_terms(erp,terms):
+    _,api,_,_,material,_,old_order=erp
+    api('POST','sales-orders',{'customer_id':old_order['customer_id'],'lines':[
+        {'material_id':material,'quantity':'1','unit_price':'10',**terms}]},status=422)
+
+
+def test_v78_order_warranty_upgrade_is_atomic_and_keeps_old_orders_unknown(erp,monkeypatch):
+    import app.core.database as database
+    _,api,_,_,_,_,old_order=erp
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        db.execute('ALTER TABLE sales_order_lines DROP COLUMN warranty_days')
+        db.execute('ALTER TABLE sales_order_lines DROP COLUMN warranty_basis')
+        db.execute('PRAGMA user_version=78')
+    original=database.connection
+    @contextmanager
+    def failing():
+        with original() as db:
+            alters=0
+            def deny_second_alter(operation,*_):
+                nonlocal alters
+                if operation==sqlite3.SQLITE_ALTER_TABLE:
+                    alters+=1
+                    if alters==2:
+                        return sqlite3.SQLITE_DENY
+                return sqlite3.SQLITE_OK
+            db.set_authorizer(deny_second_alter)
+            yield db
+    monkeypatch.setattr(database,'connection',failing)
+    with pytest.raises(sqlite3.DatabaseError):
+        migrate()
+    monkeypatch.setattr(database,'connection',original)
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0]==78
+        assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(sales_order_lines)')}
+    migrate();migrate()
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0]==79
+        assert db.execute('SELECT warranty_days,warranty_basis FROM sales_order_lines WHERE sales_order_id=?',
+            (old_order['id'],)).fetchone()==(None,'')
+    old=next(item for item in api('GET','sales-orders') if item['id']==old_order['id'])
+    assert old['lines'][0]['warranty_days'] is None
+
+
 def test_warranty_period_uses_frozen_shipment_and_original_application_date(erp):
     _,api,_,_,_,_,_=erp
     unknown=api('POST',ROOT,payload(erp,reference='W-UNKNOWN'),status=201)
@@ -153,7 +234,7 @@ def test_v77_warranty_upgrade_keeps_old_cases_unknown_and_is_idempotent(erp,monk
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(after_sales_cases)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==78
+        assert db.execute('PRAGMA user_version').fetchone()[0]==79
         assert db.execute('SELECT warranty_days,warranty_basis FROM after_sales_cases WHERE id=?',
             (old['id'],)).fetchone()==(None,'')
     assert api('GET',f'{ROOT}/{old["id"]}')['warranty_status']=='unknown'
@@ -418,7 +499,7 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 78
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 79
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
     assert len(Base.metadata.tables)== 176
@@ -448,7 +529,7 @@ def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_
         assert not db.execute("SELECT 1 FROM permissions WHERE code='after_sales.labor'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 78
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 79
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?',(case['id'],)).fetchone()[0]=='approved'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.labor'").fetchone()[0]==2
 

@@ -117,6 +117,29 @@ test('客户新增失败保留草稿和弹窗，成功刷新共享名单且不�
   assert.deepEqual(salesForm.value, draft)
 })
 
+test('销售订单创建仅传递已校验的保修条款和订单字段', async t => {
+  const originalWindow=globalThis.window,originalFetch=globalThis.fetch
+  t.after(()=>{globalThis.window=originalWindow;globalThis.fetch=originalFetch})
+  const sent=[]
+  globalThis.fetch=async(url,options)=>{
+    if(new URL(url).pathname.endsWith('/login'))
+      return new Response(JSON.stringify({token:'test',user:{id:1}}),{status:200})
+    sent.push([new URL(url).pathname,JSON.parse(options.body)])
+    return new Response(JSON.stringify({id:1}),{status:200})
+  }
+  const line={material_id:8,quantity:'2',unit_price:'3',warranty_days:365,warranty_basis:' 合同 W-365 ',hidden:'不可发送'}
+  await callBackend('login',{})
+  await callBackend('createSalesOrder',{customer_id:2,reference:'SO-1',lines:[line],hidden:'不可发送'})
+  assert.deepEqual(sent[0],[
+    '/api/v1/sales-orders',{customer_id:2,reference:'SO-1',lines:[{
+      material_id:8,quantity:'2',unit_price:'3',warranty_days:365,warranty_basis:'合同 W-365'
+    }]}
+  ])
+  await assert.rejects(callBackend('createSalesOrder',{customer_id:2,reference:'SO-1',lines:[{...line,warranty_days:30.5}]}),/保修天数无效/)
+  await assert.rejects(callBackend('createSalesOrder',{customer_id:2,reference:'SO-1',lines:[{...line,warranty_days:null}]}),/保修依据无效/)
+  assert.equal(sent.length,1)
+})
+
 test('重复客户候选只经固定 IPC 路径查询并校验名称', async t => {
   const original = globalThis.fetch
   t.after(() => { globalThis.fetch = original })
