@@ -10,6 +10,7 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import AfterSalesEditor from './AfterSalesEditor.vue'
 import AfterSalesEvidenceView from './AfterSalesEvidence.vue'
+import AfterSalesAttachments from './AfterSalesAttachments.vue'
 import {afterSalesActions,afterSalesKind,afterSalesStatus,afterSalesCommand,afterSalesReversalHint} from './after-sales-display'
 const store=usePiniaAppStore()
 const {afterSalesOverview:overview,afterSalesDetail:detail,afterSalesLoading:loading,afterSalesError:failure,busy,user,connectionLost,error}=storeToRefs(store)
@@ -76,6 +77,7 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
         <template #empty>尚无售后记录。选择原出库编制申请，提交后独立审核。</template>
       </WorkspaceTable>
       <AfterSalesEvidenceView v-if="detail" :row="detail" />
+      <AfterSalesAttachments v-if="detail" :case-id="detail.id" />
       <div v-if="detail?.kind==='repair'&&['received','repaired'].includes(detail.status)&&store.can('after_sales.labor')" class="after-toolbar">
         <AppButton :disabled="disabled" @click="prepareLabor(null)">登记实际维修工时</AppButton>
         <AppButton v-for="entry in detail.labor.filter(item=>item.action==='record'&&!detail!.labor.some(reverse=>reverse.original_id===item.id))"

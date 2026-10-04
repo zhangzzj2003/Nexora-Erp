@@ -83,4 +83,4 @@ def test_v36_users_gain_empty_profiles_without_losing_accounts(monkeypatch, tmp_
         row = db.execute('SELECT * FROM users').fetchone()
         assert row['id'] == 7 and row['password_hash'] == 'retained-hash'
         assert (row['full_name'], row['employee_no'], row['phone']) == ('', '', '')
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 73
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 74

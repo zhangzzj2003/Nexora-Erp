@@ -1260,6 +1260,29 @@ class AfterSalesLabor(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
+class AfterSalesAttachment(Base):
+    __tablename__ = 'after_sales_attachments'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey('after_sales_cases.id'), nullable=False)
+    file_name: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)
+    byte_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class AfterSalesAttachmentReversal(Base):
+    __tablename__ = 'after_sales_attachment_reversals'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attachment_id: Mapped[int] = mapped_column(ForeignKey('after_sales_attachments.id'), unique=True, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class Customer(Base):
     __tablename__ = 'customers'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

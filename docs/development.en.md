@@ -2,7 +2,7 @@
 
 [简体中文](development.zh-CN.md) · [Project overview](../README.en.md)
 
-This guide covers setup, architecture, business boundaries, testing and building. Status reflects database version 73, auditable bank balance reconciliation with opening outstanding items, and journal attachments. [Home statistics (Chinese)](home-statistics.md) use one ORM read snapshot and existing permissions for business net amounts, daily sources, effective documents and current pending work/stock. Database version 73 has 168 static ORM tables. [Equipment maintenance (Chinese)](equipment-maintenance.md) provides the register, calendar plans and manual-meter operating-hour plans, independent execution/acceptance, downtime and original material documents; declared service costs do not create payables or journals. Bilingual documentation does not mean the application supports an English UI.
+This guide covers setup, architecture, business boundaries, testing and building. Status reflects database version 74, auditable bank balance reconciliation with opening outstanding items, journal attachments and after-sales case attachments. [Home statistics (Chinese)](home-statistics.md) use one ORM read snapshot and existing permissions for business net amounts, daily sources, effective documents and current pending work/stock. Database version 74 has 170 static ORM tables. [Equipment maintenance (Chinese)](equipment-maintenance.md) provides the register, calendar plans and manual-meter operating-hour plans, independent execution/acceptance, downtime and original material documents; declared service costs do not create payables or journals. Bilingual documentation does not mean the application supports an English UI.
 
 ## Environment and startup
 
@@ -263,6 +263,6 @@ Auxiliary accounting uses static ORM models for four dimensions, versioned rules
 
 ## After-sales
 
-[After-sales rules (Chinese)](after-sales.md) cover independently approved cases, return/exchange drafts, customer-owned repair custody, inspection, handover, explicit fees, auditable repair hours and additive corrections. Customer goods do not become company stock. Closing freezes period-end plans, custody and repair-hour evidence. Automatic warranty decisions, serial numbers, attachments, labor costs and partial handovers remain future work.
+[After-sales rules (Chinese)](after-sales.md) cover independently approved cases, return/exchange drafts, customer-owned repair custody, inspection, handover, explicit fees, auditable repair hours, case attachments and additive corrections. Customer goods do not become company stock. Closing freezes period-end plans, custody and repair-hour evidence. Automatic warranty decisions, serial numbers, labor costs and partial handovers remain future work.
 
 Presentation content is included in the initial HTML and remains visible without JavaScript. The website build generates only static HTML/CSS/JavaScript and removes previous embedded-app build artifacts. Content versions cover modules and styles. Font and window changes only realign local fields and links without blocking the interface behind a loading screen.

@@ -1,5 +1,5 @@
 import {watch} from 'vue'
-import type {AfterSalesAction,AfterSalesDraft,AfterSalesEvidence,AfterSalesInput} from '../../../../shared/after-sales-api'
+import type {AfterSalesAction,AfterSalesAttachment,AfterSalesAttachmentList,AfterSalesDraft,AfterSalesEvidence,AfterSalesInput} from '../../../../shared/after-sales-api'
 import type {AppState} from '../state'
 import {displayError} from '../../utils/formatters.ts'
 
@@ -85,7 +85,36 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
     if(saved && session===owner){state.afterSalesForm.value=emptyAfterSalesForm();state.afterSalesEdit.value=null}
     return saved
   }
+  async function loadAfterSalesAttachments(id:number):Promise<AfterSalesAttachmentList>{
+    if(!available() || !can('after_sales.view'))throw new Error('当前不能读取售后附件。')
+    const session=owner
+    const result=await window.nexora!.callApi('afterSalesAttachments',{id})
+    if(session!==owner || !can('after_sales.view'))throw new Error('会话或权限已变化，请重新读取售后附件。')
+    return result
+  }
+  async function uploadAfterSalesAttachment(id:number,reason:string):Promise<AfterSalesAttachment|null>{
+    if(!available() || !can('after_sales.attachment'))throw new Error('当前不能上传售后附件。')
+    const session=owner
+    const result=await window.nexora!.uploadAfterSalesAttachment(id,reason)
+    if(session!==owner || !can('after_sales.attachment'))throw new Error('会话或权限已变化，请重新读取售后附件。')
+    return result
+  }
+  async function reverseAfterSalesAttachment(caseId:number,attachmentId:number,reason:string):Promise<AfterSalesAttachment>{
+    if(!available() || !can('after_sales.attachment'))throw new Error('当前不能撤销售后附件。')
+    const session=owner
+    const result=await window.nexora!.callApi('reverseAfterSalesAttachment',{caseId,attachmentId,reason})
+    if(session!==owner || !can('after_sales.attachment'))throw new Error('会话或权限已变化，请重新读取售后附件。')
+    return result
+  }
+  async function saveAfterSalesAttachment(caseId:number,attachmentId:number):Promise<string|null>{
+    if(!available() || !can('after_sales.view'))throw new Error('当前不能导出售后附件。')
+    const session=owner
+    const result=await window.nexora!.saveAfterSalesAttachment(caseId,attachmentId)
+    if(session!==owner || !can('after_sales.view'))throw new Error('会话或权限已变化，请重新读取售后附件。')
+    return result
+  }
   return {loadAfterSales,loadAfterSalesDetail,clearAfterSalesDetail,startAfterSalesCase,editAfterSalesCase,saveAfterSalesCase,
+    loadAfterSalesAttachments,uploadAfterSalesAttachment,reverseAfterSalesAttachment,saveAfterSalesAttachment,
     recordAfterSalesLabor:(row:AfterSalesEvidence,hours:string,reason:string,evidence:string)=>write('after_sales.labor',
       ()=>window.nexora!.callApi('recordAfterSalesLabor',{id:row.id,version:row.version,hours,reason,evidence}),
       '维修实际工时已登记，原始证据保留；工时不自动形成成本或收费。'),

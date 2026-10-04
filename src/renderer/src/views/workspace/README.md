@@ -24,7 +24,7 @@
 | `sales/` | `CustomerRelationsView.vue` | 按客户维护联系人、跟进、商机，支持联系人及商机 CSV 导入与手工概率加权预测；固定报价独立审核后登记接受依据转销售草稿 |
 | `sales/` | `SalesShipmentsView.vue` | 处理销售出库 |
 | `sales/` | `SalesReturnsView.vue` | 处理销售退货，确认时核对原出库批次或登记退货新批次，展示来源证据与旧单差额 |
-| `sales/` | `AfterSalesView.vue`、`AfterSalesEditor.vue`、`AfterSalesEvidence.vue` | 售后来源、内联编制、独立审批、退换修办理与保管/收费证据；状态及操作使用 `after-sales-actions.ts` |
+| `sales/` | `AfterSalesView.vue`、`AfterSalesEditor.vue`、`AfterSalesEvidence.vue`、`AfterSalesAttachments.vue` | 售后来源、内联编制、独立审批、退换修办理、附件与保管/收费证据；状态及操作使用 `after-sales-actions.ts` |
 | `finance/` | `ReceivablesPayablesView.vue` | 应收应付汇总及订单金额核对 |
 | `finance/` | `PaymentRecordsView.vue` | 独立查询、登记收付款及冲销，保留审计记录 |
 | `finance/` | `BankReconciliationView.vue` | 人工银行流水登记、CSV 文件预检及导入、逐笔收付款勾对与撤销证据 |

@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 73:
+        if version > 74:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2398,3 +2398,26 @@ def migrate() -> None:
             db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                 [(role, 'journal.attachment') for role in ('admin', 'finance')])
             db.execute('PRAGMA user_version = 73')
+
+        if version < 74:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS after_sales_attachments (
+                id INTEGER PRIMARY KEY,
+                case_id INTEGER NOT NULL REFERENCES after_sales_cases(id),
+                file_name TEXT NOT NULL, media_type TEXT NOT NULL,
+                byte_count INTEGER NOT NULL, sha256 TEXT NOT NULL,
+                content BLOB NOT NULL, reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX IF NOT EXISTS after_sales_attachments_case ON after_sales_attachments(case_id,id)')
+            db.execute('''CREATE TABLE IF NOT EXISTS after_sales_attachment_reversals (
+                id INTEGER PRIMARY KEY,
+                attachment_id INTEGER NOT NULL UNIQUE REFERENCES after_sales_attachments(id),
+                reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES ('after_sales.attachment','管理售后附件','sales.after_sales')")
+            db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [(role, 'after_sales.attachment') for role in ('admin', 'seller', 'warehouse')])
+            db.execute('PRAGMA user_version = 74')

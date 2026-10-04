@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, T
 import { basename, extname, join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { readFile, stat, writeFile } from 'node:fs/promises'
-import { backendSessionMarker, callBackend, fetchCrmQuotePdf, fetchJournalAttachment, getBackendHealth } from './backend'
+import { backendSessionMarker, callBackend, fetchCrmQuotePdf, fetchJournalAttachment,
+  fetchAfterSalesAttachment, getBackendHealth } from './backend'
 import type { ErpOperations } from '../shared/erp-api'
 import type { InventoryWarningEventPage } from '../shared/inventory-warning-api'
 import type { HostInput } from '../shared/desktop-api'
@@ -225,6 +226,52 @@ app.whenReady().then(() => {
     if (selected.canceled || !selected.filePath) return null
     assertMainWindow(event)
     if (backendSessionMarker() !== marker || !file.isCurrent()) throw new Error('会话已变化，请重新导出凭证附件')
+    if (extname(selected.filePath).toLowerCase() !== file.extension) throw new Error('附件保存格式无效')
+    await writeFile(selected.filePath, file.bytes)
+    return selected.filePath
+  })
+  ipcMain.handle('after-sales:upload-attachment', async (event, caseId: unknown, reason: unknown) => {
+    assertMainWindow(event)
+    if (typeof caseId !== 'number' || !Number.isSafeInteger(caseId) || caseId <= 0
+      || typeof reason !== 'string' || !reason.trim() || reason.length > 200
+      || /[\x00-\x1f]/.test(reason)) throw new Error('售后附件参数无效')
+    const marker = backendSessionMarker()
+    if (marker === null || !mainWindow) throw new Error('请先登录')
+    const selected = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'], filters: [{ name: '售后附件', extensions: ['pdf', 'png', 'jpg', 'jpeg'] }]
+    })
+    if (selected.canceled || !selected.filePaths[0]) return null
+    assertMainWindow(event)
+    if (backendSessionMarker() !== marker) throw new Error('会话已变化，请重新选择售后附件')
+    const path = selected.filePaths[0]
+    const info = await stat(path)
+    if (!info.isFile() || info.size < 1 || info.size > 5 * 1024 * 1024) {
+      throw new Error('售后附件须为非空且不超过 5 MiB')
+    }
+    const bytes = await readFile(path)
+    if (bytes.length < 1 || bytes.length > 5 * 1024 * 1024) throw new Error('售后附件大小已变化，请重新选择')
+    if (backendSessionMarker() !== marker) throw new Error('会话已变化，请重新选择售后附件')
+    const result = await callBackend('addAfterSalesAttachment', {
+      id: caseId, file_name: basename(path), content_base64: bytes.toString('base64'), reason: reason.trim()
+    })
+    if (backendSessionMarker() !== marker) throw new Error('会话已变化，请刷新售后附件')
+    return result
+  })
+  ipcMain.handle('after-sales:save-attachment', async (event, caseId: unknown, attachmentId: unknown) => {
+    assertMainWindow(event)
+    const marker = backendSessionMarker()
+    if (marker === null) throw new Error('请先登录')
+    const file = await fetchAfterSalesAttachment(caseId, attachmentId)
+    if (!mainWindow || backendSessionMarker() !== marker || !file.isCurrent()) {
+      throw new Error('会话已变化，请重新读取售后附件')
+    }
+    const selected = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: `after-sales-${file.caseId}-${file.attachmentId}${file.extension}`,
+      filters: [{ name: '售后附件', extensions: [file.extension.slice(1)] }]
+    })
+    if (selected.canceled || !selected.filePath) return null
+    assertMainWindow(event)
+    if (backendSessionMarker() !== marker || !file.isCurrent()) throw new Error('会话已变化，请重新导出售后附件')
     if (extname(selected.filePath).toLowerCase() !== file.extension) throw new Error('附件保存格式无效')
     await writeFile(selected.filePath, file.bytes)
     return selected.filePath

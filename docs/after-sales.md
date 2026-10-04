@@ -12,7 +12,7 @@
 
 ## 权限与状态
 
-页面 `/workspace/after-sales` 要求 `after_sales.view`。其他权限为 `after_sales.create`、`submit`、`review`、`process`、`receive`、`inspect`、`close`、`cancel`、`reverse`、`labor`。管理员默认全部拥有；销售员可编制、提交、办理、交付及取消，仓库员可收件、检验、登记和更正工时及交付，财务员可独立审核；仍可配置自定义角色。工时写入还须有查看权限及该客户的可见范围。
+页面 `/workspace/after-sales` 要求 `after_sales.view`。其他权限为 `after_sales.create`、`submit`、`review`、`process`、`receive`、`inspect`、`close`、`cancel`、`reverse`、`labor`、`attachment`。管理员默认全部拥有；销售员可编制、提交、办理、交付及取消，仓库员可收件、检验、登记和更正工时及交付，财务员可独立审核；管理员、销售员、仓库员默认可管理附件，仍可配置自定义角色。工时和附件写入还须有查看权限及该客户的可见范围。
 
 退换货流程为草稿 → 提交 → 批准 → 办理中 → 已交付结案；维修为草稿 → 提交 → 批准 → 已收件 → 检验合格 → 已交付结案。不合格检验保留已收件状态并追加证据。驳回后可修订并重新提交。关联单据仍校验各自权限，换货须同时具有 `sales_return.create` 和 `sales_order.create`，使用公司耗材收件须有 `other_outbound.create`。
 
@@ -26,14 +26,20 @@
 
 已结期间阻止历史费用更正及边界内的新保管、工时与审计记录。结账冻结截至期末最后一次方案审计、交接、工时记录、客户物品在管量、净工时与收费来源；包括尚未交付的在管物品，后续更正不覆盖原归档。
 
+## 附件留存
+
+第 74 版为所有售后退换修单提供 PDF、PNG、JPEG 附件，单文件非空且不超过 5 MiB，每张售后单最多 10 份有效附件。上传填写来源依据；文件字节、SHA-256、操作者和时间由 ORM 保存，撤销只追加原因与操作者，历史原文继续可下载。服务端校验文件名与内容格式、重复内容、大小和摘要；桌面端只通过系统文件对话框选择本地路径，并在保存前核对下载摘要、格式及登录会话。
+
+附件查看和导出需要 `after_sales.view` 且必须处于客户可见范围；上传与撤销另需 `after_sales.attachment`。结案、取消或更正后的售后单附件只读。附件不会改变售后版本、数量、库存、费用或独立审核结论；文件真实来源仍需人工核对。备份数据库时保留原文及撤销历史。
+
 ## 接口、模型与验证
 
-统一前缀 `/api/v1/after-sales`：GET 概览；GET `/cases/{id}` 证据；POST `/cases` 建草稿；PUT `/cases/{id}` 修订；POST `/cases/{id}/{action}` 执行状态操作；POST `/cases/{id}/labor` 以十进制文本登记最多两位小数的正工时；POST `/cases/{id}/labor/{entry_id}/reverse` 更正原记录。工时接口核对版本、权限、客户归属和实际依据；交接、检验与交付操作必须填实际依据，维修检验必须明确合格或不合格。
+统一前缀 `/api/v1/after-sales`：GET 概览；GET `/cases/{id}` 证据；POST `/cases` 建草稿；PUT `/cases/{id}` 修订；POST `/cases/{id}/{action}` 执行状态操作；POST `/cases/{id}/labor` 以十进制文本登记最多两位小数的正工时；POST `/cases/{id}/labor/{entry_id}/reverse` 更正原记录。GET/POST `/cases/{id}/attachments` 查看和上传附件，GET `/cases/{id}/attachments/{attachment_id}` 读取原文，POST 后缀 `/reverse` 追加撤销。工时接口核对版本、权限、客户归属和实际依据；交接、检验与交付操作必须填实际依据，维修检验必须明确合格或不合格。
 
-数据库第 52 版新增 `AfterSalesCase`、`AfterSalesChange`、`AfterSalesCustody` 三张声明式模型，当时共 122 张静态 ORM 表；第 64 版新增 `AfterSalesLabor`；第 65 版增加商机概率列；第 66 版增加生产领料冲销表；第 67 版增加生产退料冲销表；第 68 版增加库存预警观测与事件两张表，当前共 151 张。业务 CRUD 使用 ORM 会话，关联草稿、版本、保管、工时与审计在同一写事务提交或回滚。迁移失败连同新表、权限及版本回滚，保留旧销售记录；不在启动时反射或重建旧表。
+数据库第 52 版新增 `AfterSalesCase`、`AfterSalesChange`、`AfterSalesCustody` 三张声明式模型，当时共 122 张静态 ORM 表；第 64 版新增 `AfterSalesLabor`；第 74 版新增 `AfterSalesAttachment` 和 `AfterSalesAttachmentReversal`，现共 170 张静态模型表。业务 CRUD 使用 ORM 会话，关联草稿、版本、保管、工时与审计在同一写事务提交或回滚；附件单独使用写事务保留原文与撤销记录。迁移失败连同新表、权限及版本回滚，保留旧销售记录；不在启动时反射或重建旧表。
 
-后端测试 `backend/tests/test_after_sales.py` 覆盖正常与更正流程、实际收费及凭证、客户物品隔离、耗材闸口、历史作者独立审核、工时精度与权限、并发占用、审计失败回滚、锁期归档及 v51/v63 升级。桌面测试 `tests/after-sales.test.mjs` 覆盖固定 IPC 路径与字段、异步身份隔离、断线保留、冲突恢复及操作权限。
+后端测试 `backend/tests/test_after_sales.py` 覆盖正常与更正流程、实际收费及凭证、客户物品隔离、耗材闸口、历史作者独立审核、工时精度与权限、并发占用、审计失败回滚、锁期归档及 v51/v63 升级；`backend/tests/test_after_sales_attachments.py` 覆盖附件内容、权限、客户范围、撤销和 v73 升级。桌面测试 `tests/after-sales.test.mjs` 与 `tests/after-sales-attachments.test.mjs` 覆盖固定 IPC 路径与字段、异步身份隔离、断线保留、冲突恢复、附件摘要和操作权限。
 
 ## 仍未实现
 
-保修期限、责任自动判定、序列号/实物批次、附件与图片、外发通知、物流跟踪、第三方维修、工时成本计价、自动退款、跨公司服务、税费及多币种均未实现。当前按整单收件、检验和交还；需要分批交接时应拆分售后单。
+保修期限、责任自动判定、序列号/实物批次、外发通知、物流跟踪、第三方维修、工时成本计价、自动退款、跨公司服务、税费及多币种均未实现。当前按整单收件、检验和交还；需要分批交接时应拆分售后单。
