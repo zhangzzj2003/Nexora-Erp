@@ -1,6 +1,7 @@
 import { watch } from 'vue'
 import type { CrmKind, CrmRecord, CrmQuote, CrmQuoteAction, CrmActivity, CrmOpportunity, CrmContact, CrmForms } from '../../../../shared/crm-api'
 import type { ContactImportRow, OpportunityImportRow } from '../../../../shared/crm-api'
+import type { CrmQuoteAttachment, CrmQuoteAttachmentList } from '../../../../shared/crm-api'
 import type { AppState } from '../state'
 import { displayError } from '../../utils/formatters.ts'
 
@@ -63,6 +64,46 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
     } finally {
       if (session === owner) state.busy.value = false
     }
+  }
+  async function loadCrmQuoteAttachments(id: number): Promise<CrmQuoteAttachmentList> {
+    if (!can('crm.view') || !available()) throw new Error('会话或权限已变化，请重新读取报价附件')
+    const session = owner
+    const result = await window.nexora!.callApi('crmQuoteAttachments', { id })
+    if (session !== owner || !can('crm.view') || !available()) {
+      throw new Error('会话或权限已变化，请重新读取报价附件')
+    }
+    return result
+  }
+  async function uploadCrmQuoteAttachment(id: number, reason: string): Promise<CrmQuoteAttachment | null> {
+    if (!can('crm.view') || !can('crm_quote.attachment') || !available()) {
+      throw new Error('会话或权限已变化，请重新上传报价附件')
+    }
+    const session = owner
+    const result = await window.nexora!.uploadCrmQuoteAttachment(id, reason)
+    if (session !== owner || !can('crm.view') || !can('crm_quote.attachment') || !available()) {
+      throw new Error('会话或权限已变化，请刷新报价附件')
+    }
+    return result
+  }
+  async function reverseCrmQuoteAttachment(quoteId: number, attachmentId: number, reason: string): Promise<CrmQuoteAttachment> {
+    if (!can('crm.view') || !can('crm_quote.attachment') || !available()) {
+      throw new Error('会话或权限已变化，请重新撤销报价附件')
+    }
+    const session = owner
+    const result = await window.nexora!.callApi('reverseCrmQuoteAttachment', { quoteId, attachmentId, reason })
+    if (session !== owner || !can('crm.view') || !can('crm_quote.attachment') || !available()) {
+      throw new Error('会话或权限已变化，请刷新报价附件')
+    }
+    return result
+  }
+  async function saveCrmQuoteAttachment(quoteId: number, attachmentId: number): Promise<string | null> {
+    if (!can('crm.view') || !available()) throw new Error('会话或权限已变化，请重新读取报价附件')
+    const session = owner
+    const result = await window.nexora!.saveCrmQuoteAttachment(quoteId, attachmentId)
+    if (session !== owner || !can('crm.view') || !available()) {
+      throw new Error('会话或权限已变化，请重新读取报价附件')
+    }
+    return result
   }
   async function loadCustomerOwnerChanges(id:number): Promise<boolean> {
     if(!can('customer.assign') || !available())return false
@@ -173,7 +214,8 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
     await loadCrm()
     return session === owner
   }
-  return {loadCrm,loadCrmDetail,exportCrmQuotePdf,loadCustomerOwnerChanges,assignCustomerOwner,
+  return {loadCrm,loadCrmDetail,exportCrmQuotePdf,loadCrmQuoteAttachments,uploadCrmQuoteAttachment,
+    reverseCrmQuoteAttachment,saveCrmQuoteAttachment,loadCustomerOwnerChanges,assignCustomerOwner,
     clearCrmDetail,editCrm,startNewCrm,saveCrm,importContactRows,importOpportunityRows,
     closeCrmActivity:(item: CrmActivity, action:'complete'|'cancel',reason:string)=>write('crm_activity.manage',
       ()=>window.nexora!.callApi('closeCrmActivity',{id:item.id,version:item.version,action,reason}),'跟进状态已登记，原记录保留。','activity'),

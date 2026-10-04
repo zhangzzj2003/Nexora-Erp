@@ -7,6 +7,7 @@ import { usePiniaAppStore } from '../../../store/app-store'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import CrmQuoteAttachments from './CrmQuoteAttachments.vue'
 import { crmKindLabel,crmAuditLabel,crmQuoteLabel,crmSnapshotRows } from './crm-display'
 const store=usePiniaAppStore()
 const {crmDetail:detail,crmChanges:changes,busy}=storeToRefs(store)
@@ -37,6 +38,7 @@ function auditLines(source:Record<string,unknown>): {material_name:string; quant
     <WorkspaceTable v-if="quote" title="固定报价明细" :data="quote.lines" :min-table-width="750" :columns="[{key:'material',title:'物料'},{key:'quantity',title:'数量'},{key:'unit_price',title:'单价（元）'},{key:'line_total',title:'金额（元）'}]">
       <template #cell-material="{row}">{{ row.sku }} · {{ row.material_name }}<span class="crm-secondary muted">{{ row.unit }}</span></template>
     </WorkspaceTable>
+    <CrmQuoteAttachments v-if="quote" :quote-id="quote.id" />
     <section class="card">
       <h3>变更与操作依据</h3>
       <NCollapse><AppCollapseItem v-for="change in changes" :key="change.id" :name="String(change.id)" :title="`${store.localTime(change.created_at)} · ${change.changed_by_name} · ${crmAuditLabel[change.action] ?? '变更'} · ${change.reason}`">

@@ -69,6 +69,12 @@ export interface CrmQuote extends CrmBase, CrmQuoteInput {
   party: { customer_name: string; contact_name: string; phone: string; email: string }
   lines: (CrmQuoteLineInput & { id: number; position: number; quote_id: number; sku: string; material_name: string; unit: string; line_total: string })[]
 }
+export interface CrmQuoteAttachment {
+  id: number; quote_id: number; file_name: string; media_type: 'application/pdf' | 'image/png' | 'image/jpeg'
+  byte_count: number; sha256: string; reason: string; created_by: number; created_by_name: string; created_at: string
+  reversal: { id: number; reason: string; created_by: number; created_by_name: string; created_at: string } | null
+}
+export interface CrmQuoteAttachmentList { quote_id: number; can_modify: boolean; items: CrmQuoteAttachment[] }
 export type CrmRecord = CrmContact | CrmActivity | CrmOpportunity | CrmQuote
 export interface CrmOverview { contacts: CrmContact[]; activities: CrmActivity[]; opportunities: CrmOpportunity[]; quotes: CrmQuote[] }
 export interface CrmOptions {
@@ -99,6 +105,9 @@ export interface CrmOperations {
   customerOwnerChanges: {input: {id: number}; output: CustomerOwnerChange[]}
   assignCustomerOwner: {input: {id: number; owner_id: number; version: number; reason: string}; output: CrmOptions['customers'][number]}
   crmDetail: {input: {kind: CrmKind; id: number}; output: CrmRecord}
+  crmQuoteAttachments: {input: {id: number}; output: CrmQuoteAttachmentList}
+  addCrmQuoteAttachment: {input: {id: number; file_name: string; content_base64: string; reason: string}; output: CrmQuoteAttachment}
+  reverseCrmQuoteAttachment: {input: {quoteId: number; attachmentId: number; reason: string}; output: CrmQuoteAttachment}
   crmChanges: {input: {kind: CrmKind; id: number}; output: CrmChange[]}
   saveCrmContact: {input: CrmContactInput & Partial<CrmVersion> & {id?: number}; output: CrmContact}
   saveCrmOpportunity: {input: CrmOpportunityInput & Partial<CrmVersion> & {id?: number}; output: CrmOpportunity}

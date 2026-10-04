@@ -23,6 +23,7 @@ import {validateOpportunityImportPreview,validateOpportunityImportResult} from '
 import {validateCrmForecast} from '../shared/crm-forecast-validation.ts'
 import {validateJournalAttachmentResult} from '../shared/journal-attachment-validation.ts'
 import {validateAfterSalesAttachmentResult} from '../shared/after-sales-attachment-validation.ts'
+import {validateCrmQuoteAttachmentResult} from '../shared/crm-quote-attachment-validation.ts'
 import { request as httpsRequest } from 'node:https'
 import { createHash } from 'node:crypto'
 
@@ -162,7 +163,7 @@ export async function fetchCrmQuotePdf(value: unknown): Promise<{ id: number; by
     && (target === null ? selectedTarget === null : sameBackendIdentity(selectedTarget, target)) }
 }
 
-async function fetchStoredAttachment(documentType: 'journal' | 'after-sales', documentValue: unknown,
+async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | 'crm-quote', documentValue: unknown,
     attachmentValue: unknown): Promise<{
   documentId: number; attachmentId: number; extension: string; bytes: Buffer; isCurrent: () => boolean
 }> {
@@ -175,7 +176,9 @@ async function fetchStoredAttachment(documentType: 'journal' | 'after-sales', do
   try {
     const path = documentType === 'journal'
       ? `/api/v1/finance/journals/${documentId}/attachments/${attachmentId}`
-      : `/api/v1/after-sales/cases/${documentId}/attachments/${attachmentId}`
+      : documentType === 'after-sales'
+        ? `/api/v1/after-sales/cases/${documentId}/attachments/${attachmentId}`
+        : `/api/v1/crm/quotes/${documentId}/attachments/${attachmentId}`
     response = await sendRequest(path,
       'GET', { Authorization: `Bearer ${token}` }, undefined, 30000, target, 5 * 1024 * 1024)
   } catch (cause) {
@@ -231,6 +234,11 @@ export async function fetchJournalAttachment(journalValue: unknown, attachmentVa
 export async function fetchAfterSalesAttachment(caseValue: unknown, attachmentValue: unknown) {
   const file = await fetchStoredAttachment('after-sales', caseValue, attachmentValue)
   return { ...file, caseId: file.documentId }
+}
+
+export async function fetchCrmQuoteAttachment(quoteValue: unknown, attachmentValue: unknown) {
+  const file = await fetchStoredAttachment('crm-quote', quoteValue, attachmentValue)
+  return { ...file, quoteId: file.documentId }
 }
 
 export async function getServerInfo(target?: BackendTarget): Promise<{ id: string; name: string; version: string; ready: boolean }> {
@@ -639,6 +647,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'reverseAfterSalesAttachment': {
       const reason=bankText((payload as ErpOperations['reverseAfterSalesAttachment']['input']).reason,'撤销原因',200)
       return {method:'POST',path:`/api/v1/after-sales/cases/${positiveId(payload,'caseId')}/attachments/${positiveId(payload,'attachmentId')}/reverse`,
+        body:{reason}}
+    }
+    case 'crmQuoteAttachments': return {method:'GET',path:`/api/v1/crm/quotes/${positiveId(payload,'id')}/attachments`}
+    case 'addCrmQuoteAttachment': return {method:'POST',path:`/api/v1/crm/quotes/${positiveId(payload,'id')}/attachments`,
+      body:attachmentBody(payload)}
+    case 'reverseCrmQuoteAttachment': {
+      const reason=bankText((payload as ErpOperations['reverseCrmQuoteAttachment']['input']).reason,'撤销原因',200)
+      return {method:'POST',path:`/api/v1/crm/quotes/${positiveId(payload,'quoteId')}/attachments/${positiveId(payload,'attachmentId')}/reverse`,
         body:{reason}}
     }
     case 'saveAfterSalesCase': {
@@ -1376,7 +1392,8 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     response = await sendRequest(request.path, request.method, {
         ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...(publicAction ? {} : { Authorization: `Bearer ${activeToken}` })
-      }, request.body, action === 'addJournalAttachment' || action === 'addAfterSalesAttachment' ? 30000 : 10000)
+      }, request.body, action === 'addJournalAttachment' || action === 'addAfterSalesAttachment'
+        || action === 'addCrmQuoteAttachment' ? 30000 : 10000)
   } catch {
     throw new Error('无法连接服务端，请检查网络、服务状态和证书。')
   }
@@ -1503,6 +1520,10 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   if (action === 'afterSalesAttachments' || action === 'addAfterSalesAttachment' || action === 'reverseAfterSalesAttachment') {
     validateAfterSalesAttachmentResult(action, data,
       positiveId(payload, action === 'reverseAfterSalesAttachment' ? 'caseId' : 'id'))
+  }
+  if (action === 'crmQuoteAttachments' || action === 'addCrmQuoteAttachment' || action === 'reverseCrmQuoteAttachment') {
+    validateCrmQuoteAttachmentResult(action, data,
+      positiveId(payload, action === 'reverseCrmQuoteAttachment' ? 'quoteId' : 'id'))
   }
   return data
 }

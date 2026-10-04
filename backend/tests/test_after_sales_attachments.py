@@ -108,6 +108,10 @@ def test_v73_upgrade_preserves_cases_and_replays_safely(erp):
     _, api, *_ = erp
     case = api('POST', ROOT, payload(erp), status=201)
     with connection() as db:
+        db.execute('DROP TABLE crm_quote_attachment_reversals')
+        db.execute('DROP TABLE crm_quote_attachments')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='crm_quote.attachment'")
+        db.execute("DELETE FROM permissions WHERE code='crm_quote.attachment'")
         db.execute('DROP TABLE after_sales_attachment_reversals')
         db.execute('DROP TABLE after_sales_attachments')
         db.execute("DELETE FROM role_permissions WHERE permission_code='after_sales.attachment'")
@@ -116,7 +120,7 @@ def test_v73_upgrade_preserves_cases_and_replays_safely(erp):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 74
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 75
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?', (case['id'],)).fetchone()[0] == 'draft'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.attachment'").fetchone()[0] == 3
     api('POST', path(case['id']), attachment(), status=201)

@@ -97,6 +97,29 @@ class CrmQuoteLine(Base):
     unit_price: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class CrmQuoteAttachment(Base):
+    __tablename__ = 'crm_quote_attachments'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    quote_id: Mapped[int] = mapped_column(ForeignKey('crm_quotes.id'), nullable=False)
+    file_name: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)
+    byte_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class CrmQuoteAttachmentReversal(Base):
+    __tablename__ = 'crm_quote_attachment_reversals'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attachment_id: Mapped[int] = mapped_column(ForeignKey('crm_quote_attachments.id'), unique=True, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class CrmChange(Base):
     __tablename__ = 'crm_changes'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

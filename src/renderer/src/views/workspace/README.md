@@ -21,7 +21,7 @@
 | `purchase/` | `PurchaseReceiptsView.vue` | 确认采购入库时逐行登记实物批次，并查看原批次及冲销状态 |
 | `purchase/` | `PurchaseReturnsView.vue` | 处理采购退货 |
 | `sales/` | `SalesOrdersView.vue` | 建立和管理销售订单；客户资料独立维护，订单弹窗提供快捷入口并保留草稿 |
-| `sales/` | `CustomerRelationsView.vue` | 按客户维护联系人、跟进、商机，支持联系人及商机 CSV 导入与手工概率加权预测；固定报价独立审核后登记接受依据转销售草稿 |
+| `sales/` | `CustomerRelationsView.vue`、`CrmQuoteAttachments.vue` | 按客户维护联系人、跟进、商机，支持联系人及商机 CSV 导入与手工概率加权预测；固定报价独立审核后登记接受依据转销售草稿，并留存报价附件及撤销证据 |
 | `sales/` | `SalesShipmentsView.vue` | 处理销售出库 |
 | `sales/` | `SalesReturnsView.vue` | 处理销售退货，确认时核对原出库批次或登记退货新批次，展示来源证据与旧单差额 |
 | `sales/` | `AfterSalesView.vue`、`AfterSalesEditor.vue`、`AfterSalesEvidence.vue`、`AfterSalesAttachments.vue` | 售后来源、内联编制、独立审批、退换修办理、附件与保管/收费证据；状态及操作使用 `after-sales-actions.ts` |
