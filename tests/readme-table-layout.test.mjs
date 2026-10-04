@@ -4,7 +4,8 @@ import { test } from 'node:test'
 import { Marked } from 'marked'
 import { renderMarkdown } from '../scripts/build-docs-site.mjs'
 
-const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
+// Windows 检出使用 CRLF，统一换行后再按标题提取章节。
+const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const progress = readme.split('## 开发进度\n')[1].split('\n## ')[0]
 const table = new Marked().lexer(progress).find(token => token.type === 'table')
 
