@@ -133,7 +133,8 @@ test('设置卡片明确选择主题，与顶部切换共用最后一次意图',
 test('设置选择覆盖在途快照，迟到更新不能覆盖最终主题', async () => {
   const s = setup({ manual: true, timeoutMs: 5 })
   const first = s.motion.select(true)
-  await tick()
+  // 只刷新微任务，让快照开始但不让真实计时器抢先触发超时。
+  await Promise.resolve()
   const second = s.motion.select(false)
   await Promise.all([first, second])
   await s.snapshots[0].update()
@@ -145,7 +146,8 @@ test('设置选择覆盖在途快照，迟到更新不能覆盖最终主题', as
 test('快照等待期间的连续点击取消旧请求，迟到回调不能覆盖最后主题', async () => {
   const s = setup({ manual: true, timeoutMs: 5 })
   const first = s.motion.toggle()
-  await tick()
+  // 连续点击应发生在同一轮事件循环，避免繁忙 CI 的 setImmediate 落后于 5ms 超时。
+  await Promise.resolve()
   const second = s.motion.toggle()
   await Promise.all([first, second])
   await s.snapshots[0].update()
@@ -156,7 +158,7 @@ test('快照等待期间的连续点击取消旧请求，迟到回调不能覆�
   assert.deepEqual(s.root.dataset, {})
 })
 test('已提交主题后的第二次点击和store销毁都能取消在途动画', async () => {
-  const s = setup({ manual: true, timeoutMs: 10 })
+  const s = setup({ manual: true, timeoutMs: 1000 })
   const first = s.motion.toggle()
   await tick()
   await s.snapshots[0].update()
