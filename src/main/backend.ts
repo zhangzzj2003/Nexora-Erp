@@ -26,6 +26,8 @@ import {validateAfterSalesAttachmentResult} from '../shared/after-sales-attachme
 import {validateCrmQuoteAttachmentResult} from '../shared/crm-quote-attachment-validation.ts'
 import {validateCrmRecordAttachmentResult} from '../shared/crm-record-attachment-validation.ts'
 import type {CrmAttachmentKind} from '../shared/crm-api.ts'
+import {validateEquipmentAttachmentResult} from '../shared/equipment-attachment-validation.ts'
+import type {EquipmentAttachmentKind} from '../shared/equipment-api.ts'
 import { request as httpsRequest } from 'node:https'
 import { createHash } from 'node:crypto'
 
@@ -165,8 +167,8 @@ export async function fetchCrmQuotePdf(value: unknown): Promise<{ id: number; by
     && (target === null ? selectedTarget === null : sameBackendIdentity(selectedTarget, target)) }
 }
 
-async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | 'crm-quote' | 'crm-record', documentValue: unknown,
-    attachmentValue: unknown, recordKind?: CrmAttachmentKind): Promise<{
+async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | 'crm-quote' | 'crm-record' | 'equipment', documentValue: unknown,
+    attachmentValue: unknown, recordKind?: CrmAttachmentKind | EquipmentAttachmentKind): Promise<{
   documentId: number; attachmentId: number; extension: string; bytes: Buffer; isCurrent: () => boolean
 }> {
   const documentId = positiveId({ id: documentValue }, 'id')
@@ -182,7 +184,9 @@ async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | '
         ? `/api/v1/after-sales/cases/${documentId}/attachments/${attachmentId}`
         : documentType === 'crm-quote'
           ? `/api/v1/crm/quotes/${documentId}/attachments/${attachmentId}`
-          : `/api/v1/crm/records/${recordKind}/${documentId}/attachments/${attachmentId}`
+          : documentType === 'equipment'
+            ? `/api/v1/equipment/${recordKind}/${documentId}/attachments/${attachmentId}`
+            : `/api/v1/crm/records/${recordKind}/${documentId}/attachments/${attachmentId}`
     response = await sendRequest(path,
       'GET', { Authorization: `Bearer ${token}` }, undefined, 30000, target, 5 * 1024 * 1024)
   } catch (cause) {
@@ -251,6 +255,12 @@ export async function fetchCrmRecordAttachment(kindValue: unknown, recordValue: 
   return { ...file, kind, recordId: file.documentId }
 }
 
+export async function fetchEquipmentAttachment(kindValue: unknown, recordValue: unknown, attachmentValue: unknown) {
+  const kind = equipmentAttachmentKind(kindValue)
+  const file = await fetchStoredAttachment('equipment', recordValue, attachmentValue, kind)
+  return { ...file, kind, recordId: file.documentId }
+}
+
 export async function getServerInfo(target?: BackendTarget): Promise<{ id: string; name: string; version: string; ready: boolean }> {
   const response = await sendRequest('/api/v1/server/info', 'GET', {}, undefined, 5000, target)
   if (!response.ok) throw new Error(`服务端身份检查失败（HTTP ${response.status}）`)
@@ -277,6 +287,11 @@ function crmRecordKind(value: unknown): CrmAttachmentKind {
   if (value !== 'contact' && value !== 'activity' && value !== 'opportunity') {
     throw new Error('客户关系记录类型无效')
   }
+  return value
+}
+
+function equipmentAttachmentKind(value: unknown): EquipmentAttachmentKind {
+  if (value !== 'asset' && value !== 'job') throw new Error('设备维护附件类型无效')
   return value
 }
 
@@ -681,6 +696,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       const data=payload as ErpOperations['reverseCrmRecordAttachment']['input']
       const reason=bankText(data.reason,'撤销原因',200)
       return {method:'POST',path:`/api/v1/crm/records/${crmRecordKind(data.kind)}/${positiveId(payload,'id')}/attachments/${positiveId(payload,'attachmentId')}/reverse`,
+        body:{reason}}
+    }
+    case 'equipmentAttachments': return {method:'GET',path:`/api/v1/equipment/${equipmentAttachmentKind((payload as ErpOperations['equipmentAttachments']['input']).kind)}/${positiveId(payload,'id')}/attachments`}
+    case 'addEquipmentAttachment': return {method:'POST',path:`/api/v1/equipment/${equipmentAttachmentKind((payload as ErpOperations['addEquipmentAttachment']['input']).kind)}/${positiveId(payload,'id')}/attachments`,
+      body:attachmentBody(payload)}
+    case 'reverseEquipmentAttachment': {
+      const data=payload as ErpOperations['reverseEquipmentAttachment']['input']
+      const reason=bankText(data.reason,'撤销原因',200)
+      return {method:'POST',path:`/api/v1/equipment/${equipmentAttachmentKind(data.kind)}/${positiveId(payload,'id')}/attachments/${positiveId(payload,'attachmentId')}/reverse`,
         body:{reason}}
     }
     case 'saveAfterSalesCase': {
@@ -1419,7 +1443,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
         ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...(publicAction ? {} : { Authorization: `Bearer ${activeToken}` })
       }, request.body, action === 'addJournalAttachment' || action === 'addAfterSalesAttachment'
-        || action === 'addCrmQuoteAttachment' || action === 'addCrmRecordAttachment' ? 30000 : 10000)
+        || action === 'addCrmQuoteAttachment' || action === 'addCrmRecordAttachment' || action === 'addEquipmentAttachment' ? 30000 : 10000)
   } catch {
     throw new Error('无法连接服务端，请检查网络、服务状态和证书。')
   }
@@ -1554,6 +1578,10 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   if (action === 'crmRecordAttachments' || action === 'addCrmRecordAttachment' || action === 'reverseCrmRecordAttachment') {
     validateCrmRecordAttachmentResult(action, data,
       crmRecordKind((payload as ErpOperations[typeof action]['input']).kind), positiveId(payload, 'id'))
+  }
+  if (action === 'equipmentAttachments' || action === 'addEquipmentAttachment' || action === 'reverseEquipmentAttachment') {
+    validateEquipmentAttachmentResult(action, data,
+      equipmentAttachmentKind((payload as ErpOperations[typeof action]['input']).kind), positiveId(payload, 'id'))
   }
   return data
 }

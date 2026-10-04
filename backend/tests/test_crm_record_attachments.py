@@ -138,11 +138,11 @@ def test_v75_upgrade_is_idempotent(seeded):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 76
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 77
         assert db.execute('SELECT name FROM crm_contacts WHERE id=?',
             (contact['id'],)).fetchone()[0] == contact['name']
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='crm.attachment'").fetchone()[0] == 2
-    assert len(Base.metadata.tables) == 174
+    assert len(Base.metadata.tables) == 176
     assert client.post(path('contact', contact['id']), headers=admin, json=payload()).status_code == 201
 
 

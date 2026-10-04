@@ -135,7 +135,7 @@ def test_v56_upgrade_preserves_openings_and_adds_permission_once(monkeypatch, tm
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 76
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 77
         assert db.execute('SELECT * FROM physical_lot_openings').fetchall() == before
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='physical_lot.reclassify'").fetchone()[0] == 2
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []

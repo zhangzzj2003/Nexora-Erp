@@ -2048,6 +2048,32 @@ class MaintenanceChange(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
+class EquipmentAttachment(Base):
+    __tablename__ = 'equipment_attachments'
+    __table_args__ = (CheckConstraint("(asset_id IS NOT NULL AND job_id IS NULL) OR (asset_id IS NULL AND job_id IS NOT NULL)",
+                                     name='equipment_attachment_one_parent'),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    asset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('equipment_assets.id'))
+    job_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('maintenance_jobs.id'))
+    file_name: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)
+    byte_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class EquipmentAttachmentReversal(Base):
+    __tablename__ = 'equipment_attachment_reversals'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attachment_id: Mapped[int] = mapped_column(Integer, ForeignKey('equipment_attachments.id'), unique=True, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class StockAdjustmentReversal(Base):
     __tablename__ = "stock_adjustment_reversals"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

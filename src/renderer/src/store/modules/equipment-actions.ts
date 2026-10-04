@@ -1,6 +1,7 @@
 import {watch} from 'vue'
 import type {AppState} from '../state'
-import type {EquipmentEntity,EquipmentForms,EquipmentDetail,EquipmentMeterInput,MaintenanceCommand} from '../../../../shared/equipment-api'
+import type {EquipmentEntity,EquipmentForms,EquipmentDetail,EquipmentMeterInput,MaintenanceCommand,
+  EquipmentAttachmentKind,EquipmentAttachment,EquipmentAttachmentList} from '../../../../shared/equipment-api'
 import {displayError} from '../../utils/formatters.ts'
 
 export function emptyEquipmentForms():EquipmentForms {
@@ -122,6 +123,36 @@ export function createEquipmentActions(state:AppState,perform:(run:()=>Promise<u
     if(session===owner)await loadEquipmentDetail('asset',input.equipment_id)
     return session===owner && available()
   }
+  async function loadEquipmentAttachments(kind:EquipmentAttachmentKind,id:number):Promise<EquipmentAttachmentList>{
+    if(!available())throw new Error('会话或权限已变化，请重新读取设备维护附件')
+    const session=owner
+    const result=await window.nexora!.callApi('equipmentAttachments',{kind,id})
+    if(session!==owner || !available())throw new Error('会话或权限已变化，请重新读取设备维护附件')
+    return result
+  }
+  async function uploadEquipmentAttachment(kind:EquipmentAttachmentKind,id:number,reason:string):Promise<EquipmentAttachment|null>{
+    if(!available() || !can('equipment.attachment'))throw new Error('会话或权限已变化，请重新上传设备维护附件')
+    const session=owner
+    const result=await window.nexora!.uploadEquipmentAttachment(kind,id,reason)
+    if(session!==owner || !available() || !can('equipment.attachment'))throw new Error('会话或权限已变化，请刷新设备维护附件')
+    return result
+  }
+  async function reverseEquipmentAttachment(kind:EquipmentAttachmentKind,id:number,
+    attachmentId:number,reason:string):Promise<EquipmentAttachment>{
+    if(!available() || !can('equipment.attachment'))throw new Error('会话或权限已变化，请重新撤销设备维护附件')
+    const session=owner
+    const result=await window.nexora!.callApi('reverseEquipmentAttachment',{kind,id,attachmentId,reason})
+    if(session!==owner || !available() || !can('equipment.attachment'))throw new Error('会话或权限已变化，请刷新设备维护附件')
+    return result
+  }
+  async function saveEquipmentAttachment(kind:EquipmentAttachmentKind,id:number,attachmentId:number):Promise<string|null>{
+    if(!available())throw new Error('会话或权限已变化，请重新读取设备维护附件')
+    const session=owner
+    const result=await window.nexora!.saveEquipmentAttachment(kind,id,attachmentId)
+    if(session!==owner || !available())throw new Error('会话或权限已变化，请重新读取设备维护附件')
+    return result
+  }
   return {loadEquipment,loadEquipmentDetail,clearEquipmentDetail,startEquipmentRecord,editEquipmentRecord,
-    saveEquipmentRecord,changeMaintenanceJob,recordEquipmentMeter}
+    saveEquipmentRecord,changeMaintenanceJob,recordEquipmentMeter,
+    loadEquipmentAttachments,uploadEquipmentAttachment,reverseEquipmentAttachment,saveEquipmentAttachment}
 }

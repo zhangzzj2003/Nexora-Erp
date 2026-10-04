@@ -1,4 +1,15 @@
 export type EquipmentStatus = 'active' | 'inactive' | 'retired'
+export type EquipmentAttachmentKind = 'asset' | 'job'
+export interface EquipmentAttachment {
+  id: number; entity_kind: EquipmentAttachmentKind; entity_id: number
+  file_name: string; media_type: 'application/pdf' | 'image/png' | 'image/jpeg'
+  byte_count: number; sha256: string; reason: string
+  created_by: number; created_by_name: string; created_at: string
+  reversal: {id: number; reason: string; created_by: number; created_by_name: string; created_at: string} | null
+}
+export interface EquipmentAttachmentList {
+  entity_kind: EquipmentAttachmentKind; entity_id: number; can_modify: boolean; items: EquipmentAttachment[]
+}
 export type MaintenanceKind = 'preventive' | 'corrective'
 export type MaintenanceStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'in_progress' | 'reported' | 'accepted' | 'cancelled' | 'reversed'
 export type MaintenanceAction = 'submit' | 'approve' | 'reject' | 'start' | 'report' | 'rework' | 'accept' | 'cancel' | 'reverse'
@@ -80,6 +91,9 @@ export type MaintenanceCommand = { id: number; version: number; reason: string; 
   { action: Exclude<MaintenanceAction, 'report'>; solution?: never; labor_hours?: never; service_amount?: never }
 )
 export interface EquipmentOperations {
+  equipmentAttachments: { input: {kind: EquipmentAttachmentKind; id: number}; output: EquipmentAttachmentList }
+  addEquipmentAttachment: { input: {kind: EquipmentAttachmentKind; id: number; file_name: string; content_base64: string; reason: string}; output: EquipmentAttachment }
+  reverseEquipmentAttachment: { input: {kind: EquipmentAttachmentKind; id: number; attachmentId: number; reason: string}; output: EquipmentAttachment }
   equipmentOverview: { input: undefined; output: EquipmentOverview }
   equipmentDetail: { input: { id: number }; output: EquipmentRecord }
   maintenancePlanDetail: { input: { id: number }; output: MaintenancePlanRecord }

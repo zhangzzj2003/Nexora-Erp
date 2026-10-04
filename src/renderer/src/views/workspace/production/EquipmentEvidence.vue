@@ -4,6 +4,7 @@ import {NCollapse} from 'naive-ui'
 import type {EquipmentDetail} from '../../../../../shared/equipment-api'
 import {usePiniaAppStore} from '../../../store/app-store'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
+import EquipmentAttachments from './EquipmentAttachments.vue'
 import {equipmentStatus,maintenanceStatus,maintenanceKind,maintenanceCommand,equipmentChanges,downtimeLabel,partsStatus} from './equipment-display'
 const props=defineProps<{detail:EquipmentDetail;compact?:boolean}>(),store=usePiniaAppStore()
 const title=computed(()=>props.detail.kind==='asset'?props.detail.row.code:props.detail.row.reference)
@@ -56,6 +57,7 @@ function changeLabel(action:string):string{return maintenanceCommand[action as k
     </template>
     <template v-if="asset && !compact"><h4>运行小时读数历史</h4><p v-if="!asset.meter_readings.length">尚未登记表计读数。</p><ul v-else><li v-for="reading in asset.meter_readings" :key="reading.id">#{{ reading.id }} · {{ reading.hours }} 小时 · {{ reading.correction?'更正':'常规登记' }} · {{ reading.reference }} · {{ reading.reason }} · {{ reading.recorded_by_name }} · {{ store.localTime(reading.recorded_at) }}</li></ul><h4>停机区间</h4><p v-if="!asset.downtimes.length">尚无已开始维护登记。</p><ul v-else><li v-for="entry in asset.downtimes" :key="entry.id">工单 #{{ entry.job_id }} · {{ store.localTime(entry.started_at) }} 至 {{ entry.ended_at?store.localTime(entry.ended_at):'尚未结束' }} · {{ downtimeLabel(entry) }} · {{ entry.close_reason }}</li></ul></template>
     <template v-if="!compact">
+      <EquipmentAttachments v-if="asset || job" :kind="asset?'asset':'job'" :record-id="detail.row.id" :record-version="detail.row.version" />
       <h3>操作与更正历史</h3>
       <NCollapse><AppCollapseItem v-for="change in detail.row.changes" :key="change.id" :name="change.id" :title="`${changeLabel(change.action)} · ${change.changed_by_name} · ${store.localTime(change.created_at)}`">
         <p>原因：{{ change.reason }}</p><p v-if="change.evidence">依据：{{ change.evidence }}</p>

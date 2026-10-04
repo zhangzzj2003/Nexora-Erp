@@ -6,6 +6,10 @@ import pytest
 @pytest.fixture
 def remove_after_sales_labor_schema():
     def remove(db):
+        db.execute('DROP TABLE IF EXISTS equipment_attachment_reversals')
+        db.execute('DROP TABLE IF EXISTS equipment_attachments')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='equipment.attachment'")
+        db.execute("DELETE FROM permissions WHERE code='equipment.attachment'")
         db.execute('DROP TABLE IF EXISTS crm_record_attachment_reversals')
         db.execute('DROP TABLE IF EXISTS crm_record_attachments')
         db.execute("DELETE FROM role_permissions WHERE permission_code='crm.attachment'")
@@ -118,7 +122,7 @@ def remove_equipment_schema(remove_material_schema):
         for table in ('maintenance_changes','maintenance_downtimes','maintenance_jobs','maintenance_hour_plan_changes','maintenance_hour_plans',
                       'equipment_meter_readings','maintenance_plans','equipment_assets'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
-        for action in ('view','manage','create','submit','review','execute','accept','cancel','reverse','meter'):
+        for action in ('view','manage','create','submit','review','execute','accept','cancel','reverse','meter','attachment'):
             code = 'equipment.' + action
             db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
             db.execute('DELETE FROM permissions WHERE code=?', (code,))

@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 76:
+        if version > 77:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2468,3 +2468,30 @@ def migrate() -> None:
             db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                 [(role, 'crm.attachment') for role in ('admin', 'seller')])
             db.execute('PRAGMA user_version = 76')
+
+        if version < 77:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS equipment_attachments (
+                id INTEGER PRIMARY KEY,
+                asset_id INTEGER REFERENCES equipment_assets(id),
+                job_id INTEGER REFERENCES maintenance_jobs(id),
+                file_name TEXT NOT NULL, media_type TEXT NOT NULL,
+                byte_count INTEGER NOT NULL, sha256 TEXT NOT NULL,
+                content BLOB NOT NULL, reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CHECK ((asset_id IS NOT NULL AND job_id IS NULL)
+                    OR (asset_id IS NULL AND job_id IS NOT NULL)))''')
+            db.execute('CREATE INDEX IF NOT EXISTS equipment_attachments_asset ON equipment_attachments(asset_id,id)')
+            db.execute('CREATE INDEX IF NOT EXISTS equipment_attachments_job ON equipment_attachments(job_id,id)')
+            db.execute('''CREATE TABLE IF NOT EXISTS equipment_attachment_reversals (
+                id INTEGER PRIMARY KEY,
+                attachment_id INTEGER NOT NULL UNIQUE REFERENCES equipment_attachments(id),
+                reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES ('equipment.attachment','管理设备维护附件','production.equipment')")
+            db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [(role, 'equipment.attachment') for role in ('admin', 'planner', 'warehouse')])
+            db.execute('PRAGMA user_version = 77')
