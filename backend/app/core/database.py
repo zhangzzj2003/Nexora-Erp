@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 75:
+        if version > 76:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2444,3 +2444,27 @@ def migrate() -> None:
             db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                 [(role, 'crm_quote.attachment') for role in ('admin', 'seller')])
             db.execute('PRAGMA user_version = 75')
+
+        if version < 76:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS crm_record_attachments (
+                id INTEGER PRIMARY KEY,
+                entity_kind TEXT NOT NULL CHECK (entity_kind IN ('contact','activity','opportunity')),
+                entity_id INTEGER NOT NULL,
+                file_name TEXT NOT NULL, media_type TEXT NOT NULL,
+                byte_count INTEGER NOT NULL, sha256 TEXT NOT NULL,
+                content BLOB NOT NULL, reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX IF NOT EXISTS crm_record_attachments_entity ON crm_record_attachments(entity_kind,entity_id,id)')
+            db.execute('''CREATE TABLE IF NOT EXISTS crm_record_attachment_reversals (
+                id INTEGER PRIMARY KEY,
+                attachment_id INTEGER NOT NULL UNIQUE REFERENCES crm_record_attachments(id),
+                reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute("INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES ('crm.attachment','管理客户关系资料附件','sales.crm')")
+            db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
+                [(role, 'crm.attachment') for role in ('admin', 'seller')])
+            db.execute('PRAGMA user_version = 76')

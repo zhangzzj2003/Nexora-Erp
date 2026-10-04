@@ -2,16 +2,19 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NCollapse } from 'naive-ui'
-import type { CrmQuote } from '../../../../../shared/crm-api'
+import type { CrmAttachmentKind, CrmQuote } from '../../../../../shared/crm-api'
 import { usePiniaAppStore } from '../../../store/app-store'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import CrmQuoteAttachments from './CrmQuoteAttachments.vue'
+import CrmRecordAttachments from './CrmRecordAttachments.vue'
 import { crmKindLabel,crmAuditLabel,crmQuoteLabel,crmSnapshotRows } from './crm-display'
 const store=usePiniaAppStore()
 const {crmDetail:detail,crmChanges:changes,busy}=storeToRefs(store)
 const quote=computed(()=>detail.value?.kind==='quote' ? detail.value.record as CrmQuote : null)
+const recordAttachmentKind=computed<CrmAttachmentKind | null>(()=>
+  detail.value && detail.value.kind!=='quote' ? detail.value.kind : null)
 const snapshot=computed(()=>detail.value ? crmSnapshotRows(detail.value.kind,detail.value.record as unknown as Record<string,unknown>) : [])
 function auditLines(source:Record<string,unknown>): {material_name:string; quantity:string; unit_price:string; line_total:string}[] {
   return Array.isArray(source.lines) ? source.lines.map(row=>({material_name:String(row.material_name??''),quantity:String(row.quantity??''),unit_price:String(row.unit_price??''),line_total:String(row.line_total??'')})) : []
@@ -39,6 +42,7 @@ function auditLines(source:Record<string,unknown>): {material_name:string; quant
       <template #cell-material="{row}">{{ row.sku }} · {{ row.material_name }}<span class="crm-secondary muted">{{ row.unit }}</span></template>
     </WorkspaceTable>
     <CrmQuoteAttachments v-if="quote" :quote-id="quote.id" />
+    <CrmRecordAttachments v-if="recordAttachmentKind" :kind="recordAttachmentKind" :record-id="detail.record.id" :record-version="detail.record.version" />
     <section class="card">
       <h3>变更与操作依据</h3>
       <NCollapse><AppCollapseItem v-for="change in changes" :key="change.id" :name="String(change.id)" :title="`${store.localTime(change.created_at)} · ${change.changed_by_name} · ${crmAuditLabel[change.action] ?? '变更'} · ${change.reason}`">

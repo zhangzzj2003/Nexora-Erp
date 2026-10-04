@@ -24,6 +24,8 @@ import {validateCrmForecast} from '../shared/crm-forecast-validation.ts'
 import {validateJournalAttachmentResult} from '../shared/journal-attachment-validation.ts'
 import {validateAfterSalesAttachmentResult} from '../shared/after-sales-attachment-validation.ts'
 import {validateCrmQuoteAttachmentResult} from '../shared/crm-quote-attachment-validation.ts'
+import {validateCrmRecordAttachmentResult} from '../shared/crm-record-attachment-validation.ts'
+import type {CrmAttachmentKind} from '../shared/crm-api.ts'
 import { request as httpsRequest } from 'node:https'
 import { createHash } from 'node:crypto'
 
@@ -163,8 +165,8 @@ export async function fetchCrmQuotePdf(value: unknown): Promise<{ id: number; by
     && (target === null ? selectedTarget === null : sameBackendIdentity(selectedTarget, target)) }
 }
 
-async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | 'crm-quote', documentValue: unknown,
-    attachmentValue: unknown): Promise<{
+async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | 'crm-quote' | 'crm-record', documentValue: unknown,
+    attachmentValue: unknown, recordKind?: CrmAttachmentKind): Promise<{
   documentId: number; attachmentId: number; extension: string; bytes: Buffer; isCurrent: () => boolean
 }> {
   const documentId = positiveId({ id: documentValue }, 'id')
@@ -178,7 +180,9 @@ async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | '
       ? `/api/v1/finance/journals/${documentId}/attachments/${attachmentId}`
       : documentType === 'after-sales'
         ? `/api/v1/after-sales/cases/${documentId}/attachments/${attachmentId}`
-        : `/api/v1/crm/quotes/${documentId}/attachments/${attachmentId}`
+        : documentType === 'crm-quote'
+          ? `/api/v1/crm/quotes/${documentId}/attachments/${attachmentId}`
+          : `/api/v1/crm/records/${recordKind}/${documentId}/attachments/${attachmentId}`
     response = await sendRequest(path,
       'GET', { Authorization: `Bearer ${token}` }, undefined, 30000, target, 5 * 1024 * 1024)
   } catch (cause) {
@@ -241,6 +245,12 @@ export async function fetchCrmQuoteAttachment(quoteValue: unknown, attachmentVal
   return { ...file, quoteId: file.documentId }
 }
 
+export async function fetchCrmRecordAttachment(kindValue: unknown, recordValue: unknown, attachmentValue: unknown) {
+  const kind = crmRecordKind(kindValue)
+  const file = await fetchStoredAttachment('crm-record', recordValue, attachmentValue, kind)
+  return { ...file, kind, recordId: file.documentId }
+}
+
 export async function getServerInfo(target?: BackendTarget): Promise<{ id: string; name: string; version: string; ready: boolean }> {
   const response = await sendRequest('/api/v1/server/info', 'GET', {}, undefined, 5000, target)
   if (!response.ok) throw new Error(`服务端身份检查失败（HTTP ${response.status}）`)
@@ -259,6 +269,13 @@ function positiveId(payload: unknown, key: string): number {
   const value = payload && typeof payload === 'object' ? (payload as Record<string, unknown>)[key] : undefined
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new Error('记录编号无效')
+  }
+  return value
+}
+
+function crmRecordKind(value: unknown): CrmAttachmentKind {
+  if (value !== 'contact' && value !== 'activity' && value !== 'opportunity') {
+    throw new Error('客户关系记录类型无效')
   }
   return value
 }
@@ -655,6 +672,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'reverseCrmQuoteAttachment': {
       const reason=bankText((payload as ErpOperations['reverseCrmQuoteAttachment']['input']).reason,'撤销原因',200)
       return {method:'POST',path:`/api/v1/crm/quotes/${positiveId(payload,'quoteId')}/attachments/${positiveId(payload,'attachmentId')}/reverse`,
+        body:{reason}}
+    }
+    case 'crmRecordAttachments': return {method:'GET',path:`/api/v1/crm/records/${crmRecordKind((payload as ErpOperations['crmRecordAttachments']['input']).kind)}/${positiveId(payload,'id')}/attachments`}
+    case 'addCrmRecordAttachment': return {method:'POST',path:`/api/v1/crm/records/${crmRecordKind((payload as ErpOperations['addCrmRecordAttachment']['input']).kind)}/${positiveId(payload,'id')}/attachments`,
+      body:attachmentBody(payload)}
+    case 'reverseCrmRecordAttachment': {
+      const data=payload as ErpOperations['reverseCrmRecordAttachment']['input']
+      const reason=bankText(data.reason,'撤销原因',200)
+      return {method:'POST',path:`/api/v1/crm/records/${crmRecordKind(data.kind)}/${positiveId(payload,'id')}/attachments/${positiveId(payload,'attachmentId')}/reverse`,
         body:{reason}}
     }
     case 'saveAfterSalesCase': {
@@ -1393,7 +1419,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
         ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...(publicAction ? {} : { Authorization: `Bearer ${activeToken}` })
       }, request.body, action === 'addJournalAttachment' || action === 'addAfterSalesAttachment'
-        || action === 'addCrmQuoteAttachment' ? 30000 : 10000)
+        || action === 'addCrmQuoteAttachment' || action === 'addCrmRecordAttachment' ? 30000 : 10000)
   } catch {
     throw new Error('无法连接服务端，请检查网络、服务状态和证书。')
   }
@@ -1524,6 +1550,10 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   if (action === 'crmQuoteAttachments' || action === 'addCrmQuoteAttachment' || action === 'reverseCrmQuoteAttachment') {
     validateCrmQuoteAttachmentResult(action, data,
       positiveId(payload, action === 'reverseCrmQuoteAttachment' ? 'quoteId' : 'id'))
+  }
+  if (action === 'crmRecordAttachments' || action === 'addCrmRecordAttachment' || action === 'reverseCrmRecordAttachment') {
+    validateCrmRecordAttachmentResult(action, data,
+      crmRecordKind((payload as ErpOperations[typeof action]['input']).kind), positiveId(payload, 'id'))
   }
   return data
 }

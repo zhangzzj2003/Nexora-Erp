@@ -112,6 +112,10 @@ def test_v74_upgrade_is_idempotent_and_keeps_quote(seeded):
     client, admin, *_ = seeded
     identifier = quote_id(seeded)
     with connection() as db:
+        db.execute('DROP TABLE crm_record_attachment_reversals')
+        db.execute('DROP TABLE crm_record_attachments')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='crm.attachment'")
+        db.execute("DELETE FROM permissions WHERE code='crm.attachment'")
         db.execute('DROP TABLE crm_quote_attachment_reversals')
         db.execute('DROP TABLE crm_quote_attachments')
         db.execute("DELETE FROM role_permissions WHERE permission_code='crm_quote.attachment'")
@@ -120,10 +124,10 @@ def test_v74_upgrade_is_idempotent_and_keeps_quote(seeded):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 75
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 76
         assert db.execute('SELECT status FROM crm_quotes WHERE id=?', (identifier,)).fetchone()[0] == 'draft'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='crm_quote.attachment'").fetchone()[0] == 2
-    assert len(Base.metadata.tables) == 172
+    assert len(Base.metadata.tables) == 174
     assert client.post(path(identifier), headers=admin, json=attachment()).status_code == 201
 
 

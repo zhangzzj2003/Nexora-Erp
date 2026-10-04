@@ -46,7 +46,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 基础资料与供货关系
 
-客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。第 61 版增加客户负责人、版本和归属变更 ORM 表；第 65 版增加商机可空概率列及按可见客户范围的预测查询 `app/sales/crm_forecast.py`，`app/sales/customer_scope.py` 为 CRM 及销售单据提供统一服务端归属边界。旧客户保持未分配，由管理员凭依据分配；新客户默认归创建账号。提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。第 75 版的 `app/sales/crm_quote_attachments.py` 通过 ORM 留存报价附件原文、摘要、上传依据及追加式撤销；查看遵循客户归属和 `crm.view`，写入另需 `crm_quote.attachment`，取消或转单后只读。PDF、PNG、JPEG 单文件最多 5 MiB，每张报价最多 10 个有效附件；桌面通过受限 IPC 选择和保存文件。`app/sales/crm_quote_pdf.py` 使用只读 ORM 快照和随服务打包的 OFL 中文字体导出已批准或已转单报价；桌面固定 IPC 保存，不自动发送。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。
+客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。第 61 版增加客户负责人、版本和归属变更 ORM 表；第 65 版增加商机可空概率列及按可见客户范围的预测查询 `app/sales/crm_forecast.py`，`app/sales/customer_scope.py` 为 CRM 及销售单据提供统一服务端归属边界。旧客户保持未分配，由管理员凭依据分配；新客户默认归创建账号。提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。第 76 版的 `app/sales/crm_record_attachments.py` 为联系人、跟进和商机提供 ORM 原文留存与追加式撤销；客户归属和 `crm.view` 限定读取，写入另需 `crm.attachment`，停用或终态只读。第 75 版的 `app/sales/crm_quote_attachments.py` 通过 ORM 留存报价附件原文、摘要、上传依据及追加式撤销；查看遵循客户归属和 `crm.view`，写入另需 `crm_quote.attachment`，取消或转单后只读。PDF、PNG、JPEG 单文件最多 5 MiB，每张报价最多 10 个有效附件；桌面通过受限 IPC 选择和保存文件。`app/sales/crm_quote_pdf.py` 使用只读 ORM 快照和随服务打包的 OFL 中文字体导出已批准或已转单报价；桌面固定 IPC 保存，不自动发送。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。
 
 客户新增前可通过 `POST /api/v1/customers/duplicate-candidates` 查询当前账号可见范围内的相似名称；候选来自客户 ORM 模型，仅读取并提示，不自动合并或阻止用户确认后的新增。接口要求 `customer.manage`，细则见 [客户关系规则](../docs/customer-relations.md)。
 
@@ -114,7 +114,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 数据库第 39 版增加成本结算、分摊、来源依赖和独立冲销表。GET `/api/v1/production-costs/settlements` 查看历史；POST 同路径传入 `work_order_id`、`reference`、可选 `note`，仅可结算全部报工、无未处理草稿且净领料全部核价的工单。成本按合格入库数量累计比例分摊到各完工批次，以分为单位处理尾差；没有合格成品时拒绝结算。完工入库在库存计价中返回 `cost_source: production_settlement` 与 `settlement_id`，内部分摊金额不由四位展示单价倒算。POST `/{id}/reverse` 按原因冲销结算，原快照保留；有关联后续有效工单结算时拒绝冲销。结算冻结该工单费用、完工来源和有关核价依赖，先冲销后才能更正。结算、冲销分别要求 `production_cost.settle`、`production_cost.reopen`，默认授予管理员和财务员；查看沿用 `production_cost.view`。成本规则与边界见 [完工成本规则](../docs/production-cost-settlement.md)。
 
-现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 172 张静态模型表及第 75 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
+现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 174 张静态模型表及第 76 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
 
 ## 多仓库库存与调拨
 
@@ -261,7 +261,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 银行流水勾对
 
-第 69 版新增银行账户、流水、勾对及撤销四张 ORM 模型表；第 70 版增加 CSV 导入批次来源表及流水来源列。第 71 版增加账户绑定审计、总账分组勾对与撤销、余额调节表与复核六张表，第 72 版增加期初未达项、核销、核销来源和撤销四张表；第 73 版增加凭证附件和追加式撤销两张表；第 74 版增加售后附件和追加式撤销两张表；第 75 版增加报价附件及追加式撤销两张表，共 172 张静态模型表。`app/finance/bank_reconciliation.py` 提供 `/api/v1/finance/bank-reconciliation/overview`、`/accounts`、`/lines/import`、`/imports/csv/preview`、`/imports/csv`、`/matches` 和 `/matches/{id}/reverse`；查看、账户维护、流水登记、勾对和撤销分别使用独立权限。桌面可登记账户、逐笔流水或上传 UTF-8 CSV 并查看来源批次和历史；CSV 文件最多 1 MiB、500 笔，预检后整批写入。账户内重复文件摘要或交易号均拒绝，整批回滚。精确金额和方向匹配订单及历史分户收付款，撤销追加证据。人工录入不等于银行原始凭据核实，不自动改变应收应付或总账；银行直连尚未实现。第 71 至 72 版的 `app/finance/bank_balance.py` 提供账户绑定、已过账分录的同向等额分组勾对、未达项预览、调节快照与独立复核；启用日须与已确认总账期初一致，期初差额须由迁入未达项调节相符。新增 `/api/v1/finance/bank-balance/overview`、`/preview`、`/reports` 及绑定、期初未达项核销与撤销、分组勾对和复核端点。规则及边界见[银行流水勾对与余额调节](../docs/bank-reconciliation.md)。
+第 69 版新增银行账户、流水、勾对及撤销四张 ORM 模型表；第 70 版增加 CSV 导入批次来源表及流水来源列。第 71 版增加账户绑定审计、总账分组勾对与撤销、余额调节表与复核六张表，第 72 版增加期初未达项、核销、核销来源和撤销四张表；第 73 版增加凭证附件和追加式撤销两张表；第 74 版增加售后附件和追加式撤销两张表；第 75 版增加报价附件及追加式撤销两张表；第 76 版增加联系人、跟进与商机共用附件及追加式撤销两张表，共 174 张静态模型表。`app/finance/bank_reconciliation.py` 提供 `/api/v1/finance/bank-reconciliation/overview`、`/accounts`、`/lines/import`、`/imports/csv/preview`、`/imports/csv`、`/matches` 和 `/matches/{id}/reverse`；查看、账户维护、流水登记、勾对和撤销分别使用独立权限。桌面可登记账户、逐笔流水或上传 UTF-8 CSV 并查看来源批次和历史；CSV 文件最多 1 MiB、500 笔，预检后整批写入。账户内重复文件摘要或交易号均拒绝，整批回滚。精确金额和方向匹配订单及历史分户收付款，撤销追加证据。人工录入不等于银行原始凭据核实，不自动改变应收应付或总账；银行直连尚未实现。第 71 至 72 版的 `app/finance/bank_balance.py` 提供账户绑定、已过账分录的同向等额分组勾对、未达项预览、调节快照与独立复核；启用日须与已确认总账期初一致，期初差额须由迁入未达项调节相符。新增 `/api/v1/finance/bank-balance/overview`、`/preview`、`/reports` 及绑定、期初未达项核销与撤销、分组勾对和复核端点。规则及边界见[银行流水勾对与余额调节](../docs/bank-reconciliation.md)。
 
 ## 实物批次数据基础
 

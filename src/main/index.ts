@@ -3,8 +3,9 @@ import { basename, extname, join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { backendSessionMarker, callBackend, fetchCrmQuotePdf, fetchJournalAttachment,
-  fetchAfterSalesAttachment, fetchCrmQuoteAttachment, getBackendHealth } from './backend'
+  fetchAfterSalesAttachment, fetchCrmQuoteAttachment, fetchCrmRecordAttachment, getBackendHealth } from './backend'
 import type { ErpOperations } from '../shared/erp-api'
+import type { CrmAttachmentKind } from '../shared/crm-api'
 import type { InventoryWarningEventPage } from '../shared/inventory-warning-api'
 import type { HostInput } from '../shared/desktop-api'
 import { keepDesktopInTray, trayServiceLabel } from './tray-state'
@@ -39,6 +40,13 @@ if (process.env.NEXORA_USER_DATA_DIR) {
 function assertMainWindow(event: Electron.IpcMainInvokeEvent): void {
   if (!mainWindow || event.sender !== mainWindow.webContents
     || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('不允许的窗口请求')
+}
+
+function crmAttachmentKind(value: unknown): CrmAttachmentKind {
+  if (value !== 'contact' && value !== 'activity' && value !== 'opportunity') {
+    throw new Error('客户关系记录类型无效')
+  }
+  return value
 }
 
 function ensureTray(): void {
@@ -318,6 +326,54 @@ app.whenReady().then(() => {
     if (selected.canceled || !selected.filePath) return null
     assertMainWindow(event)
     if (backendSessionMarker() !== marker || !file.isCurrent()) throw new Error('会话已变化，请重新导出报价附件')
+    if (extname(selected.filePath).toLowerCase() !== file.extension) throw new Error('附件保存格式无效')
+    await writeFile(selected.filePath, file.bytes)
+    return selected.filePath
+  })
+  ipcMain.handle('crm:upload-record-attachment', async (event, kindValue: unknown, recordId: unknown, reason: unknown) => {
+    assertMainWindow(event)
+    const kind = crmAttachmentKind(kindValue)
+    if (typeof recordId !== 'number' || !Number.isSafeInteger(recordId) || recordId <= 0
+      || typeof reason !== 'string' || !reason.trim() || reason.length > 200
+      || /[\x00-\x1f]/.test(reason)) throw new Error('客户关系附件参数无效')
+    const marker = backendSessionMarker()
+    if (marker === null || !mainWindow) throw new Error('请先登录')
+    const selected = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'], filters: [{ name: '客户关系附件', extensions: ['pdf', 'png', 'jpg', 'jpeg'] }]
+    })
+    if (selected.canceled || !selected.filePaths[0]) return null
+    assertMainWindow(event)
+    if (backendSessionMarker() !== marker) throw new Error('会话已变化，请重新选择客户关系附件')
+    const path = selected.filePaths[0]
+    const info = await stat(path)
+    if (!info.isFile() || info.size < 1 || info.size > 5 * 1024 * 1024) {
+      throw new Error('客户关系附件须为非空且不超过 5 MiB')
+    }
+    const bytes = await readFile(path)
+    if (bytes.length < 1 || bytes.length > 5 * 1024 * 1024) throw new Error('客户关系附件大小已变化，请重新选择')
+    if (backendSessionMarker() !== marker) throw new Error('会话已变化，请重新选择客户关系附件')
+    const result = await callBackend('addCrmRecordAttachment', {
+      kind, id: recordId, file_name: basename(path), content_base64: bytes.toString('base64'), reason: reason.trim()
+    })
+    if (backendSessionMarker() !== marker) throw new Error('会话已变化，请刷新客户关系附件')
+    return result
+  })
+  ipcMain.handle('crm:save-record-attachment', async (event, kindValue: unknown, recordId: unknown, attachmentId: unknown) => {
+    assertMainWindow(event)
+    const kind = crmAttachmentKind(kindValue)
+    const marker = backendSessionMarker()
+    if (marker === null) throw new Error('请先登录')
+    const file = await fetchCrmRecordAttachment(kind, recordId, attachmentId)
+    if (!mainWindow || backendSessionMarker() !== marker || !file.isCurrent()) {
+      throw new Error('会话已变化，请重新读取客户关系附件')
+    }
+    const selected = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: `crm-${kind}-${file.recordId}-${file.attachmentId}${file.extension}`,
+      filters: [{ name: '客户关系附件', extensions: [file.extension.slice(1)] }]
+    })
+    if (selected.canceled || !selected.filePath) return null
+    assertMainWindow(event)
+    if (backendSessionMarker() !== marker || !file.isCurrent()) throw new Error('会话已变化，请重新导出客户关系附件')
     if (extname(selected.filePath).toLowerCase() !== file.extension) throw new Error('附件保存格式无效')
     await writeFile(selected.filePath, file.bytes)
     return selected.filePath

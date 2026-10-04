@@ -180,6 +180,10 @@ def test_upgrade_from_72_preserves_journal_and_adds_static_models(journals):
     client, _ = journals
     journal = create(client)
     with connection() as db:
+        db.execute('DROP TABLE crm_record_attachment_reversals')
+        db.execute('DROP TABLE crm_record_attachments')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='crm.attachment'")
+        db.execute("DELETE FROM permissions WHERE code='crm.attachment'")
         db.execute('DROP TABLE crm_quote_attachment_reversals')
         db.execute('DROP TABLE crm_quote_attachments')
         db.execute("DELETE FROM role_permissions WHERE permission_code='crm_quote.attachment'")
@@ -196,10 +200,10 @@ def test_upgrade_from_72_preserves_journal_and_adds_static_models(journals):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 75
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 76
         assert db.execute('SELECT reference FROM journals WHERE id=?', (journal['id'],)).fetchone()[0] == 'J001'
         assert db.execute("SELECT count(*) FROM role_permissions WHERE permission_code='journal.attachment'").fetchone()[0] == 2
-    assert len(Base.metadata.tables) == 172
+    assert len(Base.metadata.tables) == 174
     assert client.post(path(journal['id']), json=payload()).status_code == 201
 
 

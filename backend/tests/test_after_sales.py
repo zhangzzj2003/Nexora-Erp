@@ -326,10 +326,10 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 75
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 76
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
-    assert len(Base.metadata.tables)== 172
+    assert len(Base.metadata.tables)== 174
 
 
 def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_after_sales_labor_schema,monkeypatch):
@@ -356,7 +356,7 @@ def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_
         assert not db.execute("SELECT 1 FROM permissions WHERE code='after_sales.labor'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 75
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 76
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?',(case['id'],)).fetchone()[0]=='approved'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.labor'").fetchone()[0]==2
 

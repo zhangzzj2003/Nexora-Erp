@@ -1,5 +1,6 @@
 /** 客户关系、固定报价和审计的受限通信协议。 */
 export type CrmKind = 'contact' | 'activity' | 'opportunity' | 'quote'
+export type CrmAttachmentKind = Exclude<CrmKind, 'quote'>
 export type CrmStage = 'prospect' | 'qualified' | 'proposal' | 'negotiation' | 'won' | 'lost'
 export type CrmQuoteStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'cancelled' | 'converted'
 export type CrmQuoteAction = 'submit' | 'approve' | 'reject' | 'cancel'
@@ -75,6 +76,15 @@ export interface CrmQuoteAttachment {
   reversal: { id: number; reason: string; created_by: number; created_by_name: string; created_at: string } | null
 }
 export interface CrmQuoteAttachmentList { quote_id: number; can_modify: boolean; items: CrmQuoteAttachment[] }
+export interface CrmRecordAttachment {
+  id: number; entity_kind: CrmAttachmentKind; entity_id: number
+  file_name: string; media_type: 'application/pdf' | 'image/png' | 'image/jpeg'
+  byte_count: number; sha256: string; reason: string; created_by: number; created_by_name: string; created_at: string
+  reversal: { id: number; reason: string; created_by: number; created_by_name: string; created_at: string } | null
+}
+export interface CrmRecordAttachmentList {
+  entity_kind: CrmAttachmentKind; entity_id: number; can_modify: boolean; items: CrmRecordAttachment[]
+}
 export type CrmRecord = CrmContact | CrmActivity | CrmOpportunity | CrmQuote
 export interface CrmOverview { contacts: CrmContact[]; activities: CrmActivity[]; opportunities: CrmOpportunity[]; quotes: CrmQuote[] }
 export interface CrmOptions {
@@ -108,6 +118,9 @@ export interface CrmOperations {
   crmQuoteAttachments: {input: {id: number}; output: CrmQuoteAttachmentList}
   addCrmQuoteAttachment: {input: {id: number; file_name: string; content_base64: string; reason: string}; output: CrmQuoteAttachment}
   reverseCrmQuoteAttachment: {input: {quoteId: number; attachmentId: number; reason: string}; output: CrmQuoteAttachment}
+  crmRecordAttachments: {input: {kind: CrmAttachmentKind; id: number}; output: CrmRecordAttachmentList}
+  addCrmRecordAttachment: {input: {kind: CrmAttachmentKind; id: number; file_name: string; content_base64: string; reason: string}; output: CrmRecordAttachment}
+  reverseCrmRecordAttachment: {input: {kind: CrmAttachmentKind; id: number; attachmentId: number; reason: string}; output: CrmRecordAttachment}
   crmChanges: {input: {kind: CrmKind; id: number}; output: CrmChange[]}
   saveCrmContact: {input: CrmContactInput & Partial<CrmVersion> & {id?: number}; output: CrmContact}
   saveCrmOpportunity: {input: CrmOpportunityInput & Partial<CrmVersion> & {id?: number}; output: CrmOpportunity}
