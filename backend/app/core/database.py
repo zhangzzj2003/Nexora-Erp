@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 71:
+        if version > 72:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2339,3 +2339,39 @@ def migrate() -> None:
             db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                 [(role, code) for role in ('admin','finance') for code, _ in operations])
             db.execute('PRAGMA user_version = 71')
+
+        if version < 72:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_opening_items (
+                id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+                side TEXT NOT NULL CHECK(side IN ('bank','book')),
+                occurred_on TEXT NOT NULL, amount TEXT NOT NULL,
+                reference TEXT NOT NULL, description TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(account_id,side,reference))''')
+            db.execute('CREATE INDEX IF NOT EXISTS bank_opening_items_account ON bank_opening_items(account_id,side,id)')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_opening_clearances (
+                id INTEGER PRIMARY KEY,
+                opening_item_id INTEGER NOT NULL REFERENCES bank_opening_items(id),
+                reason TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX IF NOT EXISTS bank_opening_clearances_item ON bank_opening_clearances(opening_item_id,id)')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_opening_clearance_members (
+                id INTEGER PRIMARY KEY,
+                clearance_id INTEGER NOT NULL REFERENCES bank_opening_clearances(id),
+                side TEXT NOT NULL CHECK(side IN ('bank','book')),
+                source_id INTEGER NOT NULL,
+                bank_line_id INTEGER REFERENCES bank_statement_lines(id),
+                journal_line_id INTEGER REFERENCES journal_lines(id),
+                amount TEXT NOT NULL,
+                CHECK((side='bank' AND bank_line_id=source_id AND journal_line_id IS NULL)
+                    OR (side='book' AND journal_line_id=source_id AND bank_line_id IS NULL)))''')
+            db.execute('CREATE INDEX IF NOT EXISTS bank_opening_clearance_members_source ON bank_opening_clearance_members(side,source_id,clearance_id)')
+            db.execute('''CREATE TABLE IF NOT EXISTS bank_opening_clearance_reversals (
+                id INTEGER PRIMARY KEY,
+                clearance_id INTEGER NOT NULL UNIQUE REFERENCES bank_opening_clearances(id),
+                reason TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('PRAGMA user_version = 72')

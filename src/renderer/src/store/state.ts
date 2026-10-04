@@ -68,6 +68,7 @@ import type {
   BankCsvPreview,
   BankBalanceOverview,
   BankBalancePreview,
+  BankOpeningInput,
   Permission,
   ProductionCompletion,
   ProductionCostReport,
@@ -274,11 +275,13 @@ export function createAppState() {
   const bankMatchForm = ref<{ statement_line_id: number; source_type: 'order_payment' | 'subledger_payment'; source_id: number; reason: string }>({ statement_line_id: 0, source_type: 'order_payment', source_id: 0, reason: '' })
   const bankReverseReasons = ref<Record<number, string>>({})
   const bankBalanceOverview = ref<BankBalanceOverview | null>(null)
-  const bankBindingForm = ref({ accountId: 0, ledger_account_id: 0, opening_balance: '', effective_date: '', version: 0, reason: '' })
+  const bankBindingForm = ref({ accountId: 0, ledger_account_id: 0, opening_balance: '', effective_date: '', version: 0, reason: '', opening_items: [] as BankOpeningInput[] })
   const bankBalanceForm = ref({ account_id: 0, as_of_date: '', declared_bank_closing: '', reason: '' })
   const bankBalancePreview = ref<BankBalancePreview | null>(null)
   const bankLedgerMatchForm = ref({ account_id: 0, bank_line_ids: [] as number[], journal_line_ids: [] as number[], reason: '' })
   const bankLedgerReverseReasons = ref<Record<number, string>>({})
+  const bankOpeningClearanceForm = ref({ opening_item_id: 0, source_ids: [] as number[], reason: '' })
+  const bankOpeningReverseReasons = ref<Record<number, string>>({})
   const bankReportDecisionReasons = ref<Record<number, string>>({})
   const boms = ref<Bom[]>([])
   const workOrders = ref<WorkOrder[]>([])
@@ -639,6 +642,8 @@ export function createAppState() {
     bankBalancePreview,
     bankLedgerMatchForm,
     bankLedgerReverseReasons,
+    bankOpeningClearanceForm,
+    bankOpeningReverseReasons,
     bankReportDecisionReasons,
     boms,
     workOrders,

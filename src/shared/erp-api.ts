@@ -633,14 +633,23 @@ export interface BankMatch { id: number; statement_line_id: number; source_type:
 export interface BankReconciliationOverview { currency: 'CNY'; accounts: BankAccount[]; imports: BankImportBatch[]; lines: BankStatementLine[]; sources: BankPaymentSource[]; matches: BankMatch[] }
 export interface BankBalanceInput { account_id: number; as_of_date: string; declared_bank_closing: string }
 export interface BankBalanceItem { id: number; amount: string; occurred_on?: string; transaction_id?: string; counterparty?: string; journal_id?: number; journal_date?: string; reference?: string; summary?: string }
+export interface BankOpeningInput { side: 'bank' | 'book'; occurred_on: string; amount: string; reference: string; description: string }
+export interface BankOpeningItem extends BankOpeningInput { id: number; account_id: number; created_by: number; created_by_name?: string; created_at: string }
+export interface BankOpeningClearance {
+  id: number; opening_item_id: number; reason: string; created_by: number; created_by_name: string; created_at: string
+  members: { id: number; clearance_id: number; side: 'bank' | 'book'; source_id: number; bank_line_id: number | null; journal_line_id: number | null; amount: string }[]
+  reversal: { id: number; clearance_id: number; reason: string; created_by: number; created_by_name: string; created_at: string } | null
+}
 export interface BankBalancePreview {
   account_id: number; account_code: string; ledger_account_id: number; ledger_code: string
   effective_date: string; as_of_date: string; bank_opening: string; bank_movements: string
   bank_closing_computed: string; bank_closing_declared: string; book_opening: string
   book_movements: string; book_closing: string; bank_unmatched: BankBalanceItem[]
-  book_unmatched: BankBalanceItem[]; adjusted_bank: string; adjusted_book: string
+  book_unmatched: BankBalanceItem[]; bank_opening_unmatched: BankOpeningItem[]
+  book_opening_unmatched: BankOpeningItem[]; adjusted_bank: string; adjusted_book: string
   bank_statement_balanced: boolean; balanced: boolean; fingerprint: string
   matched_evidence: { group_id: number; bank_line_ids: number[]; journal_line_ids: number[] }[]
+  clearance_evidence: { clearance_id: number; opening_item_id: number; source_ids: number[] }[]
 }
 export interface BankLedgerMatchGroup {
   id: number; account_id: number; amount: string; reason: string; created_by: number
@@ -658,6 +667,7 @@ export interface BankBalanceReport {
 export interface BankBalanceOverview {
   accounts: BankAccount[]; ledger_accounts: { id: number; code: string; name: string }[]; opening_effective_date: string | null
   account_changes: { id: number; account_id: number; before_json: string; after_json: string; reason: string; changed_by: number; changed_by_name: string; created_at: string }[]
+  opening_items: BankOpeningItem[]; opening_clearances: BankOpeningClearance[]
   matches: BankLedgerMatchGroup[]; reports: BankBalanceReport[]
 }
 export interface FinanceOverview {
@@ -1299,7 +1309,9 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   matchBankLine: { input: { statement_line_id: number; source_type: BankPaymentSource['source_type']; source_id: number; reason: string }; output: BankMatch }
   reverseBankMatch: { input: { matchId: number; reason: string }; output: BankMatchReversal }
   bankBalanceOverview: { input: undefined; output: BankBalanceOverview }
-  bindBankLedgerAccount: { input: { accountId: number; ledger_account_id: number; opening_balance: string; effective_date: string; version: number; reason: string }; output: BankAccount }
+  bindBankLedgerAccount: { input: { accountId: number; ledger_account_id: number; opening_balance: string; effective_date: string; version: number; reason: string; opening_items: BankOpeningInput[] }; output: BankAccount }
+  clearBankOpeningItem: { input: { openingItemId: number; source_ids: number[]; reason: string }; output: Omit<BankOpeningClearance, 'created_by_name' | 'members' | 'reversal'> & { source_ids: number[] } }
+  reverseBankOpeningClearance: { input: { clearanceId: number; reason: string }; output: NonNullable<BankOpeningClearance['reversal']> }
   previewBankBalance: { input: BankBalanceInput; output: BankBalancePreview }
   matchBankLedger: { input: { account_id: number; bank_line_ids: number[]; journal_line_ids: number[]; reason: string }; output: { id: number; account_id: number; amount: string; reason: string; created_by: number; created_at: string; bank_line_ids: number[]; journal_line_ids: number[] } }
   reverseBankLedgerMatch: { input: { groupId: number; reason: string }; output: NonNullable<BankLedgerMatchGroup['reversal']> }

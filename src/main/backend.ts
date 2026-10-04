@@ -220,7 +220,7 @@ function bankBalanceIds(value: unknown): number[] {
   return value
 }
 
-function bankBalanceBody(payload: unknown, kind: 'binding' | 'preview' | 'match' | 'report' | 'decision' | 'reason'): Record<string, unknown> {
+function bankBalanceBody(payload: unknown, kind: 'binding' | 'preview' | 'match' | 'report' | 'decision' | 'reason' | 'opening-clearance'): Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('银行余额调节参数无效')
   const value = payload as Record<string, unknown>
   const reason = () => bankText(value.reason, '银行调节依据', 200)
@@ -229,9 +229,30 @@ function bankBalanceBody(payload: unknown, kind: 'binding' | 'preview' | 'match'
     if (value.action !== 'approve' && value.action !== 'reject') throw new Error('银行调节复核动作无效')
     return { action: value.action, reason: reason() }
   }
-  if (kind === 'binding') return { ledger_account_id: positiveId(value, 'ledger_account_id'),
-    opening_balance: bankBalanceAmount(value.opening_balance), effective_date: bankBalanceDate(value.effective_date),
-    version: positiveId(value, 'version'), reason: reason() }
+  if (kind === 'binding') {
+    const effective_date = bankBalanceDate(value.effective_date)
+    const input = value.opening_items ?? []
+    if (!Array.isArray(input) || input.length > 100) throw new Error('银行期初未达项无效')
+    const opening_items = input.map((entry: unknown) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('银行期初未达项无效')
+      const item = entry as Record<string, unknown>
+      if (item.side !== 'bank' && item.side !== 'book') throw new Error('银行期初未达项方向无效')
+      const occurred_on = bankBalanceDate(item.occurred_on)
+      if (occurred_on >= effective_date) throw new Error('银行期初未达项日期须早于启用日')
+      const amount = bankBalanceAmount(item.amount)
+      if (Number(amount) === 0) throw new Error('银行期初未达项金额不能为零')
+      return { side: item.side, occurred_on, amount,
+        reference: bankText(item.reference, '期初未达项依据编号', 100),
+        description: bankText(item.description, '期初未达项说明', 200) }
+    })
+    if (new Set(opening_items.map(item => `${item.side}:${item.reference}`)).size !== opening_items.length) {
+      throw new Error('同侧期初未达项依据编号不能重复')
+    }
+    return { ledger_account_id: positiveId(value, 'ledger_account_id'),
+      opening_balance: bankBalanceAmount(value.opening_balance), effective_date,
+      version: positiveId(value, 'version'), reason: reason(), opening_items }
+  }
+  if (kind === 'opening-clearance') return { source_ids: bankBalanceIds(value.source_ids), reason: reason() }
   if (kind === 'match') return { account_id: positiveId(value, 'account_id'),
     bank_line_ids: bankBalanceIds(value.bank_line_ids), journal_line_ids: bankBalanceIds(value.journal_line_ids),
     reason: reason() }
@@ -1021,6 +1042,8 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'reverseBankMatch': return { method: 'POST', path: `/api/v1/finance/bank-reconciliation/matches/${positiveId(payload, 'matchId')}/reverse`, body: bankBody(payload, 'reverse') }
     case 'bankBalanceOverview': return { method: 'GET', path: '/api/v1/finance/bank-balance/overview' }
     case 'bindBankLedgerAccount': return { method: 'POST', path: `/api/v1/finance/bank-balance/accounts/${positiveId(payload, 'accountId')}/binding`, body: bankBalanceBody(payload, 'binding') }
+    case 'clearBankOpeningItem': return { method: 'POST', path: `/api/v1/finance/bank-balance/opening-items/${positiveId(payload, 'openingItemId')}/clearances`, body: bankBalanceBody(payload, 'opening-clearance') }
+    case 'reverseBankOpeningClearance': return { method: 'POST', path: `/api/v1/finance/bank-balance/opening-clearances/${positiveId(payload, 'clearanceId')}/reverse`, body: bankBalanceBody(payload, 'reason') }
     case 'previewBankBalance': return { method: 'POST', path: '/api/v1/finance/bank-balance/preview', body: bankBalanceBody(payload, 'preview') }
     case 'matchBankLedger': return { method: 'POST', path: '/api/v1/finance/bank-balance/ledger-matches', body: bankBalanceBody(payload, 'match') }
     case 'reverseBankLedgerMatch': return { method: 'POST', path: `/api/v1/finance/bank-balance/ledger-matches/${positiveId(payload, 'groupId')}/reverse`, body: bankBalanceBody(payload, 'reason') }

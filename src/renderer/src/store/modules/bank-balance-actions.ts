@@ -15,22 +15,25 @@ export function createBankBalanceActions(
     previewKey = ''
     state.bankBalanceOverview.value = null
     state.bankBalancePreview.value = null
-    state.bankBindingForm.value = { accountId: 0, ledger_account_id: 0, opening_balance: '', effective_date: '', version: 0, reason: '' }
+    state.bankBindingForm.value = { accountId: 0, ledger_account_id: 0, opening_balance: '', effective_date: '', version: 0, reason: '', opening_items: [] }
     state.bankBalanceForm.value = { account_id: 0, as_of_date: '', declared_bank_closing: '', reason: '' }
     state.bankLedgerMatchForm.value = { account_id: 0, bank_line_ids: [], journal_line_ids: [], reason: '' }
     state.bankLedgerReverseReasons.value = {}
+    state.bankOpeningClearanceForm.value = { opening_item_id: 0, source_ids: [], reason: '' }
+    state.bankOpeningReverseReasons.value = {}
     state.bankReportDecisionReasons.value = {}
   }, { flush: 'sync' })
 
   async function bindBankLedgerAccount(): Promise<void> {
     if (!available('bank_reconciliation.account')) return
     const session = owner
-    const draft = { ...state.bankBindingForm.value }
+    const draft = { ...state.bankBindingForm.value,
+      opening_items: state.bankBindingForm.value.opening_items.map(item => ({ ...item })) }
     await perform(async () => {
       if (session !== owner || !available('bank_reconciliation.account')) return
       await window.nexora!.callApi('bindBankLedgerAccount', draft)
       if (session === owner) {
-        state.bankBindingForm.value = { accountId: 0, ledger_account_id: 0, opening_balance: '', effective_date: '', version: 0, reason: '' }
+        state.bankBindingForm.value = { accountId: 0, ledger_account_id: 0, opening_balance: '', effective_date: '', version: 0, reason: '', opening_items: [] }
         state.bankBalancePreview.value = null
         previewKey = ''
       }
@@ -73,6 +76,37 @@ export function createBankBalanceActions(
         previewKey = ''
       }
     }, '银行流水与已过账分录已勾对。')
+  }
+
+  async function clearBankOpeningItem(): Promise<void> {
+    if (!available('bank_reconciliation.match')) return
+    const session = owner
+    const form = state.bankOpeningClearanceForm.value
+    const draft = { openingItemId: form.opening_item_id, source_ids: [...form.source_ids], reason: form.reason }
+    await perform(async () => {
+      if (session !== owner || !available('bank_reconciliation.match')) return
+      await window.nexora!.callApi('clearBankOpeningItem', draft)
+      if (session === owner) {
+        state.bankOpeningClearanceForm.value = { opening_item_id: 0, source_ids: [], reason: '' }
+        state.bankBalancePreview.value = null
+        previewKey = ''
+      }
+    }, '期初未达项已核销，证据已留存。')
+  }
+
+  async function reverseBankOpeningClearance(clearanceId: number): Promise<void> {
+    if (!available('bank_reconciliation.reverse')) return
+    const session = owner
+    const reason = state.bankOpeningReverseReasons.value[clearanceId] ?? ''
+    await perform(async () => {
+      if (session !== owner || !available('bank_reconciliation.reverse')) return
+      await window.nexora!.callApi('reverseBankOpeningClearance', { clearanceId, reason })
+      if (session === owner) {
+        delete state.bankOpeningReverseReasons.value[clearanceId]
+        state.bankBalancePreview.value = null
+        previewKey = ''
+      }
+    }, `期初未达项核销 #${clearanceId} 已撤销。`)
   }
 
   async function reverseBankLedgerMatch(groupId: number): Promise<void> {
@@ -123,5 +157,6 @@ export function createBankBalanceActions(
   }
 
   return { bindBankLedgerAccount, previewBankBalance, matchBankLedger,
+    clearBankOpeningItem, reverseBankOpeningClearance,
     reverseBankLedgerMatch, createBankBalanceReport, decideBankBalanceReport }
 }

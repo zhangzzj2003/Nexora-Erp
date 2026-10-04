@@ -13,9 +13,11 @@ import type { BankAccount } from '../../../../../shared/erp-api'
 const store = usePiniaAppStore()
 const { bankBalanceOverview, bankBalancePreview, bankBindingForm, bankBalanceForm,
   bankLedgerMatchForm, bankLedgerReverseReasons, bankReportDecisionReasons,
+  bankOpeningClearanceForm, bankOpeningReverseReasons,
   user, busy, error, notice, connectionLost } = storeToRefs(store)
 const { can, localTime, bindBankLedgerAccount, previewBankBalance, matchBankLedger,
-  reverseBankLedgerMatch, createBankBalanceReport, decideBankBalanceReport } = store
+  reverseBankLedgerMatch, clearBankOpeningItem, reverseBankOpeningClearance,
+  createBankBalanceReport, decideBankBalanceReport } = store
 const bindingOpen = ref(false)
 const accountOptions = computed(() => (bankBalanceOverview.value?.accounts ?? [])
   .filter(item => item.ledger_account_id !== null)
@@ -26,8 +28,16 @@ const availableLedger = computed(() => (bankBalanceOverview.value?.ledger_accoun
   .map(item => ({ value: item.id, label: `${item.code} · ${item.name}` })))
 const selectedAccount = computed(() => bankBalanceOverview.value?.accounts.find(
   item => item.id === bankBalanceForm.value.account_id))
-const bankColumns = [{ key: 'selected', title: '选择', width: '90' }, { key: 'document', title: '银行已入账、企业未入账' }]
-const bookColumns = [{ key: 'selected', title: '选择', width: '90' }, { key: 'document', title: '企业已入账、银行未入账' }]
+const openingItemOptions = computed(() => [
+  ...(bankBalancePreview.value?.bank_opening_unmatched ?? []),
+  ...(bankBalancePreview.value?.book_opening_unmatched ?? [])
+].map(item => ({ value: item.id, label: `#${item.id} · ${item.side === 'bank' ? '银行已记' : '企业已记'} · ¥${item.amount} · ${item.reference}` })))
+const selectedOpeningItem = computed(() => [
+  ...(bankBalancePreview.value?.bank_opening_unmatched ?? []),
+  ...(bankBalancePreview.value?.book_opening_unmatched ?? [])
+].find(item => item.id === bankOpeningClearanceForm.value.opening_item_id))
+const bankColumns = [{ key: 'selected', title: '选择', width: '170' }, { key: 'document', title: '银行已入账、企业未入账' }]
+const bookColumns = [{ key: 'selected', title: '选择', width: '170' }, { key: 'document', title: '企业已入账、银行未入账' }]
 const historyColumns = [{ key: 'document', title: '勾对与撤销证据' }, { key: 'actions', title: '操作', width: '280' }]
 const reportColumns = [{ key: 'document', title: '余额调节表' }, { key: 'actions', title: '独立复核', width: '310' }]
 const bindingColumns = [{ key: 'document', title: '科目绑定变更' }]
@@ -36,14 +46,22 @@ watch(() => [bankBalanceForm.value.account_id, bankBalanceForm.value.as_of_date,
   bankBalanceForm.value.declared_bank_closing], () => { bankBalancePreview.value = null }, { flush: 'sync' })
 watch(() => bankBalanceForm.value.account_id, accountId => {
   bankLedgerMatchForm.value = { account_id: accountId, bank_line_ids: [], journal_line_ids: [], reason: '' }
+  bankOpeningClearanceForm.value = { opening_item_id: 0, source_ids: [], reason: '' }
+}, { flush: 'sync' })
+watch(() => bankOpeningClearanceForm.value.opening_item_id, () => {
+  bankOpeningClearanceForm.value.source_ids = []
 }, { flush: 'sync' })
 watch(connectionLost, lost => { if (lost) { bindingOpen.value = false; bankBalancePreview.value = null } })
 
 function beginBinding(account: BankAccount): void {
   bankBindingForm.value = { accountId: account.id, ledger_account_id: account.ledger_account_id ?? 0,
     opening_balance: account.opening_balance ?? '', effective_date: account.effective_date ?? bankBalanceOverview.value?.opening_effective_date ?? '',
-    version: account.version, reason: '' }
+    version: account.version, reason: '', opening_items: [] }
   bindingOpen.value = true
+}
+function addOpeningItem(): void {
+  if (bankBindingForm.value.opening_items.length >= 100) return
+  bankBindingForm.value.opening_items.push({ side: 'bank', occurred_on: '', amount: '', reference: '', description: '' })
 }
 function toggle(ids: number[], id: number, checked: boolean): void {
   const position = ids.indexOf(id)
@@ -59,6 +77,11 @@ async function submitMatch(): Promise<void> {
     || !bankLedgerMatchForm.value.bank_line_ids.length || !bankLedgerMatchForm.value.journal_line_ids.length) return
   await matchBankLedger()
 }
+async function submitOpeningClearance(): Promise<void> {
+  if (connectionLost.value || !can('bank_reconciliation.match') || !selectedOpeningItem.value
+    || !bankOpeningClearanceForm.value.source_ids.length) return
+  await clearBankOpeningItem()
+}
 async function submitReport(): Promise<void> {
   if (connectionLost.value || !can('bank_reconciliation.reconcile') || !bankBalancePreview.value) return
   await createBankBalanceReport()
@@ -72,12 +95,12 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
     <div class="section-heading">
       <div><p class="eyebrow">BANK BALANCE</p><h2>银行余额调节</h2></div>
     </div>
-    <p class="muted">按人民币核对银行对账单与已确认期初、已过账总账。先绑定银行账户和资产类借方科目，再勾对两侧明细；未达项会分别调节两侧余额。文件和期初凭据仍需人工核实。</p>
+    <p class="muted">按人民币核对银行对账单与已确认期初、已过账总账。绑定时可迁入带依据的期初未达项，后续用到账流水或已过账凭证核销；未达项分别调节两侧余额。文件和期初凭据仍需人工核实。</p>
 
     <NModal v-if="can('bank_reconciliation.account')" v-model:show="bindingOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(720px, calc(100vw - 32px))' }">
       <h2>绑定银行账户与总账科目</h2>
-      <p class="muted">银行期初余额须与该科目已确认的总账期初相符，启用日也须一致。期初存在未达项时应先核实并完成启用前调整；有总账勾对或调节表后不能修改绑定。</p>
+      <p class="muted">启用日须与已确认总账期初一致。银行和总账期初可因未达项不同，但登记的两侧明细调节后必须相符。请按启用日前原始银行凭据和总账逐笔登记；保存后未达明细不可改写。</p>
       <form @submit.prevent="submitBinding">
         <div class="form-grid">
           <label>资产类借方科目<WorkspaceSelect v-model="bankBindingForm.ledger_account_id" required :options="availableLedger" /></label>
@@ -85,6 +108,18 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
           <label>总账启用日<AppInput v-model.trim="bankBindingForm.effective_date" required maxlength="10" placeholder="YYYY-MM-DD" /></label>
           <label>绑定依据<AppInput v-model.trim="bankBindingForm.reason" required maxlength="200" /></label>
         </div>
+        <div class="section-heading"><div><h3>期初未达项</h3></div></div>
+        <p class="muted">“银行已记”表示银行期初已包含、总账尚未入账；“企业已记”表示总账期初已包含、银行尚未到账。收款填正数，付款填负数。</p>
+        <div v-for="(item, index) in bankBindingForm.opening_items" :key="index" class="form-grid">
+          <label>已入账一侧<WorkspaceSelect v-model="item.side" required :options="[
+            { value: 'bank', label: '银行已记、企业未记' }, { value: 'book', label: '企业已记、银行未记' }]" /></label>
+          <label>原交易日<AppInput v-model.trim="item.occurred_on" required maxlength="10" placeholder="早于启用日" /></label>
+          <label>有符号金额<AppInput v-model.trim="item.amount" required placeholder="例如 -20.00" /></label>
+          <label>原凭据编号<AppInput v-model.trim="item.reference" required maxlength="100" /></label>
+          <label>交易说明<AppInput v-model.trim="item.description" required maxlength="200" /></label>
+          <AppButton type="button" :disabled="busy" @click="bankBindingForm.opening_items.splice(index, 1)">移除此项</AppButton>
+        </div>
+        <AppButton type="button" :disabled="busy || bankBindingForm.opening_items.length >= 100" @click="addOpeningItem">添加期初未达项</AppButton>
         <AppButton type="submit" variant="primary" :disabled="busy || connectionLost">保存绑定</AppButton>
       </form>
     </NModal>
@@ -97,7 +132,9 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
         <p class="muted" v-else>尚未绑定；须先完成总账正式期初确认。</p>
       </template>
       <template #cell-actions="{ row: item }">
-        <AppButton v-if="can('bank_reconciliation.account')" type="button" :disabled="busy || connectionLost" @click="beginBinding(item)">{{ item.ledger_account_id ? '核对绑定' : '设置绑定' }}</AppButton>
+        <AppButton v-if="can('bank_reconciliation.account')" type="button"
+          :disabled="busy || connectionLost || bankBalanceOverview?.opening_items?.some(opening => opening.account_id === item.id)"
+          @click="beginBinding(item)">{{ bankBalanceOverview?.opening_items?.some(opening => opening.account_id === item.id) ? '期初已锁定' : item.ledger_account_id ? '核对绑定' : '设置绑定' }}</AppButton>
       </template>
     </WorkspaceTable>
 
@@ -120,10 +157,28 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
       <p :class="bankBalancePreview.balanced ? 'muted' : ''">{{ bankBalancePreview.balanced ? '两侧调节相符，可留存草稿并交由其他账号复核。' : '余额尚未调节相符；可留存草稿记录差异，但不能复核通过。' }}</p>
       <p class="muted">来源指纹：{{ bankBalancePreview.fingerprint }}</p>
 
+      <WorkspaceTable title="期初银行已记、企业未记" :columns="[{ key: 'document', title: '迁入未达明细' }]" :data="bankBalancePreview.bank_opening_unmatched" :min-table-width="680">
+        <template #cell-document="{ row: item }">
+          <strong>#{{ item.id }} · {{ item.occurred_on }} · ¥{{ item.amount }}</strong>
+          <p class="muted">原凭据 {{ item.reference }} · {{ item.description }}</p>
+        </template>
+      </WorkspaceTable>
+      <WorkspaceTable title="期初企业已记、银行未记" :columns="[{ key: 'document', title: '迁入未达明细' }]" :data="bankBalancePreview.book_opening_unmatched" :min-table-width="680">
+        <template #cell-document="{ row: item }">
+          <strong>#{{ item.id }} · {{ item.occurred_on }} · ¥{{ item.amount }}</strong>
+          <p class="muted">原凭据 {{ item.reference }} · {{ item.description }}</p>
+        </template>
+      </WorkspaceTable>
+
       <WorkspaceTable title="银行已入账、企业未入账" :columns="bankColumns" :data="bankBalancePreview.bank_unmatched" :min-table-width="680">
         <template #cell-selected="{ row: item }">
           <NCheckbox v-if="can('bank_reconciliation.match')" :checked="bankLedgerMatchForm.bank_line_ids.includes(item.id)"
-            :disabled="busy || connectionLost" @update:checked="(checked: boolean) => toggle(bankLedgerMatchForm.bank_line_ids, item.id, checked)" />
+            :disabled="busy || connectionLost || bankOpeningClearanceForm.source_ids.includes(item.id)"
+            @update:checked="(checked: boolean) => toggle(bankLedgerMatchForm.bank_line_ids, item.id, checked)" />
+          <NCheckbox v-if="can('bank_reconciliation.match') && selectedOpeningItem?.side === 'book'"
+            :checked="bankOpeningClearanceForm.source_ids.includes(item.id)"
+            :disabled="busy || connectionLost || bankLedgerMatchForm.bank_line_ids.includes(item.id)"
+            @update:checked="(checked: boolean) => toggle(bankOpeningClearanceForm.source_ids, item.id, checked)">核销期初</NCheckbox>
         </template>
         <template #cell-document="{ row: item }">
           <strong>#{{ item.id }} · {{ item.occurred_on }} · ¥{{ item.amount }}</strong>
@@ -133,13 +188,23 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
       <WorkspaceTable title="企业已入账、银行未入账" :columns="bookColumns" :data="bankBalancePreview.book_unmatched" :min-table-width="680">
         <template #cell-selected="{ row: item }">
           <NCheckbox v-if="can('bank_reconciliation.match')" :checked="bankLedgerMatchForm.journal_line_ids.includes(item.id)"
-            :disabled="busy || connectionLost" @update:checked="(checked: boolean) => toggle(bankLedgerMatchForm.journal_line_ids, item.id, checked)" />
+            :disabled="busy || connectionLost || bankOpeningClearanceForm.source_ids.includes(item.id)"
+            @update:checked="(checked: boolean) => toggle(bankLedgerMatchForm.journal_line_ids, item.id, checked)" />
+          <NCheckbox v-if="can('bank_reconciliation.match') && selectedOpeningItem?.side === 'bank'"
+            :checked="bankOpeningClearanceForm.source_ids.includes(item.id)"
+            :disabled="busy || connectionLost || bankLedgerMatchForm.journal_line_ids.includes(item.id)"
+            @update:checked="(checked: boolean) => toggle(bankOpeningClearanceForm.source_ids, item.id, checked)">核销期初</NCheckbox>
         </template>
         <template #cell-document="{ row: item }">
           <strong>分录 #{{ item.id }} · {{ item.journal_date }} · ¥{{ item.amount }}</strong>
           <p class="muted">凭证 #{{ item.journal_id }} · {{ item.reference }} · {{ item.summary }}</p>
         </template>
       </WorkspaceTable>
+      <form v-if="can('bank_reconciliation.match') && openingItemOptions.length" @submit.prevent="submitOpeningClearance">
+        <label>选择期初未达项<WorkspaceSelect v-model="bankOpeningClearanceForm.opening_item_id" required :options="openingItemOptions" /></label>
+        <label>核销依据<AppInput v-model.trim="bankOpeningClearanceForm.reason" required maxlength="200" placeholder="选择同方向、合计等额的后续来源" /></label>
+        <AppButton type="submit" :disabled="busy || connectionLost || !selectedOpeningItem || !bankOpeningClearanceForm.source_ids.length">核销选定的期初项</AppButton>
+      </form>
       <form v-if="can('bank_reconciliation.match')" @submit.prevent="submitMatch">
         <label>勾对依据<AppInput v-model.trim="bankLedgerMatchForm.reason" required maxlength="200" placeholder="可多选同方向明细，两侧合计必须一致" /></label>
         <AppButton type="submit" :disabled="busy || connectionLost || !bankLedgerMatchForm.bank_line_ids.length || !bankLedgerMatchForm.journal_line_ids.length">勾对所选明细</AppButton>
@@ -150,6 +215,27 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
       </form>
     </template>
 
+    <WorkspaceTable title="期初未达项迁入历史" :columns="[{ key: 'document', title: '不可改写的原始依据' }]"
+      :data="bankBalanceOverview?.opening_items ?? []" :min-table-width="750">
+      <template #cell-document="{ row: item }">
+        <strong>#{{ item.id }} · 账户 #{{ item.account_id }} · {{ item.side === 'bank' ? '银行已记' : '企业已记' }} · {{ item.occurred_on }} · ¥{{ item.amount }}</strong>
+        <p class="muted">原凭据 {{ item.reference }} · {{ item.description }} · {{ localTime(item.created_at) }} · {{ item.created_by_name }}</p>
+      </template>
+    </WorkspaceTable>
+    <WorkspaceTable title="期初未达项核销与撤销历史" :columns="historyColumns"
+      :data="bankBalanceOverview?.opening_clearances ?? []" :min-table-width="850">
+      <template #cell-document="{ row: item }">
+        <strong>核销 #{{ item.id }} · 期初项 #{{ item.opening_item_id }} · {{ item.reversal ? '已撤销' : '有效' }}</strong>
+        <p class="muted">{{ item.members.map((member: { side: string; source_id: number }) => `${member.side === 'bank' ? '银行流水' : '总账分录'} #${member.source_id}`).join('、') }}</p>
+        <p class="muted">{{ localTime(item.created_at) }} · {{ item.created_by_name }} · {{ item.reason }}<span v-if="item.reversal"> · 撤销：{{ item.reversal.reason }}</span></p>
+      </template>
+      <template #cell-actions="{ row: item }">
+        <form v-if="!item.reversal && can('bank_reconciliation.reverse')" @submit.prevent="reverseBankOpeningClearance(item.id)">
+          <AppInput v-model.trim="bankOpeningReverseReasons[item.id]" required maxlength="200" placeholder="撤销原因" />
+          <AppButton type="submit" :disabled="busy || connectionLost">撤销核销</AppButton>
+        </form>
+      </template>
+    </WorkspaceTable>
     <WorkspaceTable title="勾对与撤销历史" :columns="historyColumns" :data="bankBalanceOverview?.matches ?? []" :min-table-width="850">
       <template #cell-document="{ row: item }">
         <strong>#{{ item.id }} · {{ item.amount }} 元 · {{ item.reversal ? '已撤销' : '有效' }}</strong>

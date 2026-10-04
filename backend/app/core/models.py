@@ -1494,6 +1494,48 @@ class BankAccountChange(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
+class BankOpeningItem(Base):
+    __tablename__ = 'bank_opening_items'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey('bank_accounts.id'), nullable=False)
+    side: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_on: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class BankOpeningClearance(Base):
+    __tablename__ = 'bank_opening_clearances'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    opening_item_id: Mapped[int] = mapped_column(ForeignKey('bank_opening_items.id'), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class BankOpeningClearanceMember(Base):
+    __tablename__ = 'bank_opening_clearance_members'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clearance_id: Mapped[int] = mapped_column(ForeignKey('bank_opening_clearances.id'), nullable=False)
+    side: Mapped[str] = mapped_column(Text, nullable=False)
+    source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    bank_line_id: Mapped[int | None] = mapped_column(ForeignKey('bank_statement_lines.id'), nullable=True)
+    journal_line_id: Mapped[int | None] = mapped_column(ForeignKey('journal_lines.id'), nullable=True)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class BankOpeningClearanceReversal(Base):
+    __tablename__ = 'bank_opening_clearance_reversals'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clearance_id: Mapped[int] = mapped_column(ForeignKey('bank_opening_clearances.id'), nullable=False, unique=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class BankLedgerMatchGroup(Base):
     __tablename__ = 'bank_ledger_match_groups'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -28,7 +28,7 @@
 | `finance/` | `ReceivablesPayablesView.vue` | 应收应付汇总及订单金额核对 |
 | `finance/` | `PaymentRecordsView.vue` | 独立查询、登记收付款及冲销，保留审计记录 |
 | `finance/` | `BankReconciliationView.vue` | 人工银行流水登记、CSV 文件预检及导入、逐笔收付款勾对与撤销证据 |
-| `finance/` | `BankBalanceView.vue` | 银行账户绑定总账科目、已过账分录分组勾对、未达项余额调节与独立复核 |
+| `finance/` | `BankBalanceView.vue` | 银行账户绑定、期初未达项迁入与核销、已过账分录分组勾对、余额调节与独立复核 |
 | `finance/` | `LedgerReportsView.vue` | 已过账科目明细、试算平衡、CSV 和凭证下钻 |
 | `finance/` | `FinancialStatementsView.vue` | 公司项目/科目配置、资产负债与利润查询、来源核对、归档快照及 CSV |
 | `finance/` | `AuxiliaryAccountingView.vue` | 客户/供应商/部门/项目辅助余额、来源与 CSV、档案和科目必填规则 |
