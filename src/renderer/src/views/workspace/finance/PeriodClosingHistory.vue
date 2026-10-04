@@ -76,6 +76,7 @@ const movementNames: Record<string, string> = { receipt: '采购入库', receipt
           <h3>{{ item.case.reference }} · {{ afterSalesKind[item.case.kind] }} · {{ afterSalesStatus[item.case.status] }}</h3>
           <p>{{ item.source.customer_name }} · {{ item.source.sku }} {{ item.source.material_name }} · 办理数量 {{ item.case.quantity }} {{ item.source.unit }}；期末客户物品保管 {{ item.custody_quantity }} {{ item.source.unit }}。</p>
           <p>方案：{{ item.case.solution }}；客户同意依据：{{ item.case.customer_acceptance }}。</p>
+          <p>保修期限：{{ item.case.warranty_days==null?'未确认':`${item.case.warranty_days} 天，截止 ${item.case.warranty_expires_on}，申请日 ${item.case.warranty_applied_on}，${item.case.warranty_status==='within_period'?'期限内':item.case.warranty_status==='expired'?'已过期':'待核对'}` }}<span v-if="item.case.warranty_basis">；依据：{{ item.case.warranty_basis }}</span>。</p>
           <p v-if="item.case.kind === 'repair'">收费选择：{{ item.case.charge_mode === 'charge' ? `服务费 ${item.case.fee_amount} 元` : '免费' }}。客户物品不计入公司库存。</p>
           <p v-for="event in item.custody" :key="event.id">{{ localTime(event.created_at) }} · {{ event.action === 'receive' ? '接收' : '交还' }} {{ event.quantity }} {{ item.source.unit }} · {{ event.created_by_name }} · {{ event.evidence }}</p>
         </div>

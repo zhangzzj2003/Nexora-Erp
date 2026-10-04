@@ -4,6 +4,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from decimal import Decimal
+from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -17,6 +18,7 @@ from app.core.database import migrate
 from app.core.models import Base, AfterSalesChange, AfterSalesCase, AfterSalesCustody, AfterSalesLabor, Customer, RolePermission
 from app.core.orm import orm_session
 from app.finance.business_sources import business_sources
+from app.sales.after_sales_rules import archive_cases
 
 ROOT='after-sales/cases'
 
@@ -76,6 +78,96 @@ def approved(erp,data):
     row=api('POST',ROOT,data,status=201)
     row=action(api,row,'submit')
     return action(api,row,'approve',actor='reviewer')
+
+
+def test_warranty_period_uses_frozen_shipment_and_original_application_date(erp):
+    _,api,_,_,_,_,_=erp
+    unknown=api('POST',ROOT,payload(erp,reference='W-UNKNOWN'),status=201)
+    assert unknown['warranty_status']=='unknown' and unknown['warranty_expires_on'] is None
+    assert unknown['warranty_days'] is None and unknown['warranty_basis']==''
+    data=payload(erp,reference='W-1',warranty_days=30,warranty_basis='销售合同第 3 条')
+    row=api('POST',ROOT,data,status=201)
+    shipped_on=date.fromisoformat(row['frozen_source']['posted_at'][:10])
+    expires_on=shipped_on+timedelta(days=30)
+    assert row['warranty_expires_on']==expires_on.isoformat()
+    assert row['warranty_status']=='within_period'
+    with orm_session(write=True) as db:
+        db.get(AfterSalesCase,row['id']).created_at=expires_on.isoformat()+' 23:59:59'
+    row=api('GET',f'{ROOT}/{row["id"]}')
+    assert row['warranty_status']=='within_period' and row['warranty_applied_on']==expires_on.isoformat()
+    with orm_session(write=True) as db:
+        db.get(AfterSalesCase,row['id']).created_at=(expires_on+timedelta(days=1)).isoformat()+' 00:00:00'
+    row=api('GET',f'{ROOT}/{row["id"]}')
+    assert row['warranty_status']=='expired'
+    edited=api('PUT',f'{ROOT}/{row["id"]}',{**data,'version':row['version'],'warranty_days':60,
+        'warranty_basis':'合同补充协议第 2 条'},actor='seller')
+    assert edited['warranty_applied_on']==row['warranty_applied_on']
+    assert edited['warranty_status']=='within_period'
+    assert edited['changes'][-1]['before']['warranty_days']==30
+    assert edited['changes'][-1]['after']['warranty_basis']=='合同补充协议第 2 条'
+    assert api('GET',f'{ROOT}/{unknown["id"]}')['warranty_status']=='unknown'
+
+
+@pytest.mark.parametrize('extra',[
+    {'warranty_days':0,'warranty_basis':'合同'},
+    {'warranty_days':36501,'warranty_basis':'合同'},
+    {'warranty_days':True,'warranty_basis':'合同'},
+    {'warranty_days':1.5,'warranty_basis':'合同'},
+    {'warranty_days':30,'warranty_basis':'  '},
+    {'warranty_days':None,'warranty_basis':'合同'},
+])
+def test_warranty_requires_consistent_bounded_contract_terms(erp,extra):
+    _,api,_,_,_,_,_=erp
+    api('POST',ROOT,payload(erp,**extra),status=422)
+    assert api('GET','after-sales')['cases']==[]
+
+
+def test_v77_warranty_upgrade_keeps_old_cases_unknown_and_is_idempotent(erp,monkeypatch):
+    import app.core.database as database
+    _,api,_,_,_,_,_=erp
+    old=api('POST',ROOT,payload(erp),status=201)
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        db.execute('ALTER TABLE after_sales_cases DROP COLUMN warranty_days')
+        db.execute('ALTER TABLE after_sales_cases DROP COLUMN warranty_basis')
+        db.execute('PRAGMA user_version=77')
+    original=database.connection
+    @contextmanager
+    def failing():
+        with original() as db:
+            alters=0
+            def deny_second_alter(operation,*_):
+                nonlocal alters
+                if operation==sqlite3.SQLITE_ALTER_TABLE:
+                    alters+=1
+                    if alters==2:
+                        return sqlite3.SQLITE_DENY
+                return sqlite3.SQLITE_OK
+            db.set_authorizer(deny_second_alter)
+            yield db
+    monkeypatch.setattr(database,'connection',failing)
+    with pytest.raises(sqlite3.DatabaseError):
+        migrate()
+    monkeypatch.setattr(database,'connection',original)
+    with original() as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0]==77
+        assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(after_sales_cases)')}
+    migrate();migrate()
+    with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0]==78
+        assert db.execute('SELECT warranty_days,warranty_basis FROM after_sales_cases WHERE id=?',
+            (old['id'],)).fetchone()==(None,'')
+    assert api('GET',f'{ROOT}/{old["id"]}')['warranty_status']=='unknown'
+
+
+def test_warranty_terms_are_frozen_in_period_archive(erp):
+    _,api,_,_,_,_,_=erp
+    row=api('POST',ROOT,payload(erp,warranty_days=30,warranty_basis='客户合同 W-1'),status=201)
+    with orm_session() as db:
+        archived=next(item for item in archive_cases(db,'2099-12-31') if item['case']['id']==row['id'])
+    assert archived['case']['warranty_days']==30
+    assert archived['case']['warranty_basis']=='客户合同 W-1'
+    assert archived['case']['warranty_expires_on']==row['warranty_expires_on']
+    assert archived['case']['warranty_status']==row['warranty_status']
 
 
 def test_repair_labor_record_and_reversal_keep_evidence_without_financial_side_effects(erp):
@@ -326,7 +418,7 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 77
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 78
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
     assert len(Base.metadata.tables)== 176
@@ -356,7 +448,7 @@ def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_
         assert not db.execute("SELECT 1 FROM permissions WHERE code='after_sales.labor'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 77
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 78
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?',(case['id'],)).fetchone()[0]=='approved'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.labor'").fetchone()[0]==2
 

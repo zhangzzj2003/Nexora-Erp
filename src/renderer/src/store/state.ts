@@ -132,7 +132,7 @@ export function createAppState() {
   const afterSalesLoading=ref(false), afterSalesError=ref('')
   const afterSalesEdit=ref<{id:number;version:number}|null>(null)
   const afterSalesForm=ref<AfterSalesDraft>({shipment_line_id:0,reference:'',kind:'return',quantity:'1',
-    complaint:'',solution:'',charge_mode:'none',fee_amount:'0',customer_acceptance:'',warehouse_id:1,
+    complaint:'',solution:'',charge_mode:'none',fee_amount:'0',customer_acceptance:'',warranty_days:null,warranty_basis:'',warehouse_id:1,
     replacement_material_id:null,replacement_quantity:null,replacement_unit_price:null,parts:[],reason:''})
   const qualityDetail = ref<QualityEvidence | null>(null)
   const qualityLoading = ref(false)

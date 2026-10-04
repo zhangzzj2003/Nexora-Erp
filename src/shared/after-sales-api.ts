@@ -17,6 +17,7 @@ export interface AfterSalesPart {material_id:number; quantity:string}
 export interface AfterSalesInput {
   shipment_line_id:number; reference:string; kind:AfterSalesKind; quantity:string; complaint:string; solution:string
   charge_mode:'none'|'free'|'charge'; fee_amount:string; customer_acceptance:string; warehouse_id:number|null
+  warranty_days:number|null; warranty_basis:string
   replacement_material_id:number|null; replacement_quantity:string|null; replacement_unit_price:string|null
   parts:AfterSalesPart[]; reason:string
 }
@@ -27,6 +28,7 @@ export interface AfterSalesEvidence extends Omit<AfterSalesInput,'parts'|'reason
   submitted_at:string|null; reviewed_at:string|null; closed_at:string|null; reversed_at:string|null
   sales_return_id:number|null; replacement_order_id:number|null; parts_outbound_id:number|null
   frozen_source:AfterSalesSource; current_source_valid:boolean; remaining_quantity:string; author_ids:number[]
+  warranty_applied_on:string; warranty_expires_on:string|null; warranty_status:'unknown'|'within_period'|'expired'
   return_effective:boolean; parts_status:'draft'|'posted'|'cancelled'|'reversed'|null
   parts:(AfterSalesPart&{sku:string; material_name:string; unit:string})[]
   custody_quantity:string
@@ -42,7 +44,8 @@ export interface AfterSalesOverview {
   materials:{id:number; sku:string; name:string; unit:string}[]; warehouses:{id:number;name:string}[]
 }
 export interface AfterSalesArchive {
-  case: Pick<AfterSalesEvidence, 'id'|'reference'|'kind'|'status'|'quantity'|'charge_mode'|'fee_amount'|'customer_acceptance'|'solution'>
+  case: Pick<AfterSalesEvidence, 'id'|'reference'|'kind'|'status'|'quantity'|'charge_mode'|'fee_amount'|'customer_acceptance'|'solution'> &
+    Partial<Pick<AfterSalesEvidence, 'warranty_days'|'warranty_basis'|'warranty_applied_on'|'warranty_expires_on'|'warranty_status'>>
   source: AfterSalesSource; custody_quantity:string; labor_hours:string
   custody: AfterSalesEvidence['custody']; labor:AfterSalesEvidence['labor']; changes: AfterSalesEvidence['changes']
 }

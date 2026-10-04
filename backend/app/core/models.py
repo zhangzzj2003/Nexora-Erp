@@ -1249,6 +1249,8 @@ class AfterSalesCase(Base):
     charge_mode: Mapped[str] = mapped_column(Text, nullable=False)
     fee_amount: Mapped[str] = mapped_column(Text, nullable=False)
     customer_acceptance: Mapped[str] = mapped_column(Text, nullable=False)
+    warranty_days: Mapped[int | None] = mapped_column(Integer)
+    warranty_basis: Mapped[str] = mapped_column(Text, nullable=False, default='')
     warehouse_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouses.id"))
     replacement_material_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("materials.id"))
     replacement_quantity: Mapped[str | None] = mapped_column(Text)

@@ -53,6 +53,8 @@ class CaseInput(BaseModel):
     charge_mode: Literal['none','free','charge']
     fee_amount: Decimal
     customer_acceptance: str = Field(min_length=1, max_length=400)
+    warranty_days: int | None = Field(default=None, ge=1, le=36500, strict=True)
+    warranty_basis: str = Field(default='', max_length=400)
     warehouse_id: int | None = Field(default=None, gt=0, strict=True)
     replacement_material_id: int | None = Field(default=None, gt=0, strict=True)
     replacement_quantity: Decimal | None = None
@@ -83,8 +85,15 @@ class CaseInput(BaseModel):
             raise ValueError('依据、诉求、方案、客户同意及原因不能为空')
         return value.strip()
 
+    @field_validator('warranty_basis')
+    @classmethod
+    def trim_warranty_basis(cls, value):
+        return value.strip()
+
     @model_validator(mode='after')
     def explicit_plan(self):
+        if (self.warranty_days is None) != (self.warranty_basis == ''):
+            raise ValueError('保修天数和合同依据须同时填写，未确认条款时两者均留空')
         if self.kind == 'repair':
             if self.charge_mode not in ('free','charge') or (self.charge_mode=='free' and self.fee_amount != 0) or (
                 self.charge_mode=='charge' and self.fee_amount <= 0):
@@ -149,7 +158,7 @@ def apply_input(db, row, payload):
         parts.append(dict(material_id=material.id, sku=material.sku, material_name=material.name,
             unit=material.unit, quantity=str(part.quantity)))
     for key in ('shipment_line_id','reference','kind','complaint','solution','charge_mode',
-        'customer_acceptance','warehouse_id','replacement_material_id'):
+        'customer_acceptance','warehouse_id','replacement_material_id','warranty_days','warranty_basis'):
         setattr(row, key, getattr(payload,key))
     for key in ('quantity','fee_amount','replacement_quantity','replacement_unit_price'):
         value = getattr(payload,key)

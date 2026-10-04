@@ -5,7 +5,7 @@ import {displayError} from '../../utils/formatters.ts'
 
 export function emptyAfterSalesForm():AfterSalesDraft {
   return {shipment_line_id:0,reference:'',kind:'return',quantity:'1',complaint:'',solution:'',charge_mode:'none',
-    fee_amount:'0',customer_acceptance:'',warehouse_id:1,replacement_material_id:null,replacement_quantity:null,
+    fee_amount:'0',customer_acceptance:'',warranty_days:null,warranty_basis:'',warehouse_id:1,replacement_material_id:null,replacement_quantity:null,
     replacement_unit_price:null,parts:[],reason:''}
 }
 export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<unknown>,message:string)=>Promise<void>){
@@ -51,7 +51,8 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
     if(!row || !['draft','rejected'].includes(row.status))return false
     state.afterSalesForm.value={shipment_line_id:row.shipment_line_id,reference:row.reference,kind:row.kind,quantity:row.quantity,
       complaint:row.complaint,solution:row.solution,charge_mode:row.charge_mode,fee_amount:row.fee_amount,
-      customer_acceptance:row.customer_acceptance,warehouse_id:row.warehouse_id,replacement_material_id:row.replacement_material_id,
+      customer_acceptance:row.customer_acceptance,warranty_days:row.warranty_days,warranty_basis:row.warranty_basis,
+      warehouse_id:row.warehouse_id,replacement_material_id:row.replacement_material_id,
       replacement_quantity:row.replacement_quantity,replacement_unit_price:row.replacement_unit_price,
       parts:row.parts.map(({material_id,quantity})=>({material_id,quantity})),reason:''}
     state.afterSalesEdit.value={id:row.id,version:row.version};state.error.value='';return true

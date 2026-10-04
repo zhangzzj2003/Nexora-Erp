@@ -263,6 +263,6 @@ Auxiliary accounting uses static ORM models for four dimensions, versioned rules
 
 ## After-sales
 
-[After-sales rules (Chinese)](after-sales.md) cover independently approved cases, return/exchange drafts, customer-owned repair custody, inspection, handover, explicit fees, auditable repair hours, case attachments and additive corrections. Customer goods do not become company stock. Closing freezes period-end plans, custody and repair-hour evidence. Automatic warranty decisions, serial numbers, labor costs and partial handovers remain future work.
+[After-sales rules (Chinese)](after-sales.md) cover independently approved cases, return/exchange drafts, customer-owned repair custody, inspection, handover, explicit fees, auditable repair hours, case attachments and additive corrections. Customer goods do not become company stock. Contract-backed warranty days are checked against the original application date; closing freezes period-end plans, warranty terms, custody and repair-hour evidence. Automatic liability decisions, serial numbers, labor costs and partial handovers remain future work.
 
 Presentation content is included in the initial HTML and remains visible without JavaScript. The website build generates only static HTML/CSS/JavaScript and removes previous embedded-app build artifacts. Content versions cover modules and styles. Font and window changes only realign local fields and links without blocking the interface behind a loading screen.

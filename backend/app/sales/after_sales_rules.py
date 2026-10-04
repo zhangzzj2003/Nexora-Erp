@@ -2,7 +2,7 @@
 
 import json
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -124,9 +124,24 @@ def labor_data(db, row, cutoff=None):
     return entries, str(total.quantize(Decimal('0.01')))
 
 
+def warranty_data(warranty_days, created_at, frozen_source):
+    # 申请日固定为建单 UTC 日期，修订保修依据也不能悄悄移动申请时间。
+    applied_on = date.fromisoformat(created_at[:10])
+    if warranty_days is None:
+        return dict(warranty_applied_on=applied_on.isoformat(), warranty_expires_on=None,
+            warranty_status='unknown')
+    shipped_on = date.fromisoformat(frozen_source['posted_at'][:10])
+    expires_on = shipped_on + timedelta(days=warranty_days)
+    status = 'unknown' if applied_on < shipped_on else (
+        'within_period' if applied_on <= expires_on else 'expired')
+    return dict(warranty_applied_on=applied_on.isoformat(),
+        warranty_expires_on=expires_on.isoformat(), warranty_status=status)
+
+
 def case_data(db, row):
     result = model_data(row)
     result['frozen_source'] = json.loads(result.pop('source_json'))
+    result.update(warranty_data(row.warranty_days, row.created_at, result['frozen_source']))
     result['parts'] = json.loads(result.pop('parts_json'))
     result['current_source_valid'] = source(db, row.shipment_line_id)['valid']
     result['remaining_quantity'] = str(remaining_quantity(db, row.shipment_line_id, exclude_id=row.id))
@@ -163,11 +178,15 @@ def archive_cases(db, end_date):
         if not changes:
             continue
         header = json.loads(changes[-1].after_json)
+        original = json.loads(header['source_json'])
+        header.setdefault('warranty_days', None)
+        header.setdefault('warranty_basis', '')
+        header.update(warranty_data(header['warranty_days'], header['created_at'], original))
         custody = [{**model_data(item), 'created_by_name': db.get(User, item.created_by).username}
             for item in db.scalars(select(AfterSalesCustody).where(AfterSalesCustody.case_id == row.id,
                 AfterSalesCustody.created_at < cutoff).order_by(AfterSalesCustody.id))]
         labor, labor_hours = labor_data(db, row, cutoff)
-        result.append(dict(case=header, source=json.loads(header['source_json']),
+        result.append(dict(case=header, source=original,
             custody=custody, custody_quantity=str(sum((Decimal(item['quantity']) *
                 (1 if item['action'] == 'receive' else -1) for item in custody), Decimal(0))),
             labor=labor, labor_hours=labor_hours,

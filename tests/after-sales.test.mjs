@@ -10,7 +10,8 @@ const permissions=['after_sales.view','after_sales.create','after_sales.submit',
   'after_sales.receive','after_sales.inspect','after_sales.close','after_sales.cancel','after_sales.reverse','after_sales.labor','sales_return.create','sales_order.create']
 const row={id:1,version:3,status:'submitted',kind:'repair',current_source_valid:true,author_ids:[1]}
 const input={shipment_line_id:1,reference:'A-1',kind:'repair',quantity:'2',complaint:'产品故障',solution:'维修后交还',charge_mode:'charge',
-  fee_amount:'10.50',customer_acceptance:'客户确认服务费 A-1',warehouse_id:1,replacement_material_id:null,replacement_quantity:null,
+  fee_amount:'10.50',customer_acceptance:'客户确认服务费 A-1',warranty_days:30,warranty_basis:'销售合同第 3 条',
+  warehouse_id:1,replacement_material_id:null,replacement_quantity:null,
   replacement_unit_price:null,parts:[{material_id:2,quantity:'1.005'}],reason:'客户委托'}
 const overview={sources:[{shipment_line_id:1,remaining_quantity:'2'}],cases:[],materials:[],warehouses:[]}
 const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}
@@ -50,6 +51,9 @@ test('IPC 只发送编制字段及固定动作，拒绝编号、检验结果和�
   await assert.rejects(callBackend('changeAfterSalesCase',{id:1,version:3,action:'../users'}),/操作无效/)
   await assert.rejects(callBackend('saveAfterSalesCase',{...input,shipment_line_id:true}),/编号无效/)
   await assert.rejects(callBackend('saveAfterSalesCase',{...input,id:1,version:0}),/编号无效/)
+  await assert.rejects(callBackend('saveAfterSalesCase',{...input,warranty_days:1.5}),/保修天数无效/)
+  await assert.rejects(callBackend('saveAfterSalesCase',{...input,warranty_days:'30'}),/保修天数无效/)
+  await assert.rejects(callBackend('saveAfterSalesCase',{...input,warranty_basis:42}),/保修依据无效/)
   await assert.rejects(callBackend('changeAfterSalesCase',{id:1,version:3,action:'inspect',inspection_result:'auto'}),/检验结果无效/)
   assert.equal(requests.length,2)
 })
@@ -131,4 +135,21 @@ test('审计显示中文方案、收费与耗材差异，不打印原始 JSON',(
   assert.match(changes.join('\n'),/免费维修 → 收费维修/)
   assert.match(changes.join('\n'),/维修件 2 件/)
   assert.doesNotMatch(changes.join('\n'),/parts_json|\{/)
+})
+
+test('保修条款随草稿修订保留并显示中文审计差异',async t=>{
+  const calls=[];const evidence={...row,...input,parts:[],warranty_applied_on:'2026-10-05',warranty_expires_on:'2026-10-31',
+    warranty_status:'within_period'}
+  const {state,actions}=fixture(t,async(action,data)=>{calls.push([action,data]);return action==='afterSalesOverview'?overview:evidence})
+  assert.equal(await actions.editAfterSalesCase(1),false)
+  evidence.status='draft'
+  assert.equal(await actions.editAfterSalesCase(1),true)
+  assert.equal(state.afterSalesForm.value.warranty_days,30)
+  assert.equal(state.afterSalesForm.value.warranty_basis,'销售合同第 3 条')
+  assert.equal(await actions.saveAfterSalesCase(),true)
+  assert.equal(calls.find(([operation])=>operation==='saveAfterSalesCase')[1].warranty_days,30)
+  const lines=afterSalesChanges({before:{warranty_days:30,warranty_basis:'旧合同'},
+    after:{warranty_days:60,warranty_basis:'补充协议'}})
+  assert.match(lines.join('；'),/保修天数：30 → 60/)
+  assert.match(lines.join('；'),/保修依据：旧合同 → 补充协议/)
 })

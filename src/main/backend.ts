@@ -714,6 +714,13 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       if(!Array.isArray(source.parts) || source.parts.length>100)throw new Error('维修耗材明细无效')
       const body:Record<string,unknown>=Object.fromEntries(['reference','kind','quantity','complaint','solution',
         'charge_mode','fee_amount','customer_acceptance','replacement_quantity','replacement_unit_price','reason'].map(key=>[key,source[key]]))
+      if(source.warranty_days!=null && (typeof source.warranty_days!=='number' || !Number.isInteger(source.warranty_days)
+        || source.warranty_days<1 || source.warranty_days>36500))
+        throw new Error('保修天数无效')
+      const warrantyBasis=source.warranty_basis??''
+      if(typeof warrantyBasis!=='string' || warrantyBasis.length>400)throw new Error('保修依据无效')
+      body.warranty_days=source.warranty_days??null
+      body.warranty_basis=warrantyBasis
       body.shipment_line_id=positiveId(source,'shipment_line_id')
       body.warehouse_id=source.warehouse_id==null?null:positiveId(source,'warehouse_id')
       body.replacement_material_id=source.replacement_material_id==null?null:positiveId(source,'replacement_material_id')

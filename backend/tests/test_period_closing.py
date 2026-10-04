@@ -108,7 +108,7 @@ def test_v42_upgrade_failure_does_not_leave_partial_closing_schema(journals, rem
         db.execute('DROP TRIGGER fail_closing_permissions')
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 77
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 78
         assert db.execute('SELECT COUNT(*) FROM period_closings').fetchone()[0] == 0
 
 
@@ -268,7 +268,7 @@ def test_explicit_read_and_write_permissions_and_v42_migration(journals, remove_
         db.execute('PRAGMA user_version=42')
     migrate(); migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 77
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 78
         assert db.execute('SELECT COUNT(*) FROM period_closings').fetchone()[0] == 0
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='accounting_period.close'").fetchone()[0] == 2
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='accounting_period.reopen'").fetchone()[0] == 1

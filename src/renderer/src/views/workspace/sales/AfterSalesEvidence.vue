@@ -15,7 +15,10 @@ const store=usePiniaAppStore()
       <div><dt>物品与本次数量</dt><dd>{{ row.frozen_source.sku }} · {{ row.frozen_source.material_name }} · {{ afterSalesKind[row.kind] }} {{ row.quantity }} {{ row.frozen_source.unit }}</dd></div>
       <div><dt>客户诉求</dt><dd>{{ row.complaint }}</dd></div><div><dt>办理方案</dt><dd>{{ row.solution }}</dd></div>
       <div><dt>客户同意依据</dt><dd>{{ row.customer_acceptance }}</dd></div><div><dt>原出库效力</dt><dd>{{ row.current_source_valid?'当前有效':'当前来源已更正，请核对历史' }}</dd></div>
+      <div><dt>保修期限核对</dt><dd v-if="row.warranty_days!==null">出库日 {{ row.frozen_source.posted_at.slice(0,10) }} · {{ row.warranty_days }} 天 · 截止 {{ row.warranty_expires_on }}；申请日 {{ row.warranty_applied_on }} · {{ row.warranty_status==='within_period'?'期限内':row.warranty_status==='expired'?'已过期':'日期待核对' }}</dd><dd v-else>未确认保修条款</dd></div>
+      <div><dt>保修依据</dt><dd>{{ row.warranty_basis||'未提供；请人工核对合同' }}</dd></div>
     </dl>
+    <p>期限核对不自动认定保修责任，也不改变本单收费方案；请审核人结合合同、故障与客户同意依据判断。</p>
     <template v-if="row.kind==='exchange'">
       <p>{{ row.frozen_source.replacement?.sku }} · {{ row.frozen_source.replacement?.material_name }} · 换货 {{ row.replacement_quantity }} {{ row.frozen_source.replacement?.unit }} · 单价 {{ row.replacement_unit_price }} 元。原退货与换货分别核对，不自动抵销价差。</p>
     </template>

@@ -268,7 +268,7 @@ def test_v46_migration_preserves_rows_and_atomic_retry(journals, remove_auxiliar
         db.execute('DROP TRIGGER fail_auxiliary_permission')
     migrate(); migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 77
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 78
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
     assert journals[0].get('/api/v1/finance/opening-balances').json()[0]['lines'] == old['lines']
 

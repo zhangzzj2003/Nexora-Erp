@@ -33,6 +33,7 @@ export function afterSalesActions(row:AfterSalesEvidence,permissions:string[],us
 }
 const labels:Record<string,string>={reference:'售后依据',shipment_line_id:'原出库明细',kind:'处理方式',quantity:'数量',
   complaint:'客户诉求',solution:'办理方案',charge_mode:'收费选择',fee_amount:'服务费',customer_acceptance:'客户同意依据',
+  warranty_days:'保修天数',warranty_basis:'保修依据',
   warehouse_id:'办理仓库',replacement_material_id:'换货物料',replacement_quantity:'换货数量',replacement_unit_price:'换货单价',
   status:'阶段',sales_return_id:'退货单',replacement_order_id:'换货订单',parts_outbound_id:'维修耗材出库单'}
 function value(key:string,item:unknown):string{
