@@ -6,6 +6,7 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import SalesContractAttachments from './SalesContractAttachments.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref, watch } from 'vue'
 import { NModal } from 'naive-ui'
@@ -125,6 +126,8 @@ const filteredRecords = computed(() =>
             <p><strong>第 {{ revision.version }} 版</strong> · {{ localTime(revision.created_at) }} · {{ revision.created_by_name }}</p>
             <p>客户确认依据：{{ revision.acceptance_reference }} · 原因：{{ revision.reason }}</p>
             <pre>{{ revision.body }}</pre>
+            <SalesContractAttachments :order-id="contract.sales_order_id" :revision-id="revision.id"
+              :version="revision.version" />
           </div>
         </template>
       </template>

@@ -24,6 +24,7 @@ import {validateCrmForecast} from '../shared/crm-forecast-validation.ts'
 import {validateJournalAttachmentResult} from '../shared/journal-attachment-validation.ts'
 import {validateAfterSalesAttachmentResult} from '../shared/after-sales-attachment-validation.ts'
 import {validateCrmQuoteAttachmentResult} from '../shared/crm-quote-attachment-validation.ts'
+import {validateSalesContractAttachmentResult} from '../shared/sales-contract-attachment-validation.ts'
 import {validateCrmRecordAttachmentResult} from '../shared/crm-record-attachment-validation.ts'
 import type {CrmAttachmentKind} from '../shared/crm-api.ts'
 import {validateEquipmentAttachmentResult} from '../shared/equipment-attachment-validation.ts'
@@ -167,12 +168,13 @@ export async function fetchCrmQuotePdf(value: unknown): Promise<{ id: number; by
     && (target === null ? selectedTarget === null : sameBackendIdentity(selectedTarget, target)) }
 }
 
-async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | 'crm-quote' | 'crm-record' | 'equipment', documentValue: unknown,
-    attachmentValue: unknown, recordKind?: CrmAttachmentKind | EquipmentAttachmentKind): Promise<{
+async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | 'crm-quote' | 'crm-record' | 'equipment' | 'sales-contract', documentValue: unknown,
+    attachmentValue: unknown, recordKind?: CrmAttachmentKind | EquipmentAttachmentKind, orderValue?: unknown): Promise<{
   documentId: number; attachmentId: number; extension: string; bytes: Buffer; isCurrent: () => boolean
 }> {
   const documentId = positiveId({ id: documentValue }, 'id')
   const attachmentId = positiveId({ id: attachmentValue }, 'id')
+  const orderId = documentType === 'sales-contract' ? positiveId({ id: orderValue }, 'id') : null
   if (!sessionToken) throw new Error('请先登录')
   const token = sessionToken
   const target = selectedTarget
@@ -184,6 +186,8 @@ async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | '
         ? `/api/v1/after-sales/cases/${documentId}/attachments/${attachmentId}`
         : documentType === 'crm-quote'
           ? `/api/v1/crm/quotes/${documentId}/attachments/${attachmentId}`
+          : documentType === 'sales-contract'
+            ? `/api/v1/sales-orders/${orderId}/contract/revisions/${documentId}/attachments/${attachmentId}`
           : documentType === 'equipment'
             ? `/api/v1/equipment/${recordKind}/${documentId}/attachments/${attachmentId}`
             : `/api/v1/crm/records/${recordKind}/${documentId}/attachments/${attachmentId}`
@@ -247,6 +251,11 @@ export async function fetchAfterSalesAttachment(caseValue: unknown, attachmentVa
 export async function fetchCrmQuoteAttachment(quoteValue: unknown, attachmentValue: unknown) {
   const file = await fetchStoredAttachment('crm-quote', quoteValue, attachmentValue)
   return { ...file, quoteId: file.documentId }
+}
+
+export async function fetchSalesContractAttachment(orderValue: unknown, revisionValue: unknown, attachmentValue: unknown) {
+  const file = await fetchStoredAttachment('sales-contract', revisionValue, attachmentValue, undefined, orderValue)
+  return { ...file, orderId: positiveId({ id: orderValue }, 'id'), revisionId: file.documentId }
 }
 
 export async function fetchCrmRecordAttachment(kindValue: unknown, recordValue: unknown, attachmentValue: unknown) {
@@ -1367,6 +1376,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'cancelPurchaseOrder': return { method: 'POST', path: `/api/v1/purchase-orders/${positiveId(payload, 'orderId')}/cancel` }
     case 'salesOrders': return { method: 'GET', path: '/api/v1/sales-orders' }
     case 'salesOrderContract': return {method:'GET',path:`/api/v1/sales-orders/${positiveId(payload,'orderId')}/contract`}
+    case 'salesContractAttachments': return {method:'GET',path:`/api/v1/sales-orders/${positiveId(payload,'orderId')}/contract/revisions/${positiveId(payload,'revisionId')}/attachments`}
+    case 'addSalesContractAttachment': return {method:'POST',path:`/api/v1/sales-orders/${positiveId(payload,'orderId')}/contract/revisions/${positiveId(payload,'revisionId')}/attachments`,
+      body:attachmentBody(payload)}
+    case 'reverseSalesContractAttachment': {
+      const source=payload as ErpOperations['reverseSalesContractAttachment']['input']
+      const reason=bankText(source.reason,'撤销原因',200)
+      return {method:'POST',path:`/api/v1/sales-orders/${positiveId(source,'orderId')}/contract/revisions/${positiveId(source,'revisionId')}/attachments/${positiveId(source,'attachmentId')}/reverse`,
+        body:{reason}}
+    }
     case 'reviseSalesOrderContract': {
       const source=payload as ErpOperations['reviseSalesOrderContract']['input']
       const orderId=positiveId(source,'orderId')
@@ -1488,7 +1506,8 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
         ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...(publicAction ? {} : { Authorization: `Bearer ${activeToken}` })
       }, request.body, action === 'addJournalAttachment' || action === 'addAfterSalesAttachment'
-        || action === 'addCrmQuoteAttachment' || action === 'addCrmRecordAttachment' || action === 'addEquipmentAttachment' ? 30000 : 10000)
+        || action === 'addCrmQuoteAttachment' || action === 'addCrmRecordAttachment' || action === 'addEquipmentAttachment'
+        || action === 'addSalesContractAttachment' ? 30000 : 10000)
   } catch {
     throw new Error('无法连接服务端，请检查网络、服务状态和证书。')
   }
@@ -1619,6 +1638,10 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   if (action === 'crmQuoteAttachments' || action === 'addCrmQuoteAttachment' || action === 'reverseCrmQuoteAttachment') {
     validateCrmQuoteAttachmentResult(action, data,
       positiveId(payload, action === 'reverseCrmQuoteAttachment' ? 'quoteId' : 'id'))
+  }
+  if (action === 'salesContractAttachments' || action === 'addSalesContractAttachment' || action === 'reverseSalesContractAttachment') {
+    validateSalesContractAttachmentResult(action, data,
+      positiveId(payload, 'orderId'), positiveId(payload, 'revisionId'))
   }
   if (action === 'crmRecordAttachments' || action === 'addCrmRecordAttachment' || action === 'reverseCrmRecordAttachment') {
     validateCrmRecordAttachmentResult(action, data,

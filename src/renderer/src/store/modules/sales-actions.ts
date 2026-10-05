@@ -1,7 +1,9 @@
 import type { AppState } from '../state'
 import type {ShipmentLotLineInput,ShipmentLotOptions} from '../../../../shared/shipment-lot-api'
 import type {SalesReturnLotLineInput,SalesReturnLotOptions} from '../../../../shared/sales-return-lot-api'
-import type {CustomerImportResult,SalesOrderContract} from '../../../../shared/erp-api'
+import type {CustomerImportResult,SalesOrderContract,SalesOrderContractAttachment,
+  SalesOrderContractAttachmentList} from '../../../../shared/erp-api'
+import {watch} from 'vue'
 import {displayError} from '../../utils/formatters.ts'
 
 // 销售单据操作独立维护；写入后由统一入口刷新服务端快照。
@@ -101,6 +103,66 @@ export function createSalesActions(
       })
     }, `销售订单 #${orderId} 合同正文已追加修订，原版本保留。`)
     return actorId === state.user.value?.id && !!state.user.value?.permissions.includes('sales_order.confirm') ? saved : null
+  }
+
+  let attachmentEpoch = 0
+  watch(() => `${state.user?.value?.id}:${state.user?.value?.permissions?.join('|')}:${state.connectionLost?.value}`,
+    () => { attachmentEpoch++ }, {flush: 'sync'})
+  const contractAttachmentOwner = (): number => attachmentEpoch
+
+  async function loadSalesContractAttachments(orderId: number, revisionId: number): Promise<SalesOrderContractAttachmentList> {
+    if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('sales.view')) {
+      throw new Error('会话或权限已变化，请重新读取合同附件')
+    }
+    const owner = contractAttachmentOwner()
+    const result = await window.nexora.callApi('salesContractAttachments', { orderId, revisionId })
+    if (owner !== contractAttachmentOwner() || !state.user.value?.permissions.includes('sales.view')) {
+      throw new Error('会话或权限已变化，请重新读取合同附件')
+    }
+    return result
+  }
+
+  async function uploadSalesContractAttachment(orderId: number, revisionId: number,
+    reason: string): Promise<SalesOrderContractAttachment | null> {
+    if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('sales.view')
+      || !state.user.value.permissions.includes('sales_order.confirm')) {
+      throw new Error('会话或权限已变化，请重新上传合同附件')
+    }
+    const owner = contractAttachmentOwner()
+    const result = await window.nexora.uploadSalesContractAttachment(orderId, revisionId, reason)
+    if (owner !== contractAttachmentOwner() || !state.user.value?.permissions.includes('sales_order.confirm')) {
+      throw new Error('会话或权限已变化，请刷新合同附件')
+    }
+    return result
+  }
+
+  async function reverseSalesContractAttachment(orderId: number, revisionId: number,
+    attachmentId: number, reason: string): Promise<SalesOrderContractAttachment> {
+    if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('sales.view')
+      || !state.user.value.permissions.includes('sales_order.confirm')) {
+      throw new Error('会话或权限已变化，请重新撤销合同附件')
+    }
+    const owner = contractAttachmentOwner()
+    const result = await window.nexora.callApi('reverseSalesContractAttachment', {
+      orderId, revisionId, attachmentId, reason
+    })
+    if (owner !== contractAttachmentOwner() || !state.user.value?.permissions.includes('sales_order.confirm')) {
+      throw new Error('会话或权限已变化，请刷新合同附件')
+    }
+    return result
+  }
+
+  async function saveSalesContractAttachment(orderId: number, revisionId: number,
+    attachmentId: number): Promise<string | null> {
+    if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('sales.view')) {
+      throw new Error('会话或权限已变化，请重新读取合同附件')
+    }
+    const owner = contractAttachmentOwner()
+    const result = await window.nexora.saveSalesContractAttachment(orderId, revisionId, attachmentId)
+    if (owner !== contractAttachmentOwner() || !state.user.value?.permissions.includes('sales.view')) {
+      throw new Error('会话或权限已变化，请重新读取合同附件')
+    }
+    return result
   }
 
   async function confirmSalesOrder(orderId: number): Promise<void> {
@@ -268,6 +330,10 @@ export function createSalesActions(
     createSalesOrder,
     loadSalesOrderContract,
     reviseSalesOrderContract,
+    loadSalesContractAttachments,
+    uploadSalesContractAttachment,
+    reverseSalesContractAttachment,
+    saveSalesContractAttachment,
     confirmSalesOrder,
     cancelSalesOrder,
     chooseShipmentOrder,

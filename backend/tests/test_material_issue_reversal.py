@@ -197,7 +197,7 @@ def test_v65_upgrade_adds_reversal_permission_without_touching_users(monkeypatch
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 81
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 82
         assert db.execute('SELECT id, username, password_hash FROM users').fetchall() == before
         assert db.execute("SELECT role_code FROM role_permissions WHERE permission_code='material_issue.reverse'").fetchall() == [('admin',)]
         assert db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='material_issue_reversals'").fetchone() is not None

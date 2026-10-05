@@ -3,7 +3,8 @@ import { basename, extname, join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { backendSessionMarker, callBackend, fetchCrmQuotePdf, fetchJournalAttachment,
-  fetchAfterSalesAttachment, fetchCrmQuoteAttachment, fetchCrmRecordAttachment, fetchEquipmentAttachment, getBackendHealth } from './backend'
+  fetchAfterSalesAttachment, fetchCrmQuoteAttachment, fetchCrmRecordAttachment, fetchEquipmentAttachment,
+  fetchSalesContractAttachment, getBackendHealth } from './backend'
 import type { ErpOperations } from '../shared/erp-api'
 import type { CrmAttachmentKind } from '../shared/crm-api'
 import type { EquipmentAttachmentKind } from '../shared/equipment-api'
@@ -332,6 +333,53 @@ app.whenReady().then(() => {
     if (selected.canceled || !selected.filePath) return null
     assertMainWindow(event)
     if (backendSessionMarker() !== marker || !file.isCurrent()) throw new Error('会话已变化，请重新导出报价附件')
+    if (extname(selected.filePath).toLowerCase() !== file.extension) throw new Error('附件保存格式无效')
+    await writeFile(selected.filePath, file.bytes)
+    return selected.filePath
+  })
+  ipcMain.handle('sales:upload-contract-attachment', async (event, orderId: unknown, revisionId: unknown, reason: unknown) => {
+    assertMainWindow(event)
+    if (typeof orderId !== 'number' || !Number.isSafeInteger(orderId) || orderId <= 0
+      || typeof revisionId !== 'number' || !Number.isSafeInteger(revisionId) || revisionId <= 0
+      || typeof reason !== 'string' || !reason.trim() || reason.length > 200
+      || /[\x00-\x1f]/.test(reason)) throw new Error('合同附件参数无效')
+    const marker = backendSessionMarker()
+    if (marker === null || !mainWindow) throw new Error('请先登录')
+    const selected = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'], filters: [{ name: '合同原件', extensions: ['pdf', 'png', 'jpg', 'jpeg'] }]
+    })
+    if (selected.canceled || !selected.filePaths[0]) return null
+    assertMainWindow(event)
+    if (backendSessionMarker() !== marker) throw new Error('会话已变化，请重新选择合同附件')
+    const path = selected.filePaths[0]
+    const info = await stat(path)
+    if (!info.isFile() || info.size < 1 || info.size > 5 * 1024 * 1024) {
+      throw new Error('合同附件须为非空且不超过 5 MiB')
+    }
+    const bytes = await readFile(path)
+    if (bytes.length < 1 || bytes.length > 5 * 1024 * 1024) throw new Error('合同附件大小已变化，请重新选择')
+    if (backendSessionMarker() !== marker) throw new Error('会话已变化，请重新选择合同附件')
+    const result = await callBackend('addSalesContractAttachment', {
+      orderId, revisionId, file_name: basename(path), content_base64: bytes.toString('base64'), reason: reason.trim()
+    })
+    if (backendSessionMarker() !== marker) throw new Error('会话已变化，请刷新合同附件')
+    return result
+  })
+  ipcMain.handle('sales:save-contract-attachment', async (event, orderId: unknown, revisionId: unknown, attachmentId: unknown) => {
+    assertMainWindow(event)
+    const marker = backendSessionMarker()
+    if (marker === null) throw new Error('请先登录')
+    const file = await fetchSalesContractAttachment(orderId, revisionId, attachmentId)
+    if (!mainWindow || backendSessionMarker() !== marker || !file.isCurrent()) {
+      throw new Error('会话已变化，请重新读取合同附件')
+    }
+    const selected = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: `sales-contract-${file.orderId}-${file.revisionId}-${file.attachmentId}${file.extension}`,
+      filters: [{ name: '合同原件', extensions: [file.extension.slice(1)] }]
+    })
+    if (selected.canceled || !selected.filePath) return null
+    assertMainWindow(event)
+    if (backendSessionMarker() !== marker || !file.isCurrent()) throw new Error('会话已变化，请重新导出合同附件')
     if (extname(selected.filePath).toLowerCase() !== file.extension) throw new Error('附件保存格式无效')
     await writeFile(selected.filePath, file.bytes)
     return selected.filePath

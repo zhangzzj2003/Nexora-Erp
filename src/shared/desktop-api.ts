@@ -1,4 +1,4 @@
-import type { ErpOperations, JournalAttachment } from './erp-api'
+import type { ErpOperations, JournalAttachment, SalesOrderContractAttachment } from './erp-api'
 import type { AfterSalesAttachment } from './after-sales-api'
 import type { CrmAttachmentKind, CrmQuoteAttachment, CrmRecordAttachment } from './crm-api'
 import type { EquipmentAttachment, EquipmentAttachmentKind } from './equipment-api'
@@ -56,6 +56,8 @@ export interface DesktopApi {
   saveAfterSalesAttachment: (caseId: number, attachmentId: number) => Promise<string | null>
   uploadCrmQuoteAttachment: (quoteId: number, reason: string) => Promise<CrmQuoteAttachment | null>
   saveCrmQuoteAttachment: (quoteId: number, attachmentId: number) => Promise<string | null>
+  uploadSalesContractAttachment: (orderId: number, revisionId: number, reason: string) => Promise<SalesOrderContractAttachment | null>
+  saveSalesContractAttachment: (orderId: number, revisionId: number, attachmentId: number) => Promise<string | null>
   uploadCrmRecordAttachment: (kind: CrmAttachmentKind, recordId: number, reason: string) => Promise<CrmRecordAttachment | null>
   saveCrmRecordAttachment: (kind: CrmAttachmentKind, recordId: number, attachmentId: number) => Promise<string | null>
   uploadEquipmentAttachment: (kind: EquipmentAttachmentKind, recordId: number, reason: string) => Promise<EquipmentAttachment | null>

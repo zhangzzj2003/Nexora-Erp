@@ -985,6 +985,25 @@ export interface SalesOrderContract {
   current: SalesOrderContractRevision | null
   history: SalesOrderContractRevision[]
 }
+export interface SalesOrderContractAttachment {
+  id: number
+  revision_id: number
+  file_name: string
+  media_type: 'application/pdf' | 'image/png' | 'image/jpeg'
+  byte_count: number
+  sha256: string
+  reason: string
+  created_by: number
+  created_by_name: string
+  created_at: string
+  reversal: { id: number; reason: string; created_by: number; created_by_name: string; created_at: string } | null
+}
+export interface SalesOrderContractAttachmentList {
+  order_id: number
+  revision_id: number
+  can_modify: boolean
+  items: SalesOrderContractAttachment[]
+}
 export interface Shipment {
   id: number
   sales_order_id: number
@@ -1401,6 +1420,9 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   salesOrders: { input: undefined; output: SalesOrder[] }
   salesOrderContract: { input: { orderId: number }; output: SalesOrderContract }
   reviseSalesOrderContract: { input: { orderId: number; expected_version: number; body: string; acceptance_reference: string; reason: string }; output: SalesOrderContract }
+  salesContractAttachments: { input: { orderId: number; revisionId: number }; output: SalesOrderContractAttachmentList }
+  addSalesContractAttachment: { input: { orderId: number; revisionId: number; file_name: string; content_base64: string; reason: string }; output: SalesOrderContractAttachment }
+  reverseSalesContractAttachment: { input: { orderId: number; revisionId: number; attachmentId: number; reason: string }; output: SalesOrderContractAttachment }
   createSalesOrder: { input: { customer_id: number; reference: string; lines: { material_id: number; quantity: string; unit_price: string; warranty_days: number | null; warranty_basis: string }[] }; output: SalesOrder }
   confirmSalesOrder: { input: { orderId: number }; output: SalesOrder }
   cancelSalesOrder: { input: { orderId: number }; output: SalesOrder }

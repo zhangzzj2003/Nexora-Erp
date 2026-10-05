@@ -1403,6 +1403,29 @@ class SalesOrderContractRevision(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
+class SalesOrderContractAttachment(Base):
+    __tablename__ = 'sales_order_contract_attachments'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    revision_id: Mapped[int] = mapped_column(Integer, ForeignKey('sales_order_contract_revisions.id'), nullable=False)
+    file_name: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)
+    byte_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class SalesOrderContractAttachmentReversal(Base):
+    __tablename__ = 'sales_order_contract_attachment_reversals'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attachment_id: Mapped[int] = mapped_column(Integer, ForeignKey('sales_order_contract_attachments.id'), unique=True, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class Shipment(Base):
     __tablename__ = 'shipments'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

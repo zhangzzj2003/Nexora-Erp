@@ -34,6 +34,7 @@ from app.inventory.inbounds import router as warehouse_inbounds_router
 from app.inventory.outbounds import router as warehouse_outbounds_router
 from app.sales.orders import router as sales_router
 from app.sales.contracts import router as sales_contracts_router
+from app.sales.contract_attachments import router as sales_contract_attachments_router
 from app.sales.customer_import import router as customer_import_router
 from app.sales.contact_import import router as contact_import_router
 from app.sales.opportunity_import import router as opportunity_import_router
@@ -125,7 +126,7 @@ for router in (
     inventory_router, stock_router, warnings_router, warning_events_router, physical_lots_router, movement_evidence_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
     warehouse_inbounds_router, warehouse_outbounds_router,
     purchase_router, purchase_requests_router, goods_receipts_router,
-    purchase_returns_router, sales_router, sales_contracts_router, customer_import_router, contact_import_router, opportunity_import_router, crm_forecast_router, sales_returns_router, crm_router, crm_record_attachments_router, crm_quotes_router, crm_quote_attachments_router, crm_quote_pdf_router, after_sales_labor_router, after_sales_responsibility_router, after_sales_attachments_router, after_sales_router,
+    purchase_returns_router, sales_router, sales_contracts_router, sales_contract_attachments_router, customer_import_router, contact_import_router, opportunity_import_router, crm_forecast_router, sales_returns_router, crm_router, crm_record_attachments_router, crm_quotes_router, crm_quote_attachments_router, crm_quote_pdf_router, after_sales_labor_router, after_sales_responsibility_router, after_sales_attachments_router, after_sales_router,
     production_router, work_orders_router, material_issues_router,
     material_returns_router, production_completions_router, production_costs_router, production_settlements_router, mrp_router, quality_router, equipment_router, equipment_hours_router, equipment_attachments_router,
     finance_router, finance_ledger_router, journals_router, journal_attachments_router, ledger_reports_router, opening_balances_router, subledger_openings_router, bank_reconciliation_router, bank_balance_router, period_closing_router, business_journals_router, profit_transfers_router, statements_router, auxiliary_router, reports_router, dashboard_router,
