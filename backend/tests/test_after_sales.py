@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.main import app
 from app.core.database import migrate
-from app.core.models import Base, AfterSalesChange, AfterSalesCase, AfterSalesCustody, AfterSalesLabor, AfterSalesResponsibility, Customer, RolePermission
+from app.core.models import Base, AfterSalesChange, AfterSalesCase, AfterSalesCustody, AfterSalesLabor, AfterSalesLaborCost, AfterSalesResponsibility, Customer, RolePermission
 from app.core.orm import orm_session
 from app.finance.business_sources import business_sources
 from app.sales.after_sales_rules import archive_cases
@@ -143,7 +143,7 @@ def test_v79_responsibility_upgrade_is_atomic_and_preserves_old_cases(erp,monkey
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_responsibilities'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 82
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 83
         assert db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_responsibilities'").fetchone()
     assert api('GET',f'{ROOT}/{old["id"]}')['responsibilities']==[]
 
@@ -242,7 +242,7 @@ def test_v78_order_warranty_upgrade_is_atomic_and_keeps_old_orders_unknown(erp,m
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(sales_order_lines)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 82
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 83
         assert db.execute('SELECT warranty_days,warranty_basis FROM sales_order_lines WHERE sales_order_id=?',
             (old_order['id'],)).fetchone()==(None,'')
     old=next(item for item in api('GET','sales-orders') if item['id']==old_order['id'])
@@ -322,7 +322,7 @@ def test_v77_warranty_upgrade_keeps_old_cases_unknown_and_is_idempotent(erp,monk
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(after_sales_cases)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 82
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 83
         assert db.execute('SELECT warranty_days,warranty_basis FROM after_sales_cases WHERE id=?',
             (old['id'],)).fetchone()==(None,'')
     assert api('GET',f'{ROOT}/{old["id"]}')['warranty_status']=='unknown'
@@ -390,6 +390,114 @@ def test_labor_rejects_other_case_and_non_repair(erp):
     returned=approved(erp,payload(erp,kind='return',reference='AFTER-3',quantity='1'))
     api('POST',f'{ROOT}/{returned["id"]}/labor',
         {'version':returned['version'],'hours':'1','reason':'非维修','evidence':'测试'},status=409)
+
+
+def test_labor_cost_is_finance_only_append_only_and_excludes_reversed_hours(erp):
+    _,api,_,_,_,_,_=erp
+    row=action(api,approved(erp,payload(erp)),'receive')
+    labor_path=f'{ROOT}/{row["id"]}/labor'
+    row=api('POST',labor_path,dict(version=row['version'],hours='1.25',reason='拆机',
+        evidence='维修工单 R-11'),actor='warehouse',status=201)
+    original=row['labor'][0]
+    cost_path=f'{ROOT}/{row["id"]}/labor-cost'
+    assert 'labor_cost' not in row
+    api('GET',cost_path,actor='warehouse',status=403)
+    api('GET',cost_path,actor='seller',status=403)
+    before=api('GET',cost_path,actor='reviewer')
+    assert before['missing_labor_ids']==[original['id']] and before['total_amount']=='0.00'
+    value_path=f'{cost_path}/{original["id"]}'
+    first=dict(version=row['version'],hourly_rate='23.45',reason='按内部标准核价',evidence='费率批准表 C-1')
+    api('POST',value_path,first,actor='warehouse',status=403)
+    api('POST',value_path,{**first,'hourly_rate':23.45},actor='reviewer',status=422)
+    api('POST',value_path,{**first,'hourly_rate':'2e1'},actor='reviewer',status=422)
+    api('POST',value_path,{**first,'hourly_rate':'0'},actor='reviewer',status=422)
+    valued=api('POST',value_path,first,actor='reviewer',status=201)
+    assert valued['total_amount']=='29.31' and valued['missing_labor_ids']==[]
+    assert valued['entries'][0]['latest']['hourly_rate']=='23.45'
+    assert valued['history'][0]['amount']=='29.31'
+    assert 'labor_cost' not in api('GET',f'{ROOT}/{row["id"]}',actor='warehouse')
+    api('POST',value_path,first,actor='reviewer',status=409)
+    api('POST',value_path,{**first,'version':valued['case_version']},actor='reviewer',status=409)
+    corrected=api('POST',value_path,{**first,'version':valued['case_version'],
+        'hourly_rate':'20.00','reason':'修正费率','evidence':'批准表 C-2'},actor='reviewer',status=201)
+    assert corrected['total_amount']=='25.00' and len(corrected['history'])==2
+    voided=api('POST',value_path,{**first,'version':corrected['case_version'],
+        'hourly_rate':None,'reason':'撤销错误核价','evidence':'复核单 C-3'},actor='reviewer',status=201)
+    assert voided['total_amount']=='0.00' and voided['missing_labor_ids']==[original['id']]
+    restored=api('POST',value_path,{**first,'version':voided['case_version'],
+        'hourly_rate':'20.00'},actor='reviewer',status=201)
+    row=api('GET',f'{ROOT}/{row["id"]}')
+    assert row['version']==restored['case_version']
+    row=api('POST',f'{labor_path}/{original["id"]}/reverse',dict(version=row['version'],
+        reason='原计时重复',evidence='复核单 R-12'),actor='warehouse')
+    inactive=api('GET',cost_path,actor='reviewer')
+    assert inactive['total_amount']=='0.00' and inactive['missing_labor_ids']==[]
+    assert inactive['entries'][0]['reversed'] and len(inactive['history'])==4
+    api('POST',value_path,{**first,'version':row['version']},actor='reviewer',status=409)
+    with orm_session() as db:
+        archive=next(item for item in archive_cases(db,'2099-12-31') if item['case']['id']==row['id'])
+        assert archive['labor_cost']['total_amount']=='0.00'
+        assert len(list(db.scalars(select(AfterSalesLaborCost))))==4
+
+
+def test_labor_cost_checks_scope_author_and_transaction_rollback(erp,monkeypatch):
+    _,api,_,_,_,_,_=erp
+    row=action(api,approved(erp,payload(erp)),'receive')
+    row=api('POST',f'{ROOT}/{row["id"]}/labor',dict(version=row['version'],hours='2',
+        reason='维修',evidence='工单 R-13'),actor='warehouse',status=201)
+    path=f'{ROOT}/{row["id"]}/labor-cost/{row["labor"][0]["id"]}'
+    data=dict(version=row['version'],hourly_rate='15.00',reason='成本核价',evidence='内部标准 C-4')
+    api('POST',f'{ROOT}/{row["id"]}/labor-cost/999999',data,actor='reviewer',status=404)
+    with orm_session(write=True) as db:
+        db.add(RolePermission(role_code='warehouse',permission_code='after_sales.cost'))
+        db.add(RolePermission(role_code='seller',permission_code='after_sales.cost'))
+    api('POST',path,data,actor='warehouse',status=403)
+    with orm_session(write=True) as db:
+        db.get(Customer,row['frozen_source']['customer_id']).owner_id=1
+    api('POST',path,{**data,'version':row['version']-1},actor='seller',status=404)
+    with orm_session(write=True) as db:
+        db.get(Customer,row['frozen_source']['customer_id']).owner_id=1
+    def failed_audit(*_args,**_kwargs):
+        raise RuntimeError('模拟审计失败')
+    monkeypatch.setattr('app.sales.after_sales_labor_cost.audit',failed_audit)
+    api('POST',path,data,actor='reviewer',status=500)
+    current=api('GET',f'{ROOT}/{row["id"]}')
+    assert current['version']==row['version']
+    assert api('GET',f'{ROOT}/{row["id"]}/labor-cost',actor='reviewer')['history']==[]
+
+
+def test_v82_labor_cost_upgrade_is_atomic_and_preserves_labor(erp,monkeypatch):
+    import app.core.database as database
+    _,api,_,_,_,_,_=erp
+    row=action(api,approved(erp,payload(erp)),'receive')
+    row=api('POST',f'{ROOT}/{row["id"]}/labor',dict(version=row['version'],hours='1.50',
+        reason='维修',evidence='工单 R-14'),actor='warehouse',status=201)
+    with database.connection() as db:
+        db.execute('DROP TABLE after_sales_labor_costs')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='after_sales.cost'")
+        db.execute("DELETE FROM permissions WHERE code='after_sales.cost'")
+        db.execute('PRAGMA user_version=82')
+    original=database.connection
+    @contextmanager
+    def failing():
+        with original() as db:
+            db.set_authorizer(lambda operation,name,*_: sqlite3.SQLITE_DENY
+                if operation==sqlite3.SQLITE_INSERT and name=='permissions' else sqlite3.SQLITE_OK)
+            yield db
+    monkeypatch.setattr(database,'connection',failing)
+    with pytest.raises(sqlite3.DatabaseError):
+        migrate()
+    monkeypatch.setattr(database,'connection',original)
+    with database.connection() as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0]==82
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_labor_costs'").fetchone()
+        assert db.execute('SELECT COUNT(*) FROM after_sales_labor').fetchone()[0]==1
+    migrate()
+    migrate()
+    with orm_session() as db:
+        assert 'after_sales_labor_costs' in Base.metadata.tables
+        assert db.scalar(select(AfterSalesLaborCost.id).limit(1)) is None
+    assert api('GET',f'{ROOT}/{row["id"]}/labor-cost',actor='reviewer')['missing_labor_ids']==[row['labor'][0]['id']]
 
 
 def test_labor_audit_failure_rolls_back_record_and_version(erp,monkeypatch):
@@ -587,10 +695,10 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 82
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 83
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
-    assert len(Base.metadata.tables)== 180
+    assert len(Base.metadata.tables)== 181
 
 
 def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_after_sales_labor_schema,monkeypatch):
@@ -617,7 +725,7 @@ def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_
         assert not db.execute("SELECT 1 FROM permissions WHERE code='after_sales.labor'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 82
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 83
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?',(case['id'],)).fetchone()[0]=='approved'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.labor'").fetchone()[0]==2
 
@@ -700,6 +808,11 @@ def test_closing_archives_open_custody_and_fee_and_rolls_back_locked_corrections
     held=action(api,approved(erp,payload(erp,reference='HELD',quantity='1')),'receive')
     held=api('POST',f'{ROOT}/{held["id"]}/labor',{'version':held['version'],'hours':'1.50',
         'reason':'维修诊断','evidence':'维修工单 R-9'},status=201)
+    cost_path=f'{ROOT}/{held["id"]}/labor-cost/{held["labor"][0]["id"]}'
+    cost=api('POST',cost_path,dict(version=held['version'],hourly_rate='20.00',
+        reason='期末内部核价',evidence='费率批准单 C-9'),actor='reviewer',status=201)
+    assert cost['total_amount']=='30.00'
+    held=api('GET',f'{ROOT}/{held["id"]}')
     api('POST','finance/accounting-periods',dict(code='AFTER-YEAR',name='售后测试年',
         start_date='2026-01-01',end_date='2026-12-31',reason='核对客户保管'),status=201)
     monkeypatch.setattr('app.finance.period_closing.utc_today',lambda:'2027-01-01')
@@ -711,11 +824,19 @@ def test_closing_archives_open_custody_and_fee_and_rolls_back_locked_corrections
     assert evidence[0]['case']['fee_amount']=='5.50' and evidence[0]['custody_quantity']=='0'
     assert evidence[1]['case']['status']=='received' and evidence[1]['custody_quantity']=='1'
     assert evidence[1]['labor_hours']=='1.50' and evidence[1]['labor'][0]['evidence']=='维修工单 R-9'
+    assert evidence[1]['labor_cost']['total_amount']=='30.00'
+    assert evidence[1]['labor_cost']['history'][0]['evidence']=='费率批准单 C-9'
     assert evidence[1]['custody'][0]['evidence']=='交接检验记录 A-002'
+    with orm_session(write=True) as db:
+        db.add(RolePermission(role_code='warehouse',permission_code='accounting_period.closing_view'))
+    limited=api('GET',path+'/closings',actor='warehouse')[0]['evidence']['after_sales']
+    assert 'labor_cost' not in limited[1] and limited[1]['labor_hours']=='1.50'
     action(api,closed,'reverse',status=409)
     action(api,held,'cancel',status=409)
     api('POST',f'{ROOT}/{held["id"]}/labor',{'version':held['version'],'hours':'1',
         'reason':'锁期追加','evidence':'迟到工单'},status=409)
+    api('POST',cost_path,dict(version=held['version'],hourly_rate='21.00',
+        reason='锁期后核价',evidence='迟到批准'),actor='reviewer',status=409)
     api('POST',f'{ROOT}/{closed["id"]}/responsibility',dict(version=closed['version'],
         outcome='company',basis='锁期后补充的核定依据',reason='补记'),actor='reviewer',status=409)
     assert api('GET',f'{ROOT}/{held["id"]}')==held

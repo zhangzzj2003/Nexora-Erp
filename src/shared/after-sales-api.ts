@@ -12,6 +12,15 @@ export interface AfterSalesAttachment {
   reversal:{id:number; reason:string; created_by:number; created_by_name:string; created_at:string}|null
 }
 export interface AfterSalesAttachmentList {case_id:number; can_modify:boolean; items:AfterSalesAttachment[]}
+export interface AfterSalesLaborCostRecord {
+  id:number; labor_id:number; action:'set'|'void'; hourly_rate:string|null; amount:string|null
+  reason:string; evidence:string; created_by:number; created_by_name:string; created_at:string
+}
+export interface AfterSalesLaborCostSummary {
+  case_id:number; case_version:number; currency:'CNY'; total_amount:string; missing_labor_ids:number[]
+  entries:{labor_id:number; hours:string; reversed:boolean; latest:AfterSalesLaborCostRecord|null}[]
+  history:AfterSalesLaborCostRecord[]
+}
 export interface AfterSalesSource {
   shipment_line_id:number; shipment_id:number; sales_order_id:number; customer_id:number; customer_name:string
   material_id:number; sku:string; material_name:string; unit:string; quantity:string; unit_price:string
@@ -56,6 +65,7 @@ export interface AfterSalesArchive {
   source: AfterSalesSource; custody_quantity:string; labor_hours:string
   custody: AfterSalesEvidence['custody']; labor:AfterSalesEvidence['labor']; changes: AfterSalesEvidence['changes']
   responsibility:AfterSalesResponsibility|null; responsibilities:AfterSalesResponsibility[]
+  labor_cost?:AfterSalesLaborCostSummary
 }
 export interface AfterSalesOperations {
   afterSalesOverview:{input:undefined;output:AfterSalesOverview}
@@ -68,4 +78,6 @@ export interface AfterSalesOperations {
   assessAfterSalesResponsibility:{input:{id:number;version:number;outcome:AfterSalesResponsibilityOutcome;basis:string;reason:string};output:AfterSalesEvidence}
   recordAfterSalesLabor:{input:{id:number;version:number;hours:string;reason:string;evidence:string};output:AfterSalesEvidence}
   reverseAfterSalesLabor:{input:{id:number;version:number;entry_id:number;reason:string;evidence:string};output:AfterSalesEvidence}
+  afterSalesLaborCost:{input:{id:number};output:AfterSalesLaborCostSummary}
+  valueAfterSalesLaborCost:{input:{id:number;version:number;entry_id:number;hourly_rate:string|null;reason:string;evidence:string};output:AfterSalesLaborCostSummary}
 }

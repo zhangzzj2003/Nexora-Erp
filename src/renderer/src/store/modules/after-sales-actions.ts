@@ -1,5 +1,5 @@
 import {watch} from 'vue'
-import type {AfterSalesAction,AfterSalesAttachment,AfterSalesAttachmentList,AfterSalesDraft,AfterSalesEvidence,AfterSalesInput,AfterSalesResponsibilityOutcome} from '../../../../shared/after-sales-api'
+import type {AfterSalesAction,AfterSalesAttachment,AfterSalesAttachmentList,AfterSalesDraft,AfterSalesEvidence,AfterSalesInput,AfterSalesLaborCostSummary,AfterSalesResponsibilityOutcome} from '../../../../shared/after-sales-api'
 import type {AppState} from '../state'
 import {displayError} from '../../utils/formatters.ts'
 
@@ -115,8 +115,30 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
     if(session!==owner || !can('after_sales.view'))throw new Error('会话或权限已变化，请重新读取售后附件。')
     return result
   }
+  async function loadAfterSalesLaborCost(id:number):Promise<AfterSalesLaborCostSummary>{
+    if(!available() || !can('after_sales.view') || !can('after_sales.cost'))throw new Error('当前不能读取维修工时内部成本。')
+    const session=owner
+    const result=await window.nexora!.callApi('afterSalesLaborCost',{id})
+    if(session!==owner || !can('after_sales.cost') || !can('after_sales.view'))throw new Error('会话或权限已变化，请重新读取成本。')
+    return result
+  }
+  async function valueAfterSalesLaborCost(row:AfterSalesEvidence,entryId:number,hourlyRate:string|null,
+    reason:string,evidence:string):Promise<AfterSalesLaborCostSummary|null>{
+    if(!available() || !can('after_sales.view') || !can('after_sales.cost') || state.busy.value)return null
+    const session=owner;let saved:AfterSalesLaborCostSummary|null=null
+    await perform(async()=>{
+      if(session!==owner || !available() || !can('after_sales.cost'))return
+      const result=await window.nexora!.callApi('valueAfterSalesLaborCost',{
+        id:row.id,version:row.version,entry_id:entryId,hourly_rate:hourlyRate,reason,evidence})
+      if(session===owner && can('after_sales.cost') && can('after_sales.view'))saved=result
+    },hourlyRate===null?'内部工时核价已撤销，原历史仍保留。':'内部工时成本已核定，原历史仍保留。')
+    if(!saved || session!==owner || !can('after_sales.cost'))return null
+    await loadAfterSales();if(session===owner)await loadAfterSalesDetail(row.id)
+    return session===owner && can('after_sales.cost') ? saved : null
+  }
   return {loadAfterSales,loadAfterSalesDetail,clearAfterSalesDetail,startAfterSalesCase,editAfterSalesCase,saveAfterSalesCase,
     loadAfterSalesAttachments,uploadAfterSalesAttachment,reverseAfterSalesAttachment,saveAfterSalesAttachment,
+    loadAfterSalesLaborCost,valueAfterSalesLaborCost,
     recordAfterSalesLabor:(row:AfterSalesEvidence,hours:string,reason:string,evidence:string)=>write('after_sales.labor',
       ()=>window.nexora!.callApi('recordAfterSalesLabor',{id:row.id,version:row.version,hours,reason,evidence}),
       '维修实际工时已登记，原始证据保留；工时不自动形成成本或收费。'),

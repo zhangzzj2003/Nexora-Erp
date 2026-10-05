@@ -8,7 +8,7 @@ from app.core.models import (
     AccountingPeriod, InventoryCostInput, PaymentRecord, ProductionCostEntry,
     ProductionCostReversal, ProductionCostSettlement, ProductionSettlementReversal,
     StockMovement, SubledgerPayment, QualityDispositionChange, AfterSalesChange, AfterSalesCustody,
-    AfterSalesLabor, AfterSalesResponsibility,
+    AfterSalesLabor, AfterSalesLaborCost, AfterSalesResponsibility,
 )
 
 
@@ -33,7 +33,7 @@ def write_boundary(db: Session) -> tuple[str | None, dict]:
     boundary = closed_through(db)
     models = (StockMovement, PaymentRecord, SubledgerPayment, InventoryCostInput, ProductionCostEntry,
               ProductionCostReversal, ProductionCostSettlement, ProductionSettlementReversal, QualityDispositionChange,
-              AfterSalesChange, AfterSalesCustody, AfterSalesLabor, AfterSalesResponsibility)
+              AfterSalesChange, AfterSalesCustody, AfterSalesLabor, AfterSalesLaborCost, AfterSalesResponsibility)
     return boundary, ({model: db.scalar(select(func.max(model.id))) or 0 for model in models}
                       if boundary is not None else {})
 

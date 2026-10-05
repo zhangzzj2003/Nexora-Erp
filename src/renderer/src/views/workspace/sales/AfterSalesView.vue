@@ -11,6 +11,7 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import AfterSalesEditor from './AfterSalesEditor.vue'
 import AfterSalesEvidenceView from './AfterSalesEvidence.vue'
 import AfterSalesAttachments from './AfterSalesAttachments.vue'
+import AfterSalesLaborCost from './AfterSalesLaborCost.vue'
 import {afterSalesActions,afterSalesKind,afterSalesStatus,afterSalesCommand,afterSalesReversalHint} from './after-sales-display'
 const store=usePiniaAppStore()
 const {afterSalesOverview:overview,afterSalesDetail:detail,afterSalesLoading:loading,afterSalesError:failure,busy,user,connectionLost,error}=storeToRefs(store)
@@ -99,6 +100,7 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
         <template #empty>尚无售后记录。选择原出库编制申请，提交后独立审核。</template>
       </WorkspaceTable>
       <AfterSalesEvidenceView v-if="detail" :row="detail" />
+      <AfterSalesLaborCost v-if="detail?.kind==='repair'&&store.can('after_sales.cost')" :row="detail" />
       <AfterSalesAttachments v-if="detail" :case-id="detail.id" />
       <div v-if="detail&&canAssess(detail)" class="after-toolbar"><AppButton :disabled="disabled" @click="prepareResponsibility(detail.id)">{{ detail.responsibility?'更正责任核定':'登记责任核定' }}</AppButton></div>
       <div v-if="detail?.kind==='repair'&&['received','repaired'].includes(detail.status)&&store.can('after_sales.labor')" class="after-toolbar">
@@ -139,7 +141,7 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
         <label v-else>实际维修小时<AppInput v-model.trim="laborHours" type="number" min="0.01" max="100000" step="0.01" required :disabled="busy" /></label>
         <label>原因<AppInput v-model.trim="reason" maxlength="200" required :disabled="busy" /></label>
         <label>实际依据<AppInput v-model.trim="evidence" maxlength="400" required :disabled="busy" /></label>
-        <p>工时仅作作业留痕，不自动形成收费、应付或总账人工成本。</p>
+        <p>工时作为作业证据；财务可独立核定内部标准成本，不自动形成收费、应付或总账分录。</p>
         <p v-if="error" role="alert">{{ error }} 输入已保留；请重新加载最新证据后核对。</p>
         <div class="after-toolbar"><AppButton type="submit" variant="primary" :disabled="disabled||!reason.trim()||!evidence.trim()||(!laborCommand.entryId&&!laborHours.trim())">确认记录</AppButton><AppButton :disabled="busy" @click="laborCommand=null">返回核对</AppButton></div>
       </form>

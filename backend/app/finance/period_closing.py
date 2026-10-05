@@ -138,15 +138,22 @@ def closing_check(period_id: int = Path(gt=0),
 
 @router.get('/{period_id}/closings')
 def closing_history(period_id: int = Path(gt=0),
-                    _: dict = Depends(require('accounting_period.closing_view'))) -> list[dict]:
+                    user: dict = Depends(require('accounting_period.closing_view'))) -> list[dict]:
     with orm_session() as db:
         get_record(db, AccountingPeriod, period_id)
-        return [dict(id=item.id, period_id=item.period_id, period_version=item.period_version,
-            action=item.action, evidence=json.loads(item.snapshot_json), reason=item.reason,
-            created_by=item.created_by, created_by_name=username, created_at=item.created_at)
-            for item, username in db.execute(select(PeriodClosing, User.username)
+        result = []
+        for item, username in db.execute(select(PeriodClosing, User.username)
                 .join(User, User.id == PeriodClosing.created_by)
-                .where(PeriodClosing.period_id == period_id).order_by(PeriodClosing.id.desc()))]
+                .where(PeriodClosing.period_id == period_id).order_by(PeriodClosing.id.desc())):
+            evidence = json.loads(item.snapshot_json)
+            if 'after_sales.cost' not in user['permissions']:
+                # 结账查看权限可独立分配，不能借固定归档绕过售后内部成本授权。
+                for case in evidence.get('after_sales', []):
+                    case.pop('labor_cost', None)
+            result.append(dict(id=item.id, period_id=item.period_id, period_version=item.period_version,
+                action=item.action, evidence=evidence, reason=item.reason,
+                created_by=item.created_by, created_by_name=username, created_at=item.created_at))
+        return result
 
 
 @router.post('/{period_id}/close')

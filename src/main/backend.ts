@@ -765,6 +765,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return {method:'POST',path:`/api/v1/after-sales/cases/${positiveId(source,'id')}/labor/${positiveId(source,'entry_id')}/reverse`,
         body:{version:positiveId(source,'version'),reason:source.reason,evidence:source.evidence}}
     }
+    case 'afterSalesLaborCost': return {method:'GET',path:`/api/v1/after-sales/cases/${positiveId(payload,'id')}/labor-cost`}
+    case 'valueAfterSalesLaborCost': {
+      const source=payload as ErpOperations['valueAfterSalesLaborCost']['input']
+      if(!source || (source.hourly_rate!==null && (typeof source.hourly_rate!=='string' ||
+        !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(source.hourly_rate) ||
+        Number(source.hourly_rate)<=0 || Number(source.hourly_rate)>100000)))throw new Error('内部小时成本无效')
+      return {method:'POST',path:`/api/v1/after-sales/cases/${positiveId(source,'id')}/labor-cost/${positiveId(source,'entry_id')}`,
+        body:{version:positiveId(source,'version'),hourly_rate:source.hourly_rate,
+          reason:bankText(source.reason,'核价原因',200),evidence:bankText(source.evidence,'核价依据',400)}}
+    }
     case 'qualityOverview': return { method:'GET', path:'/api/v1/production-quality' }
     case 'qualityDetail': return { method:'GET', path:`/api/v1/production-quality/dispositions/${positiveId(payload,'id')}` }
     case 'saveQualityDisposition': {

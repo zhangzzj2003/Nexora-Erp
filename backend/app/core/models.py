@@ -1321,6 +1321,19 @@ class AfterSalesLabor(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
+class AfterSalesLaborCost(Base):
+    __tablename__ = 'after_sales_labor_costs'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    labor_id: Mapped[int] = mapped_column(Integer, ForeignKey('after_sales_labor.id'), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    hourly_rate: Mapped[str | None] = mapped_column(Text)
+    amount: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class AfterSalesAttachment(Base):
     __tablename__ = 'after_sales_attachments'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

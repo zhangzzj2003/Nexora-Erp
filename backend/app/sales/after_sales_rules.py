@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.core.models import (AfterSalesCase, AfterSalesChange, AfterSalesCustody, AfterSalesLabor,
+from app.core.models import (AfterSalesCase, AfterSalesChange, AfterSalesCustody, AfterSalesLabor, AfterSalesLaborCost,
     AfterSalesResponsibility,
     ShipmentLine, Shipment, ShipmentReversal, SalesOrderLine, SalesOrder, Customer, Material,
     SalesReturn, SalesReturnReversal, WarehouseOutbound, WarehouseOutboundReversal, User)
@@ -126,6 +126,30 @@ def labor_data(db, row, cutoff=None):
     return entries, str(total.quantize(Decimal('0.01')))
 
 
+def labor_cost_data(db, row, labor=None, cutoff=None):
+    """按每条工时的最后一次核价汇总；原工时更正后保留核价历史但退出合计。"""
+    if labor is None:
+        labor, _ = labor_data(db, row, cutoff)
+    record_ids = {item['id'] for item in labor if item['action'] == 'record'}
+    reversed_ids = {item['original_id'] for item in labor if item['action'] == 'reverse'}
+    query = select(AfterSalesLaborCost).join(AfterSalesLabor,
+        AfterSalesLabor.id == AfterSalesLaborCost.labor_id).where(AfterSalesLabor.case_id == row.id)
+    if cutoff is not None:
+        query = query.where(AfterSalesLaborCost.created_at < cutoff)
+    history = [{**model_data(item), 'created_by_name': db.get(User, item.created_by).username}
+        for item in db.scalars(query.order_by(AfterSalesLaborCost.id))]
+    latest = {item['labor_id']: item for item in history if item['labor_id'] in record_ids}
+    active = [item for item in labor if item['action'] == 'record' and item['id'] not in reversed_ids]
+    amount = sum((Decimal(latest[item['id']]['amount']) for item in active
+        if item['id'] in latest and latest[item['id']]['action'] == 'set'), Decimal(0))
+    missing = [item['id'] for item in active if item['id'] not in latest or latest[item['id']]['action'] == 'void']
+    return dict(case_id=row.id, case_version=row.version, currency='CNY',
+        total_amount=str(amount.quantize(Decimal('0.01'))), missing_labor_ids=missing,
+        entries=[dict(labor_id=item['id'], hours=item['hours'], reversed=item['id'] in reversed_ids,
+            latest=latest.get(item['id'])) for item in labor if item['action'] == 'record'],
+        history=history)
+
+
 def responsibility_data(db, row, cutoff=None):
     query = select(AfterSalesResponsibility).where(AfterSalesResponsibility.case_id == row.id)
     if cutoff is not None:
@@ -198,11 +222,13 @@ def archive_cases(db, end_date):
             for item in db.scalars(select(AfterSalesCustody).where(AfterSalesCustody.case_id == row.id,
                 AfterSalesCustody.created_at < cutoff).order_by(AfterSalesCustody.id))]
         labor, labor_hours = labor_data(db, row, cutoff)
+        labor_cost = labor_cost_data(db, row, labor, cutoff)
+        labor_cost['case_version'] = header['version']
         responsibilities = responsibility_data(db, row, cutoff)
         result.append(dict(case=header, source=original,
             custody=custody, custody_quantity=str(sum((Decimal(item['quantity']) *
                 (1 if item['action'] == 'receive' else -1) for item in custody), Decimal(0))),
-            labor=labor, labor_hours=labor_hours,
+            labor=labor, labor_hours=labor_hours, labor_cost=labor_cost,
             responsibilities=responsibilities,
             responsibility=responsibilities[-1] if responsibilities else None,
             changes=[dict(id=item.id, action=item.action, reason=item.reason, evidence=item.evidence,

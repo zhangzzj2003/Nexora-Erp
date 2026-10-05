@@ -7,7 +7,7 @@ import {financialSource} from '../src/renderer/src/utils/formatters.ts'
 import {callBackend} from '../src/main/backend.ts'
 import {canVisitRoute,routeByKey} from '../src/renderer/src/router/workspace-routes.ts'
 const permissions=['after_sales.view','after_sales.create','after_sales.submit','after_sales.review','after_sales.process',
-  'after_sales.receive','after_sales.inspect','after_sales.close','after_sales.cancel','after_sales.reverse','after_sales.labor','sales_return.create','sales_order.create']
+  'after_sales.receive','after_sales.inspect','after_sales.close','after_sales.cancel','after_sales.reverse','after_sales.labor','after_sales.cost','sales_return.create','sales_order.create']
 const row={id:1,version:3,status:'submitted',kind:'repair',current_source_valid:true,author_ids:[1]}
 const input={shipment_line_id:1,reference:'A-1',kind:'repair',quantity:'2',complaint:'产品故障',solution:'维修后交还',charge_mode:'charge',
   fee_amount:'10.50',customer_acceptance:'客户确认服务费 A-1',warranty_days:30,warranty_basis:'销售合同第 3 条',
@@ -89,6 +89,44 @@ test('维修工时操作校验独立权限并在成功后刷新证据',async t=>
   calls.length=0
   assert.equal(await actions.reverseAfterSalesLabor(row,5,'重复计时','复核'),true)
   assert.deepEqual(calls[0],['reverseAfterSalesLabor',{id:1,version:3,entry_id:5,reason:'重复计时',evidence:'复核'}])
+})
+
+test('内部工时成本 IPC 固定路径、金额文本及撤销边界',async t=>{
+  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original})
+  const requests=[];globalThis.fetch=async(url,options)=>{
+    requests.push([new URL(url).pathname,options.body?JSON.parse(options.body):null])
+    return new Response(JSON.stringify({case_id:1,case_version:4,total_amount:'25.00',missing_labor_ids:[],entries:[],history:[]}),{status:200})
+  }
+  await callBackend('afterSalesLaborCost',{id:1})
+  await callBackend('valueAfterSalesLaborCost',{id:1,version:3,entry_id:2,hourly_rate:'20.00',reason:'复核',evidence:'批准表',extra:'ignored'})
+  await callBackend('valueAfterSalesLaborCost',{id:1,version:4,entry_id:2,hourly_rate:null,reason:'撤销',evidence:'复核单'})
+  assert.deepEqual(requests,[
+    ['/api/v1/after-sales/cases/1/labor-cost',null],
+    ['/api/v1/after-sales/cases/1/labor-cost/2',{version:3,hourly_rate:'20.00',reason:'复核',evidence:'批准表'}],
+    ['/api/v1/after-sales/cases/1/labor-cost/2',{version:4,hourly_rate:null,reason:'撤销',evidence:'复核单'}]
+  ])
+  await assert.rejects(callBackend('valueAfterSalesLaborCost',{id:1,version:3,entry_id:2,hourly_rate:20,reason:'复核',evidence:'批准表'}),/内部小时成本无效/)
+  await assert.rejects(callBackend('valueAfterSalesLaborCost',{id:1,version:3,entry_id:2,hourly_rate:'1.234',reason:'复核',evidence:'批准表'}),/内部小时成本无效/)
+  await assert.rejects(callBackend('valueAfterSalesLaborCost',{id:1,version:3,entry_id:'../users',hourly_rate:'20',reason:'复核',evidence:'批准表'}),/编号无效/)
+  assert.equal(requests.length,3)
+})
+
+test('内部工时成本只向有权会话读取，写入后重读售后证据',async t=>{
+  const calls=[]
+  const summary={case_id:1,case_version:4,total_amount:'25.00',missing_labor_ids:[],entries:[],history:[]}
+  const {state,actions}=fixture(t,async(operation,input)=>{
+    calls.push([operation,input]);return operation==='afterSalesLaborCost'||operation==='valueAfterSalesLaborCost'?summary:
+      operation==='afterSalesOverview'?overview:row
+  })
+  state.user.value={id:1,permissions:['after_sales.view']}
+  await assert.rejects(actions.loadAfterSalesLaborCost(1),/不能读取/)
+  assert.equal(await actions.valueAfterSalesLaborCost(row,2,'20.00','复核','批准表'),null)
+  assert.equal(calls.length,0)
+  state.user.value={id:1,permissions}
+  assert.equal((await actions.loadAfterSalesLaborCost(1)).total_amount,'25.00')
+  assert.equal((await actions.valueAfterSalesLaborCost(row,2,'20.00','复核','批准表')).total_amount,'25.00')
+  assert.deepEqual(calls.map(([operation])=>operation),['afterSalesLaborCost','valueAfterSalesLaborCost','afterSalesOverview','afterSalesDetail'])
+  assert.deepEqual(calls[1][1],{id:1,version:3,entry_id:2,hourly_rate:'20.00',reason:'复核',evidence:'批准表'})
 })
 
 test('责任核定 IPC 只发送枚举与依据，独立审核权限控制写入',async t=>{

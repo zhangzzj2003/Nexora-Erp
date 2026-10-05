@@ -6,6 +6,9 @@ import pytest
 @pytest.fixture
 def remove_after_sales_labor_schema():
     def remove(db):
+        db.execute('DROP TABLE IF EXISTS after_sales_labor_costs')
+        db.execute("DELETE FROM role_permissions WHERE permission_code='after_sales.cost'")
+        db.execute("DELETE FROM permissions WHERE code='after_sales.cost'")
         db.execute('DROP TABLE IF EXISTS equipment_attachment_reversals')
         db.execute('DROP TABLE IF EXISTS equipment_attachments')
         db.execute("DELETE FROM role_permissions WHERE permission_code='equipment.attachment'")
