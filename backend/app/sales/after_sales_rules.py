@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.core.models import (AfterSalesCase, AfterSalesChange, AfterSalesCustody, AfterSalesLabor,
+    AfterSalesResponsibility,
     ShipmentLine, Shipment, ShipmentReversal, SalesOrderLine, SalesOrder, Customer, Material,
     SalesReturn, SalesReturnReversal, WarehouseOutbound, WarehouseOutboundReversal, User)
 from app.core.orm import model_data
@@ -125,6 +126,14 @@ def labor_data(db, row, cutoff=None):
     return entries, str(total.quantize(Decimal('0.01')))
 
 
+def responsibility_data(db, row, cutoff=None):
+    query = select(AfterSalesResponsibility).where(AfterSalesResponsibility.case_id == row.id)
+    if cutoff is not None:
+        query = query.where(AfterSalesResponsibility.created_at < cutoff)
+    return [{**model_data(item), 'assessed_by_name': db.get(User, item.assessed_by).username}
+        for item in db.scalars(query.order_by(AfterSalesResponsibility.id))]
+
+
 def warranty_data(warranty_days, created_at, frozen_source):
     # 申请日固定为建单 UTC 日期，修订保修依据也不能悄悄移动申请时间。
     applied_on = date.fromisoformat(created_at[:10])
@@ -154,6 +163,8 @@ def case_data(db, row):
     result['custody_quantity'] = str(sum((Decimal(item['quantity']) * (1 if item['action']=='receive' else -1)
         for item in result['custody']), Decimal(0)))
     result['labor'], result['labor_hours'] = labor_data(db, row)
+    result['responsibilities'] = responsibility_data(db, row)
+    result['responsibility'] = result['responsibilities'][-1] if result['responsibilities'] else None
     result['changes'] = [dict(id=item.id, action=item.action, reason=item.reason, evidence=item.evidence,
         changed_by=item.changed_by, changed_by_name=db.get(User, item.changed_by).username, created_at=item.created_at,
         before=json.loads(item.before_json) if item.before_json else None, after=json.loads(item.after_json))
@@ -187,10 +198,13 @@ def archive_cases(db, end_date):
             for item in db.scalars(select(AfterSalesCustody).where(AfterSalesCustody.case_id == row.id,
                 AfterSalesCustody.created_at < cutoff).order_by(AfterSalesCustody.id))]
         labor, labor_hours = labor_data(db, row, cutoff)
+        responsibilities = responsibility_data(db, row, cutoff)
         result.append(dict(case=header, source=original,
             custody=custody, custody_quantity=str(sum((Decimal(item['quantity']) *
                 (1 if item['action'] == 'receive' else -1) for item in custody), Decimal(0))),
             labor=labor, labor_hours=labor_hours,
+            responsibilities=responsibilities,
+            responsibility=responsibilities[-1] if responsibilities else None,
             changes=[dict(id=item.id, action=item.action, reason=item.reason, evidence=item.evidence,
                 changed_by=item.changed_by, changed_by_name=db.get(User, item.changed_by).username,
                 created_at=item.created_at, before=json.loads(item.before_json) if item.before_json else None,

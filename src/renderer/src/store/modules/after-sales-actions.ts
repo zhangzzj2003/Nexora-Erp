@@ -1,5 +1,5 @@
 import {watch} from 'vue'
-import type {AfterSalesAction,AfterSalesAttachment,AfterSalesAttachmentList,AfterSalesDraft,AfterSalesEvidence,AfterSalesInput} from '../../../../shared/after-sales-api'
+import type {AfterSalesAction,AfterSalesAttachment,AfterSalesAttachmentList,AfterSalesDraft,AfterSalesEvidence,AfterSalesInput,AfterSalesResponsibilityOutcome} from '../../../../shared/after-sales-api'
 import type {AppState} from '../state'
 import {displayError} from '../../utils/formatters.ts'
 
@@ -126,5 +126,9 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
     changeAfterSalesCase:(row:AfterSalesEvidence,action:AfterSalesAction,reason:string,evidence:string,inspection_result?:'pass'|'fail')=>write(
       ['approve','reject'].includes(action)?'after_sales.review':`after_sales.${action}`,
       ()=>window.nexora!.callApi('changeAfterSalesCase',{id:row.id,version:row.version,action,reason,evidence,inspection_result}),
-      action==='process'?'关联业务草稿已建立，库存与往来金额须由原单据确认。':'售后阶段及证据已更新，客户物品保管与原单据历史保留。')}
+      action==='process'?'关联业务草稿已建立，库存与往来金额须由原单据确认。':'售后阶段及证据已更新，客户物品保管与原单据历史保留。'),
+    assessAfterSalesResponsibility:(row:AfterSalesEvidence,outcome:AfterSalesResponsibilityOutcome,basis:string,reason:string)=>write(
+      'after_sales.review',()=>window.nexora!.callApi('assessAfterSalesResponsibility',
+        {id:row.id,version:row.version,outcome,basis,reason}),
+      '责任核定已追加留痕；不自动更改保修期限、收费或库存。')}
 }

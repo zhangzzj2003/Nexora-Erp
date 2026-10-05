@@ -2,7 +2,7 @@
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {storeToRefs} from 'pinia'
 import {NModal} from 'naive-ui'
-import type {AfterSalesAction,AfterSalesEvidence} from '../../../../../shared/after-sales-api'
+import type {AfterSalesAction,AfterSalesEvidence,AfterSalesResponsibilityOutcome} from '../../../../../shared/after-sales-api'
 import {usePiniaAppStore} from '../../../store/app-store'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
@@ -17,6 +17,8 @@ const {afterSalesOverview:overview,afterSalesDetail:detail,afterSalesLoading:loa
 const mode=ref<'sources'|'records'>('sources'),editor=ref(false),query=ref(''),preparing=ref(false),reason=ref(''),evidence=ref(''),inspection=ref<'pass'|'fail'|''>('')
 const command=ref<{row:AfterSalesEvidence;action:AfterSalesAction}|null>(null)
 const laborCommand=ref<{row:AfterSalesEvidence;entryId:number|null}|null>(null),laborHours=ref('')
+const responsibilityCommand=ref<AfterSalesEvidence|null>(null)
+const responsibilityOutcome=ref<AfterSalesResponsibilityOutcome|''>(''),responsibilityBasis=ref('')
 const disabled=computed(()=>busy.value||loading.value||preparing.value||connectionLost.value)
 const sources=computed(()=>(overview.value?.sources??[]).filter(row=>[row.shipment_id,row.sales_order_id,row.customer_name,row.sku,row.material_name].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const records=computed(()=>(overview.value?.cases??[]).filter(row=>[row.reference,row.frozen_source.customer_name,row.frozen_source.sku,afterSalesKind[row.kind],afterSalesStatus[row.status]].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
@@ -48,9 +50,29 @@ async function executeLabor():Promise<void>{
     :await store.reverseAfterSalesLabor(row,entryId,reason.value,evidence.value)
   if(saved)laborCommand.value=null
 }
+function canAssess(row:AfterSalesEvidence):boolean{
+  return store.can('after_sales.review')&&store.can('after_sales.view')&&
+    !row.author_ids.includes(user.value?.id??0)&&['submitted','approved','processing','received','repaired','closed'].includes(row.status)
+}
+async function prepareResponsibility(id:number):Promise<void>{
+  if(disabled.value)return
+  preparing.value=true;responsibilityCommand.value=null;reason.value='';responsibilityOutcome.value='';responsibilityBasis.value='';error.value=''
+  try{
+    if(await store.loadAfterSalesDetail(id)&&detail.value&&canAssess(detail.value)){
+      responsibilityCommand.value=detail.value
+      responsibilityOutcome.value=detail.value.responsibility?.outcome??''
+      responsibilityBasis.value=detail.value.responsibility?.basis??''
+    }
+  }finally{preparing.value=false}
+}
+async function executeResponsibility():Promise<void>{
+  if(!responsibilityCommand.value||!responsibilityOutcome.value)return
+  if(await store.assessAfterSalesResponsibility(responsibilityCommand.value,responsibilityOutcome.value,
+    responsibilityBasis.value,reason.value))responsibilityCommand.value=null
+}
 function selectMode(value:'sources'|'records'):void{if(busy.value)return;mode.value=value;editor.value=false;query.value='';store.clearAfterSalesDetail()}
-watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{command.value=null;laborCommand.value=null;editor.value=false;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
-watch(connectionLost,()=>{command.value=null;laborCommand.value=null;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
+watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{command.value=null;laborCommand.value=null;responsibilityCommand.value=null;editor.value=false;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
+watch(connectionLost,()=>{command.value=null;laborCommand.value=null;responsibilityCommand.value=null;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
 onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSalesDetail())
 </script>
 <template>
@@ -78,6 +100,7 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
       </WorkspaceTable>
       <AfterSalesEvidenceView v-if="detail" :row="detail" />
       <AfterSalesAttachments v-if="detail" :case-id="detail.id" />
+      <div v-if="detail&&canAssess(detail)" class="after-toolbar"><AppButton :disabled="disabled" @click="prepareResponsibility(detail.id)">{{ detail.responsibility?'更正责任核定':'登记责任核定' }}</AppButton></div>
       <div v-if="detail?.kind==='repair'&&['received','repaired'].includes(detail.status)&&store.can('after_sales.labor')" class="after-toolbar">
         <AppButton :disabled="disabled" @click="prepareLabor(null)">登记实际维修工时</AppButton>
         <AppButton v-for="entry in detail.labor.filter(item=>item.action==='record'&&!detail!.labor.some(reverse=>reverse.original_id===item.id))"
@@ -97,6 +120,16 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
         <label>实际交接、检验或客户确认依据<AppInput v-model.trim="evidence" maxlength="400" :required="['receive','inspect','close'].includes(command.action)||(['received','repaired'].includes(command.row.status)&&command.action==='cancel')" :disabled="busy" /></label>
         <p v-if="error" role="alert">{{ error }} 原因和依据已保留；请重新加载最新证据后核对。</p>
         <div class="after-toolbar"><AppButton type="submit" variant="primary" :disabled="busy||connectionLost||!reason.trim()||(command.action==='inspect'&&!inspection)">{{ busy?'正在处理…':afterSalesCommand[command.action] }}</AppButton><AppButton :disabled="busy" @click="command=null">返回核对</AppButton></div>
+      </form>
+    </NModal>
+    <NModal :show="!!responsibilityCommand" preset="card" :title="responsibilityCommand?.responsibility?'更正责任核定':'登记责任核定'" style="width:min(700px,calc(100vw - 48px))" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value&&!busy)responsibilityCommand=null}">
+      <form v-if="responsibilityCommand" class="after-operation" @submit.prevent="executeResponsibility">
+        <p>{{ responsibilityCommand.reference }} · v{{ responsibilityCommand.version }}。结合合同、故障和检验资料人工核定；保修期限、收费方案及库存不会自动变化。</p>
+        <label>责任结果<WorkspaceSelect v-model="responsibilityOutcome" :options="[{label:'请选择责任结果',value:'',disabled:true},{label:'本公司责任',value:'company'},{label:'客户责任',value:'customer'},{label:'第三方责任',value:'third_party'},{label:'暂无法判定',value:'undetermined'}]" :disabled="busy" required /></label>
+        <label>核定依据<AppInput v-model.trim="responsibilityBasis" maxlength="400" required :disabled="busy" /></label>
+        <label>登记或更正原因<AppInput v-model.trim="reason" maxlength="200" required :disabled="busy" /></label>
+        <p v-if="error" role="alert">{{ error }} 输入已保留；请重新加载证据核对。</p>
+        <div class="after-toolbar"><AppButton type="submit" variant="primary" :disabled="disabled||!responsibilityOutcome||!responsibilityBasis.trim()||!reason.trim()">保存核定</AppButton><AppButton :disabled="busy" @click="responsibilityCommand=null">返回核对</AppButton></div>
       </form>
     </NModal>
     <NModal :show="!!laborCommand" preset="card" :title="laborCommand?.entryId?'更正维修工时':'登记实际维修工时'" style="width:min(700px,calc(100vw - 48px))" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value&&!busy)laborCommand=null}">

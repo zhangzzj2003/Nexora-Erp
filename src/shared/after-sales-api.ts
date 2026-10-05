@@ -1,6 +1,11 @@
 export type AfterSalesKind = 'return' | 'exchange' | 'repair'
 export type AfterSalesStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'processing' | 'received' | 'repaired' | 'closed' | 'cancelled' | 'reversed'
 export type AfterSalesAction = 'submit' | 'approve' | 'reject' | 'process' | 'receive' | 'inspect' | 'close' | 'cancel' | 'reverse'
+export type AfterSalesResponsibilityOutcome = 'company' | 'customer' | 'third_party' | 'undetermined'
+export interface AfterSalesResponsibility {
+  id:number; case_id:number; outcome:AfterSalesResponsibilityOutcome; basis:string; reason:string
+  assessed_by:number; assessed_by_name:string; created_at:string
+}
 export interface AfterSalesAttachment {
   id:number; case_id:number; file_name:string; media_type:'application/pdf'|'image/png'|'image/jpeg'
   byte_count:number; sha256:string; reason:string; created_by:number; created_by_name:string; created_at:string
@@ -37,6 +42,7 @@ export interface AfterSalesEvidence extends Omit<AfterSalesInput,'parts'|'reason
   labor_hours:string
   labor:{id:number;case_id:number;action:'record'|'reverse';hours:string;original_id:number|null;
     reason:string;evidence:string;created_by:number;created_by_name:string;created_at:string}[]
+  responsibility:AfterSalesResponsibility|null; responsibilities:AfterSalesResponsibility[]
   changes:{id:number; action:string; reason:string; evidence:string; changed_by:number; changed_by_name:string; created_at:string;
     before:Record<string,unknown>|null; after:Record<string,unknown>}[]
 }
@@ -49,6 +55,7 @@ export interface AfterSalesArchive {
     Partial<Pick<AfterSalesEvidence, 'warranty_days'|'warranty_basis'|'warranty_applied_on'|'warranty_expires_on'|'warranty_status'>>
   source: AfterSalesSource; custody_quantity:string; labor_hours:string
   custody: AfterSalesEvidence['custody']; labor:AfterSalesEvidence['labor']; changes: AfterSalesEvidence['changes']
+  responsibility:AfterSalesResponsibility|null; responsibilities:AfterSalesResponsibility[]
 }
 export interface AfterSalesOperations {
   afterSalesOverview:{input:undefined;output:AfterSalesOverview}
@@ -58,6 +65,7 @@ export interface AfterSalesOperations {
   reverseAfterSalesAttachment:{input:{caseId:number;attachmentId:number;reason:string};output:AfterSalesAttachment}
   saveAfterSalesCase:{input:AfterSalesInput&{id?:number;version?:number};output:AfterSalesEvidence}
   changeAfterSalesCase:{input:{id:number;version:number;action:AfterSalesAction;reason:string;evidence:string;inspection_result?:'pass'|'fail'|null};output:AfterSalesEvidence}
+  assessAfterSalesResponsibility:{input:{id:number;version:number;outcome:AfterSalesResponsibilityOutcome;basis:string;reason:string};output:AfterSalesEvidence}
   recordAfterSalesLabor:{input:{id:number;version:number;hours:string;reason:string;evidence:string};output:AfterSalesEvidence}
   reverseAfterSalesLabor:{input:{id:number;version:number;entry_id:number;reason:string;evidence:string};output:AfterSalesEvidence}
 }

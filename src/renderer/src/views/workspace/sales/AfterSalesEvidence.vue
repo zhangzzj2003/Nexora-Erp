@@ -3,7 +3,7 @@ import {NCollapse} from 'naive-ui'
 import type {AfterSalesEvidence} from '../../../../../shared/after-sales-api'
 import {usePiniaAppStore} from '../../../store/app-store'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
-import {afterSalesKind,afterSalesStatus,afterSalesChanges,afterSalesCommand,repairFeeState} from './after-sales-display'
+import {afterSalesKind,afterSalesStatus,afterSalesChanges,afterSalesCommand,afterSalesResponsibility,repairFeeState} from './after-sales-display'
 defineProps<{row:AfterSalesEvidence;compact?:boolean}>()
 const store=usePiniaAppStore()
 </script>
@@ -17,8 +17,10 @@ const store=usePiniaAppStore()
       <div><dt>客户同意依据</dt><dd>{{ row.customer_acceptance }}</dd></div><div><dt>原出库效力</dt><dd>{{ row.current_source_valid?'当前有效':'当前来源已更正，请核对历史' }}</dd></div>
       <div><dt>保修期限核对</dt><dd v-if="row.warranty_days!==null">出库日 {{ row.frozen_source.posted_at.slice(0,10) }} · {{ row.warranty_days }} 天 · 截止 {{ row.warranty_expires_on }}；申请日 {{ row.warranty_applied_on }} · {{ row.warranty_status==='within_period'?'期限内':row.warranty_status==='expired'?'已过期':'日期待核对' }}</dd><dd v-else>未确认保修条款</dd></div>
       <div><dt>保修依据</dt><dd>{{ row.warranty_basis||'未提供；请人工核对合同' }}</dd></div>
+      <div><dt>最新责任核定</dt><dd v-if="row.responsibility">{{ afterSalesResponsibility[row.responsibility.outcome] }} · {{ row.responsibility.assessed_by_name }} · {{ store.localTime(row.responsibility.created_at) }}<br>{{ row.responsibility.basis }}</dd><dd v-else>尚未人工核定</dd></div>
     </dl>
-    <p>期限核对不自动认定保修责任，也不改变本单收费方案；请审核人结合合同、故障与客户同意依据判断。</p>
+    <p>期限核对不自动认定保修责任；人工责任核定也不自动改变本单收费方案，请核对合同、故障与客户同意依据。</p>
+    <ul v-if="!compact&&row.responsibilities.length"><li v-for="item in row.responsibilities" :key="item.id">责任核定 #{{ item.id }} · {{ afterSalesResponsibility[item.outcome] }} · {{ item.assessed_by_name }} · {{ store.localTime(item.created_at) }}<p>原因：{{ item.reason }}；依据：{{ item.basis }}</p></li></ul>
     <template v-if="row.kind==='exchange'">
       <p>{{ row.frozen_source.replacement?.sku }} · {{ row.frozen_source.replacement?.material_name }} · 换货 {{ row.replacement_quantity }} {{ row.frozen_source.replacement?.unit }} · 单价 {{ row.replacement_unit_price }} 元。原退货与换货分别核对，不自动抵销价差。</p>
     </template>
@@ -44,7 +46,7 @@ const store=usePiniaAppStore()
     </nav>
     <template v-if="!compact">
       <h3>方案及操作记录</h3>
-      <NCollapse><AppCollapseItem v-for="change in row.changes" :key="change.id" :name="change.id" :title="`${afterSalesCommand[change.action as keyof typeof afterSalesCommand]??({create:'建立申请',edit:'修订方案',inspect_pass:'维修检验合格',inspect_fail:'维修检验不合格'} as Record<string,string>)[change.action]??change.action} · ${change.changed_by_name} · ${store.localTime(change.created_at)}`">
+      <NCollapse><AppCollapseItem v-for="change in row.changes" :key="change.id" :name="change.id" :title="`${afterSalesCommand[change.action as keyof typeof afterSalesCommand]??({create:'建立申请',edit:'修订方案',inspect_pass:'维修检验合格',inspect_fail:'维修检验不合格',assess_responsibility:'人工责任核定'} as Record<string,string>)[change.action]??change.action} · ${change.changed_by_name} · ${store.localTime(change.created_at)}`">
         <p>原因：{{ change.reason }}</p><p v-if="change.evidence">实际依据：{{ change.evidence }}</p>
         <ul><li v-for="line in afterSalesChanges(change)" :key="line">{{ line }}</li></ul>
       </AppCollapseItem></NCollapse>

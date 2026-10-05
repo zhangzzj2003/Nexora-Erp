@@ -132,7 +132,7 @@ def test_v67_upgrade_adds_event_tables_without_changing_warning_rules(erp):
     migrate()
     migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 79
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 80
         assert db.execute('SELECT * FROM inventory_warning_rules').fetchall() == previous
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
     assert scan_warning_events() == 1

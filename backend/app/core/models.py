@@ -1286,6 +1286,17 @@ class AfterSalesChange(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
+class AfterSalesResponsibility(Base):
+    __tablename__ = "after_sales_responsibilities"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("after_sales_cases.id"), nullable=False)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False)
+    basis: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    assessed_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
 class AfterSalesCustody(Base):
     __tablename__ = "after_sales_custody"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

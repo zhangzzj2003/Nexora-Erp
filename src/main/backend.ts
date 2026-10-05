@@ -736,6 +736,13 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return {method:'POST',path:`/api/v1/after-sales/cases/${positiveId(source,'id')}/${source.action}`,
         body:{version:positiveId(source,'version'),reason:source.reason,evidence:source.evidence,inspection_result:source.inspection_result??null}}
     }
+    case 'assessAfterSalesResponsibility': {
+      const source=payload as ErpOperations['assessAfterSalesResponsibility']['input']
+      if(!source || !['company','customer','third_party','undetermined'].includes(source.outcome))throw new Error('责任核定结果无效')
+      return {method:'POST',path:`/api/v1/after-sales/cases/${positiveId(source,'id')}/responsibility`,
+        body:{version:positiveId(source,'version'),outcome:source.outcome,
+          basis:bankText(source.basis,'责任依据',400),reason:bankText(source.reason,'核定原因',200)}}
+    }
     case 'recordAfterSalesLabor': {
       const source=payload as ErpOperations['recordAfterSalesLabor']['input']
       if(!source || typeof source.hours!=='string' || !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(source.hours)

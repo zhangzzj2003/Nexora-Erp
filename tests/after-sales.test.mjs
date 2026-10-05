@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {createAppState} from '../src/renderer/src/store/state.ts'
 import {createAfterSalesActions} from '../src/renderer/src/store/modules/after-sales-actions.ts'
-import {afterSalesActions,afterSalesChanges,repairFeeState,afterSalesReversalHint} from '../src/renderer/src/views/workspace/sales/after-sales-display.ts'
+import {afterSalesActions,afterSalesChanges,afterSalesResponsibility,repairFeeState,afterSalesReversalHint} from '../src/renderer/src/views/workspace/sales/after-sales-display.ts'
 import {financialSource} from '../src/renderer/src/utils/formatters.ts'
 import {callBackend} from '../src/main/backend.ts'
 import {canVisitRoute,routeByKey} from '../src/renderer/src/router/workspace-routes.ts'
@@ -89,6 +89,32 @@ test('维修工时操作校验独立权限并在成功后刷新证据',async t=>
   calls.length=0
   assert.equal(await actions.reverseAfterSalesLabor(row,5,'重复计时','复核'),true)
   assert.deepEqual(calls[0],['reverseAfterSalesLabor',{id:1,version:3,entry_id:5,reason:'重复计时',evidence:'复核'}])
+})
+
+test('责任核定 IPC 只发送枚举与依据，独立审核权限控制写入',async t=>{
+  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original})
+  const requests=[];globalThis.fetch=async(url,options)=>{
+    requests.push([new URL(url).pathname,JSON.parse(options.body)])
+    return new Response(JSON.stringify(row),{status:200})
+  }
+  assert.equal(afterSalesResponsibility.third_party,'第三方责任')
+  await callBackend('assessAfterSalesResponsibility',{id:1,version:3,outcome:'company',basis:'检验记录 R-1',reason:'核定',fee_amount:'0'})
+  assert.deepEqual(requests,[['/api/v1/after-sales/cases/1/responsibility',
+    {version:3,outcome:'company',basis:'检验记录 R-1',reason:'核定'}]])
+  await assert.rejects(callBackend('assessAfterSalesResponsibility',{id:1,version:3,outcome:'auto',basis:'检验',reason:'核定'}),/责任核定结果无效/)
+  await assert.rejects(callBackend('assessAfterSalesResponsibility',{id:1,version:3,outcome:'company',basis:' ',reason:'核定'}),/责任依据/)
+  assert.equal(requests.length,1)
+  const calls=[];const {state,actions}=fixture(t,async(operation,data)=>{
+    calls.push([operation,data]);return operation==='afterSalesOverview'?overview:row
+  })
+  state.user.value={id:2,permissions:['after_sales.view']}
+  assert.equal(await actions.assessAfterSalesResponsibility(row,'company','检验记录 R-1','核定'),false)
+  assert.equal(calls.length,0)
+  state.user.value={id:2,permissions}
+  assert.equal(await actions.assessAfterSalesResponsibility(row,'company','检验记录 R-1','核定'),true)
+  assert.deepEqual(calls[0],['assessAfterSalesResponsibility',
+    {id:1,version:3,outcome:'company',basis:'检验记录 R-1',reason:'核定'}])
+  assert.deepEqual(calls.slice(1).map(([operation])=>operation),['afterSalesOverview','afterSalesDetail'])
 })
 test('较旧证据与断线迟到结果不覆盖当前，同账号草稿和版本保留',async t=>{
   const pending=deferred();const {state,actions}=fixture(t,(_action,data)=>data?.id===1?pending.promise:Promise.resolve({...row,id:2}))

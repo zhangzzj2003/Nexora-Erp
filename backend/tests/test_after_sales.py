@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.main import app
 from app.core.database import migrate
-from app.core.models import Base, AfterSalesChange, AfterSalesCase, AfterSalesCustody, AfterSalesLabor, Customer, RolePermission
+from app.core.models import Base, AfterSalesChange, AfterSalesCase, AfterSalesCustody, AfterSalesLabor, AfterSalesResponsibility, Customer, RolePermission
 from app.core.orm import orm_session
 from app.finance.business_sources import business_sources
 from app.sales.after_sales_rules import archive_cases
@@ -78,6 +78,94 @@ def approved(erp,data):
     row=api('POST',ROOT,data,status=201)
     row=action(api,row,'submit')
     return action(api,row,'approve',actor='reviewer')
+
+
+def test_responsibility_assessment_is_independent_append_only_and_does_not_change_fees(erp):
+    _,api,_,_,_,_,_=erp
+    row=api('POST',ROOT,payload(erp,charge_mode='charge',fee_amount='5.50'),status=201)
+    path=f'{ROOT}/{row["id"]}/responsibility'
+    first=dict(version=row['version'],outcome='company',basis='检验记录 R-1：装配缺陷',reason='独立核定')
+    api('POST',path,first,actor='reviewer',status=409)
+    row=action(api,row,'submit')
+    api('POST',path,{**first,'version':row['version']},actor='admin',status=403)
+    api('POST',path,{**first,'version':row['version']},actor='seller',status=403)
+    api('POST',path,{**first,'version':row['version']},actor='viewer',status=403)
+    assessed=api('POST',path,{**first,'version':row['version']},actor='reviewer',status=201)
+    assert assessed['responsibility']['outcome']=='company'
+    assert assessed['responsibility']['basis']=='检验记录 R-1：装配缺陷'
+    assert assessed['responsibility']['assessed_by_name']=='reviewer'
+    assert assessed['fee_amount']=='5.50' and assessed['charge_mode']=='charge'
+    assert assessed['changes'][-1]['action']=='assess_responsibility'
+    api('POST',path,{**first,'version':assessed['version']},actor='reviewer',status=409)
+    api('POST',path,{**first,'version':row['version']},actor='reviewer',status=409)
+    corrected=api('POST',path,dict(version=assessed['version'],outcome='third_party',
+        basis='供方复检记录 S-2',reason='补充供方检验结果'),actor='reviewer',status=201)
+    assert [item['outcome'] for item in corrected['responsibilities']]==['company','third_party']
+    assert corrected['responsibility']['reason']=='补充供方检验结果'
+    assert corrected['fee_amount']=='5.50'
+    with orm_session() as db:
+        archive=next(item for item in archive_cases(db,'2099-12-31') if item['case']['id']==row['id'])
+        assert archive['responsibility']['outcome']=='third_party'
+        assert len(archive['responsibilities'])==2
+
+
+@pytest.mark.parametrize('outcome,basis',[
+    ('automatic','检验记录'),('company','  '),('company','a'*401),
+])
+def test_responsibility_rejects_invalid_decision_or_basis(erp,outcome,basis):
+    _,api,_,_,_,_,_=erp
+    row=action(api,api('POST',ROOT,payload(erp),status=201),'submit')
+    api('POST',f'{ROOT}/{row["id"]}/responsibility',dict(version=row['version'],
+        outcome=outcome,basis=basis,reason='核定'),actor='reviewer',status=422)
+    assert api('GET',f'{ROOT}/{row["id"]}')['responsibilities']==[]
+
+
+def test_v79_responsibility_upgrade_is_atomic_and_preserves_old_cases(erp,monkeypatch):
+    import app.core.database as database
+    _,api,_,_,_,_,_=erp
+    old=api('POST',ROOT,payload(erp),status=201)
+    with database.connection() as db:
+        db.execute('DROP TABLE after_sales_responsibilities')
+        db.execute('PRAGMA user_version=79')
+    original=database.connection
+    @contextmanager
+    def failing():
+        with original() as db:
+            db.set_authorizer(lambda operation,name,*_: sqlite3.SQLITE_DENY if operation==sqlite3.SQLITE_CREATE_TABLE
+                and name=='after_sales_responsibilities' else sqlite3.SQLITE_OK)
+            yield db
+    monkeypatch.setattr(database,'connection',failing)
+    with pytest.raises(sqlite3.DatabaseError):
+        migrate()
+    monkeypatch.setattr(database,'connection',original)
+    with original() as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0]==79
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_responsibilities'").fetchone()
+    migrate();migrate()
+    with original() as db:
+        assert db.execute('PRAGMA user_version').fetchone()[0]==80
+        assert db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_responsibilities'").fetchone()
+    assert api('GET',f'{ROOT}/{old["id"]}')['responsibilities']==[]
+
+
+def test_responsibility_archive_uses_period_cutoff_instead_of_latest_revision(erp):
+    _,api,_,_,_,_,_=erp
+    row=action(api,api('POST',ROOT,payload(erp),status=201),'submit')
+    path=f'{ROOT}/{row["id"]}/responsibility'
+    row=api('POST',path,dict(version=row['version'],outcome='company',basis='原检验记录',
+        reason='初次核定'),actor='reviewer',status=201)
+    row=api('POST',path,dict(version=row['version'],outcome='customer',basis='后续客户确认书',
+        reason='追加证据更正'),actor='reviewer',status=201)
+    with orm_session(write=True) as db:
+        db.get(AfterSalesResponsibility,row['responsibility']['id']).created_at='2027-01-01 00:00:00'
+        last=db.scalars(select(AfterSalesChange).where(AfterSalesChange.case_id==row['id'])
+            .order_by(AfterSalesChange.id.desc())).first()
+        last.created_at='2027-01-01 00:00:00'
+    with orm_session() as db:
+        old=next(item for item in archive_cases(db,'2026-12-31') if item['case']['id']==row['id'])
+        current=next(item for item in archive_cases(db,'2027-01-01') if item['case']['id']==row['id'])
+    assert old['responsibility']['outcome']=='company' and len(old['responsibilities'])==1
+    assert current['responsibility']['outcome']=='customer' and len(current['responsibilities'])==2
 
 
 def test_order_warranty_terms_follow_shipment_into_case_and_cannot_be_overridden(erp):
@@ -154,7 +242,7 @@ def test_v78_order_warranty_upgrade_is_atomic_and_keeps_old_orders_unknown(erp,m
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(sales_order_lines)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==79
+        assert db.execute('PRAGMA user_version').fetchone()[0]==80
         assert db.execute('SELECT warranty_days,warranty_basis FROM sales_order_lines WHERE sales_order_id=?',
             (old_order['id'],)).fetchone()==(None,'')
     old=next(item for item in api('GET','sales-orders') if item['id']==old_order['id'])
@@ -234,7 +322,7 @@ def test_v77_warranty_upgrade_keeps_old_cases_unknown_and_is_idempotent(erp,monk
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(after_sales_cases)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==79
+        assert db.execute('PRAGMA user_version').fetchone()[0]==80
         assert db.execute('SELECT warranty_days,warranty_basis FROM after_sales_cases WHERE id=?',
             (old['id'],)).fetchone()==(None,'')
     assert api('GET',f'{ROOT}/{old["id"]}')['warranty_status']=='unknown'
@@ -499,10 +587,10 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 79
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 80
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
-    assert len(Base.metadata.tables)== 176
+    assert len(Base.metadata.tables)== 177
 
 
 def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_after_sales_labor_schema,monkeypatch):
@@ -529,7 +617,7 @@ def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_
         assert not db.execute("SELECT 1 FROM permissions WHERE code='after_sales.labor'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 79
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 80
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?',(case['id'],)).fetchone()[0]=='approved'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.labor'").fetchone()[0]==2
 
@@ -628,6 +716,8 @@ def test_closing_archives_open_custody_and_fee_and_rolls_back_locked_corrections
     action(api,held,'cancel',status=409)
     api('POST',f'{ROOT}/{held["id"]}/labor',{'version':held['version'],'hours':'1',
         'reason':'锁期追加','evidence':'迟到工单'},status=409)
+    api('POST',f'{ROOT}/{closed["id"]}/responsibility',dict(version=closed['version'],
+        outcome='company',basis='锁期后补充的核定依据',reason='补记'),actor='reviewer',status=409)
     assert api('GET',f'{ROOT}/{held["id"]}')==held
     assert api('GET',path+'/closings')[0]['evidence']['after_sales']==evidence
 

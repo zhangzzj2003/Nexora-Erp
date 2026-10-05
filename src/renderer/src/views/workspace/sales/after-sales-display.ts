@@ -1,5 +1,6 @@
-import type {AfterSalesAction,AfterSalesEvidence,AfterSalesKind,AfterSalesStatus} from '../../../../../shared/after-sales-api'
+import type {AfterSalesAction,AfterSalesEvidence,AfterSalesKind,AfterSalesResponsibilityOutcome,AfterSalesStatus} from '../../../../../shared/after-sales-api'
 export const afterSalesKind:Record<AfterSalesKind,string>={return:'退货',exchange:'换货',repair:'维修'}
+export const afterSalesResponsibility:Record<AfterSalesResponsibilityOutcome,string>={company:'本公司责任',customer:'客户责任',third_party:'第三方责任',undetermined:'暂无法判定'}
 export const afterSalesStatus:Record<AfterSalesStatus,string>={draft:'草稿',submitted:'待独立审核',approved:'方案已批准',
   rejected:'已驳回',processing:'退换货办理中',received:'客户物品已收件',repaired:'维修检验合格',closed:'已交付结案',cancelled:'已取消',reversed:'已更正'}
 export const afterSalesCommand:Record<AfterSalesAction,string>={submit:'提交方案',approve:'批准方案',reject:'驳回申请',
