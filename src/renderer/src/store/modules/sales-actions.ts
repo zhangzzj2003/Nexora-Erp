@@ -1,7 +1,8 @@
 import type { AppState } from '../state'
 import type {ShipmentLotLineInput,ShipmentLotOptions} from '../../../../shared/shipment-lot-api'
 import type {SalesReturnLotLineInput,SalesReturnLotOptions} from '../../../../shared/sales-return-lot-api'
-import type {CustomerImportResult} from '../../../../shared/erp-api'
+import type {CustomerImportResult,SalesOrderContract} from '../../../../shared/erp-api'
+import {displayError} from '../../utils/formatters.ts'
 
 // 销售单据操作独立维护；写入后由统一入口刷新服务端快照。
 export function createSalesActions(
@@ -74,6 +75,32 @@ export function createSalesActions(
         lines: [{ material_id: 0, quantity: '1', unit_price: '0', warranty_days: null, warranty_basis: '' }]
       }
     }, '销售订单草稿已创建。')
+  }
+
+  async function loadSalesOrderContract(orderId: number): Promise<SalesOrderContract | null> {
+    if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('sales.view')) return null
+    const actorId = state.user.value.id
+    try {
+      const result = await window.nexora.callApi('salesOrderContract', { orderId })
+      return actorId === state.user.value?.id && !state.connectionLost.value &&
+        !!state.user.value?.permissions.includes('sales.view') ? result : null
+    } catch (cause) {
+      if (actorId === state.user.value?.id) state.error.value = displayError(cause)
+      return null
+    }
+  }
+
+  async function reviseSalesOrderContract(orderId: number, expected_version: number,
+    body: string, acceptance_reference: string, reason: string): Promise<SalesOrderContract | null> {
+    if (!window.nexora || !state.user.value?.permissions.includes('sales_order.confirm')) return null
+    const actorId = state.user.value.id
+    let saved: SalesOrderContract | null = null
+    await perform(async () => {
+      saved = await window.nexora!.callApi('reviseSalesOrderContract', {
+        orderId, expected_version, body, acceptance_reference, reason
+      })
+    }, `销售订单 #${orderId} 合同正文已追加修订，原版本保留。`)
+    return actorId === state.user.value?.id && !!state.user.value?.permissions.includes('sales_order.confirm') ? saved : null
   }
 
   async function confirmSalesOrder(orderId: number): Promise<void> {
@@ -239,6 +266,8 @@ export function createSalesActions(
     createCustomer,
     importCustomerNames,
     createSalesOrder,
+    loadSalesOrderContract,
+    reviseSalesOrderContract,
     confirmSalesOrder,
     cancelSalesOrder,
     chooseShipmentOrder,

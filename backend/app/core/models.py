@@ -1,6 +1,6 @@
 """业务 ORM 模型；金额保留文本精度，库结构由版本迁移维护。"""
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, LargeBinary, Text, text
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, LargeBinary, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -1388,6 +1388,19 @@ class SalesOrderLine(Base):
     unit_price: Mapped[str] = mapped_column(Text, nullable=False)
     warranty_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     warranty_basis: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+
+
+class SalesOrderContractRevision(Base):
+    __tablename__ = 'sales_order_contract_revisions'
+    __table_args__ = (UniqueConstraint('sales_order_id', 'version', name='sales_order_contract_version'),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sales_order_id: Mapped[int] = mapped_column(Integer, ForeignKey('sales_orders.id'), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    acceptance_reference: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
 class Shipment(Base):

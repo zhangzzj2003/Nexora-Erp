@@ -1366,6 +1366,19 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'confirmPurchaseOrder': return { method: 'POST', path: `/api/v1/purchase-orders/${positiveId(payload, 'orderId')}/confirm` }
     case 'cancelPurchaseOrder': return { method: 'POST', path: `/api/v1/purchase-orders/${positiveId(payload, 'orderId')}/cancel` }
     case 'salesOrders': return { method: 'GET', path: '/api/v1/sales-orders' }
+    case 'salesOrderContract': return {method:'GET',path:`/api/v1/sales-orders/${positiveId(payload,'orderId')}/contract`}
+    case 'reviseSalesOrderContract': {
+      const source=payload as ErpOperations['reviseSalesOrderContract']['input']
+      const orderId=positiveId(source,'orderId')
+      if(!Number.isInteger(source.expected_version) || source.expected_version<0 ||
+        typeof source.body!=='string' || !source.body.trim() || source.body.length>20000 ||
+        typeof source.acceptance_reference!=='string' || !source.acceptance_reference.trim() || source.acceptance_reference.length>400 ||
+        typeof source.reason!=='string' || !source.reason.trim() || source.reason.length>200)
+        throw new Error('合同正文、客户确认依据或版本无效')
+      return {method:'POST',path:`/api/v1/sales-orders/${orderId}/contract`,body:{
+        expected_version:source.expected_version,body:source.body.trim(),
+        acceptance_reference:source.acceptance_reference.trim(),reason:source.reason.trim()}}
+    }
     case 'createSalesOrder': {
       const source=payload as ErpOperations['createSalesOrder']['input']
       if(!source || typeof source.reference!=='string' || source.reference.length>100 ||

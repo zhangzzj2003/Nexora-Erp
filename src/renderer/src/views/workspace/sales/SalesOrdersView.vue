@@ -7,8 +7,9 @@ import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NModal } from 'naive-ui'
+import type { SalesOrder, SalesOrderContract } from '../../../../../shared/erp-api'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
@@ -17,6 +18,8 @@ const {
   error,
   notice,
   busy,
+  connectionLost,
+  user,
   materials,
   customers,
   salesOrders,
@@ -25,12 +28,57 @@ const {
   localTime,
   navigateToRoute,
   createSalesOrder,
+  loadSalesOrderContract,
+  reviseSalesOrderContract,
   confirmSalesOrder,
   cancelSalesOrder
 } = useAppStore()
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
+const contractOpen = ref(false)
+const contractLoading = ref(false)
+const contractOrder = ref<SalesOrder | null>(null)
+const contract = ref<SalesOrderContract | null>(null)
+const contractBody = ref('')
+const acceptanceReference = ref('')
+const contractReason = ref('')
+watch(() => `${user.value?.id}:${user.value?.permissions.join('|')}:${connectionLost.value}`, () => {
+  contractOpen.value = false
+  contractOrder.value = null
+  contract.value = null
+  contractBody.value = ''
+  acceptanceReference.value = ''
+  contractReason.value = ''
+}, { flush: 'sync' })
+async function openContract(order: SalesOrder): Promise<void> {
+  error.value = ''
+  contractOrder.value = order
+  contract.value = null
+  contractBody.value = ''
+  acceptanceReference.value = ''
+  contractReason.value = ''
+  contractOpen.value = true
+  contractLoading.value = true
+  const result = await loadSalesOrderContract(order.id)
+  if (contractOpen.value && contractOrder.value?.id === order.id) {
+    contract.value = result
+    contractBody.value = result?.current?.body ?? ''
+    contractLoading.value = false
+  }
+}
+async function submitContract(): Promise<void> {
+  const order = contractOrder.value
+  const current = contract.value
+  if (!order || !current) return
+  const saved = await reviseSalesOrderContract(order.id, current.version,
+    contractBody.value, acceptanceReference.value, contractReason.value)
+  if (saved && contractOpen.value && contractOrder.value?.id === order.id) {
+    contract.value = saved
+    acceptanceReference.value = ''
+    contractReason.value = ''
+  }
+}
 async function submitCreate(): Promise<void> {
   await submitCreateDialog(createSalesOrder, { busy, error, notice }, createOpen)
 }
@@ -56,6 +104,31 @@ const filteredRecords = computed(() =>
 
 <template>
   <section class="stack">
+    <NModal v-model:show="contractOpen" preset="card" title="销售合同正文与修订历史"
+      :mask-closable="!busy" :closable="!busy"
+      :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
+      <template v-if="contractOrder">
+        <p>销售订单 #{{ contractOrder.id }} · {{ contractOrder.customer_name }}。正文登记是合同证据；不会自动修改订单金额、明细保修条款或既有售后单。</p>
+        <p v-if="contractLoading">正在读取合同历史…</p>
+        <template v-else-if="contract">
+          <p v-if="contract.version === 0">尚未登记合同正文。旧订单不追认未知条款。</p>
+          <form v-if="can('sales_order.confirm') && contractOrder.status !== 'cancelled'" class="contract-form" @submit.prevent="submitContract">
+            <label>合同全文<AppInput v-model="contractBody" type="textarea" rows="12"
+              maxlength="20000" required :disabled="busy" /></label>
+            <label>客户确认依据<AppInput v-model.trim="acceptanceReference" maxlength="400" required :disabled="busy" placeholder="签署件、邮件或确认记录编号" /></label>
+            <label>登记或修订原因<AppInput v-model.trim="contractReason" maxlength="200" required :disabled="busy" /></label>
+            <AppButton type="submit" variant="primary" :disabled="busy || !contractBody.trim() || !acceptanceReference.trim() || !contractReason.trim()">追加第 {{ contract.version + 1 }} 版</AppButton>
+          </form>
+          <p v-if="error" role="alert">{{ error }}；输入已保留，请重新打开合同核对最新版本。</p>
+          <h3>历史版本</h3>
+          <div v-for="revision in contract.history" :key="revision.id" class="contract-revision">
+            <p><strong>第 {{ revision.version }} 版</strong> · {{ localTime(revision.created_at) }} · {{ revision.created_by_name }}</p>
+            <p>客户确认依据：{{ revision.acceptance_reference }} · 原因：{{ revision.reason }}</p>
+            <pre>{{ revision.body }}</pre>
+          </div>
+        </template>
+      </template>
+    </NModal>
     <NModal
       v-if="can('sales_order.create')"
       v-model:show="createOpen"
@@ -230,6 +303,7 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
+          <AppButton type="button" :disabled="busy" @click="openContract(item)" size="small">合同正文</AppButton>
           <AppButton
             v-if="item.status === 'draft' && can('sales_order.confirm')"
             type="button"
@@ -265,3 +339,9 @@ const filteredRecords = computed(() =>
     </WorkspaceTable>
   </section>
 </template>
+
+<style scoped>
+.contract-form { display: grid; gap: 12px; margin: 16px 0; }
+.contract-revision { border-top: 1px solid var(--border-color, #d8dce2); padding: 12px 0; }
+.contract-revision pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+</style>

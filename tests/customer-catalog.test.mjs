@@ -43,7 +43,7 @@ test('独立客户页显示名单并约束新增操作，销售订单页不再�
         import {defineStore,storeToRefs} from 'pinia'
         export const permissions = new Set(['sales.view'])
         export const usePiniaAppStore = defineStore('customer-test', {
-          state:()=>({busy:false,connectionLost:false,error:'',notice:'',customers:[{id:1,name:'测试客户甲'}],customerForm:{name:''},salesOrders:[],salesForm:{customer_id:0,reference:'',lines:[]},materials:[]}),
+          state:()=>({busy:false,connectionLost:false,user:{id:1,permissions:['sales.view']},error:'',notice:'',customers:[{id:1,name:'测试客户甲'}],customerForm:{name:''},salesOrders:[],salesForm:{customer_id:0,reference:'',lines:[]},materials:[]}),
           actions:{can(p){return permissions.has(p)},createCustomer(){},navigateToRoute(){},localTime(v){return v}}
         })
         export const useAppStore = ()=>{const s=usePiniaAppStore();return {...s,...storeToRefs(s)}}

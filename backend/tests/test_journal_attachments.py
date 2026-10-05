@@ -200,10 +200,10 @@ def test_upgrade_from_72_preserves_journal_and_adds_static_models(journals):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 80
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 81
         assert db.execute('SELECT reference FROM journals WHERE id=?', (journal['id'],)).fetchone()[0] == 'J001'
         assert db.execute("SELECT count(*) FROM role_permissions WHERE permission_code='journal.attachment'").fetchone()[0] == 2
-    assert len(Base.metadata.tables) == 177
+    assert len(Base.metadata.tables) == 178
     assert client.post(path(journal['id']), json=payload()).status_code == 201
 
 

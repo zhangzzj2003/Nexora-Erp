@@ -967,6 +967,24 @@ export interface SalesOrder {
   lines: SalesOrderLine[]
   total_amount: string
 }
+export interface SalesOrderContractRevision {
+  id: number
+  sales_order_id: number
+  version: number
+  body: string
+  acceptance_reference: string
+  reason: string
+  created_by: number
+  created_by_name: string
+  created_at: string
+}
+export interface SalesOrderContract {
+  sales_order_id: number
+  status: SalesOrder['status']
+  version: number
+  current: SalesOrderContractRevision | null
+  history: SalesOrderContractRevision[]
+}
 export interface Shipment {
   id: number
   sales_order_id: number
@@ -1381,6 +1399,8 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   confirmPurchaseOrder: { input: { orderId: number }; output: PurchaseOrder }
   cancelPurchaseOrder: { input: { orderId: number }; output: PurchaseOrder }
   salesOrders: { input: undefined; output: SalesOrder[] }
+  salesOrderContract: { input: { orderId: number }; output: SalesOrderContract }
+  reviseSalesOrderContract: { input: { orderId: number; expected_version: number; body: string; acceptance_reference: string; reason: string }; output: SalesOrderContract }
   createSalesOrder: { input: { customer_id: number; reference: string; lines: { material_id: number; quantity: string; unit_price: string; warranty_days: number | null; warranty_basis: string }[] }; output: SalesOrder }
   confirmSalesOrder: { input: { orderId: number }; output: SalesOrder }
   cancelSalesOrder: { input: { orderId: number }; output: SalesOrder }
