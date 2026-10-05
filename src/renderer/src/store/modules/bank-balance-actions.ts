@@ -1,5 +1,7 @@
 import { watch } from 'vue'
 import type { AppState } from '../state'
+import { bankBalanceReportCsv } from '../../utils/bank-balance-csv.ts'
+import { displayError } from '../../utils/formatters.ts'
 
 // 调节预览与输入绑定同一会话和草稿，避免复核期间切换账号后复用旧证据。
 export function createBankBalanceActions(
@@ -156,7 +158,24 @@ export function createBankBalanceActions(
     }, action === 'approve' ? '银行余额调节表已复核。' : '银行余额调节表已驳回。')
   }
 
+  async function exportBankBalanceReport(reportId: number): Promise<void> {
+    if (!available('bank_reconciliation.view')) return
+    const report = state.bankBalanceOverview.value?.reports.find(item => item.id === reportId)
+    if (!report) return
+    const session = owner
+    try {
+      const csv = bankBalanceReportCsv(report)
+      const saved = await window.nexora!.saveReportCsv(`bank-balance-${report.id}-${report.as_of_date}.csv`, csv)
+      if (saved && session === owner && available('bank_reconciliation.view')
+        && state.bankBalanceOverview.value?.reports.find(item => item.id === reportId) === report) {
+        state.notice.value = '银行余额调节表 CSV 已保存。'
+      }
+    } catch (error) {
+      if (session === owner && available('bank_reconciliation.view')) state.error.value = displayError(error)
+    }
+  }
+
   return { bindBankLedgerAccount, previewBankBalance, matchBankLedger,
     clearBankOpeningItem, reverseBankOpeningClearance,
-    reverseBankLedgerMatch, createBankBalanceReport, decideBankBalanceReport }
+    reverseBankLedgerMatch, createBankBalanceReport, decideBankBalanceReport, exportBankBalanceReport }
 }

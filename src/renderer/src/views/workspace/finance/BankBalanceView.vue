@@ -17,7 +17,7 @@ const { bankBalanceOverview, bankBalancePreview, bankBindingForm, bankBalanceFor
   user, busy, error, notice, connectionLost } = storeToRefs(store)
 const { can, localTime, bindBankLedgerAccount, previewBankBalance, matchBankLedger,
   reverseBankLedgerMatch, clearBankOpeningItem, reverseBankOpeningClearance,
-  createBankBalanceReport, decideBankBalanceReport } = store
+  createBankBalanceReport, decideBankBalanceReport, exportBankBalanceReport } = store
 const bindingOpen = ref(false)
 const accountOptions = computed(() => (bankBalanceOverview.value?.accounts ?? [])
   .filter(item => item.ledger_account_id !== null)
@@ -258,6 +258,8 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
         <p v-for="decision in item.decisions" :key="decision.id" class="muted">{{ localTime(decision.created_at) }} · {{ decision.created_by_name }} · {{ statusLabel(decision.action === 'approve' ? 'approved' : decision.action === 'reject' ? 'rejected' : 'superseded') }} · {{ decision.reason }}</p>
       </template>
       <template #cell-actions="{ row: item }">
+        <AppButton v-if="can('bank_reconciliation.view')" type="button" variant="secondary"
+          :disabled="busy || connectionLost" @click="exportBankBalanceReport(item.id)">导出 CSV</AppButton>
         <form v-if="item.status === 'draft' && can('bank_reconciliation.review') && user?.id !== item.created_by" @submit.prevent>
           <AppInput v-model.trim="bankReportDecisionReasons[item.id]" required maxlength="200" placeholder="复核或驳回依据" />
           <AppButton type="button" :disabled="busy || connectionLost || item.stale || !item.snapshot.balanced || !bankReportDecisionReasons[item.id]?.trim()"
