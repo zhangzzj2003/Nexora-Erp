@@ -45,7 +45,8 @@ def test_full_details_roundtrip_and_independent_category_codes(client):
     assert create(client)['sku'] == 'EL-SR-000002'
     for code in ('EL-SC', 'EL-TR', 'EL-TC', 'EL-IC', 'PL-OT', 'HW-OT'):
         assert create(client, input_data(code))['sku'] == f'{code}-000001'
-    assert first in client.get('/api/v1/materials').json()
+    # 列表丰富中文分类，详情与编辑快照仍保留原有字段，逐字段核对两种响应。
+    assert {**first, 'category_name': '电子类 / 贴片电阻'} in client.get('/api/v1/materials').json()
     assert client.get(f"/api/v1/materials/{first['id']}").json() == first
     assert client.get('/api/v1/materials/999999').status_code == 404
 

@@ -79,7 +79,8 @@ test('旧业务响应兼容，新增字段的错误类型、超长内容及重�
   for(const action of ['crmOptions','afterSalesOverview','qualityOverview','equipmentOverview','inventoryWarnings','mrpOptions']) {
     validateMaterialChoiceResult(action,{materials:[resistor]})
     validateMaterialChoiceResult(action,{materials:[{id:1,sku:'OLD',name:'旧料',unit:'个'}]})
-    for(const value of [{...resistor,brand:123},{...resistor,notes:'x'.repeat(1001)},{...resistor,id:0}]) {
+    for(const value of [{...resistor,brand:123},{...resistor,category_name:123},
+      {...resistor,category_name:'x'.repeat(201)},{...resistor,notes:'x'.repeat(1001)},{...resistor,id:0}]) {
       assert.throws(()=>validateMaterialChoiceResult(action,{materials:[value]}),/物料/)
     }
     assert.throws(()=>validateMaterialChoiceResult(action,{materials:[resistor,resistor]}),/重复/)
