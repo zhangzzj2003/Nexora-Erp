@@ -416,7 +416,8 @@ export function createAppState() {
     reason: 'other' as 'opening' | 'gift' | 'other',
     note: '',
     reference: '',
-    lines: [{ material_id: 0, quantity: '1' }]
+    // 空明细等待选择物料，避免未选择的占位行进入统一表格。
+    lines: [] as { material_id: number; quantity: string }[]
   })
   const otherInboundReversalReasons = ref<Record<number, string>>({})
   const otherOutboundForm = ref({

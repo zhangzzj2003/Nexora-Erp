@@ -111,7 +111,7 @@ export function createWarehouseActions(
         lines: otherInboundForm.value.lines.map((line) => ({ ...line }))
       })
       otherInboundForm.value = { warehouse_id: otherInboundForm.value.warehouse_id,
-        reason: 'other', note: '', reference: '', lines: [{ material_id: 0, quantity: '1' }] }
+        reason: 'other', note: '', reference: '', lines: [] }
     }, '其他入库草稿已创建。')
   }
 

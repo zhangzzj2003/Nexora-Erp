@@ -9,6 +9,8 @@ import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NDatePicker, NModal } from 'naive-ui'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
+import { appendDocumentMaterial, documentMaterialIssue, documentMaterialLimit } from '../../../utils/document-material-lines'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import {datePickerString,vDateField} from '../../../utils/date-field'
@@ -22,6 +24,39 @@ const { error, notice, busy, connectionLost, materials, warehouses, otherInbound
 const { can, localTime, createOtherInbound, postOtherInbound, cancelOtherInbound,
   reverseOtherInbound } = store
 const showForm = ref(false)
+// 选择区是未加入的临时输入；已加入的明细仍由 Pinia 保留，收起不会丢失。
+const pickerOpen = ref(false)
+const materialDraft = ref({ material_id: 0, quantity: '1' })
+const pickerIssue = ref('')
+const materialOptions = computed(() => materials.value.map(item => ({
+  label: `${item.sku} · ${item.name}`, value: item.id,
+  disabled: otherInboundForm.value.lines.some(line => line.material_id === item.id)
+})))
+const materialRows = computed(() => otherInboundForm.value.lines.map((line, index) => ({
+  ...line, index, material: materials.value.find(item => item.id === line.material_id)
+})))
+const materialColumns = [
+  { key: 'sku', title: '物料编码', width: '210' },
+  { key: 'name', title: '物料名称', width: '240' },
+  { key: 'unit', title: '单位', width: '80' },
+  { key: 'quantity', title: '数量', width: '160' },
+  { key: 'actions', title: '操作', width: '90' }
+]
+const materialIssue = computed(() => documentMaterialIssue(otherInboundForm.value.lines, materials.value))
+function openMaterialPicker(): void {
+  if (busy.value || connectionLost.value) return
+  pickerOpen.value = true
+  pickerIssue.value = ''
+}
+function addMaterial(): void {
+  if (busy.value || connectionLost.value) return
+  const result = appendDocumentMaterial(otherInboundForm.value.lines, materialDraft.value, materials.value)
+  pickerIssue.value = result.issue
+  if (result.issue) return
+  otherInboundForm.value.lines = result.lines
+  materialDraft.value = { material_id: 0, quantity: '1' }
+  pickerOpen.value = false
+}
 const activeInboundId = ref(0)
 const lotDrafts = ref<InboundLotLineInput[]>([])
 const activeInbound = computed(() => otherInbounds.value.find(item =>
@@ -37,6 +72,8 @@ const columns = [
 ]
 // 写入失败时保留表单，成功后才关闭弹窗。
 async function submitCreate(): Promise<void> {
+  // 原生表单校验之外再检查物料和数量，防止空明细或已失效物料提交到服务端。
+  if (connectionLost.value || !can('other_inbound.create') || materialIssue.value || pickerOpen.value) return
   await submitCreateDialog(createOtherInbound, { busy, error, notice }, showForm)
 }
 function startLotPost(inbound: OtherInbound): void {
@@ -102,93 +139,58 @@ async function confirmLotPost(): Promise<void> {
         <label>搜索入库单<AppInput v-model="query" placeholder="单号、仓库或物料" /></label>
       </template>
       <template #beforeTable>
-        <NModal
+        <WorkspaceDocumentDialog
+          v-if="can('other_inbound.create')"
           v-model:show="showForm"
-          preset="card"
-          :mask-closable="!busy"
-          :style="{
-            width: 'min(900px, calc(100vw - 32px))',
-            maxHeight: 'calc(100vh - 48px)',
-            overflowY: 'auto'
-          }"
+          title="非采购来源入库"
+          :data="materialRows"
+          :columns="materialColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="!!materialIssue || pickerOpen"
+          :add-disabled="pickerOpen || materialRows.length >= documentMaterialLimit || !materialOptions.some(item => !item.disabled)"
+          hint="确认后才增加库存；这类入库不产生采购应付。"
+          @submit="submitCreate"
+          @add-material="openMaterialPicker"
         >
-          <form
-            v-if="showForm && can('other_inbound.create')"
-            class="stack"
-            @submit.prevent="submitCreate"
-          >
-            <h3>非采购来源入库</h3>
-            <div class="form-grid">
-              <label
-                >仓库<WorkspaceSelect
-                  v-model="otherInboundForm.warehouse_id"
-                  required
-                  :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]"
-              /></label>
-              <label
-                >用途<WorkspaceSelect
-                  v-model="otherInboundForm.reason"
-                  required
-                  :options="[
-                    { label: '期初补录', value: 'opening' },
-                    { label: '赠品', value: 'gift' },
-                    { label: '其他', value: 'other' }
-                  ]"
-              /></label>
-              <label
-                >参考号<AppInput v-model.trim="otherInboundForm.reference" maxlength="100"
-              /></label>
-              <label
-                >入库说明<AppInput v-model.trim="otherInboundForm.note" required maxlength="200"
-              /></label>
+          <template #basicInfo>
+            <label>仓库<WorkspaceSelect v-model="otherInboundForm.warehouse_id" required
+              :disabled="busy || connectionLost"
+              :options="warehouses.map(item => ({ label: item.name, value: item.id }))" /></label>
+            <label>用途<WorkspaceSelect v-model="otherInboundForm.reason" required
+              :disabled="busy || connectionLost"
+              :options="[{ label: '期初补录', value: 'opening' }, { label: '赠品', value: 'gift' }, { label: '其他', value: 'other' }]" /></label>
+            <label>参考号<AppInput v-model.trim="otherInboundForm.reference" maxlength="100" :disabled="busy || connectionLost" /></label>
+            <label>入库说明<AppInput v-model.trim="otherInboundForm.note" required maxlength="200" :disabled="busy || connectionLost" /></label>
+          </template>
+          <template #materialPicker>
+            <div v-if="pickerOpen" class="inbound-material-picker">
+              <div class="inbound-material-fields">
+                <label>物料<WorkspaceSelect v-model="materialDraft.material_id" :options="materialOptions"
+                  :disabled="busy || connectionLost" placeholder="搜索物料编码或名称" aria-label="待添加物料" /></label>
+                <label>数量<AppInput v-model.trim="materialDraft.quantity" type="number" min="0.001"
+                  max="1000000" step="0.001" :disabled="busy || connectionLost" aria-label="待添加数量" /></label>
+                <AppButton type="button" variant="primary" :disabled="busy || connectionLost || !materialDraft.material_id"
+                  @click="addMaterial">加入明细</AppButton>
+                <AppButton type="button" :disabled="busy" @click="pickerOpen = false" variant="text">取消添加</AppButton>
+              </div>
+              <p v-if="pickerIssue" role="alert" class="inbound-material-issue">{{ pickerIssue }}</p>
             </div>
-            <div v-for="(line, index) in otherInboundForm.lines" :key="index" class="line-row">
-              <label
-                >物料<WorkspaceSelect
-                  v-model="line.material_id"
-                  required
-                  :options="[
-                    { label: '选择物料', value: 0, disabled: true },
-                    ...materials.map((item) => ({
-                      label: (item.sku + ' · ' + item.name).trim(),
-                      value: item.id
-                    }))
-                  ]"
-              /></label>
-              <label
-                >数量<AppInput
-                  v-model.trim="line.quantity"
-                  type="number"
-                  min="0.001"
-                  max="1000000"
-                  step="0.001"
-                  required
-              /></label>
-              <AppButton
-                type="button"
-                :disabled="otherInboundForm.lines.length === 1"
-                @click="otherInboundForm.lines.splice(index, 1)"
-                variant="text"
-                >移除</AppButton
-              >
-            </div>
-            <div class="form-actions">
-              <AppButton
-                type="button"
-                @click="otherInboundForm.lines.push({ material_id: 0, quantity: '1' })"
-                variant="secondary"
-                >添加明细</AppButton
-              >
-              <AppButton :disabled="busy || connectionLost" variant="primary" type="submit"
-                >保存草稿</AppButton
-              >
-              <AppButton type="button" @click="showForm = false" variant="secondary"
-                >收起</AppButton
-              >
-            </div>
-            <p class="muted">确认后才增加库存；这类入库不产生采购应付。</p>
-          </form>
-        </NModal>
+            <p v-if="materialRows.length && materialIssue" role="alert" class="inbound-material-issue">{{ materialIssue }}</p>
+          </template>
+          <template #cell-sku="{ row }"><strong>{{ row.material?.sku ?? '物料不可用' }}</strong></template>
+          <template #cell-name="{ row }">{{ row.material?.name ?? '请移除后重新选择' }}</template>
+          <template #cell-unit="{ row }">{{ row.material?.unit ?? '—' }}</template>
+          <template #cell-quantity="{ row }">
+            <AppInput v-model.trim="otherInboundForm.lines[row.index].quantity" type="number" min="0.001"
+              max="1000000" step="0.001" required :disabled="busy || connectionLost"
+              :aria-label="`${row.material?.name ?? '物料'}数量`" />
+          </template>
+          <template #cell-actions="{ row }">
+            <AppButton type="button" variant="text" :disabled="busy || connectionLost"
+              :aria-label="`移除${row.material?.name ?? '物料'}`" @click="otherInboundForm.lines.splice(row.index, 1)">移除</AppButton>
+          </template>
+        </WorkspaceDocumentDialog>
       </template>
       <template #cell-document="{ row: item }"
         ><strong>#{{ item.id }}</strong
@@ -295,4 +297,14 @@ async function confirmLotPost(): Promise<void> {
 .inbound-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
 @media(max-width:950px){.inbound-lot-grid{grid-template-columns:repeat(2,minmax(150px,1fr))}}
 @media(max-width:550px){.inbound-lot-grid{grid-template-columns:1fr}}
+</style>
+
+<style scoped>
+/* 物料选择区紧邻明细表，窄窗口自动换行，选择菜单沿用公共组件的浮层。 */
+.inbound-material-picker { padding: 16px; border: 1px solid var(--workspace-field-border); border-radius: 10px; background: var(--app-accent-tint); }
+.inbound-material-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.inbound-material-fields label:first-child { flex: 1 1 280px; }
+.inbound-material-fields label:nth-child(2) { flex: 0 1 140px; }
+.inbound-material-issue { margin: 10px 0 0; color: #c45a53; font-size: 13px; }
+:root[data-theme='dark'] .inbound-material-issue { color: #ffaaa2; }
 </style>
