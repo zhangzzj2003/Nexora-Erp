@@ -4,7 +4,8 @@ import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
-import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal, NPopconfirm } from 'naive-ui'
@@ -348,7 +349,7 @@ async function submitBinding(): Promise<void> {
               >搜索可绑定物料<AppInput v-model="materialQuery" placeholder="物料编码、名称或规格"
             /></label>
             <label
-              >选择物料<WorkspaceSelect
+              >选择物料<WorkspaceMaterialSelect :materials="materials"
                 v-model="materialId"
                 required
                 :options="[

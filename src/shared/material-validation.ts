@@ -72,6 +72,10 @@ export function validateMaterialResult(action: string, data: unknown): void {
   for (const raw of action === 'materials' ? data as unknown[] : [data]) {
     const row = object(raw)
     if (!positiveVersion(row.id) || !positiveVersion(row.version)) throw new Error('物料响应版本或编号无效，请升级服务端')
+    // 中文分类仅用于展示，不加入可写字段白名单；旧列表没有此字段时仍兼容。
+    if (row.category_name !== undefined && (typeof row.category_name !== 'string' || row.category_name.length > 200)) {
+      throw new Error('物料分类名称响应无效')
+    }
     if (row.supplier_ids !== undefined && (!Array.isArray(row.supplier_ids)
       || row.supplier_ids.some(value => !positiveVersion(value))
       || new Set(row.supplier_ids).size !== row.supplier_ids.length)) throw new Error('物料供应商绑定响应无效')

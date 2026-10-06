@@ -9,6 +9,8 @@ import {movementTypeLabel} from '../../../utils/formatters'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import {NDatePicker} from 'naive-ui'
 import {datePickerString,vDateField} from '../../../utils/date-field'
@@ -304,7 +306,7 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
         :loading="loading" :min-table-width="1000">
         <template #filters>
           <label>仓库<WorkspaceSelect v-model="warehouse" :disabled="disabled" :options="[{value:0,label:'全部仓库'},...warehouses.map(row=>({value:row.id,label:`${row.code} · ${row.name}`}))]" /></label>
-          <label>物料<WorkspaceSelect v-model="material" :disabled="disabled" :options="[{value:0,label:'全部物料'},...materials.map(row=>({value:row.id,label:`${row.sku} · ${row.name}`}))]" /></label>
+          <label>物料<WorkspaceMaterialSelect :materials="materials" v-model="material" :disabled="disabled" :options="[{value:0,label:'全部物料'},...materials.map(row=>({value:row.id,label:`${row.sku} · ${row.name}`}))]" /></label>
           <AppButton type="button" :disabled="disabled" @click="refresh">刷新批次</AppButton>
         </template>
         <template #beforeTable>

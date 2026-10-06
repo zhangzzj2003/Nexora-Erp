@@ -6,6 +6,8 @@ import { NDatePicker } from 'naive-ui'
 import { datePickerString, vDateField } from '../../utils/date-field'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from './WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from './WorkspaceMaterialSelect.vue'
 import { computed, onMounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from './WorkspaceTable.vue'
@@ -78,7 +80,7 @@ onMounted(() => { void run() })
           ]"
       /></label>
       <label
-        >物料<WorkspaceSelect
+        >物料<WorkspaceMaterialSelect :materials="materials"
           v-model="query.material_id"
           :options="[
             { label: '全部物料', value: null },

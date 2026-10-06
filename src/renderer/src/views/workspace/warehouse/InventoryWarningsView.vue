@@ -10,6 +10,8 @@ import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 
 const store=usePiniaAppStore()
@@ -70,7 +72,7 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
         <p v-if="form.version" class="warning-muted">正在修订旧版本 v{{ form.version }}。冲突时保留本次输入，请返回规则读取最新证据后重新修订。</p>
         <div class="warning-form-grid">
           <label>预警仓库<WorkspaceSelect v-model="form.warehouse_id" :options="warehouseOptions" placeholder="选择仓库" :disabled="disabled || form.version>0" /></label>
-          <label>预警物料<WorkspaceSelect v-model="form.material_id" :options="materialOptions" placeholder="选择物料" :disabled="disabled || form.version>0" /></label>
+          <label>预警物料<WorkspaceMaterialSelect :materials="overview?.materials ?? []" v-model="form.material_id" :options="materialOptions" placeholder="选择物料" :disabled="disabled || form.version>0" /></label>
           <label>现存量预警阈值<AppInput v-model="form.threshold" inputmode="decimal" required placeholder="例如 10.000" :disabled="disabled" /></label>
           <label class="warning-toggle"><NCheckbox v-model:checked="form.enabled" :disabled="disabled">启用此仓库与物料的预警</NCheckbox></label>
         </div>

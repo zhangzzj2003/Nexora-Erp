@@ -288,3 +288,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 第 59 版 `POST /api/v1/inventory/physical-lots/evidence-pairs` 在同一 ORM 写事务中将升级检查点后同仓同物料、先入后出的两笔未分配正负流水按相同数量归属同一批次，允许两笔在正式库存中相抵为零。接口沿用 `physical_lot.movement_evidence`，提交两笔流水编号、精确正数量、至少 10 字核对依据和已有批次编号或新批次属性。服务端核对各自剩余未分配量；两笔证据及关联记录原子提交，不改正式流水或成本。`POST /api/v1/inventory/physical-lots/evidence-pairs/{id}/reverse` 凭原因整体追加反向证据，单条证据不能单独冲销，重复或存在后续依赖时返回 409。批次历史展示成对关联与冲销。
 
 第 60 版 `POST /api/v1/inventory/physical-lots/evidence-groups` 接收 2 至 50 对 `pairs: [{inbound_movement_id, outbound_movement_id, quantity}]`，涉及至少三笔不同流水，并提交同一批次和现场依据。各对必须是升级检查点之后同仓同物料、先入后出的流水，数量不得超过各流水剩余未分配量；服务端在同一 ORM 写事务中创建逐对证据和整组关联，任一对失败即整组回滚。组内单对不能独立冲销；`POST /api/v1/inventory/physical-lots/evidence-groups/{id}/reverse` 逆序整体冲销，批次历史保留整组关联与操作人。补证不改变正式库存和移动平均成本。旧版无法确认检查点的流水、跨仓或跨物料流水，以及先出后入的流水不会自动匹配。
+
+## 业务物料选项
+
+报价 `/api/v1/crm/options`、售后 `/api/v1/after-sales`、设备维护 `/api/v1/equipment/overview`、质检 `/api/v1/production-quality` 与库存预警 `/api/v1/inventory/warnings` 的 `materials` 附带当前物料的分类、规格、封装、品牌、制造商料号、技术参数、合规信息及备注，并提供 `category_name` 中文分类名称。统一使用 `app.catalog.material_rules.material_choice_data` 的展示字段白名单；原接口权限保持不变，不要求额外取得库存查看权限，不返回编辑版本、供应商联系方式或业务价格。物料列表与 MRP 选项也提供中文分类名称；MRP 只在选项响应中补充，计算来源、指纹与固定快照保持原结构。此变更无数据库迁移，也不改变历史单据。

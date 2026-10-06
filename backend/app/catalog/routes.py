@@ -13,7 +13,7 @@ from app.access.security import require
 from app.core.models import Material, Supplier, SupplierChange, SupplierMaterial, User
 from app.core.orm import orm_session, model_data
 from app.catalog.material_rules import (CATEGORY_CODES, MATERIAL_CATEGORIES, DETAIL_FIELDS,
-    allocate_material_code, reserve_legacy_code, material_data, record_material_change)
+    allocate_material_code, reserve_legacy_code, material_data, material_choice_data, record_material_change)
 
 from app.catalog.supplier_profiles import (PROFILE_FIELDS, SupplierInput, SupplierBindingInput,
     supplier_data, record_supplier_change, material_supplier_ids, save_material_suppliers)
@@ -154,7 +154,9 @@ def material_categories(_: dict = Depends(require("inventory.view"))) -> list[di
 @router.get("/materials")
 def list_materials(_: dict = Depends(require("inventory.view"))) -> list[dict]:
     with orm_session() as db:
-        return [material_data(row) for row in db.scalars(select(Material).order_by(Material.sku))]
+        # 列表附带中文分类供跨业务展示，资料编辑和历史审计仍使用原有契约。
+        return [{**material_data(row), 'category_name': material_choice_data(row)['category_name']}
+            for row in db.scalars(select(Material).order_by(Material.sku))]
 
 
 @router.get("/materials/{material_id}")

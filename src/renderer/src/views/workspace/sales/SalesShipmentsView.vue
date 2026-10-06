@@ -5,6 +5,8 @@ import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -192,7 +194,7 @@ const filteredRecords = computed(() =>
         <p class="muted">确认出库时将从所选仓库扣减库存，并再次核对销售订单剩余数量。</p>
         <div v-for="(line, index) in shipmentForm.lines" :key="index" class="line-row">
           <label
-            >物料<WorkspaceSelect
+            >物料<WorkspaceMaterialSelect :materials="materials"
               v-model="line.material_id"
               required
               :options="[

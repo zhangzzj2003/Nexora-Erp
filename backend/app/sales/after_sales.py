@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import select
 
 from app.access.security import require
+from app.catalog.material_rules import material_choice_data
 from app.core.models import (AfterSalesCase, AfterSalesCustody, Shipment, ShipmentLine, SalesReturn, SalesReturnLine,
     SalesReturnReversal, SalesOrder, SalesOrderLine, Material, Warehouse, WarehouseOutbound,
     WarehouseOutboundLine)
@@ -194,7 +195,7 @@ def overview(user: dict=Depends(require('after_sales.view'))):
                 Shipment.id == ShipmentLine.shipment_id).join(SalesOrder,
                 SalesOrder.id == Shipment.sales_order_id).where(
                 SalesOrder.customer_id.in_(visible_customer_ids(user))).order_by(AfterSalesCase.id.desc()))],
-            materials=[dict(id=row.id,sku=row.sku,name=row.name,unit=row.unit) for row in db.scalars(select(Material))],
+            materials=[material_choice_data(row) for row in db.scalars(select(Material))],
             warehouses=[dict(id=row.id,name=row.name) for row in db.scalars(select(Warehouse))])
 
 

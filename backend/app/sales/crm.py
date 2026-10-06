@@ -9,6 +9,7 @@ from pydantic import Field, field_validator
 from sqlalchemy import select, func
 
 from app.access.security import require
+from app.catalog.material_rules import material_choice_data
 from app.core.models import CrmContact, CrmActivity, CrmOpportunity, CrmQuote, CrmChange, Customer, Material, User, SalesOrder
 from app.core.orm import orm_session, add_model, model_data
 from app.sales.crm_rules import StrictInput, VersionInput, valid_date, validate_amount, get_record, require_customer, require_contact, require_owner, record_data, raw_data, audit, copy_fields
@@ -67,7 +68,7 @@ def options(user: dict = Depends(require('crm.view'))):
     with orm_session() as db:
         return {'customers': [dict(id=row.id,name=row.name,owner_id=row.owner_id,version=row.version)
             for row in db.scalars(visible_customers(select(Customer).order_by(Customer.name),user))],
-            'materials': [dict(id=row.id,sku=row.sku,name=row.name,unit=row.unit) for row in db.scalars(select(Material).order_by(Material.sku))],
+            'materials': [material_choice_data(row) for row in db.scalars(select(Material).order_by(Material.sku))],
             'owners': [dict(id=row.id,name=row.full_name or row.username) for row in db.scalars(select(User)
                 .where(User.is_active == 1).order_by(User.username))]}
 

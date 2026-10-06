@@ -5,6 +5,8 @@ import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal } from 'naive-ui'
@@ -180,7 +182,7 @@ async function confirmLotPost(): Promise<void> {
             </div>
             <div v-for="(line, index) in otherOutboundForm.lines" :key="index" class="line-row">
               <label
-                >物料<WorkspaceSelect
+                >物料<WorkspaceMaterialSelect :materials="materials"
                   v-model="line.material_id"
                   required
                   :options="[

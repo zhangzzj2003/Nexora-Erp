@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
 from app.access.security import require
+from app.catalog.material_rules import material_choice_data
 from app.core.models import (EquipmentAsset, EquipmentMeterReading, MaintenancePlan, MaintenanceHourPlan,
     MaintenanceJob, MaintenanceDowntime,
     Material, Warehouse, WorkOrder, WarehouseOutbound, WarehouseOutboundLine)
@@ -58,7 +59,7 @@ def overview(user: dict = Depends(require('equipment.view'))):
                 select(MaintenanceHourPlan).order_by(MaintenanceHourPlan.id))],
             'jobs': [job_data(db, row, user, False) for row in db.scalars(select(MaintenanceJob).order_by(MaintenanceJob.id.desc()))],
             'executors': [{'id': actor.id, 'username': actor.username} for actor in executors(db)],
-            'materials': [{'id': row.id, 'sku': row.sku, 'name': row.name, 'unit': row.unit}
+            'materials': [material_choice_data(row)
                 for row in db.scalars(select(Material).order_by(Material.id))],
             'warehouses': [{'id': row.id, 'name': row.name} for row in db.scalars(select(Warehouse).order_by(Warehouse.id))],
             'work_orders': [{'id': row.id, 'status': row.status, 'target_quantity': row.target_quantity}

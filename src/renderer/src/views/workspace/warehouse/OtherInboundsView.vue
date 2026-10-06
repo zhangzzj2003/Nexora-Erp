@@ -5,12 +5,14 @@ import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
-import { computed, ref } from 'vue'
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
+import { computed, nextTick, ref } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NDatePicker, NModal } from 'naive-ui'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
-import { appendDocumentMaterial, documentMaterialIssue, documentMaterialLimit } from '../../../utils/document-material-lines'
+import { appendDocumentMaterialRow, documentMaterialDisabled, documentMaterialIssue, documentMaterialLimit } from '../../../utils/document-material-lines'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import {datePickerString,vDateField} from '../../../utils/date-field'
@@ -24,38 +26,37 @@ const { error, notice, busy, connectionLost, materials, warehouses, otherInbound
 const { can, localTime, createOtherInbound, postOtherInbound, cancelOtherInbound,
   reverseOtherInbound } = store
 const showForm = ref(false)
-// 选择区是未加入的临时输入；已加入的明细仍由 Pinia 保留，收起不会丢失。
-const pickerOpen = ref(false)
-const materialDraft = ref({ material_id: 0, quantity: '1' })
-const pickerIssue = ref('')
-const materialOptions = computed(() => materials.value.map(item => ({
-  label: `${item.sku} · ${item.name}`, value: item.id,
-  disabled: otherInboundForm.value.lines.some(line => line.material_id === item.id)
-})))
+// 表格行直接引用 Pinia 草稿，资料刷新及删行后仍按该行的真实对象修改数量。
 const materialRows = computed(() => otherInboundForm.value.lines.map((line, index) => ({
-  ...line, index, material: materials.value.find(item => item.id === line.material_id)
+  line, index, material: materials.value.find(item => item.id === line.material_id)
 })))
 const materialColumns = [
-  { key: 'sku', title: '物料编码', width: '210' },
-  { key: 'name', title: '物料名称', width: '240' },
-  { key: 'unit', title: '单位', width: '80' },
-  { key: 'quantity', title: '数量', width: '160' },
-  { key: 'actions', title: '操作', width: '90' }
+  { key: 'sku', title: '物料编码', width: '170' },
+  { key: 'name', title: '物料 / 资料', width: '470' },
+  { key: 'unit', title: '单位', width: '70' },
+  { key: 'quantity', title: '数量', width: '130' },
+  { key: 'actions', title: '操作', width: '80' }
 ]
 const materialIssue = computed(() => documentMaterialIssue(otherInboundForm.value.lines, materials.value))
-function openMaterialPicker(): void {
-  if (busy.value || connectionLost.value) return
-  pickerOpen.value = true
-  pickerIssue.value = ''
+const addDisabled = computed(() => otherInboundForm.value.lines.length >= documentMaterialLimit
+  || !materials.value.some(item => !otherInboundForm.value.lines.some(line => line.material_id === item.id)))
+const pendingFocus = ref<(typeof otherInboundForm.value.lines)[number] | null>(null)
+function materialOptions(index: number) {
+  return materials.value.map(item => ({label: `${item.sku} · ${item.name}`, value: item.id,
+    disabled: documentMaterialDisabled(otherInboundForm.value.lines, index, item.id)}))
 }
-function addMaterial(): void {
-  if (busy.value || connectionLost.value) return
-  const result = appendDocumentMaterial(otherInboundForm.value.lines, materialDraft.value, materials.value)
-  pickerIssue.value = result.issue
-  if (result.issue) return
-  otherInboundForm.value.lines = result.lines
-  materialDraft.value = { material_id: 0, quantity: '1' }
-  pickerOpen.value = false
+function addMaterialRow(): void {
+  if (busy.value || connectionLost.value || addDisabled.value) return
+  otherInboundForm.value.lines = appendDocumentMaterialRow(otherInboundForm.value.lines)
+  pendingFocus.value = otherInboundForm.value.lines.at(-1) ?? null
+}
+function focusNewRow(line: (typeof otherInboundForm.value.lines)[number], instance: Element | ComponentPublicInstance | null): void {
+  // vxe 可能延迟挂载新行，等选择器的真实引用出现后再聚焦，不依赖固定延时。
+  if (instance && pendingFocus.value === line && 'focus' in instance && typeof instance.focus === 'function') {
+    const focus = instance.focus as () => void
+    pendingFocus.value = null
+    void nextTick(() => { if (!busy.value && !connectionLost.value) focus() })
+  }
 }
 const activeInboundId = ref(0)
 const lotDrafts = ref<InboundLotLineInput[]>([])
@@ -73,7 +74,7 @@ const columns = [
 // 写入失败时保留表单，成功后才关闭弹窗。
 async function submitCreate(): Promise<void> {
   // 原生表单校验之外再检查物料和数量，防止空明细或已失效物料提交到服务端。
-  if (connectionLost.value || !can('other_inbound.create') || materialIssue.value || pickerOpen.value) return
+  if (connectionLost.value || !can('other_inbound.create') || materialIssue.value) return
   await submitCreateDialog(createOtherInbound, { busy, error, notice }, showForm)
 }
 function startLotPost(inbound: OtherInbound): void {
@@ -147,11 +148,12 @@ async function confirmLotPost(): Promise<void> {
           :columns="materialColumns"
           :busy="busy"
           :disabled="connectionLost"
-          :submit-disabled="!!materialIssue || pickerOpen"
-          :add-disabled="pickerOpen || materialRows.length >= documentMaterialLimit || !materialOptions.some(item => !item.disabled)"
+          :submit-disabled="!!materialIssue"
+          :add-disabled="addDisabled"
+          :min-table-width="960"
           hint="确认后才增加库存；这类入库不产生采购应付。"
           @submit="submitCreate"
-          @add-material="openMaterialPicker"
+          @add-material="addMaterialRow"
         >
           <template #basicInfo>
             <label>仓库<WorkspaceSelect v-model="otherInboundForm.warehouse_id" required
@@ -164,25 +166,17 @@ async function confirmLotPost(): Promise<void> {
             <label>入库说明<AppInput v-model.trim="otherInboundForm.note" required maxlength="200" :disabled="busy || connectionLost" /></label>
           </template>
           <template #materialPicker>
-            <div v-if="pickerOpen" class="inbound-material-picker">
-              <div class="inbound-material-fields">
-                <label>物料<WorkspaceSelect v-model="materialDraft.material_id" :options="materialOptions"
-                  :disabled="busy || connectionLost" placeholder="搜索物料编码或名称" aria-label="待添加物料" /></label>
-                <label>数量<AppInput v-model.trim="materialDraft.quantity" type="number" min="0.001"
-                  max="1000000" step="0.001" :disabled="busy || connectionLost" aria-label="待添加数量" /></label>
-                <AppButton type="button" variant="primary" :disabled="busy || connectionLost || !materialDraft.material_id"
-                  @click="addMaterial">加入明细</AppButton>
-                <AppButton type="button" :disabled="busy" @click="pickerOpen = false" variant="text">取消添加</AppButton>
-              </div>
-              <p v-if="pickerIssue" role="alert" class="inbound-material-issue">{{ pickerIssue }}</p>
-            </div>
             <p v-if="materialRows.length && materialIssue" role="alert" class="inbound-material-issue">{{ materialIssue }}</p>
           </template>
-          <template #cell-sku="{ row }"><strong>{{ row.material?.sku ?? '物料不可用' }}</strong></template>
-          <template #cell-name="{ row }">{{ row.material?.name ?? '请移除后重新选择' }}</template>
+          <template #cell-sku="{ row }"><strong>{{ row.material?.sku ?? '待选择' }}</strong></template>
+          <template #cell-name="{ row }">
+            <WorkspaceMaterialSelect :ref="instance => focusNewRow(row.line, instance)"
+              v-model="row.line.material_id" :options="materialOptions(row.index)" :materials="materials" :categories="store.materialCategories" required
+              :disabled="busy || connectionLost" :aria-label="`第 ${row.index + 1} 行物料`" />
+          </template>
           <template #cell-unit="{ row }">{{ row.material?.unit ?? '—' }}</template>
           <template #cell-quantity="{ row }">
-            <AppInput v-model.trim="otherInboundForm.lines[row.index].quantity" type="number" min="0.001"
+            <AppInput v-model.trim="row.line.quantity" type="number" min="0.001"
               max="1000000" step="0.001" required :disabled="busy || connectionLost"
               :aria-label="`${row.material?.name ?? '物料'}数量`" />
           </template>
@@ -300,11 +294,7 @@ async function confirmLotPost(): Promise<void> {
 </style>
 
 <style scoped>
-/* 物料选择区紧邻明细表，窄窗口自动换行，选择菜单沿用公共组件的浮层。 */
-.inbound-material-picker { padding: 16px; border: 1px solid var(--workspace-field-border); border-radius: 10px; background: var(--app-accent-tint); }
-.inbound-material-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
-.inbound-material-fields label:first-child { flex: 1 1 280px; }
-.inbound-material-fields label:nth-child(2) { flex: 0 1 140px; }
+/* 校验提示明确指向未完成的表格行，明暗主题保持可读。 */
 .inbound-material-issue { margin: 10px 0 0; color: #c45a53; font-size: 13px; }
 :root[data-theme='dark'] .inbound-material-issue { color: #ffaaa2; }
 </style>

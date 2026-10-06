@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from app.access.security import require
+from app.catalog.material_rules import material_choice_data
 from app.core.models import InventoryWarningRule, InventoryWarningChange, Material, Warehouse, StockMovement, User
 from app.core.orm import orm_session, add_model, model_data
 
@@ -99,7 +100,7 @@ def overview(warehouse_id: Annotated[int | None, Query(gt=0)] = None,
         rows = [current_row(db, rule, values.get((rule.warehouse_id, rule.material_id), Decimal(0)))
                 for rule in db.scalars(statement)]
         warehouses = [{'id': row.id, 'code': row.code, 'name': row.name} for row in db.scalars(select(Warehouse).order_by(Warehouse.code))]
-        materials = [{'id': row.id, 'sku': row.sku, 'name': row.name, 'unit': row.unit} for row in db.scalars(select(Material).order_by(Material.sku))]
+        materials = [material_choice_data(row) for row in db.scalars(select(Material).order_by(Material.sku))]
         count = len(materials) * (1 if warehouse_id is not None else len(warehouses))
         return {'as_of': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
                 'warehouse_id': warehouse_id, 'rows': rows, 'warehouses': warehouses, 'materials': materials,

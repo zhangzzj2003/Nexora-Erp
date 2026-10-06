@@ -51,6 +51,15 @@ def material_data(material: Material) -> dict:
     return {key: getattr(material, key) for key in MATERIAL_FIELDS}
 
 
+def material_choice_data(material: Material) -> dict:
+    # 业务选料只附带辨认资料，不带编辑版本、供应商联系方式或业务价格。
+    result = {key: getattr(material, key) for key in ('id', 'sku', 'name', 'unit', *DETAIL_FIELDS)}
+    result['category_name'] = next((f"{group['name']} / {child['name']}"
+        for group in MATERIAL_CATEGORIES for child in group['children']
+        if child['code'] == material.category_code), '未分类')
+    return result
+
+
 def allocate_material_code(db: Session, category: str) -> str:
     # 调用方已持有 BEGIN IMMEDIATE 写锁，流水和物料在同一事务提交，失败一起回滚。
     sequence = db.get(MaterialCodeSequence, category)

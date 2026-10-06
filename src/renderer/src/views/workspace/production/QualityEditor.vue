@@ -4,6 +4,8 @@ import { storeToRefs } from 'pinia'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 const emit=defineEmits<{saved:[];close:[]}>(),store=usePiniaAppStore()
 const {qualityForm:form,qualityEdit:edit,qualityOverview:overview,busy,error,connectionLost}=storeToRefs(store)
@@ -36,7 +38,7 @@ async function save():Promise<void>{if(await store.saveQualityDisposition())emit
         <div class="quality-toolbar"><h3>追加材料</h3><AppButton :disabled="busy || form.materials.length>=100" @click="form.materials.push({material_id:0,quantity:'1'})">添加材料</AppButton></div>
         <p v-if="!form.materials.length">无需追加材料时保持为空，返工下达后可登记人工和制造费用。</p>
         <div v-for="(line,index) in form.materials" :key="index" class="quality-material">
-          <label>材料 {{ index+1 }}<WorkspaceSelect v-model="line.material_id" :options="materials" :disabled="busy" required /></label>
+          <label>材料 {{ index+1 }}<WorkspaceMaterialSelect :materials="overview?.materials ?? []" v-model="line.material_id" :options="materials" :disabled="busy" required /></label>
           <label>本次返工总需量<AppInput v-model="line.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="busy" /></label>
           <AppButton :disabled="busy" :aria-label="`移除材料 ${index+1}`" @click="form.materials.splice(index,1)">移除</AppButton>
         </div>

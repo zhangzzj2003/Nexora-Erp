@@ -56,7 +56,7 @@ function submit(): void {
           <!-- 分隔线明确区分单据头与物料明细，避免两类信息混在同一张表单中。 -->
           <hr class="document-divider" />
           <WorkspaceTable title="物料明细" :data="data" :columns="columns" :min-table-width="minTableWidth"
-            empty-text="尚未添加物料，请点击“添加物料”选择。" class="document-lines">
+            empty-text="尚未添加物料，请点击“添加物料”新增一行，再在表格内搜索选择。" class="document-lines">
             <template #heading><h3>物料明细 <span class="document-count">{{ data.length }} 项</span></h3></template>
             <template #actions>
               <AppButton type="button" :disabled="busy || disabled || addDisabled"

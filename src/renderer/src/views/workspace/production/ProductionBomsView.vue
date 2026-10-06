@@ -4,7 +4,8 @@ import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
-import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -75,7 +76,7 @@ const filteredRecords = computed(() =>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
           <label
-            >成品物料<WorkspaceSelect
+            >成品物料<WorkspaceMaterialSelect :materials="materials"
               v-model="bomForm.product_material_id"
               required
               :options="[
@@ -98,7 +99,7 @@ const filteredRecords = computed(() =>
         <h3>组件用量</h3>
         <div v-for="(line, index) in bomForm.lines" :key="index" class="line-row">
           <label
-            >组件物料<WorkspaceSelect
+            >组件物料<WorkspaceMaterialSelect :materials="materials"
               v-model="line.component_material_id"
               required
               :options="[

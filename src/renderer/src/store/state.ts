@@ -418,7 +418,7 @@ export function createAppState() {
     reason: 'other' as 'opening' | 'gift' | 'other',
     note: '',
     reference: '',
-    // 空明细等待选择物料，避免未选择的占位行进入统一表格。
+    // 新增空行也保存在草稿中，保存前须完成行内物料选择。
     lines: [] as { material_id: number; quantity: string }[]
   })
   const otherInboundReversalReasons = ref<Record<number, string>>({})

@@ -1,3 +1,4 @@
+import type { MaterialChoice } from './material-api'
 export type AfterSalesKind = 'return' | 'exchange' | 'repair'
 export type AfterSalesStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'processing' | 'received' | 'repaired' | 'closed' | 'cancelled' | 'reversed'
 export type AfterSalesAction = 'submit' | 'approve' | 'reject' | 'process' | 'receive' | 'inspect' | 'close' | 'cancel' | 'reverse'
@@ -66,7 +67,7 @@ export interface AfterSalesEvidence extends Omit<AfterSalesInput,'parts'|'reason
 }
 export interface AfterSalesOverview {
   sources:(AfterSalesSource&{remaining_quantity:string})[]; cases:AfterSalesEvidence[]
-  materials:{id:number; sku:string; name:string; unit:string}[]; warehouses:{id:number;name:string}[]
+  materials: MaterialChoice[]; warehouses:{id:number;name:string}[]
 }
 export interface AfterSalesArchive {
   case: Pick<AfterSalesEvidence, 'id'|'reference'|'kind'|'status'|'quantity'|'charge_mode'|'fee_amount'|'customer_acceptance'|'solution'> &

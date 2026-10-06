@@ -6,6 +6,8 @@ import type { CrmKind } from '../../../../../shared/crm-api'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import CrmDate from './CrmDate.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { crmFormError, crmKindLabel, crmStageLabel } from './crm-display'
@@ -88,7 +90,7 @@ async function save(): Promise<void> {
         </div>
         <h3>报价明细</h3>
         <div v-for="(line,index) in forms.quote.lines" :key="index" class="crm-quote-line">
-          <label>物料 {{ index+1 }}<WorkspaceSelect v-model="line.material_id" :options="materials" required :disabled="disabled" /></label>
+          <label>物料 {{ index+1 }}<WorkspaceMaterialSelect :materials="options?.materials ?? []" v-model="line.material_id" :options="materials" required :disabled="disabled" /></label>
           <label>数量 {{ index+1 }}<AppInput v-model.trim="line.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="disabled" /></label>
           <label>单价 {{ index+1 }}（元）<AppInput v-model.trim="line.unit_price" type="number" min="0" max="1000000000" step="0.0001" required :disabled="disabled" /></label>
           <AppButton :disabled="disabled || forms.quote.lines.length===1" :aria-label="`删除报价第 ${index+1} 行`" @click="forms.quote.lines.splice(index,1)">删除行</AppButton>

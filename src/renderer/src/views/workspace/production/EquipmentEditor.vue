@@ -7,6 +7,8 @@ import {usePiniaAppStore} from '../../../store/app-store'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import {datePickerString,dateOutsideRange,vDateField} from '../../../utils/date-field'
 const props=defineProps<{kind:EquipmentEntity}>(),emit=defineEmits<{saved:[];close:[]}>(),store=usePiniaAppStore()
 const {equipmentForms:forms,equipmentEdit:edit,equipmentOverview:overview,busy,error,connectionLost}=storeToRefs(store)
@@ -77,7 +79,7 @@ function clearPlans():void{forms.value.job.plan_id=null;forms.value.job.hour_pla
           <p>开始维护只生成出库草稿，仓库确认才扣库存。无耗材时保持为空。领取耗材的执行人须同时有其他出库建单权限。</p>
           <label v-if="forms.job.parts.length">耗材仓库<WorkspaceSelect v-model="forms.job.warehouse_id" :options="warehouses" required :disabled="disabled" /></label>
           <div v-for="(line,index) in forms.job.parts" :key="index" class="equipment-part">
-            <label>耗材 {{ index+1 }}<WorkspaceSelect v-model="line.material_id" :options="materials" required :disabled="disabled" /></label>
+            <label>耗材 {{ index+1 }}<WorkspaceMaterialSelect :materials="overview?.materials ?? []" v-model="line.material_id" :options="materials" required :disabled="disabled" /></label>
             <label>本次总用量<AppInput v-model="line.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="disabled" /></label>
             <AppButton :disabled="disabled" :aria-label="`移除耗材 ${index+1}`" @click="forms.job.parts.splice(index,1)">移除</AppButton>
           </div>

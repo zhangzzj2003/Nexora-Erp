@@ -1,3 +1,4 @@
+import type { MaterialChoice } from './material-api'
 export type QualityKind = 'scrap' | 'rework'
 export type QualityTreatment = 'absorb' | 'expense' | 'carry'
 export type QualityStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'cancelled' | 'posted' | 'reversed'
@@ -30,7 +31,7 @@ export interface QualityEvidence extends Omit<QualityInput,'reason'> {
 }
 export interface QualityOverview {
   cases: QualityCase[]; dispositions: QualityEvidence[]
-  materials: {id:number; sku:string; name:string; unit:string}[]; warehouses:{id:number; name:string}[]
+  materials: MaterialChoice[]; warehouses:{id:number; name:string}[]
 }
 export interface QualityOperations {
   qualityOverview: {input:undefined; output:QualityOverview}

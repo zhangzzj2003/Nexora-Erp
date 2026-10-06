@@ -24,6 +24,8 @@ const props = withDefaults(
     placeholder?: string
     size?: 'small' | 'medium'
     ariaLabel?: string
+    // 富信息选项需要固定的两行高度，普通下拉保持原有尺寸和虚拟滚动。
+    optionHeight?: number
   }>(),
   { disabled: false, required: false, filterable: true, placeholder: '请选择', size: 'medium' }
 )
@@ -31,7 +33,15 @@ const emit = defineEmits<{ 'update:modelValue': [value: T]; change: [value: T] }
 const select = ref<SelectInst | null>(null)
 const invalid = ref(false)
 const { isDarkTheme, colorPalette } = storeToRefs(useThemeStore())
-const theme = computed(() => workspaceSelectTheme(isDarkTheme.value, colorPalette.value))
+const theme = computed(() => {
+  const result = workspaceSelectTheme(isDarkTheme.value, colorPalette.value)
+  const menu = result.peers?.InternalSelectMenu
+  if (menu && props.optionHeight) {
+    menu.optionHeightMedium = `${props.optionHeight}px`
+    menu.optionHeightSmall = `${props.optionHeight}px`
+  }
+  return result
+})
 const menuOptions = computed(() =>
   props.options.map((option) => ({ ...option, value: workspaceSelectKey(option.value) }))
 )

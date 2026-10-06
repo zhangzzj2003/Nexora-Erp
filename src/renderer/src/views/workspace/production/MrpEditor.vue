@@ -4,7 +4,8 @@ import { storeToRefs } from 'pinia'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
-import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import MrpDate from './MrpDate.vue'
 import { mrpDraftError, mrpSourceLabel, mrpSourceStatus } from './mrp-display'
@@ -42,7 +43,7 @@ async function save(): Promise<void> { if (options.value && !problem.value && !d
     </WorkspaceTable>
     <WorkspaceTable title="额外手工需求" :columns="manualColumns" :data="form.manual_demands" :min-table-width="950">
       <template #actions><AppButton :disabled="disabled || form.manual_demands.length >= 500" @click="form.manual_demands.push({material_id:0,quantity:'1',due_date:'',reference:''})">添加手工需求</AppButton></template>
-      <template #cell-material="{ row }"><WorkspaceSelect v-model="row.material_id" :options="materialOptions" :disabled="disabled" aria-label="手工需求物料" required /></template>
+      <template #cell-material="{ row }"><WorkspaceMaterialSelect :materials="options?.materials ?? []" v-model="row.material_id" :options="materialOptions" :disabled="disabled" aria-label="手工需求物料" required /></template>
       <template #cell-quantity="{ row }"><AppInput v-model="row.quantity" required inputmode="decimal" pattern="[0-9]{1,7}(\.[0-9]{1,3})?" :disabled="disabled" aria-label="手工需求数量" /></template>
       <template #cell-due_date="{ row }"><MrpDate v-model="row.due_date" :min="form.start_date" :disabled="disabled" aria-label="手工需求日期" /></template>
       <template #cell-reference="{ row }"><AppInput v-model.trim="row.reference" required maxlength="100" :disabled="disabled" aria-label="手工需求来源编号" /></template>

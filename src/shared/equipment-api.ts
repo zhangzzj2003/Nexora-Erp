@@ -1,3 +1,4 @@
+import type { MaterialChoice } from './material-api'
 export type EquipmentStatus = 'active' | 'inactive' | 'retired'
 export type EquipmentAttachmentKind = 'asset' | 'job'
 export interface EquipmentAttachment {
@@ -93,7 +94,7 @@ export interface EquipmentOverview {
   as_of: string; equipment: EquipmentRecord[]; plans: MaintenancePlanRecord[]
   hour_plans: MaintenanceHourPlanRecord[]; jobs: MaintenanceJobRecord[]
   executors: { id: number; username: string }[]
-  materials: { id: number; sku: string; name: string; unit: string }[]
+  materials: MaterialChoice[]
   warehouses: { id: number; name: string }[]
   work_orders: { id: number; status: string; target_quantity: string }[]
 }

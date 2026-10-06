@@ -1,3 +1,4 @@
+import type { MaterialChoice } from './material-api'
 /** 客户关系、固定报价和审计的受限通信协议。 */
 export type CrmKind = 'contact' | 'activity' | 'opportunity' | 'quote'
 export type CrmAttachmentKind = Exclude<CrmKind, 'quote'>
@@ -88,7 +89,7 @@ export interface CrmRecordAttachmentList {
 export type CrmRecord = CrmContact | CrmActivity | CrmOpportunity | CrmQuote
 export interface CrmOverview { contacts: CrmContact[]; activities: CrmActivity[]; opportunities: CrmOpportunity[]; quotes: CrmQuote[] }
 export interface CrmOptions {
-  customers: {id: number; name: string; owner_id: number | null; version: number}[]; materials: {id: number; sku: string; name: string; unit: string}[]
+  customers: {id: number; name: string; owner_id: number | null; version: number}[]; materials: MaterialChoice[]
   owners: {id: number; name: string}[]
 }
 export interface CustomerOwnerChange {

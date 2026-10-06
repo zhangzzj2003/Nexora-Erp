@@ -1,4 +1,4 @@
-// 库存与单据保留简要物料契约，详细参数由物料管理接口提供。
+// 历史单据保留简要契约；业务选料可以附带当前档案的只读资料。
 export interface MaterialSummary { id: number; sku: string; name: string; unit: string }
 export interface MaterialDetails {
   category_code: string
@@ -14,7 +14,12 @@ export interface MaterialDetails {
   compliance: string
   notes: string
 }
+// 可选字段兼容旧业务接口的简要响应，不把未提供的详情当成已填写资料。
+export interface MaterialChoice extends MaterialSummary, Partial<MaterialDetails> {
+  category_name?: string
+}
 export interface Material extends MaterialSummary, MaterialDetails {
+  category_name?: string
   version: number
   // 编辑专用详情同时返回绑定编号；列表及旧调用继续使用原有简要响应。
   supplier_ids?: number[]

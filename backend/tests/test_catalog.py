@@ -37,6 +37,8 @@ def test_crud_validation_and_conflicts(client, resource, original, updated):
         expected = response.json()
         assert expected['version'] == 2
         assert all(expected[key] == value for key, value in updated.items())
+        # 列表补充当前分类展示，编辑响应和历史档案字段仍保持原契约。
+        expected = {**expected, 'category_name': '未分类'}
         # 编码固定，不能靠更名或改类覆盖另一个物料档案。
         other = create(client, resource, {**original, 'sku': 'OTHER'})
         assert client.put(f"/api/v1/{resource}/{other}", json={**updated, 'version': 1}).status_code == 409

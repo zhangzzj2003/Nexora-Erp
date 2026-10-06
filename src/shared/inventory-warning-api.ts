@@ -1,3 +1,4 @@
+import type { MaterialChoice } from './material-api'
 export type InventoryWarningStatus = 'normal' | 'low' | 'out_of_stock' | 'disabled'
 export interface InventoryWarningSnapshot {
   id: number; warehouse_id: number; material_id: number; threshold: string; enabled: boolean; version: number
@@ -15,7 +16,7 @@ export interface InventoryWarningDetail { row: InventoryWarningRow; changes: Inv
 export interface InventoryWarningOverview {
   as_of: string; warehouse_id: number | null; rows: InventoryWarningRow[]
   warehouses: {id: number; code: string; name: string}[]
-  materials: {id: number; sku: string; name: string; unit: string}[]
+  materials: MaterialChoice[]
   summary: Record<InventoryWarningStatus | 'configured' | 'unconfigured', number>
 }
 export interface InventoryWarningEvent {

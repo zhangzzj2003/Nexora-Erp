@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import select
 
 from app.access.security import require
+from app.catalog.material_rules import material_choice_data
 from app.core.models import (Material, MaterialIssue, MaterialReturn, ProductionCostEntry, ProductionCostReversal,
     ProductionCompletion, ProductionCompletionReversal, QualityDisposition, Warehouse, WorkOrder, WorkOrderLine)
 from app.core.orm import orm_session, model_data, add_model
@@ -124,7 +125,7 @@ def overview(user: dict = Depends(require('quality.view'))) -> dict:
                 settled=settled is not None, settlement_id=settled['id'] if settled else None))
         records = db.scalars(select(QualityDisposition).order_by(QualityDisposition.id.desc()))
         return dict(cases=cases, dispositions=[disposition_data(db, row, include_cost=can_read_cost(user)) for row in records],
-            materials=[dict(id=row.id,sku=row.sku,name=row.name,unit=row.unit) for row in db.scalars(select(Material).order_by(Material.sku))],
+            materials=[material_choice_data(row) for row in db.scalars(select(Material).order_by(Material.sku))],
             warehouses=[dict(id=row.id,name=row.name) for row in db.scalars(select(Warehouse).order_by(Warehouse.id))])
 
 
