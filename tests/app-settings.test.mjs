@@ -29,6 +29,30 @@ before(async () => {
 })
 after(() => server?.close())
 
+test('Windows 设置面板避开原生标题栏，Mac、Linux 与浏览器保留原布局', async t => {
+  const oldWindow = globalThis.window
+  t.after(() => { globalThis.window = oldWindow })
+  const { default: SettingsDrawer } = await server.ssrLoadModule('/src/renderer/src/components/app/AppSettingsDrawer.vue')
+  // 渲染真实 Naive UI 抽屉，验证样式落在面板而不是内部滚动区或遮罩上。
+  for (const platform of ['win32', 'darwin', 'linux', undefined]) {
+    globalThis.window = platform ? { nexora: { platform } } : undefined
+    const pinia = createPinia(), settings = useSettingsStore(pinia)
+    settings.openSettings()
+    const app = createSSRApp({ render: () => h(SettingsDrawer) }).use(pinia)
+    setupSsrStyles(app)
+    const context = {}
+    const html = await renderToString(app, context)
+    const content = html + Object.values(context.teleports ?? {}).join('')
+    const panel = content.match(/<div(?=[^>]*\bid="app-settings-panel")(?=[^>]*\bclass="[^"]*\bn-drawer\b)[^>]*>/)?.[0]
+    assert.ok(panel, '布局偏移必须应用于真实抽屉面板')
+    assert.match(panel, /role="dialog"/)
+    assert.match(panel, /width:min\(400px, 100vw\)/)
+    if (platform === 'win32') assert.match(panel, /top:48px/)
+    else assert.doesNotMatch(panel, /top:48px/)
+    assert.match(content, /aria-label="关闭设置"/)
+  }
+})
+
 test('语言偏好只接受支持的值，缺失、损坏和存储失败时使用中文', () => {
   for (const value of [null, '', 'zh-CN', 'en', 'invalid'])
     assert.equal(readLocalePreference({ getItem: () => value }), 'zh-CN')

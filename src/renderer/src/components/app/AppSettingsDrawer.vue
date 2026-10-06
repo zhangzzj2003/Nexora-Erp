@@ -9,6 +9,7 @@ import AppButton from './AppButton.vue'
 import { useSettingsStore } from '../../store/settings-store'
 import { useThemeStore } from '../../store/theme-store'
 import { themeColorPresets } from '../../utils/theme-color'
+import { titleBarHeight } from '../../../../shared/window-chrome'
 
 const settings = useSettingsStore()
 const theme = useThemeStore()
@@ -16,11 +17,14 @@ const { settingsOpen, locale } = storeToRefs(settings)
 const { themeMode, themeColor } = storeToRefs(theme)
 const { t, closeSettings, setLocale } = settings
 const { selectTheme, setThemeColor } = theme
+// Windows 原生窗口按钮始终位于网页之上，整个设置面板须从标题栏下方展开。
+const drawerStyle = typeof window !== 'undefined' && window.nexora?.platform === 'win32'
+  ? { top: `${titleBarHeight}px` } : undefined
 // Naive UI 负责焦点圈定、Esc、遮罩和关闭后恢复焦点；不重建底层业务页面。
 </script>
 
 <template>
-  <NDrawer id="app-settings-panel" :aria-label="t('设置')" v-model:show="settingsOpen" placement="right" width="min(400px, 100vw)"
+  <NDrawer id="app-settings-panel" :aria-label="t('设置')" :style="drawerStyle" v-model:show="settingsOpen" placement="right" width="min(400px, 100vw)"
     :auto-focus="true" :trap-focus="true" :close-on-esc="true" :mask-closable="true">
     <NDrawerContent :native-scrollbar="false" body-content-class="app-settings-body">
       <template #header>
