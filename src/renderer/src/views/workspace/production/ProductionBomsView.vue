@@ -6,10 +6,12 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
-import { NModal } from 'naive-ui'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
@@ -19,6 +21,7 @@ const {
   notice,
   version,
   busy,
+  connectionLost,
   materials,
   boms,
   bomForm,
@@ -48,96 +51,108 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const bomFormRows = computed(() => documentRows(bomForm.value.lines))
+const bomFormColumns = [
+  { key: 'material', title: '组件物料 / 资料', width: '470' },
+  { key: 'unit', title: '单位', width: '70' },
+  { key: 'quantity', title: '基准用量', width: '150' },
+  { key: 'actions', title: '操作', width: '90' },
+]
 </script>
 
 <template>
   <section class="stack">
-    <NModal
-      v-if="can('bom.create')"
-      v-model:show="createOpen"
-      preset="card"
-      :mask-closable="!busy"
-      :style="{
-        width: 'min(900px, calc(100vw - 32px))',
-        maxHeight: 'calc(100vh - 48px)',
-        overflowY: 'auto'
-      }"
-    >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">BILL OF MATERIALS</p>
-          <h2>新建 BOM 版本</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
-      <p class="muted">
-        BOM 记录生产指定数量成品所需的组件。旧版本会保留供追溯；同一成品一次只能启用一个版本。
-      </p>
-      <form @submit.prevent="submitCreate">
-        <div class="form-grid">
-          <label
-            >成品物料<WorkspaceMaterialSelect :materials="materials"
-              v-model="bomForm.product_material_id"
-              required
-              :options="[
-                { label: '选择成品'.trim(), value: 0, disabled: true },
-                ...materials.map((item) => ({
-                  label: (item.sku + ' · ' + item.name).trim(),
-                  value: item.id
-                }))
-              ]" /></label
-          ><label
-            >基准产出数量<AppInput
-              v-model.trim="bomForm.base_quantity"
-              type="number"
-              min="0.001"
-              max="1000000"
-              step="0.001"
-              required /></label
-          ><label>版本说明（可选）<AppInput v-model.trim="bomForm.note" maxlength="200" /></label>
-        </div>
-        <h3>组件用量</h3>
-        <div v-for="(line, index) in bomForm.lines" :key="index" class="line-row">
-          <label
-            >组件物料<WorkspaceMaterialSelect :materials="materials"
-              v-model="line.component_material_id"
-              required
-              :options="[
-                { label: '选择组件'.trim(), value: 0, disabled: true },
-                ...materials
-                  .filter((entry) => entry.id !== bomForm.product_material_id)
-                  .map((item) => ({ label: (item.sku + ' · ' + item.name).trim(), value: item.id }))
-              ]" /></label
-          ><label
-            >基准用量<AppInput
-              v-model.trim="line.quantity"
-              type="number"
-              min="0.001"
-              max="1000000"
-              step="0.001"
-              required /></label
-          ><AppButton
-            type="button"
-            :disabled="bomForm.lines.length === 1"
-            @click="bomForm.lines.splice(index, 1)"
-            variant="text"
+    <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="can('bom.create')"
+          v-model:show="createOpen"
+          title="新建 BOM 版本"
+          :data="bomFormRows"
+          :columns="bomFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="materials.length < 2"
+          submit-label="保存草稿"
+          :min-table-width="1000"
+          :add-disabled="bomForm.lines.length >= 100"
+          @add-material="bomForm.lines.push({ component_material_id: 0, quantity: '1' })"
+          @submit="submitCreate"
+        >
+          <template #basicInfo
+            ><label
+              >成品物料<WorkspaceMaterialSelect
+                :disabled="busy || connectionLost"
+                :materials="materials"
+                v-model="bomForm.product_material_id"
+                required
+                :options="[
+                  { label: '选择成品'.trim(), value: 0, disabled: true },
+                  ...materials.map((item) => ({
+                    label: (item.sku + ' · ' + item.name).trim(),
+                    value: item.id
+                  }))
+                ]" /></label
+            ><label
+              >基准产出数量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="bomForm.base_quantity"
+                type="number"
+                min="0.001"
+                max="1000000"
+                step="0.001"
+                required /></label
+            ><label
+              >版本说明（可选）<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="bomForm.note"
+                maxlength="200"
+            /></label>
+            <div class="document-basic-extra">
+              <p class="muted">
+                BOM 记录生产指定数量成品所需的组件。旧版本会保留供追溯；同一成品一次只能启用一个版本。
+              </p>
+            </div>
+          </template>
+          <template #cell-material="{ row: { line, index } }"
+            ><label
+              >组件物料<WorkspaceMaterialSelect
+                :disabled="busy || connectionLost"
+                :materials="materials"
+                v-model="line.component_material_id"
+                required
+                :options="[
+                  { label: '选择组件'.trim(), value: 0, disabled: true },
+                  ...materials
+                    .filter((entry) => entry.id !== bomForm.product_material_id)
+                    .map((item) => ({ label: (item.sku + ' · ' + item.name).trim(), value: item.id }))
+                ]" /></label
+          ></template>
+          <template #cell-quantity="{ row: { line, index } }"
+            ><label
+              >基准用量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="0.001"
+                max="1000000"
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              type="button"
+              :disabled="busy || connectionLost || bomForm.lines.length === 1"
+              @click="bomForm.lines.splice(index, 1)"
+              variant="text"
+            >
+              移除
+            </AppButton></template
           >
-            移除
-          </AppButton>
-        </div>
-        <div class="form-actions">
-          <AppButton
-            type="button"
-            @click="bomForm.lines.push({ component_material_id: 0, quantity: '1' })"
-            variant="secondary"
-          >
-            添加组件</AppButton
-          ><AppButton type="submit" :disabled="busy || materials.length < 2" variant="primary">
-            保存草稿
-          </AppButton>
-        </div>
-      </form>
-    </NModal>
+          <template #cell-unit="{ row: { line } }">{{
+            materials.find((item) => item.id === line.component_material_id)?.unit ?? '—'
+          }}</template>
+        </WorkspaceDocumentDialog>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"

@@ -37,7 +37,8 @@ test('调拨和盘点表格保留明细、冲销记录、权限及断线禁用',
   const server = await createServer({configFile:false, plugins:[{
     name:'warehouse-test-fixtures', enforce:'pre',
     resolveId(id, importer) {
-      if (!importer?.includes('/warehouse/')) return
+      // 业务页与公共单据弹窗共用这份表格替身。
+      if (!importer?.includes('/src/renderer/src/')) return
       if (id.endsWith('/store/app-store')) return '\0warehouse-test-store'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0warehouse-test-table'
     },

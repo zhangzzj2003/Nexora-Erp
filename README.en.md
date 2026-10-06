@@ -16,6 +16,8 @@ The project is in an **internal trial phase for one company, multiple warehouses
 
 The directory follows the active route and offers permitted pages in the same category. Refresh reads authorized data before remounting the current page, retaining the login session and opened tabs. Independent pagination and dashboard queries reload as well. Repeated refresh and business submission are blocked during the operation; failures show a shared error message and can be retried. Browser and Linux workspaces provide the same controls above the content.
 
+Material document dialogs share `WorkspaceDocumentDialog`: basic information appears above a divider and a shared material table, while the header close control and footer actions remain visible as the body scrolls. Other inbounds, warehouse outbounds, transfers, stocktakes, adjustments, purchase requests and conversion, purchase orders and receiving/returns, sales orders and shipments/returns, BOMs and production issues/returns use this layout. Editable material tables add rows through the searchable material selector, with a 100-row limit; source-linked documents retain their original line identifiers and quantity limits and do not allow arbitrary additions. Existing quantity, price and warranty rules remain in place. Busy dialogs block closing and editing; disconnected dialogs allow closing while blocking edits and saves. Reopening the same purchase-request draft retains its inputs, and failed saves preserve the draft. Naive UI card modals also share a contrasting header with an independently scrolling body.
+
 ## Project features
 
 | Area | Current functionality |

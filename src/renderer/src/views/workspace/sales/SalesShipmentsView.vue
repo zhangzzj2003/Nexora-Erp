@@ -7,6 +7,9 @@ import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -142,108 +145,110 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const shipmentFormRows = computed(() => documentRows(shipmentForm.value.lines))
+const shipmentFormColumns = [
+  { key: 'material', title: '物料 / 资料', width: '470' },
+  { key: 'unit', title: '单位', width: '70' },
+  { key: 'quantity', title: '出库数量', width: '150' },
+  { key: 'actions', title: '操作', width: '90' },
+]
 </script>
 
 <template>
   <section class="stack">
-    <NModal
-      v-if="can('shipment.create')"
-      v-model:show="createOpen"
-      preset="card"
-      :mask-closable="!busy"
-      :style="{
-        width: 'min(900px, calc(100vw - 32px))',
-        maxHeight: 'calc(100vh - 48px)',
-        overflowY: 'auto'
-      }"
-    >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">SALES SHIPMENT</p>
-          <h2>新建出库单</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
-      <form @submit.prevent="submitCreate">
-        <div class="form-grid">
-          <label
-            >销售订单<WorkspaceSelect
-              v-model="shipmentForm.sales_order_id"
-              required
-              @change="chooseShipmentOrder"
-              :options="[
-                { label: '选择待出库订单'.trim(), value: 0, disabled: true },
-                ...salesOrders
-                  .filter((entry) => ['confirmed', 'partially_shipped'].includes(entry.status))
-                  .map((item) => ({
-                    label: (' #' + item.id + ' · ' + item.customer_name).trim(),
+    <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="can('shipment.create')"
+          v-model:show="createOpen"
+          title="新建销售出库"
+          :data="shipmentFormRows"
+          :columns="shipmentFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="
+            busy ||
+            !materials.length ||
+            !salesOrders.some((entry) => ['confirmed', 'partially_shipped'].includes(entry.status))
+          "
+          submit-label="保存草稿"
+          :min-table-width="1000"
+          :add-disabled="shipmentForm.lines.length >= 100"
+          @add-material="shipmentForm.lines.push({ material_id: 0, quantity: '1' })"
+          @submit="submitCreate"
+        >
+          <template #basicInfo
+            ><label
+              >销售订单<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="shipmentForm.sales_order_id"
+                required
+                @change="chooseShipmentOrder"
+                :options="[
+                  { label: '选择待出库订单'.trim(), value: 0, disabled: true },
+                  ...salesOrders
+                    .filter((entry) => ['confirmed', 'partially_shipped'].includes(entry.status))
+                    .map((item) => ({
+                      label: (' #' + item.id + ' · ' + item.customer_name).trim(),
+                      value: item.id
+                    }))
+                ]" /></label
+            ><label
+              >出库仓库<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="shipmentForm.warehouse_id"
+                required
+                :options="[...warehouses.map((item) => ({ label: item.name.trim(), value: item.id }))]" /></label
+            ><label
+              >参考单号（可选）<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="shipmentForm.reference"
+                maxlength="100"
+            /></label>
+            <div class="document-basic-extra">
+              <p class="muted">确认出库时将从所选仓库扣减库存，并再次核对销售订单剩余数量。</p>
+            </div>
+          </template>
+          <template #cell-material="{ row: { line, index } }"
+            ><label
+              >物料<WorkspaceMaterialSelect
+                :disabled="busy || connectionLost"
+                :materials="materials"
+                v-model="line.material_id"
+                required
+                :options="[
+                  { label: '选择物料'.trim(), value: 0, disabled: true },
+                  ...materials.map((item) => ({
+                    label: (item.sku + ' · ' + item.name).trim(),
                     value: item.id
                   }))
-              ]" /></label
-          ><label
-            >出库仓库<WorkspaceSelect
-              v-model="shipmentForm.warehouse_id"
-              required
-              :options="[
-                ...warehouses.map((item) => ({ label: item.name.trim(), value: item.id }))
-              ]" /></label
-          ><label
-            >参考单号（可选）<AppInput v-model.trim="shipmentForm.reference" maxlength="100"
-          /></label>
-        </div>
-        <p class="muted">确认出库时将从所选仓库扣减库存，并再次核对销售订单剩余数量。</p>
-        <div v-for="(line, index) in shipmentForm.lines" :key="index" class="line-row">
-          <label
-            >物料<WorkspaceMaterialSelect :materials="materials"
-              v-model="line.material_id"
-              required
-              :options="[
-                { label: '选择物料'.trim(), value: 0, disabled: true },
-                ...materials.map((item) => ({
-                  label: (item.sku + ' · ' + item.name).trim(),
-                  value: item.id
-                }))
-              ]" /></label
-          ><label
-            >出库数量<AppInput
-              v-model.trim="line.quantity"
-              type="number"
-              min="0.001"
-              max="1000000"
-              step="0.001"
-              required /></label
-          ><AppButton
-            type="button"
-            :disabled="shipmentForm.lines.length === 1"
-            @click="shipmentForm.lines.splice(index, 1)"
-            variant="text"
+                ]" /></label
+          ></template>
+          <template #cell-quantity="{ row: { line, index } }"
+            ><label
+              >出库数量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="0.001"
+                max="1000000"
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              type="button"
+              :disabled="busy || connectionLost || shipmentForm.lines.length === 1"
+              @click="shipmentForm.lines.splice(index, 1)"
+              variant="text"
+            >
+              移除
+            </AppButton></template
           >
-            移除
-          </AppButton>
-        </div>
-        <div class="form-actions">
-          <AppButton
-            type="button"
-            @click="shipmentForm.lines.push({ material_id: 0, quantity: '1' })"
-            variant="secondary"
-          >
-            添加明细</AppButton
-          ><AppButton
-            type="submit"
-            :disabled="
-              busy ||
-              !materials.length ||
-              !salesOrders.some((entry) =>
-                ['confirmed', 'partially_shipped'].includes(entry.status)
-              )
-            "
-            variant="primary"
-          >
-            保存草稿
-          </AppButton>
-        </div>
-      </form>
-    </NModal>
+          <template #cell-unit="{ row: { line } }">{{
+            materials.find((item) => item.id === line.material_id)?.unit ?? '—'
+          }}</template>
+        </WorkspaceDocumentDialog>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"

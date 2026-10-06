@@ -10,6 +10,9 @@ import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMate
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal } from 'naive-ui'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
@@ -115,6 +118,14 @@ async function confirmLotPost(): Promise<void> {
     lots: line.lots.map(part => ({lot_id: part.lot_id, quantity: part.quantity}))})))
   if (!warehouseOutbounds.value.some(item => item.id === outbound.id && item.status === 'draft')) closeLotPost()
 }
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const otherOutboundFormRows = computed(() => documentRows(otherOutboundForm.value.lines))
+const otherOutboundFormColumns = [
+  { key: 'material', title: '物料 / 资料', width: '470' },
+  { key: 'unit', title: '单位', width: '70' },
+  { key: 'quantity', title: '数量', width: '150' },
+  { key: 'actions', title: '操作', width: '90' },
+]
 </script>
 
 <template>
@@ -140,93 +151,98 @@ async function confirmLotPost(): Promise<void> {
         <label>搜索出库单<AppInput v-model="query" placeholder="单号、仓库或物料" /></label>
       </template>
       <template #beforeTable>
-        <NModal
+        <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="showForm && can('other_outbound.create')"
           v-model:show="showForm"
-          preset="card"
-          :mask-closable="!busy"
-          :style="{
-            width: 'min(900px, calc(100vw - 32px))',
-            maxHeight: 'calc(100vh - 48px)',
-            overflowY: 'auto'
-          }"
+          title="新建仓库出库"
+          :data="otherOutboundFormRows"
+          :columns="otherOutboundFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="connectionLost"
+          submit-label="保存草稿"
+          :min-table-width="1000"
+          :add-disabled="otherOutboundForm.lines.length >= 100"
+          @add-material="otherOutboundForm.lines.push({ material_id: 0, quantity: '1' })"
+          @submit="submitCreate"
         >
-          <form
-            v-if="showForm && can('other_outbound.create')"
-            class="stack"
-            @submit.prevent="submitCreate"
+          <template #basicInfo
+            ><label
+              >仓库<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="otherOutboundForm.warehouse_id"
+                required
+                :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]"
+            /></label>
+            <label
+              >用途<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="otherOutboundForm.reason"
+                required
+                :options="[
+                  { label: '报废', value: 'scrap' },
+                  { label: '样品', value: 'sample' },
+                  { label: '其他', value: 'other' }
+                ]"
+            /></label>
+            <label
+              >参考号<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="otherOutboundForm.reference"
+                maxlength="100"
+            /></label>
+            <label
+              >出库说明<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="otherOutboundForm.note"
+                required
+                maxlength="200"
+            /></label>
+
+            <div class="document-basic-extra">
+              <p class="muted">确认后才扣减库存；其他出库不产生采购应付。</p>
+            </div></template
           >
-            <h3>其他用途出库</h3>
-            <div class="form-grid">
-              <label
-                >仓库<WorkspaceSelect
-                  v-model="otherOutboundForm.warehouse_id"
-                  required
-                  :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]"
-              /></label>
-              <label
-                >用途<WorkspaceSelect
-                  v-model="otherOutboundForm.reason"
-                  required
-                  :options="[
-                    { label: '报废', value: 'scrap' },
-                    { label: '样品', value: 'sample' },
-                    { label: '其他', value: 'other' }
-                  ]"
-              /></label>
-              <label
-                >参考号<AppInput v-model.trim="otherOutboundForm.reference" maxlength="100"
-              /></label>
-              <label
-                >出库说明<AppInput v-model.trim="otherOutboundForm.note" required maxlength="200"
-              /></label>
-            </div>
-            <div v-for="(line, index) in otherOutboundForm.lines" :key="index" class="line-row">
-              <label
-                >物料<WorkspaceMaterialSelect :materials="materials"
-                  v-model="line.material_id"
-                  required
-                  :options="[
-                    { label: '选择物料', value: 0, disabled: true },
-                    ...materials.map((item) => ({
-                      label: (item.sku + ' · ' + item.name).trim(),
-                      value: item.id
-                    }))
-                  ]"
-              /></label>
-              <label
-                >数量<AppInput
-                  v-model.trim="line.quantity"
-                  type="number"
-                  min="0.001"
-                  max="1000000"
-                  step="0.001"
-                  required
-              /></label>
-              <AppButton
-                type="button"
-                :disabled="otherOutboundForm.lines.length === 1"
-                @click="otherOutboundForm.lines.splice(index, 1)"
-                variant="text"
-                >移除</AppButton
-              >
-            </div>
-            <div class="form-actions">
-              <AppButton
-                type="button"
-                @click="otherOutboundForm.lines.push({ material_id: 0, quantity: '1' })"
-                variant="secondary"
-                >添加明细</AppButton
-              >
-              <AppButton :disabled="busy || connectionLost" variant="primary" type="submit"
-                >保存草稿</AppButton
-              >
-              <AppButton type="button" @click="showForm = false" variant="secondary"
-                >收起</AppButton
-              >
-            </div>
-            <p class="muted">确认后才扣减库存；其他出库不产生采购应付。</p>
-          </form>
-        </NModal>
+          <template #cell-material="{ row: { line, index } }"
+            ><label
+              >物料<WorkspaceMaterialSelect
+                :disabled="busy || connectionLost"
+                :materials="materials"
+                v-model="line.material_id"
+                required
+                :options="[
+                  { label: '选择物料', value: 0, disabled: true },
+                  ...materials.map((item) => ({
+                    label: (item.sku + ' · ' + item.name).trim(),
+                    value: item.id
+                  }))
+                ]" /></label
+          ></template>
+          <template #cell-quantity="{ row: { line, index } }"
+            ><label
+              >数量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="0.001"
+                max="1000000"
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              type="button"
+              :disabled="busy || connectionLost || otherOutboundForm.lines.length === 1"
+              @click="otherOutboundForm.lines.splice(index, 1)"
+              variant="text"
+              >移除</AppButton
+            ></template
+          >
+          <template #cell-unit="{ row: { line } }">{{
+            materials.find((item) => item.id === line.material_id)?.unit ?? '—'
+          }}</template>
+        </WorkspaceDocumentDialog>
       </template>
       <template #cell-document="{ row: item }"
         ><strong>#{{ item.id }}</strong

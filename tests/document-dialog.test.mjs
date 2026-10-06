@@ -115,6 +115,11 @@ test('统一弹窗按基础信息、分隔线、添加物料、表格及页脚�
   parts.forEach((part, i) => { assert.ok(ready.includes(part), `${part}: ${ready}`); if (i) assert.ok(ready.indexOf(parts[i - 1]) < ready.indexOf(part), `${parts[i - 1]} -> ${part}: ${ready}`) })
   assert.match(ready, /value="2"/)
   assert.match(await render({ data: [] }), /尚未添加物料/)
+  // 来源明细不能自由新增，空表提示与不同业务表格标题均由页面明确提供。
+  const source = await render({ showAdd: false, data: [], linesTitle: '原单明细', emptyText: '请选择原单' })
+  assert.doesNotMatch(source, /＋ 添加物料/)
+  assert.match(source, /原单明细/)
+  assert.match(source, /请选择原单/)
   assert.doesNotMatch(await render({ show: false }), /基础信息/)
   for (const extra of [{ busy: true }, { disabled: true }, { submitDisabled: true }]) {
     assert.match(await render(extra), /<button[^>]*type="submit"[^>]*disabled/)

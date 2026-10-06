@@ -16,9 +16,16 @@ const props = withDefaults(defineProps<{
   submitLabel?: string
   hint?: string
   minTableWidth?: number
+  // 来源单据只允许处理已有明细；复用表格时隐藏自由新增入口。
+  showAdd?: boolean
+  addLabel?: string
+  linesTitle?: string
+  emptyText?: string
 }>(), {
   busy: false, disabled: false, submitDisabled: false, addDisabled: false,
-  submitLabel: '保存草稿', hint: '', minTableWidth: 760
+  submitLabel: '保存草稿', hint: '', minTableWidth: 760, showAdd: true,
+  addLabel: '添加物料', linesTitle: '物料明细',
+  emptyText: '尚未添加物料，请点击“添加物料”新增一行，再在表格内搜索选择。'
 })
 const emit = defineEmits<{
   'update:show': [show: boolean]
@@ -35,7 +42,7 @@ function updateShow(show: boolean): void {
   if (!props.busy) emit('update:show', show)
 }
 function addMaterial(): void {
-  if (!props.busy && !props.disabled && !props.addDisabled) emit('addMaterial')
+  if (props.showAdd && !props.busy && !props.disabled && !props.addDisabled) emit('addMaterial')
 }
 function submit(): void {
   if (!props.busy && !props.disabled && !props.submitDisabled) emit('submit')
@@ -51,16 +58,16 @@ function submit(): void {
         <fieldset :disabled="busy || disabled" class="document-fields">
           <section class="document-basic" aria-label="基础信息">
             <h3>基础信息</h3>
-            <div class="form-grid"><slot name="basicInfo" /></div>
+            <div class="form-grid document-basic-grid"><slot name="basicInfo" /></div>
           </section>
           <!-- 分隔线明确区分单据头与物料明细，避免两类信息混在同一张表单中。 -->
           <hr class="document-divider" />
-          <WorkspaceTable title="物料明细" :data="data" :columns="columns" :min-table-width="minTableWidth"
-            empty-text="尚未添加物料，请点击“添加物料”新增一行，再在表格内搜索选择。" class="document-lines">
-            <template #heading><h3>物料明细 <span class="document-count">{{ data.length }} 项</span></h3></template>
+          <WorkspaceTable :title="linesTitle" :data="data" :columns="columns" :min-table-width="minTableWidth"
+            :empty-text="emptyText" class="document-lines">
+            <template #heading><h3>{{ linesTitle }} <span class="document-count">{{ data.length }} 项</span></h3></template>
             <template #actions>
-              <AppButton type="button" :disabled="busy || disabled || addDisabled"
-                @click="addMaterial" variant="secondary">＋ 添加物料</AppButton>
+              <AppButton v-if="showAdd" type="button" :disabled="busy || disabled || addDisabled"
+                @click="addMaterial" variant="secondary">＋ {{ addLabel }}</AppButton>
             </template>
             <template v-if="$slots.materialPicker" #beforeTable><slot name="materialPicker" /></template>
             <!-- 继续透传类型明确的行插槽，数量、价格等不同业务字段无需写进公共组件。 -->
@@ -84,8 +91,9 @@ function submit(): void {
 
 <style scoped>
 /* 只让内容区滚动，长明细和窄窗口下仍能直接访问保存、收起按钮。 */
-.document-form { display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 160px); }
+.document-form { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 168px); }
 .document-body { min-height: 0; overflow-y: auto; }
+.document-basic-grid :deep(> .document-basic-extra) { grid-column: 1 / -1; }
 .document-fields { display: block; min-width: 0; margin: 0; padding: 0; border: 0; }
 .document-basic h3, .document-lines h3 { margin: 0 0 18px; font-size: 15px; }
 .document-basic { padding: 4px 0 8px; }
@@ -108,5 +116,5 @@ function submit(): void {
 
 <style>
 /* Naive UI 卡片内容允许收缩，弹窗高度由视口限制，不让页脚滚出屏幕。 */
-.workspace-document-dialog > .n-card__content { min-height: 0; }
+.n-modal.n-card.workspace-document-dialog > .n-card-content { min-height: 0; overflow: clip; }
 </style>

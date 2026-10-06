@@ -34,7 +34,8 @@ test('独立客户页显示名单并约束新增操作，销售订单页不再�
   const server = await createServer({ configFile: false, plugins: [{
     name: 'customer-fixtures', enforce: 'pre',
     resolveId(id, importer) {
-      if (!importer?.includes('/views/workspace/')) return
+      // 公共单据弹窗也复用表格，嵌套组件继续使用同一测试替身。
+      if (!importer?.includes('/src/renderer/src/')) return
       if (id.endsWith('/store/app-store')) return '\0customer-store'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0customer-table'
     },

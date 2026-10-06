@@ -9,7 +9,10 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal, NPopconfirm } from 'naive-ui'
+import { NPopconfirm } from 'naive-ui'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
@@ -34,7 +37,8 @@ const columns = [
 const statusName = { draft: '草稿', submitted: '待审批', approved: '已批准', rejected: '已驳回', cancelled: '已取消' }
 
 function openEditor(requestId?: number): void {
-  editPurchaseRequest(requestId)
+  // 收起后再次打开同一份草稿不重新初始化；切换新单或其他申请才载入对应表单。
+  if (purchaseRequestForm.value.requestId !== (requestId ?? null)) editPurchaseRequest(requestId)
   showForm.value = true
 }
 
@@ -52,6 +56,21 @@ async function save(): Promise<void> {
   // 写入失败时保留输入；只有服务端刷新后的申请已存在才关闭表单。
   if (!store.error && !store.connectionLost) showForm.value = false
 }
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const purchaseRequestFormRows = computed(() => documentRows(purchaseRequestForm.value.lines))
+const purchaseRequestFormColumns = [
+  { key: 'material', title: '物料 / 资料', width: '470' },
+  { key: 'unit', title: '单位', width: '70' },
+  { key: 'quantity', title: '申请数量', width: '150' },
+  { key: 'actions', title: '操作', width: '90' },
+]
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const requestConversionFormRows = computed(() => documentRows(requestConversionForm.value.lines))
+const requestConversionFormColumns = [
+  { key: 'material', title: '物料', width: '300' },
+  { key: 'quantity', title: '本次数量', width: '150' },
+  { key: 'unitPrice', title: '单价（元）', width: '150' },
+]
 </script>
 
 <template>
@@ -78,158 +97,142 @@ async function save(): Promise<void> {
         <label>搜索申请<AppInput v-model="query" placeholder="单号、物料或状态" /></label>
       </template>
       <template #beforeTable>
-        <NModal
+        <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="showForm && can('purchase_request.create')"
           v-model:show="showForm"
-          preset="card"
-          :mask-closable="!busy"
-          :style="{
-            width: 'min(900px, calc(100vw - 32px))',
-            maxHeight: 'calc(100vh - 48px)',
-            overflowY: 'auto'
-          }"
+          :title="purchaseRequestForm.requestId ? '修改采购申请' : '新建采购申请'"
+          :data="purchaseRequestFormRows"
+          :columns="purchaseRequestFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="connectionLost"
+          submit-label="保存草稿"
+          :min-table-width="1000"
+          :add-disabled="purchaseRequestForm.lines.length >= 100"
+          @add-material="purchaseRequestForm.lines.push({ material_id: 0, quantity: '1' })"
+          @submit="save"
         >
-          <form
-            v-if="showForm && can('purchase_request.create')"
-            class="stack"
-            @submit.prevent="save"
+          <template #basicInfo
+            ><label
+              >参考单号<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="purchaseRequestForm.reference"
+                maxlength="100"
+            /></label>
+            <label
+              >采购说明<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="purchaseRequestForm.note"
+                maxlength="500"
+            /></label>
+          </template>
+          <template #cell-material="{ row: { line, index } }"
+            ><label
+              >物料<WorkspaceMaterialSelect
+                :disabled="busy || connectionLost"
+                :materials="materials"
+                v-model="line.material_id"
+                required
+                :options="[
+                  { label: '选择物料', value: 0, disabled: true },
+                  ...materials.map((item) => ({
+                    label: (item.sku + ' · ' + item.name).trim(),
+                    value: item.id
+                  }))
+                ]" /></label
+          ></template>
+          <template #cell-quantity="{ row: { line, index } }"
+            ><label
+              >申请数量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="0.001"
+                max="1000000"
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              type="button"
+              :disabled="busy || connectionLost || purchaseRequestForm.lines.length === 1"
+              @click="purchaseRequestForm.lines.splice(index, 1)"
+              variant="text"
+              >移除</AppButton
+            ></template
           >
-            <h3>{{ purchaseRequestForm.requestId ? '修改采购申请' : '新建采购申请' }}</h3>
-            <div class="form-grid">
-              <label
-                >参考单号<AppInput v-model.trim="purchaseRequestForm.reference" maxlength="100"
-              /></label>
-              <label
-                >采购说明<AppInput v-model.trim="purchaseRequestForm.note" maxlength="500"
-              /></label>
-            </div>
-            <div v-for="(line, index) in purchaseRequestForm.lines" :key="index" class="line-row">
-              <label
-                >物料<WorkspaceMaterialSelect :materials="materials"
-                  v-model="line.material_id"
-                  required
-                  :options="[
-                    { label: '选择物料', value: 0, disabled: true },
-                    ...materials.map((item) => ({
-                      label: (item.sku + ' · ' + item.name).trim(),
-                      value: item.id
-                    }))
-                  ]"
-              /></label>
-              <label
-                >申请数量<AppInput
-                  v-model.trim="line.quantity"
-                  type="number"
-                  min="0.001"
-                  max="1000000"
-                  step="0.001"
-                  required
-              /></label>
-              <AppButton
-                type="button"
-                :disabled="purchaseRequestForm.lines.length === 1"
-                @click="purchaseRequestForm.lines.splice(index, 1)"
-                variant="text"
-                >移除</AppButton
-              >
-            </div>
-            <div class="form-actions">
-              <AppButton
-                type="button"
-                @click="purchaseRequestForm.lines.push({ material_id: 0, quantity: '1' })"
-                variant="secondary"
-                >添加明细</AppButton
-              >
-              <AppButton :disabled="busy || connectionLost" variant="primary" type="submit"
-                >保存草稿</AppButton
-              >
-              <AppButton type="button" @click="showForm = false" variant="secondary"
-                >收起</AppButton
-              >
-            </div>
-          </form>
-        </NModal>
-        <NModal
+          <template #cell-unit="{ row: { line } }">{{
+            materials.find((item) => item.id === line.material_id)?.unit ?? '—'
+          }}</template>
+        </WorkspaceDocumentDialog>
+        <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="selectedRequest && can('purchase_order.create')"
           v-model:show="conversionOpen"
-          preset="card"
-          :mask-closable="!busy"
-          :style="{
-            width: 'min(900px, calc(100vw - 32px))',
-            maxHeight: 'calc(100vh - 48px)',
-            overflowY: 'auto'
-          }"
+          :title="`申请 #${selectedRequest?.id ?? ''} 转采购订单`"
+          :data="requestConversionFormRows"
+          :columns="requestConversionFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="
+            busy || connectionLost || !requestConversionForm.lines.some((line) => Number(line.quantity) > 0)
+          "
+          submit-label="生成订单草稿"
+          :min-table-width="800"
+          :show-add="false"
+          empty-text="请先选择来源单据，系统将载入可处理的物料明细。"
+          @submit="submitConversion"
         >
-          <form
-            v-if="selectedRequest && can('purchase_order.create')"
-            class="stack"
-            @submit.prevent="submitConversion"
+          <template #basicInfo
+            ><label
+              >供应商<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="requestConversionForm.supplier_id"
+                required
+                :options="[
+                  { label: '选择供应商', value: 0, disabled: true },
+                  ...suppliers.map((item) => ({ label: item.name, value: item.id }))
+                ]"
+            /></label>
+            <label
+              >参考单号<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="requestConversionForm.reference"
+                maxlength="100"
+            /></label>
+            <div class="document-basic-extra">
+              <p class="muted">本批不采购的明细填 0；可再次从剩余数量生成其他订单。</p>
+            </div>
+          </template>
+          <template #cell-material="{ row: { line, index } }"
+            ><span>{{
+              selectedRequest.lines.find((item) => item.id === line.purchase_request_line_id)?.material_name
+            }}</span></template
           >
-            <h3>申请 #{{ selectedRequest.id }} 转采购订单</h3>
-            <div class="form-grid">
-              <label
-                >供应商<WorkspaceSelect
-                  v-model="requestConversionForm.supplier_id"
-                  required
-                  :options="[
-                    { label: '选择供应商', value: 0, disabled: true },
-                    ...suppliers.map((item) => ({ label: item.name, value: item.id }))
-                  ]"
-              /></label>
-              <label
-                >参考单号<AppInput v-model.trim="requestConversionForm.reference" maxlength="100"
-              /></label>
-            </div>
-            <p class="muted">本批不采购的明细填 0；可再次从剩余数量生成其他订单。</p>
-            <div
-              v-for="line in requestConversionForm.lines"
-              :key="line.purchase_request_line_id"
-              class="line-row"
-            >
-              <span>{{
-                selectedRequest.lines.find((item) => item.id === line.purchase_request_line_id)
-                  ?.material_name
-              }}</span>
-              <label
-                >本次数量<AppInput
-                  v-model.trim="line.quantity"
-                  type="number"
-                  min="0"
-                  max="1000000"
-                  step="0.001"
-                  required
-              /></label>
-              <label
-                >单价（元）<AppInput
-                  v-model.trim="line.unit_price"
-                  type="number"
-                  min="0"
-                  max="1000000000"
-                  step="0.0001"
-                  required
-              /></label>
-            </div>
-            <div class="form-actions">
-              <AppButton
-                :disabled="
-                  busy ||
-                  connectionLost ||
-                  !requestConversionForm.lines.some((line) => Number(line.quantity) > 0)
-                "
-                variant="primary"
-                type="submit"
-                >生成订单草稿</AppButton
-              >
-              <AppButton
-                type="button"
-                @click="() => {
-                  conversionOpen = false
-                  selectRequestConversion(0)
-                }"
-                variant="secondary"
-                >取消</AppButton
-              >
-            </div>
-          </form>
-        </NModal>
+          <template #cell-quantity="{ row: { line, index } }"
+            ><label
+              >本次数量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="0"
+                max="1000000"
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-unitPrice="{ row: { line, index } }"
+            ><label
+              >单价（元）<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.unit_price"
+                type="number"
+                min="0"
+                max="1000000000"
+                step="0.0001"
+                required /></label
+          ></template>
+        </WorkspaceDocumentDialog>
       </template>
       <template #cell-id="{ row: item }"
         ><strong>#{{ item.id }}</strong

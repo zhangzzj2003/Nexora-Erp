@@ -5,6 +5,9 @@ import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -171,113 +174,112 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const materialReturnFormRows = computed(() => documentRows(materialReturnForm.value.lines))
+const materialReturnFormColumns = [
+  { key: 'material', title: '原单物料', width: '300' },
+  { key: 'remaining', title: '可退数量', width: '130' },
+  { key: 'quantity', title: '本次退料数量', width: '160' },
+  { key: 'actions', title: '操作', width: '100' },
+]
 </script>
 
 <template>
   <section class="stack">
-    <NModal
-      v-if="can('material_return.create')"
-      v-model:show="createOpen"
-      preset="card"
-      :mask-closable="!busy"
-      :style="{
-        width: 'min(900px, calc(100vw - 32px))',
-        maxHeight: 'calc(100vh - 48px)',
-        overflowY: 'auto'
-      }"
-    >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">MATERIAL RETURN</p>
-          <h2>新建生产退料单</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
-      <p class="muted">
-        只退回已确认领料的组件，确认后入原领料仓库，并恢复工单可领数量。请按实际退回数量填写。
-      </p>
-      <form @submit.prevent="submitCreate">
-        <div class="form-grid">
-          <label
-            >原领料单<WorkspaceSelect
-              v-model="materialReturnForm.material_issue_id"
-              required
-              @change="selectReturnIssue(materialReturnForm.material_issue_id)"
-              :options="[
-                { label: '选择可退领料单', value: 0, disabled: true },
-                ...materialIssues
-                  .filter(
-                    (entry) =>
-                      entry.status === 'posted' &&
-                      workOrders.some(
-                        (order) =>
-                          order.id === entry.work_order_id && order.status === 'in_progress'
-                      ) &&
-                      entry.lines.some((line) => Number(line.returnable_quantity) > 0)
-                  )
-                  .map((item) => ({
-                    label: (
-                      ' #' +
-                      item.id +
-                      ' · 工单 #' +
-                      item.work_order_id +
-                      ' · ' +
-                      item.warehouse_name
-                    ).trim(),
-                    value: item.id
-                  }))
-              ]" /></label
-          ><label
-            >退料原因<AppInput v-model.trim="materialReturnForm.reason" required maxlength="200"
-          /></label>
-        </div>
-        <h3>本次退料数量</h3>
-        <div
-          v-for="line in materialReturnForm.lines"
-          :key="line.material_issue_line_id"
-          class="line-row"
+    <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="can('material_return.create')"
+          v-model:show="createOpen"
+          title="新建生产退料单"
+          :data="materialReturnFormRows"
+          :columns="materialReturnFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="!materialReturnForm.lines.length"
+          submit-label="保存退料草稿"
+          :min-table-width="800"
+          :show-add="false"
+          empty-text="请先选择来源单据，系统将载入可处理的物料明细。"
+          @submit="submitCreate"
         >
-          <label
-            >{{
-              selectedReturnIssue?.lines.find((item) => item.id === line.material_issue_line_id)
-                ?.material_name
-            }}
-            · 可退
-            {{
-              selectedReturnIssue?.lines.find((item) => item.id === line.material_issue_line_id)
-                ?.returnable_quantity
-            }}<AppInput
-              v-model.trim="line.quantity"
-              type="number"
-              min="0.001"
-              :max="
-                selectedReturnIssue?.lines.find((item) => item.id === line.material_issue_line_id)
-                  ?.returnable_quantity
+          <template #basicInfo
+            ><label
+              >原领料单<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="materialReturnForm.material_issue_id"
+                required
+                @change="selectReturnIssue(materialReturnForm.material_issue_id)"
+                :options="[
+                  { label: '选择可退领料单', value: 0, disabled: true },
+                  ...materialIssues
+                    .filter(
+                      (entry) =>
+                        entry.status === 'posted' &&
+                        workOrders.some(
+                          (order) => order.id === entry.work_order_id && order.status === 'in_progress'
+                        ) &&
+                        entry.lines.some((line) => Number(line.returnable_quantity) > 0)
+                    )
+                    .map((item) => ({
+                      label: (
+                        ' #' +
+                        item.id +
+                        ' · 工单 #' +
+                        item.work_order_id +
+                        ' · ' +
+                        item.warehouse_name
+                      ).trim(),
+                      value: item.id
+                    }))
+                ]" /></label
+            ><label
+              >退料原因<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="materialReturnForm.reason"
+                required
+                maxlength="200"
+            /></label>
+            <div class="document-basic-extra">
+              <p class="muted">
+                只退回已确认领料的组件，确认后入原领料仓库，并恢复工单可领数量。请按实际退回数量填写。
+              </p>
+            </div>
+          </template>
+          <template #cell-material="{ row: { line } }">{{
+            selectedReturnIssue?.lines.find((item) => item.id === line.material_issue_line_id)?.material_name
+          }}</template>
+          <template #cell-remaining="{ row: { line } }">{{
+            selectedReturnIssue?.lines.find((item) => item.id === line.material_issue_line_id)?.returnable_quantity
+          }}</template>
+          <template #cell-quantity="{ row: { line } }"
+            ><label
+              >本次退料数量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="0.001"
+                :max="
+                  selectedReturnIssue?.lines.find((item) => item.id === line.material_issue_line_id)
+                    ?.returnable_quantity
+                "
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              type="button"
+              :disabled="busy || connectionLost || busy"
+              @click="
+                materialReturnForm.lines = materialReturnForm.lines.filter(
+                  (item) => item.material_issue_line_id !== line.material_issue_line_id
+                )
               "
-              step="0.001"
-              required /></label
-          ><AppButton
-            type="button"
-            :disabled="busy"
-            @click="
-              materialReturnForm.lines = materialReturnForm.lines.filter(
-                (item) => item.material_issue_line_id !== line.material_issue_line_id
-              )
-            "
-            variant="text"
+              variant="text"
+            >
+              本次不退
+            </AppButton></template
           >
-            本次不退
-          </AppButton>
-        </div>
-        <AppButton
-          type="submit"
-          :disabled="busy || !materialReturnForm.lines.length"
-          variant="primary"
-        >
-          保存退料草稿
-        </AppButton>
-      </form>
-    </NModal>
+        </WorkspaceDocumentDialog>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"

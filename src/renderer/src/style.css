@@ -36,6 +36,16 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
+/* 弹窗卡片自身不滚动：顶部关闭按钮始终可见，仅正文独立滚动。
+   覆盖旧页面的行内 overflowY，clip 也阻止输入聚焦时卡片被浏览器暗中滚动。 */
+.n-modal.n-card { max-height: calc(100dvh - 48px); overflow: clip !important; }
+.n-modal.n-card > .n-card-header {
+  flex-shrink: 0; min-height: 56px; padding: 16px var(--n-padding-left);
+  background: color-mix(in srgb, var(--n-color-modal) 94%, var(--workspace-field-text) 6%);
+  border-bottom: 1px solid var(--workspace-field-border);
+}
+.n-modal.n-card > .n-card-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: 20px; }
+.n-modal.n-card > .n-card__footer, .n-modal.n-card > .n-card__action { flex-shrink: 0; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: .5; cursor: not-allowed; }

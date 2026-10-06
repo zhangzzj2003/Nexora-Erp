@@ -5,10 +5,12 @@ import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
-import { NModal } from 'naive-ui'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
@@ -17,6 +19,7 @@ const {
   error,
   notice,
   busy,
+  connectionLost,
   receipts,
   purchaseReturns,
   purchaseReturnForm,
@@ -50,111 +53,104 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const purchaseReturnFormRows = computed(() => documentRows(purchaseReturnForm.value.lines))
+const purchaseReturnFormColumns = [
+  { key: 'material', title: '原入库物料', width: '300' },
+  { key: 'quantity', title: '退货数量', width: '150' },
+  { key: 'actions', title: '操作', width: '90' },
+]
 </script>
 
 <template>
   <section class="stack">
-    <NModal
-      v-if="can('purchase_return.create')"
-      v-model:show="createOpen"
-      preset="card"
-      :mask-closable="!busy"
-      :style="{
-        width: 'min(900px, calc(100vw - 32px))',
-        maxHeight: 'calc(100vh - 48px)',
-        overflowY: 'auto'
-      }"
-    >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">PURCHASE RETURN</p>
-          <h2>新建采购退货</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
-      <p class="muted">
-        退货从原入库仓库扣减。若货物已调走，请先调回；未关联采购订单的历史入库单不显示退货金额。
-      </p>
-      <form @submit.prevent="submitCreate">
-        <div class="form-grid">
-          <label
-            >原入库单<WorkspaceSelect
-              v-model="purchaseReturnForm.receipt_id"
-              required
-              @change="choosePurchaseReturnReceipt"
-              :options="[
-                { label: '选择可退货的入库单', value: 0, disabled: true },
-                ...receipts
-                  .filter(
-                    (entry) =>
-                      entry.status === 'posted' &&
-                      entry.lines.some((line) => Number(line.returnable_quantity) > 0)
-                  )
-                  .map((item) => ({
-                    label: (
-                      ' #' +
-                      item.id +
-                      ' · ' +
-                      item.supplier_name +
-                      ' · ' +
-                      item.warehouse_name
-                    ).trim(),
-                    value: item.id
-                  }))
-              ]" /></label
-          ><label
-            >退货原因<AppInput v-model.trim="purchaseReturnForm.reason" required maxlength="200"
-          /></label>
-        </div>
-        <h3>退货明细</h3>
-        <div
-          v-for="(line, index) in purchaseReturnForm.lines"
-          :key="line.receipt_line_id"
-          class="line-row"
+    <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="can('purchase_return.create')"
+          v-model:show="createOpen"
+          title="新建采购退货"
+          :data="purchaseReturnFormRows"
+          :columns="purchaseReturnFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="!purchaseReturnForm.lines.length"
+          submit-label="保存草稿"
+          :min-table-width="800"
+          :show-add="false"
+          empty-text="请先选择来源单据，系统将载入可处理的物料明细。"
+          @submit="submitCreate"
         >
-          <label
-            >原入库物料<AppInput
-              :model-value="
-                selectedPurchaseReturnReceipt?.lines.find(
-                  (item) => item.id === line.receipt_line_id
-                )?.material_name
-              "
-              disabled /></label
-          ><label
-            >退货数量（最多
-            {{
-              selectedPurchaseReturnReceipt?.lines.find((item) => item.id === line.receipt_line_id)
-                ?.returnable_quantity
-            }}）<AppInput
-              v-model.trim="line.quantity"
-              type="number"
-              min="0.001"
-              :max="
-                selectedPurchaseReturnReceipt?.lines.find(
-                  (item) => item.id === line.receipt_line_id
-                )?.returnable_quantity
-              "
-              step="0.001"
-              required /></label
-          ><AppButton
-            type="button"
-            @click="purchaseReturnForm.lines.splice(index, 1)"
-            variant="text"
+          <template #basicInfo
+            ><label
+              >原入库单<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="purchaseReturnForm.receipt_id"
+                required
+                @change="choosePurchaseReturnReceipt"
+                :options="[
+                  { label: '选择可退货的入库单', value: 0, disabled: true },
+                  ...receipts
+                    .filter(
+                      (entry) =>
+                        entry.status === 'posted' &&
+                        entry.lines.some((line) => Number(line.returnable_quantity) > 0)
+                    )
+                    .map((item) => ({
+                      label: (' #' + item.id + ' · ' + item.supplier_name + ' · ' + item.warehouse_name).trim(),
+                      value: item.id
+                    }))
+                ]" /></label
+            ><label
+              >退货原因<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="purchaseReturnForm.reason"
+                required
+                maxlength="200"
+            /></label>
+            <div class="document-basic-extra">
+              <p class="muted">
+                退货从原入库仓库扣减。若货物已调走，请先调回；未关联采购订单的历史入库单不显示退货金额。
+              </p>
+            </div>
+          </template>
+          <template #cell-material="{ row: { line, index } }"
+            ><label
+              >原入库物料<AppInput
+                :model-value="
+                  selectedPurchaseReturnReceipt?.lines.find((item) => item.id === line.receipt_line_id)
+                    ?.material_name
+                "
+                disabled /></label
+          ></template>
+          <template #cell-quantity="{ row: { line, index } }"
+            ><label
+              >退货数量（最多
+              {{
+                selectedPurchaseReturnReceipt?.lines.find((item) => item.id === line.receipt_line_id)
+                  ?.returnable_quantity
+              }}）<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="0.001"
+                :max="
+                  selectedPurchaseReturnReceipt?.lines.find((item) => item.id === line.receipt_line_id)
+                    ?.returnable_quantity
+                "
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              :disabled="busy || connectionLost"
+              type="button"
+              @click="purchaseReturnForm.lines.splice(index, 1)"
+              variant="text"
+            >
+              移除
+            </AppButton></template
           >
-            移除
-          </AppButton>
-        </div>
-        <div class="form-actions">
-          <AppButton
-            type="submit"
-            :disabled="busy || !purchaseReturnForm.lines.length"
-            variant="primary"
-          >
-            保存草稿
-          </AppButton>
-        </div>
-      </form>
-    </NModal>
+        </WorkspaceDocumentDialog>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"

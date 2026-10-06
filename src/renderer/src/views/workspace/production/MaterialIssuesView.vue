@@ -5,6 +5,9 @@ import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -153,118 +156,113 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const materialIssueFormRows = computed(() => documentRows(materialIssueForm.value.lines))
+const materialIssueFormColumns = [
+  { key: 'material', title: '原单物料', width: '300' },
+  { key: 'remaining', title: '剩余需料', width: '130' },
+  { key: 'quantity', title: '本次领料数量', width: '160' },
+  { key: 'actions', title: '操作', width: '100' },
+]
 </script>
 
 <template>
   <section class="stack">
-    <NModal
-      v-if="can('material_issue.create')"
-      v-model:show="createOpen"
-      preset="card"
-      :mask-closable="!busy"
-      :style="{
-        width: 'min(900px, calc(100vw - 32px))',
-        maxHeight: 'calc(100vh - 48px)',
-        overflowY: 'auto'
-      }"
-    >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">MATERIAL ISSUE</p>
-          <h2>新建领料单</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
-      <p class="muted">
-        按工单剩余需料分批建单。草稿不预留库存；确认时服务端再次检查源仓库存与剩余需料。
-      </p>
-      <form @submit.prevent="submitCreate">
-        <div class="form-grid">
-          <label
-            >生产工单<WorkspaceSelect
-              v-model="materialIssueForm.work_order_id"
-              required
-              @change="selectIssueOrder(materialIssueForm.work_order_id)"
-              :options="[
-                { label: '选择已下达工单', value: 0, disabled: true },
-                ...workOrders
-                  .filter(
-                    (entry) =>
-                      (entry.status === 'released' || entry.status === 'in_progress') &&
-                      entry.lines.some((line) => Number(line.remaining_quantity) > 0)
-                  )
-                  .map((item) => ({
-                    label: (
-                      ' #' +
-                      item.id +
-                      ' · ' +
-                      item.product_name +
-                      ' · ' +
-                      item.target_quantity +
-                      ' ' +
-                      item.product_unit
-                    ).trim(),
-                    value: item.id
-                  }))
-              ]" /></label
-          ><label
-            >领料源仓库<WorkspaceSelect
-              v-model="materialIssueForm.warehouse_id"
-              required
-              :options="[
-                ...warehouses.map((item) => ({ label: item.name, value: item.id }))
-              ]" /></label
-          ><label
-            >参考号（可选）<AppInput v-model.trim="materialIssueForm.reference" maxlength="100"
-          /></label>
-        </div>
-        <h3>本次领料数量</h3>
-        <div
-          v-for="line in materialIssueForm.lines"
-          :key="line.work_order_line_id"
-          class="line-row"
+    <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="can('material_issue.create')"
+          v-model:show="createOpen"
+          title="新建领料单"
+          :data="materialIssueFormRows"
+          :columns="materialIssueFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="!materialIssueForm.lines.length || !warehouses.length"
+          submit-label="保存领料草稿"
+          :min-table-width="800"
+          :show-add="false"
+          empty-text="请先选择来源单据，系统将载入可处理的物料明细。"
+          @submit="submitCreate"
         >
-          <label
-            >{{
-              selectedIssueOrder?.lines.find((item) => item.id === line.work_order_line_id)
-                ?.material_name
-            }}
-            · 剩余
-            {{
-              selectedIssueOrder?.lines.find((item) => item.id === line.work_order_line_id)
-                ?.remaining_quantity
-            }}<AppInput
-              v-model.trim="line.quantity"
-              type="number"
-              min="0.001"
-              :max="
-                selectedIssueOrder?.lines.find((item) => item.id === line.work_order_line_id)
-                  ?.remaining_quantity
+          <template #basicInfo
+            ><label
+              >生产工单<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="materialIssueForm.work_order_id"
+                required
+                @change="selectIssueOrder(materialIssueForm.work_order_id)"
+                :options="[
+                  { label: '选择已下达工单', value: 0, disabled: true },
+                  ...workOrders
+                    .filter(
+                      (entry) =>
+                        (entry.status === 'released' || entry.status === 'in_progress') &&
+                        entry.lines.some((line) => Number(line.remaining_quantity) > 0)
+                    )
+                    .map((item) => ({
+                      label: (
+                        ' #' +
+                        item.id +
+                        ' · ' +
+                        item.product_name +
+                        ' · ' +
+                        item.target_quantity +
+                        ' ' +
+                        item.product_unit
+                      ).trim(),
+                      value: item.id
+                    }))
+                ]" /></label
+            ><label
+              >领料源仓库<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="materialIssueForm.warehouse_id"
+                required
+                :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]" /></label
+            ><label
+              >参考号（可选）<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="materialIssueForm.reference"
+                maxlength="100"
+            /></label>
+            <div class="document-basic-extra">
+              <p class="muted">按工单剩余需料分批建单。草稿不预留库存；确认时服务端再次检查源仓库存与剩余需料。</p>
+            </div>
+          </template>
+          <template #cell-material="{ row: { line } }">{{
+            selectedIssueOrder?.lines.find((item) => item.id === line.work_order_line_id)?.material_name
+          }}</template>
+          <template #cell-remaining="{ row: { line } }">{{
+            selectedIssueOrder?.lines.find((item) => item.id === line.work_order_line_id)?.remaining_quantity
+          }}</template>
+          <template #cell-quantity="{ row: { line } }"
+            ><label
+              >本次领料数量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="0.001"
+                :max="
+                  selectedIssueOrder?.lines.find((item) => item.id === line.work_order_line_id)?.remaining_quantity
+                "
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              type="button"
+              :disabled="busy || connectionLost || busy"
+              @click="
+                materialIssueForm.lines = materialIssueForm.lines.filter(
+                  (item) => item.work_order_line_id !== line.work_order_line_id
+                )
               "
-              step="0.001"
-              required /></label
-          ><AppButton
-            type="button"
-            :disabled="busy"
-            @click="
-              materialIssueForm.lines = materialIssueForm.lines.filter(
-                (item) => item.work_order_line_id !== line.work_order_line_id
-              )
-            "
-            variant="text"
+              variant="text"
+            >
+              本次不领
+            </AppButton></template
           >
-            本次不领
-          </AppButton>
-        </div>
-        <AppButton
-          type="submit"
-          :disabled="busy || !materialIssueForm.lines.length || !warehouses.length"
-          variant="primary"
-        >
-          保存领料草稿
-        </AppButton>
-      </form>
-    </NModal>
+        </WorkspaceDocumentDialog>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"

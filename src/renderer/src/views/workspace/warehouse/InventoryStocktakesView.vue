@@ -8,6 +8,9 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import { computed, ref } from 'vue'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { NDatePicker, NModal } from 'naive-ui'
 import { useAppStore } from '../../../store/app-store'
@@ -165,95 +168,98 @@ async function confirmLotPost(): Promise<void> {
 async function submitCreate(): Promise<void> {
   await submitCreateDialog(createStocktake, { busy, error, notice }, createOpen)
 }
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const stocktakeFormRows = computed(() => documentRows(stocktakeForm.value.lines))
+const stocktakeFormColumns = [
+  { key: 'material', title: '物料 / 资料', width: '470' },
+  { key: 'unit', title: '单位', width: '70' },
+  { key: 'quantity', title: '实盘数量', width: '150' },
+  { key: 'actions', title: '操作', width: '90' },
+]
 </script>
 
 <template>
   <section class="stack">
-    <NModal
-      v-if="can('stocktake.create')"
-      v-model:show="createOpen"
-      preset="card"
-      :mask-closable="!busy"
-      :style="{
-        width: 'min(900px, calc(100vw - 32px))',
-        maxHeight: 'calc(100vh - 48px)',
-        overflowY: 'auto'
-      }"
-    >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">STOCKTAKE</p>
-          <h2>新建盘点单</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
-      <form @submit.prevent="submitCreate">
-        <div class="form-grid">
-          <label
-            >盘点仓库<WorkspaceSelect
-              v-model="stocktakeForm.warehouse_id"
-              required
-              :options="[
-                ...warehouses.map((item) => ({ label: item.name.trim(), value: item.id }))
-              ]" /></label
-          ><label
-            >盘点批次或备注（可选）<AppInput v-model.trim="stocktakeForm.reference" maxlength="100"
-          /></label>
-        </div>
-        <p class="muted">
-          只填写实际清点数量。保存时记录账面数量；若确认前库存发生变化，系统会要求重新盘点。
-        </p>
-        <div v-for="(line, index) in stocktakeForm.lines" :key="index" class="line-row">
-          <label
-            >物料<WorkspaceMaterialSelect :materials="materials"
-              v-model="line.material_id"
-              required
-              :options="[
-                { label: '选择物料'.trim(), value: 0, disabled: true },
-                ...materials.map((item) => ({
-                  label: (item.sku + ' · ' + item.name).trim(),
-                  value: item.id
-                }))
-              ]" /></label
-          ><label
-            >实盘数量<AppInput
-              v-model.trim="line.counted_quantity"
-              type="number"
-              min="0"
-              max="1000000"
-              step="0.001"
-              required /></label
-          ><AppButton
-            type="button"
-            :disabled="stocktakeForm.lines.length === 1"
-            @click="stocktakeForm.lines.splice(index, 1)"
-            variant="text"
+    <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="can('stocktake.create')"
+          v-model:show="createOpen"
+          title="新建盘点单"
+          :data="stocktakeFormRows"
+          :columns="stocktakeFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="connectionLost || !materials.length"
+          submit-label="保存草稿"
+          :min-table-width="1000"
+          :add-disabled="stocktakeForm.lines.length >= 100"
+          @add-material="
+            stocktakeForm.lines.push({
+              material_id: 0,
+              counted_quantity: '0'
+            })
+          "
+          @submit="submitCreate"
+        >
+          <template #basicInfo
+            ><label
+              >盘点仓库<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="stocktakeForm.warehouse_id"
+                required
+                :options="[...warehouses.map((item) => ({ label: item.name.trim(), value: item.id }))]" /></label
+            ><label
+              >盘点批次或备注（可选）<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="stocktakeForm.reference"
+                maxlength="100"
+            /></label>
+            <div class="document-basic-extra">
+              <p class="muted">
+                只填写实际清点数量。保存时记录账面数量；若确认前库存发生变化，系统会要求重新盘点。
+              </p>
+            </div>
+          </template>
+          <template #cell-material="{ row: { line, index } }"
+            ><label
+              >物料<WorkspaceMaterialSelect
+                :disabled="busy || connectionLost"
+                :materials="materials"
+                v-model="line.material_id"
+                required
+                :options="[
+                  { label: '选择物料'.trim(), value: 0, disabled: true },
+                  ...materials.map((item) => ({
+                    label: (item.sku + ' · ' + item.name).trim(),
+                    value: item.id
+                  }))
+                ]" /></label
+          ></template>
+          <template #cell-quantity="{ row: { line, index } }"
+            ><label
+              >实盘数量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.counted_quantity"
+                type="number"
+                min="0"
+                max="1000000"
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              type="button"
+              :disabled="busy || connectionLost || stocktakeForm.lines.length === 1"
+              @click="stocktakeForm.lines.splice(index, 1)"
+              variant="text"
+            >
+              移除
+            </AppButton></template
           >
-            移除
-          </AppButton>
-        </div>
-        <div class="form-actions">
-          <AppButton
-            type="button"
-            @click="
-              stocktakeForm.lines.push({
-                material_id: 0,
-                counted_quantity: '0'
-              })
-            "
-            variant="secondary"
-          >
-            添加明细</AppButton
-          ><AppButton
-            type="submit"
-            :disabled="busy || connectionLost || !materials.length"
-            variant="primary"
-          >
-            保存草稿
-          </AppButton>
-        </div>
-      </form>
-    </NModal>
+          <template #cell-unit="{ row: { line } }">{{
+            materials.find((item) => item.id === line.material_id)?.unit ?? '—'
+          }}</template>
+        </WorkspaceDocumentDialog>
     <!-- 单据列表与台账共用表格，原有权限检查和冲销明细完整保留。 -->
     <WorkspaceTable
       :show-title="false"

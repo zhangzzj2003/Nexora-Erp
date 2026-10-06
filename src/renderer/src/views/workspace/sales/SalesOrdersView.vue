@@ -7,6 +7,9 @@ import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import SalesContractAttachments from './SalesContractAttachments.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
@@ -103,6 +106,17 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const salesFormRows = computed(() => documentRows(salesForm.value.lines))
+const salesFormColumns = [
+  { key: 'material', title: '物料 / 资料', width: '470' },
+  { key: 'unit', title: '单位', width: '70' },
+  { key: 'quantity', title: '数量', width: '150' },
+  { key: 'unitPrice', title: '单价（元）', width: '150' },
+  { key: 'warrantyDays', title: '约定保修天数', width: '150' },
+  { key: 'warrantyBasis', title: '合同或承诺依据', width: '220' },
+  { key: 'actions', title: '操作', width: '90' },
+]
 </script>
 
 <template>
@@ -134,118 +148,131 @@ const filteredRecords = computed(() =>
         </template>
       </template>
     </NModal>
-    <NModal
-      v-if="can('sales_order.create')"
-      v-model:show="createOpen"
-      preset="card"
-      :mask-closable="!busy"
-      :style="{
-        width: 'min(900px, calc(100vw - 32px))',
-        maxHeight: 'calc(100vh - 48px)',
-        overflowY: 'auto'
-      }"
-    >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">SALES ORDER</p>
-          <h2>新建销售订单</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
-      <form @submit.prevent="submitCreate">
-        <div class="form-grid">
-          <label
-            >客户<WorkspaceSelect
-              v-model="salesForm.customer_id"
-              required
-              :options="[
-                { label: '选择客户'.trim(), value: 0, disabled: true },
-                ...customers.map((item) => ({ label: item.name.trim(), value: item.id }))
-              ]" /></label
-          ><label
-            >参考单号（可选）<AppInput v-model.trim="salesForm.reference" maxlength="100"
-          /></label>
-        </div>
-        <div class="form-actions">
-          <span v-if="!customers.length" class="muted">暂无客户，请先建立客户资料。</span>
-          <AppButton type="button" :disabled="busy" @click="openCustomers" variant="text">
-            前往客户资料
-          </AppButton>
-          <span class="muted">订单草稿会保留，返回后可继续填写。</span>
-        </div>
-        <h3>销售明细</h3>
-        <div v-for="(line, index) in salesForm.lines" :key="index" class="line-row">
-          <label
-            >物料<WorkspaceMaterialSelect :materials="materials"
-              v-model="line.material_id"
-              required
-              :options="[
-                { label: '选择物料'.trim(), value: 0, disabled: true },
-                ...materials.map((item) => ({
-                  label: (item.sku + ' · ' + item.name).trim(),
-                  value: item.id
-                }))
-              ]" /></label
-          ><label
-            >数量<AppInput
-              v-model.trim="line.quantity"
-              type="number"
-              min="0.001"
-              max="1000000"
-              step="0.001"
-              required /></label
-          ><label
-            >单价（元）<AppInput
-              v-model.trim="line.unit_price"
-              type="number"
-              min="0"
-              max="1000000000"
-              step="0.0001"
-              required /></label
-          ><label
-            >约定保修天数（可留空）<AppInput
-              :model-value="line.warranty_days === null ? '' : String(line.warranty_days)"
-              type="number"
-              min="1"
-              max="36500"
-              step="1"
-              @update:model-value="line.warranty_days = $event === '' ? null : Number($event)" /></label
-          ><label
-            >合同或承诺依据<AppInput v-model.trim="line.warranty_basis" maxlength="400" :required="line.warranty_days !== null" /></label
-          ><AppButton
-            type="button"
-            :disabled="salesForm.lines.length === 1"
-            @click="salesForm.lines.splice(index, 1)"
-            variant="text"
+    <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="can('sales_order.create')"
+          v-model:show="createOpen"
+          title="新建销售订单"
+          :data="salesFormRows"
+          :columns="salesFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="!customers.length || !materials.length"
+          submit-label="保存草稿"
+          :min-table-width="1000"
+          :add-disabled="salesForm.lines.length >= 100"
+          @add-material="
+            salesForm.lines.push({
+              material_id: 0,
+              quantity: '1',
+              unit_price: '0',
+              warranty_days: null,
+              warranty_basis: ''
+            })
+          "
+          @submit="submitCreate"
+        >
+          <template #basicInfo
+            ><label
+              >客户<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="salesForm.customer_id"
+                required
+                :options="[
+                  { label: '选择客户'.trim(), value: 0, disabled: true },
+                  ...customers.map((item) => ({ label: item.name.trim(), value: item.id }))
+                ]" /></label
+            ><label
+              >参考单号（可选）<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="salesForm.reference"
+                maxlength="100"
+            /></label>
+            <div class="document-basic-extra">
+              <div class="form-actions">
+                <span v-if="!customers.length" class="muted">暂无客户，请先建立客户资料。</span>
+                <AppButton
+                  type="button"
+                  :disabled="busy || connectionLost || busy"
+                  @click="openCustomers"
+                  variant="text"
+                >
+                  前往客户资料
+                </AppButton>
+                <span class="muted">订单草稿会保留，返回后可继续填写。</span>
+              </div>
+            </div>
+          </template>
+          <template #cell-material="{ row: { line, index } }"
+            ><label
+              >物料<WorkspaceMaterialSelect
+                :disabled="busy || connectionLost"
+                :materials="materials"
+                v-model="line.material_id"
+                required
+                :options="[
+                  { label: '选择物料'.trim(), value: 0, disabled: true },
+                  ...materials.map((item) => ({
+                    label: (item.sku + ' · ' + item.name).trim(),
+                    value: item.id
+                  }))
+                ]" /></label
+          ></template>
+          <template #cell-quantity="{ row: { line, index } }"
+            ><label
+              >数量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="0.001"
+                max="1000000"
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-unitPrice="{ row: { line, index } }"
+            ><label
+              >单价（元）<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.unit_price"
+                type="number"
+                min="0"
+                max="1000000000"
+                step="0.0001"
+                required /></label
+          ></template>
+          <template #cell-warrantyDays="{ row: { line, index } }"
+            ><label
+              >约定保修天数（可留空）<AppInput
+                :disabled="busy || connectionLost"
+                :model-value="line.warranty_days === null ? '' : String(line.warranty_days)"
+                type="number"
+                min="1"
+                max="36500"
+                step="1"
+                @update:model-value="line.warranty_days = $event === '' ? null : Number($event)" /></label
+          ></template>
+          <template #cell-warrantyBasis="{ row: { line, index } }"
+            ><label
+              >合同或承诺依据<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.warranty_basis"
+                maxlength="400"
+                :required="line.warranty_days !== null" /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              type="button"
+              :disabled="busy || connectionLost || salesForm.lines.length === 1"
+              @click="salesForm.lines.splice(index, 1)"
+              variant="text"
+            >
+              移除
+            </AppButton></template
           >
-            移除
-          </AppButton>
-        </div>
-        <div class="form-actions">
-          <AppButton
-            type="button"
-            @click="
-              salesForm.lines.push({
-                material_id: 0,
-                quantity: '1',
-                unit_price: '0',
-                warranty_days: null,
-                warranty_basis: ''
-              })
-            "
-            variant="secondary"
-          >
-            添加明细</AppButton
-          ><AppButton
-            type="submit"
-            :disabled="busy || !customers.length || !materials.length"
-            variant="primary"
-          >
-            保存草稿
-          </AppButton>
-        </div>
-      </form>
-    </NModal>
+          <template #cell-unit="{ row: { line } }">{{
+            materials.find((item) => item.id === line.material_id)?.unit ?? '—'
+          }}</template>
+        </WorkspaceDocumentDialog>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"

@@ -5,6 +5,9 @@ import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -164,111 +167,110 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const salesReturnFormRows = computed(() => documentRows(salesReturnForm.value.lines))
+const salesReturnFormColumns = [
+  { key: 'material', title: '原出库物料', width: '300' },
+  { key: 'quantity', title: '退货数量', width: '150' },
+  { key: 'actions', title: '操作', width: '90' },
+]
 </script>
 
 <template>
   <section class="stack">
-    <NModal
-      v-if="can('sales_return.create')"
-      v-model:show="createOpen"
-      preset="card"
-      :mask-closable="!busy"
-      :style="{
-        width: 'min(900px, calc(100vw - 32px))',
-        maxHeight: 'calc(100vh - 48px)',
-        overflowY: 'auto'
-      }"
-    >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">SALES RETURN</p>
-          <h2>新建销售退货单</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
-      <form @submit.prevent="submitCreate">
-        <div class="form-grid">
-          <label
-            >原出库单<WorkspaceSelect
-              v-model="salesReturnForm.shipment_id"
-              required
-              @change="chooseSalesReturnShipment"
-              :options="[
-                { label: '选择可退货的出库单', value: 0, disabled: true },
-                ...shipments
-                  .filter(
-                    (entry) =>
-                      entry.status === 'posted' &&
-                      entry.lines.some((line) => Number(line.returnable_quantity) > 0)
-                  )
-                  .map((item) => ({
-                    label: (
-                      ' #' +
-                      item.id +
-                      ' · ' +
-                      item.customer_name +
-                      ' · ' +
-                      item.warehouse_name
-                    ).trim(),
-                    value: item.id
-                  }))
-              ]" /></label
-          ><label
-            >退回仓库<WorkspaceSelect
-              v-model="salesReturnForm.warehouse_id"
-              required
-              :options="[
-                ...warehouses.map((item) => ({ label: item.name, value: item.id }))
-              ]" /></label
-          ><label
-            >退货原因<AppInput v-model.trim="salesReturnForm.reason" required maxlength="200"
-          /></label>
-        </div>
-        <p class="muted">
-          退货关联原出库明细；确认后新增入库流水，不修改原出库记录。金额按原销售单价计算，应收调整将在财务模块处理。
-        </p>
-        <div
-          v-for="(line, index) in salesReturnForm.lines"
-          :key="line.shipment_line_id"
-          class="line-row"
+    <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="can('sales_return.create')"
+          v-model:show="createOpen"
+          title="新建销售退货单"
+          :data="salesReturnFormRows"
+          :columns="salesReturnFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="!salesReturnForm.lines.length || !warehouses.length"
+          submit-label="保存草稿"
+          :min-table-width="800"
+          :show-add="false"
+          empty-text="请先选择来源单据，系统将载入可处理的物料明细。"
+          @submit="submitCreate"
         >
-          <label
-            >原出库物料<AppInput
-              :model-value="
-                selectedSalesReturnShipment?.lines.find((item) => item.id === line.shipment_line_id)
-                  ?.material_name
-              "
-              disabled /></label
-          ><label
-            >退货数量（最多
-            {{
-              selectedSalesReturnShipment?.lines.find((item) => item.id === line.shipment_line_id)
-                ?.returnable_quantity
-            }}）<AppInput
-              v-model.trim="line.quantity"
-              type="number"
-              min="0.001"
-              :max="
+          <template #basicInfo
+            ><label
+              >原出库单<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="salesReturnForm.shipment_id"
+                required
+                @change="chooseSalesReturnShipment"
+                :options="[
+                  { label: '选择可退货的出库单', value: 0, disabled: true },
+                  ...shipments
+                    .filter(
+                      (entry) =>
+                        entry.status === 'posted' &&
+                        entry.lines.some((line) => Number(line.returnable_quantity) > 0)
+                    )
+                    .map((item) => ({
+                      label: (' #' + item.id + ' · ' + item.customer_name + ' · ' + item.warehouse_name).trim(),
+                      value: item.id
+                    }))
+                ]" /></label
+            ><label
+              >退回仓库<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="salesReturnForm.warehouse_id"
+                required
+                :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]" /></label
+            ><label
+              >退货原因<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="salesReturnForm.reason"
+                required
+                maxlength="200"
+            /></label>
+            <div class="document-basic-extra">
+              <p class="muted">
+                退货关联原出库明细；确认后新增入库流水，不修改原出库记录。金额按原销售单价计算，应收调整将在财务模块处理。
+              </p>
+            </div>
+          </template>
+          <template #cell-material="{ row: { line, index } }"
+            ><label
+              >原出库物料<AppInput
+                :model-value="
+                  selectedSalesReturnShipment?.lines.find((item) => item.id === line.shipment_line_id)
+                    ?.material_name
+                "
+                disabled /></label
+          ></template>
+          <template #cell-quantity="{ row: { line, index } }"
+            ><label
+              >退货数量（最多
+              {{
                 selectedSalesReturnShipment?.lines.find((item) => item.id === line.shipment_line_id)
                   ?.returnable_quantity
-              "
-              step="0.001"
-              required /></label
-          ><AppButton type="button" @click="salesReturnForm.lines.splice(index, 1)" variant="text">
-            移除
-          </AppButton>
-        </div>
-        <div class="form-actions">
-          <AppButton
-            type="submit"
-            :disabled="busy || !salesReturnForm.lines.length || !warehouses.length"
-            variant="primary"
+              }}）<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="0.001"
+                :max="
+                  selectedSalesReturnShipment?.lines.find((item) => item.id === line.shipment_line_id)
+                    ?.returnable_quantity
+                "
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              :disabled="busy || connectionLost"
+              type="button"
+              @click="salesReturnForm.lines.splice(index, 1)"
+              variant="text"
+            >
+              移除
+            </AppButton></template
           >
-            保存草稿
-          </AppButton>
-        </div>
-      </form>
-    </NModal>
+        </WorkspaceDocumentDialog>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"

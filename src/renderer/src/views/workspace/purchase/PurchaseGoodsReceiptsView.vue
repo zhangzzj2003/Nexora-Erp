@@ -7,7 +7,9 @@ import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
@@ -30,6 +32,15 @@ const columns = [
 async function submitCreate(): Promise<void> {
   await submitCreateDialog(createGoodsReceipt, { busy, error, notice }, showForm)
 }
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const goodsReceiptFormRows = computed(() => documentRows(goodsReceiptForm.value.lines))
+const goodsReceiptFormColumns = [
+  { key: 'material', title: '原订单物料', width: '300' },
+  { key: 'acceptedQuantity', title: '合格实收', width: '150' },
+  { key: 'rejectedQuantity', title: '拒收数量', width: '150' },
+  { key: 'rejectionReason', title: '拒收原因', width: '150' },
+  { key: 'actions', title: '操作', width: '90' },
+]
 </script>
 
 <template>
@@ -56,103 +67,101 @@ async function submitCreate(): Promise<void> {
         <label>搜索收货单<AppInput v-model="query" placeholder="单号、供应商或物料" /></label>
       </template>
       <template #beforeTable>
-        <NModal
+        <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="showForm && can('purchase_receiving.create')"
           v-model:show="showForm"
-          preset="card"
-          :mask-closable="!busy"
-          :style="{
-            width: 'min(900px, calc(100vw - 32px))',
-            maxHeight: 'calc(100vh - 48px)',
-            overflowY: 'auto'
-          }"
+          title="记录本批采购收货"
+          :data="goodsReceiptFormRows"
+          :columns="goodsReceiptFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="connectionLost || !goodsReceiptForm.lines.length"
+          submit-label="保存收货草稿"
+          :min-table-width="800"
+          :show-add="false"
+          empty-text="请先选择来源单据，系统将载入可处理的物料明细。"
+          @submit="submitCreate"
         >
-          <form
-            v-if="showForm && can('purchase_receiving.create')"
-            class="stack"
-            @submit.prevent="submitCreate"
+          <template #basicInfo
+            ><label
+              >采购订单<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="goodsReceiptForm.purchase_order_id"
+                required
+                @change="chooseGoodsReceiptOrder"
+                :options="[
+                  { label: '选择待收货订单', value: 0, disabled: true },
+                  ...purchaseOrders
+                    .filter((item) => ['confirmed', 'partially_received'].includes(item.status))
+                    .map((order) => ({
+                      label: ('#' + order.id + ' · ' + order.supplier_name).trim(),
+                      value: order.id
+                    }))
+                ]"
+            /></label>
+            <label
+              >目标仓库<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="goodsReceiptForm.warehouse_id"
+                required
+                :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]"
+            /></label>
+            <label
+              >送货参考号<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="goodsReceiptForm.reference"
+                maxlength="100"
+            /></label>
+            <div class="document-basic-extra">
+              <p class="muted">仅合格实收数量生成待入库单；拒收数量不增加库存，须填写原因。</p>
+            </div>
+          </template>
+          <template #cell-material="{ row: { line, index } }"
+            ><span>{{
+              selectedOrder?.lines.find((item) => item.id === line.purchase_order_line_id)?.material_name
+            }}</span></template
           >
-            <h3>记录本批采购收货</h3>
-            <div class="form-grid">
-              <label
-                >采购订单<WorkspaceSelect
-                  v-model="goodsReceiptForm.purchase_order_id"
-                  required
-                  @change="chooseGoodsReceiptOrder"
-                  :options="[
-                    { label: '选择待收货订单', value: 0, disabled: true },
-                    ...purchaseOrders
-                      .filter((item) => ['confirmed', 'partially_received'].includes(item.status))
-                      .map((order) => ({
-                        label: ('#' + order.id + ' · ' + order.supplier_name).trim(),
-                        value: order.id
-                      }))
-                  ]"
-              /></label>
-              <label
-                >目标仓库<WorkspaceSelect
-                  v-model="goodsReceiptForm.warehouse_id"
-                  required
-                  :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]"
-              /></label>
-              <label
-                >送货参考号<AppInput v-model.trim="goodsReceiptForm.reference" maxlength="100"
-              /></label>
-            </div>
-            <p class="muted">仅合格实收数量生成待入库单；拒收数量不增加库存，须填写原因。</p>
-            <div
-              v-for="(line, index) in goodsReceiptForm.lines"
-              :key="line.purchase_order_line_id"
-              class="line-row"
-            >
-              <span>{{
-                selectedOrder?.lines.find((item) => item.id === line.purchase_order_line_id)
-                  ?.material_name
-              }}</span>
-              <label
-                >合格实收<AppInput
-                  v-model.trim="line.accepted_quantity"
-                  type="number"
-                  min="0"
-                  max="1000000"
-                  step="0.001"
-                  required
-              /></label>
-              <label
-                >拒收数量<AppInput
-                  v-model.trim="line.rejected_quantity"
-                  type="number"
-                  min="0"
-                  max="1000000"
-                  step="0.001"
-                  required
-              /></label>
-              <label
-                >拒收原因<AppInput
-                  v-model.trim="line.rejection_reason"
-                  maxlength="200"
-                  :required="Number(line.rejected_quantity) > 0"
-              /></label>
-              <AppButton
-                type="button"
-                :disabled="goodsReceiptForm.lines.length === 1"
-                @click="goodsReceiptForm.lines.splice(index, 1)"
-                variant="text"
-                >移除</AppButton
-              >
-            </div>
-            <div class="form-actions">
-              <AppButton
-                :disabled="busy || connectionLost || !goodsReceiptForm.lines.length"
-                variant="primary"
-                type="submit"
-                >保存收货草稿</AppButton
-              >
-              <AppButton type="button" @click="showForm = false" variant="secondary"
-                >收起</AppButton
-              >
-            </div>
-          </form>
-        </NModal>
+          <template #cell-acceptedQuantity="{ row: { line, index } }"
+            ><label
+              >合格实收<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.accepted_quantity"
+                type="number"
+                min="0"
+                max="1000000"
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-rejectedQuantity="{ row: { line, index } }"
+            ><label
+              >拒收数量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.rejected_quantity"
+                type="number"
+                min="0"
+                max="1000000"
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-rejectionReason="{ row: { line, index } }"
+            ><label
+              >拒收原因<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.rejection_reason"
+                maxlength="200"
+                :required="Number(line.rejected_quantity) > 0" /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              type="button"
+              :disabled="busy || connectionLost || goodsReceiptForm.lines.length === 1"
+              @click="goodsReceiptForm.lines.splice(index, 1)"
+              variant="text"
+              >移除</AppButton
+            ></template
+          >
+        </WorkspaceDocumentDialog>
       </template>
       <template #cell-document="{ row: item }"
         ><strong>#{{ item.id }} · {{ item.supplier_name }}</strong

@@ -10,6 +10,9 @@ import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMate
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NDatePicker, NModal } from 'naive-ui'
+// 单据统一使用固定关闭区、基础信息和物料明细表格。
+import { documentRows } from '../../../utils/document-rows'
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
@@ -147,6 +150,14 @@ async function confirmLotPost(): Promise<void> {
   if (!stockAdjustments.value.some(item => item.id === adjustment.id && item.status === 'approved'))
     closeLotPost()
 }
+// 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const adjustmentFormRows = computed(() => documentRows(adjustmentForm.value.lines))
+const adjustmentFormColumns = [
+  { key: 'material', title: '物料 / 资料', width: '470' },
+  { key: 'unit', title: '单位', width: '70' },
+  { key: 'quantity', title: '调整量', width: '150' },
+  { key: 'actions', title: '操作', width: '90' },
+]
 </script>
 
 <template>
@@ -172,82 +183,87 @@ async function confirmLotPost(): Promise<void> {
         ><label>搜索调整单<AppInput v-model="query" placeholder="单号、仓库或物料" /></label
       ></template>
       <template #beforeTable>
-        <NModal
+        <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
+        <WorkspaceDocumentDialog
+          v-if="showForm && can('adjustment.create')"
           v-model:show="showForm"
-          preset="card"
-          :mask-closable="!busy"
-          :style="{
-            width: 'min(900px, calc(100vw - 32px))',
-            maxHeight: 'calc(100vh - 48px)',
-            overflowY: 'auto'
-          }"
+          title="新建库存调整"
+          :data="adjustmentFormRows"
+          :columns="adjustmentFormColumns"
+          :busy="busy"
+          :disabled="connectionLost"
+          :submit-disabled="connectionLost"
+          submit-label="保存草稿"
+          :min-table-width="1000"
+          :add-disabled="adjustmentForm.lines.length >= 100"
+          @add-material="adjustmentForm.lines.push({ material_id: 0, quantity: '1' })"
+          @submit="submitCreate"
         >
-          <form
-            v-if="showForm && can('adjustment.create')"
-            class="stack"
-            @submit.prevent="submitCreate"
+          <template #basicInfo
+            ><label
+              >仓库<WorkspaceSelect
+                :disabled="busy || connectionLost"
+                v-model="adjustmentForm.warehouse_id"
+                required
+                :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]"
+            /></label>
+            <label
+              >调整原因<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="adjustmentForm.reason"
+                required
+                maxlength="200"
+            /></label>
+            <label
+              >参考号<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="adjustmentForm.reference"
+                maxlength="100"
+            /></label>
+
+            <div class="document-basic-extra">
+              <p class="muted">正数为增加，负数为减少；零调整量不会保存。</p>
+            </div></template
           >
-            <div class="form-grid">
-              <label
-                >仓库<WorkspaceSelect
-                  v-model="adjustmentForm.warehouse_id"
-                  required
-                  :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]"
-              /></label>
-              <label
-                >调整原因<AppInput v-model.trim="adjustmentForm.reason" required maxlength="200"
-              /></label>
-              <label
-                >参考号<AppInput v-model.trim="adjustmentForm.reference" maxlength="100"
-              /></label>
-            </div>
-            <div v-for="(line, index) in adjustmentForm.lines" :key="index" class="line-row">
-              <label
-                >物料<WorkspaceMaterialSelect :materials="materials"
-                  v-model="line.material_id"
-                  required
-                  :options="[
-                    { label: '选择物料', value: 0, disabled: true },
-                    ...materials.map((item) => ({
-                      label: (item.sku + ' · ' + item.name).trim(),
-                      value: item.id
-                    }))
-                  ]"
-              /></label>
-              <label
-                >调整量<AppInput
-                  v-model.trim="line.quantity"
-                  type="number"
-                  min="-1000000"
-                  max="1000000"
-                  step="0.001"
-                  required
-              /></label>
-              <AppButton
-                type="button"
-                :disabled="adjustmentForm.lines.length === 1"
-                @click="adjustmentForm.lines.splice(index, 1)"
-                variant="text"
-                >移除</AppButton
-              >
-            </div>
-            <div class="form-actions">
-              <AppButton
-                type="button"
-                @click="adjustmentForm.lines.push({ material_id: 0, quantity: '1' })"
-                variant="secondary"
-                >添加明细</AppButton
-              >
-              <AppButton :disabled="busy || connectionLost" variant="primary" type="submit"
-                >保存草稿</AppButton
-              >
-              <AppButton type="button" @click="showForm = false" variant="secondary"
-                >收起</AppButton
-              >
-            </div>
-            <p class="muted">正数为增加，负数为减少；零调整量不会保存。</p>
-          </form>
-        </NModal>
+          <template #cell-material="{ row: { line, index } }"
+            ><label
+              >物料<WorkspaceMaterialSelect
+                :disabled="busy || connectionLost"
+                :materials="materials"
+                v-model="line.material_id"
+                required
+                :options="[
+                  { label: '选择物料', value: 0, disabled: true },
+                  ...materials.map((item) => ({
+                    label: (item.sku + ' · ' + item.name).trim(),
+                    value: item.id
+                  }))
+                ]" /></label
+          ></template>
+          <template #cell-quantity="{ row: { line, index } }"
+            ><label
+              >调整量<AppInput
+                :disabled="busy || connectionLost"
+                v-model.trim="line.quantity"
+                type="number"
+                min="-1000000"
+                max="1000000"
+                step="0.001"
+                required /></label
+          ></template>
+          <template #cell-actions="{ row: { line, index } }"
+            ><AppButton
+              type="button"
+              :disabled="busy || connectionLost || adjustmentForm.lines.length === 1"
+              @click="adjustmentForm.lines.splice(index, 1)"
+              variant="text"
+              >移除</AppButton
+            ></template
+          >
+          <template #cell-unit="{ row: { line } }">{{
+            materials.find((item) => item.id === line.material_id)?.unit ?? '—'
+          }}</template>
+        </WorkspaceDocumentDialog>
       </template>
       <template #cell-document="{ row: item }"
         ><strong>#{{ item.id }}</strong
