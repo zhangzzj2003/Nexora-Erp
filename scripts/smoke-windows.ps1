@@ -46,6 +46,14 @@ function Assert-TestSupplier {
   $loginBody = @{ username = 'ci_admin'; password = $Password } | ConvertTo-Json -Compress
   $login = Invoke-RestMethod "https://127.0.0.1:$Port/api/v1/auth/login" -Method Post `
     -ContentType 'application/json' -Body $loginBody -SkipCertificateCheck
+  # 重启、升级和独立恢复均须沿用数据库规则，不能重新进入首次设置。
+  $numbering = Invoke-RestMethod "https://127.0.0.1:$Port/api/v1/system/document-numbering" -Headers @{
+    Authorization = "Bearer $($login.token)"
+  } -SkipCertificateCheck
+  if (-not $numbering.configured -or $numbering.style -ne 'english' -or
+      $numbering.timezone_mode -ne 'specified' -or $numbering.timezone -ne 'America/New_York') {
+    throw "Windows 服务端口 $Port 的编号规则发生变化。"
+  }
   $suppliers = Invoke-RestMethod "https://127.0.0.1:$Port/api/v1/suppliers" -Headers @{
     Authorization = "Bearer $($login.token)"
   } -SkipCertificateCheck
@@ -92,6 +100,14 @@ try {
   $loginBody = @{ username = 'ci_admin'; password = $adminPassword } | ConvertTo-Json -Compress
   $login = Invoke-RestMethod 'https://127.0.0.1:18762/api/v1/auth/login' -Method Post `
     -ContentType 'application/json' -Body $loginBody -SkipCertificateCheck
+  # 新实例先完成管理员设置，再写入业务资料；指定时区同时验证打包时区数据可用。
+  $numberingBody = @{
+    style = 'english'; timezone_mode = 'specified'; timezone = 'America/New_York'; version = 0
+  } | ConvertTo-Json -Compress
+  Invoke-RestMethod 'https://127.0.0.1:18762/api/v1/system/document-numbering' -Method Put `
+    -ContentType 'application/json' -Body $numberingBody -Headers @{
+      Authorization = "Bearer $($login.token)"
+    } -SkipCertificateCheck | Out-Null
   $supplierBody = @{ name = 'CI 验收供应商' } | ConvertTo-Json -Compress
   $supplier = Invoke-RestMethod 'https://127.0.0.1:18762/api/v1/suppliers' -Method Post `
     -ContentType 'application/json' -Body $supplierBody -Headers @{
