@@ -11,7 +11,7 @@ test('窗口控件保持 Mac 左侧和 Windows 原生位置，其他平台不改
     titleBarStyle: 'hidden', titleBarOverlay: true, trafficLightPosition: { x: 16, y: 17 }
   })
   assert.deepEqual(windowChromeOptions('win32'), {
-    titleBarStyle: 'hidden', titleBarOverlay: { color: '#ffffff', symbolColor: '#17213b', height: 48 }
+    titleBarStyle: 'hidden', titleBarOverlay: { color: '#00000000', symbolColor: '#17213b', height: 48 }
   })
   assert.deepEqual(windowChromeOptions('linux'), {})
   assert.equal(usesIntegratedTitleBar(undefined), false)
@@ -19,10 +19,21 @@ test('窗口控件保持 Mac 左侧和 Windows 原生位置，其他平台不改
 })
 
 test('窗口主题只接受既定主题，不能注入任意原生窗口参数', () => {
-  assert.deepEqual(windowOverlayTheme('dark'), { color: '#111d32', symbolColor: '#e6edf8', height: 48 })
+  assert.deepEqual(windowOverlayTheme('dark'), { color: '#00000000', symbolColor: '#e6edf8', height: 48 })
   for (const invalid of [undefined, null, '', 'system', {}, { color: '#ff0000' }, true]) {
     assert.throws(() => windowOverlayTheme(invalid), /窗口主题参数无效/)
   }
+})
+
+test('Windows 首次创建与反复切换主题都保持透明背景，不覆盖弹窗遮罩和顶部栏底线', () => {
+  // 明确检查 alpha 为零，防止把“与顶部同色”误当作能与遮罩融合。
+  const initial = windowChromeOptions('win32').titleBarOverlay
+  for (const overlay of [initial, ...['dark', 'light', 'dark'].map(windowOverlayTheme)]) {
+    assert.equal(overlay.color, '#00000000')
+    assert.equal(Number.parseInt(overlay.color.slice(7, 9), 16), 0)
+    assert.equal(overlay.height, 48)
+  }
+  assert.notEqual(windowOverlayTheme('light').symbolColor, windowOverlayTheme('dark').symbolColor)
 })
 
 // 执行实际 IPC 处理器，验证来源校验和两种平台的主题更新行为。

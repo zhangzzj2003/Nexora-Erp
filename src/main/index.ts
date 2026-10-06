@@ -147,7 +147,7 @@ app.whenReady().then(() => {
   ipcMain.handle('window:set-theme', (event, mode: unknown) => {
     assertMainWindow(event)
     const overlay = windowOverlayTheme(mode)
-    // macOS 红黄绿按钮保留原生外观；Windows 的按钮底色随页面主题同步。
+    // macOS 红黄绿按钮保留原生外观；Windows 仅同步图标颜色，透明底色透出页面。
     if (process.platform === 'win32') mainWindow?.setTitleBarOverlay(overlay)
   })
 
