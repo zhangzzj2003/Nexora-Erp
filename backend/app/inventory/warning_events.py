@@ -1,5 +1,6 @@
 """服务端定时核对库存预警状态，并保留异常进入与恶化的证据。"""
 
+from app.core.document_responses import NumberedRoute
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -14,7 +15,7 @@ from app.core.models import InventoryWarningEvent, InventoryWarningObservation, 
 from app.core.orm import orm_session, model_data
 from app.inventory.warnings import balances, current_row
 
-router = APIRouter(prefix='/api/v1/inventory/warnings')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/inventory/warnings')
 logger = logging.getLogger(__name__)
 ATTENTION = frozenset(('low', 'out_of_stock'))
 

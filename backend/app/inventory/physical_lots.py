@@ -1,5 +1,6 @@
 """实物批次结存快照；未分配的库存必须显式显示为差额。"""
 
+from app.core.document_responses import NumberedRoute
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -16,7 +17,7 @@ from app.core.orm import add_model, orm_session
 from app.inventory.lot_inputs import PhysicalLotPartInput
 
 
-router = APIRouter(prefix='/api/v1/inventory/physical-lots')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/inventory/physical-lots')
 
 
 @dataclass(frozen=True)

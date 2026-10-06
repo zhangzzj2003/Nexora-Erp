@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源单号由授权后的服务端响应提供，固定金额证据不作改写。
+import { relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed } from 'vue'
 import { NCollapse } from 'naive-ui'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
@@ -19,7 +21,7 @@ const recordColumns = [{ key: 'id', title: '记录号' }, { key: 'reference', ti
 
 <template>
   <div class="stack business-evidence">
-    <p>{{ source.label }} #{{ source.source_id }} · 发生日期 {{ source.source_date }}（UTC）</p>
+    <p>{{ source.label }} {{ relatedDocumentLabel(source, 'source') }} · 发生日期 {{ source.source_date }}（UTC）</p>
     <p v-for="warning in source.warnings" :key="warning" class="muted">{{ warning }}</p>
     <p v-for="blocker in source.blockers" :key="blocker" role="alert">{{ blocker }}</p>
     <WorkspaceTable title="来源入账金额" :columns="roleColumns" :data="roles" :min-table-width="630" />

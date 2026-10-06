@@ -183,6 +183,7 @@ test('导出只接受当前查询或当前归档快照，已失效报告不得�
 
 test('其他数据读取失败前已清除被撤权的报表、配置、归档及审计', async t => {
   const { state } = fixture(t, async operation => {
+    if (operation === 'documentNumbering') return { configured: true };
     if (operation === 'me') return { id: 1, permissions: ['inventory.view'] }
     if (operation === 'materials') throw Error('物料读取失败')
     return []

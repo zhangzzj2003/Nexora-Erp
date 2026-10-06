@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -43,7 +45,7 @@ const {
 // 搜索只过滤当前单据快照，不改动草稿、确认及冲销状态。
 const query = ref('')
 const filtered = computed(() => stocktakes.value.filter((item) =>
-  [item.id, item.reference, item.warehouse_name, ...item.lines.map((line) => line.material_name)]
+  [documentSearch(item), item.id, item.reference, item.warehouse_name, ...item.lines.map((line) => line.material_name)]
     .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const columns = [
   { key: 'document', title: '单据' }, { key: 'warehouse', title: '盘点仓库' },
@@ -276,7 +278,7 @@ async function submitCreate(): Promise<void> {
         ><label>搜索盘点单<AppInput v-model="query" placeholder="单号、仓库或物料" /></label
       ></template>
       <template #cell-document="{ row: item }">
-        <strong>#{{ item.id }}</strong>
+        <strong>{{ documentLabel(item) }}</strong>
         <small>{{
           item.reversal_id
             ? '已冲销'
@@ -360,7 +362,7 @@ async function submitCreate(): Promise<void> {
       :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
         maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
       <form v-if="activeStocktake && can('stocktake.post')" class="stack" @submit.prevent="confirmLotPost">
-        <h2>盘点单 #{{ activeStocktake.id }} · 差异批次归属</h2>
+        <h2>盘点单 {{ documentLabel(activeStocktake) }} · 差异批次归属</h2>
         <p>盘亏选择本仓实际减少的已有批次；盘盈可补入已有批次，或登记明确标为“盘点发现”的新批次。仅填写实物标签上实际可见的来源批号与日期。</p>
         <p v-if="lotLoading">正在读取批次…</p>
         <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>

@@ -41,6 +41,8 @@ export function localTime(value: string): string {
 }
 
 export function movementSource(item: Movement): string {
+  const sourceNumber = (item as Movement & { source_document_no?: string | null }).source_document_no
+  if (sourceNumber) return `${movementTypeLabel(item.source_type)} ${sourceNumber}`
   // 所有库存变动都显示原始业务单据，便于从数量追溯到责任操作。
   if (item.receipt_id !== null) return `入库单 #${item.receipt_id}`
   if (item.receipt_reversal_id !== null)
@@ -98,7 +100,7 @@ export function financialSource(item: FinancialEntry): string {
     purchase_return_reversal: '采购退货冲销',
     after_sales_repair: '售后维修服务费', after_sales_repair_reversal: '售后维修服务费更正'
   }
-  return `${names[item.source_type]} #${item.source_id}`
+  return `${names[item.source_type]} ${(item as FinancialEntry & { source_document_no?: string | null }).source_document_no || `#${item.source_id}`}`
 }
 
 export function paymentActionLabel(item: PaymentRecord): string {

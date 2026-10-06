@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -94,8 +96,7 @@ function openCustomers(): void {
 const recordQuery = ref('')
 const filteredRecords = computed(() =>
   salesOrders.value.filter((item) =>
-    matchesRecordQuery(recordQuery.value, [
-      item.id,
+    matchesRecordQuery(recordQuery.value, [documentSearch(item), item.id,
       item.customer_name,
       item.created_by_name,
       item.reference,
@@ -111,7 +112,7 @@ const filteredRecords = computed(() =>
       :mask-closable="!busy" :closable="!busy"
       :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
       <template v-if="contractOrder">
-        <p>销售订单 #{{ contractOrder.id }} · {{ contractOrder.customer_name }}。正文登记是合同证据；不会自动修改订单金额、明细保修条款或既有售后单。</p>
+        <p>销售订单 {{ documentLabel(contractOrder) }} · {{ contractOrder.customer_name }}。正文登记是合同证据；不会自动修改订单金额、明细保修条款或既有售后单。</p>
         <p v-if="contractLoading">正在读取合同历史…</p>
         <template v-else-if="contract">
           <p v-if="contract.version === 0">尚未登记合同正文。旧订单不追认未知条款。</p>
@@ -274,7 +275,7 @@ const filteredRecords = computed(() =>
 
       <template #cell-document="{ row: item }">
         <div>
-          <strong>#{{ item.id }} · {{ item.customer_name }}</strong>
+          <strong>{{ documentLabel(item) }} · {{ item.customer_name }}</strong>
           <p class="muted">
             {{ localTime(item.created_at) }} · 创建人
             {{ item.created_by_name }}

@@ -105,6 +105,7 @@ test('其他业务接口失败前已清除被撤权的损益预览和配置', as
   state.profitTransferOptions.value = { policy }; state.profitTransferPreview.value = { can_generate: true }
   state.profitTransferPolicyChanges.value = [{ id: 1 }]
   globalThis.window = { nexora: { async callApi(operation) {
+    if (operation === 'documentNumbering') return { configured: true };
     if (operation === 'me') return { id: 1, permissions: ['inventory.view'] }
     if (operation === 'materials') throw Error('资料读取失败')
     return []

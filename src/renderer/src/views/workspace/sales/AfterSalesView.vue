@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {storeToRefs} from 'pinia'
 import {NModal} from 'naive-ui'
@@ -22,8 +24,8 @@ const laborCommand=ref<{row:AfterSalesEvidence;entryId:number|null}|null>(null),
 const responsibilityCommand=ref<AfterSalesEvidence|null>(null)
 const responsibilityOutcome=ref<AfterSalesResponsibilityOutcome|''>(''),responsibilityBasis=ref('')
 const disabled=computed(()=>busy.value||loading.value||preparing.value||connectionLost.value)
-const sources=computed(()=>(overview.value?.sources??[]).filter(row=>[row.shipment_id,row.sales_order_id,row.customer_name,row.sku,row.material_name].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
-const records=computed(()=>(overview.value?.cases??[]).filter(row=>[row.reference,row.frozen_source.customer_name,row.frozen_source.sku,afterSalesKind[row.kind],afterSalesStatus[row.status]].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
+const sources=computed(()=>(overview.value?.sources??[]).filter(row=>[documentSearch(row),row.shipment_id,row.sales_order_id,row.customer_name,row.sku,row.material_name].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
+const records=computed(()=>(overview.value?.cases??[]).filter(row=>[documentSearch(row),row.reference,row.frozen_source.customer_name,row.frozen_source.sku,afterSalesKind[row.kind],afterSalesStatus[row.status]].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const sourceColumns=[{key:'source',title:'客户 / 原出库'},{key:'goods',title:'物品'},{key:'quantity',title:'原出库 / 剩余可办理'},{key:'actions',title:'操作'}]
 const recordColumns=[{key:'source',title:'依据 / 客户'},{key:'plan',title:'方式 / 数量'},{key:'stage',title:'办理阶段'},{key:'actions',title:'操作 / 证据'}]
 const actions=(row:AfterSalesEvidence)=>afterSalesActions(row,user.value?.permissions??[],user.value?.id??0)
@@ -86,7 +88,7 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
     <template v-else>
       <WorkspaceTable v-if="mode==='sources'" title="售后出库来源" :show-title="false" :columns="sourceColumns" :data="sources" :min-table-width="1000" :loading="loading">
         <template #filters><label>搜索原出库<AppInput v-model="query" placeholder="客户、订单、出库或物料" /></label></template>
-        <template #cell-source="{row}"><strong>{{ row.customer_name }}</strong><span class="after-secondary">出库 #{{ row.shipment_id }} · 订单 #{{ row.sales_order_id }}</span></template>
+        <template #cell-source="{row}"><strong>{{ row.customer_name }}</strong><span class="after-secondary">出库 {{ relatedDocumentLabel(row, 'shipment') }} · 订单 {{ relatedDocumentLabel(row, 'sales_order') }}</span></template>
         <template #cell-goods="{row}">{{ row.sku }} · {{ row.material_name }}</template>
         <template #cell-quantity="{row}">原出库 {{ row.quantity }} {{ row.unit }}<span class="after-secondary">未退回且未占用 {{ row.remaining_quantity }} {{ row.unit }}</span></template>
         <template #cell-actions="{row}"><AppButton v-if="store.can('after_sales.create')" :disabled="disabled||Number(row.remaining_quantity)<=0" @click="newRecord(row.shipment_line_id)">编制售后</AppButton><span v-else>只读来源</span></template>
@@ -94,7 +96,7 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
       </WorkspaceTable>
       <WorkspaceTable v-else title="售后记录" :show-title="false" :columns="recordColumns" :data="records" :min-table-width="1100" :loading="loading">
         <template #filters><label>搜索售后<AppInput v-model="query" placeholder="售后编号、客户、物料、方式或阶段" /></label></template>
-        <template #cell-source="{row}"><strong>{{ row.reference }}</strong><span class="after-secondary">{{ row.frozen_source.customer_name }} · 出库 #{{ row.frozen_source.shipment_id }}</span></template>
+        <template #cell-source="{row}"><strong>{{ documentLabel(row) }} · {{ row.reference }}</strong><span class="after-secondary">{{ row.frozen_source.customer_name }} · 出库 {{ relatedDocumentLabel(row, 'shipment', row.frozen_source) }}</span></template>
         <template #cell-plan="{row}">{{ afterSalesKind[row.kind as keyof typeof afterSalesKind] }} {{ row.quantity }} {{ row.frozen_source.unit }}<span v-if="row.kind==='repair'" class="after-secondary">{{ row.charge_mode==='free'?'明确免费维修':`整单服务费 ${row.fee_amount} 元` }}</span></template>
         <template #cell-stage="{row}">{{ afterSalesStatus[row.status as keyof typeof afterSalesStatus] }}<span class="after-secondary">v{{ row.version }} · {{ row.created_by_name }}</span></template>
         <template #cell-actions="{row}"><div class="after-toolbar"><AppButton :disabled="disabled" @click="store.loadAfterSalesDetail(row.id)">查看证据</AppButton><AppButton v-if="store.can('after_sales.create')&&['draft','rejected'].includes(row.status)" :disabled="disabled" @click="editRecord(row.id)">修订</AppButton><AppButton v-for="action in actions(row)" :key="action" :disabled="disabled" @click="prepare(row.id,action)">{{ afterSalesCommand[action] }}</AppButton></div></template>
@@ -108,7 +110,7 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
       <div v-if="detail?.kind==='repair'&&['received','repaired'].includes(detail.status)&&store.can('after_sales.labor')" class="after-toolbar">
         <AppButton :disabled="disabled" @click="prepareLabor(null)">登记实际维修工时</AppButton>
         <AppButton v-for="entry in detail.labor.filter(item=>item.action==='record'&&!detail!.labor.some(reverse=>reverse.original_id===item.id))"
-          :key="entry.id" :disabled="disabled" @click="prepareLabor(entry.id)">更正工时 #{{ entry.id }}</AppButton>
+          :key="entry.id" :disabled="disabled" @click="prepareLabor(entry.id)">更正工时 {{ documentLabel(entry) }}</AppButton>
       </div>
     </template>
     <NModal :show="!!command" preset="card" :title="command?afterSalesCommand[command.action]:''" style="width:min(800px,calc(100vw - 48px));max-height:calc(100vh - 48px);overflow:auto" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value&&!busy)command=null}">

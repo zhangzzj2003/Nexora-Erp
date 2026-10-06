@@ -48,14 +48,14 @@ def command(binary: Path, *args: str, success: bool = True) -> subprocess.Comple
 
 
 def request_json(port: int, certificate: Path, route: str, payload: dict | None = None,
-                 token: str | None = None) -> dict | list:
+                 token: str | None = None, *, method: str | None = None) -> dict | list:
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(
         f"https://127.0.0.1:{port}{route}",
         data=json.dumps(payload).encode("utf-8") if payload is not None else None,
-        headers=headers,
+        headers=headers, method=method,
     )
     # 业务检查仍核验实例证书，不能把其他进程的 HTTPS 响应误判为恢复成功。
     context = ssl.create_default_context(cafile=str(certificate))
@@ -92,6 +92,10 @@ def wait_offline(port: int, certificate: Path) -> None:
 def verify_supplier(port: int, certificate: Path, password: str, supplier_id: int) -> None:
     login = request_json(port, certificate, "/api/v1/auth/login",
                          {"username": "ci_admin", "password": password})
+    # 服务重启和升级后必须沿用已经保存的实例规则。
+    numbering = request_json(port, certificate, "/api/v1/system/document-numbering", token=login["token"])
+    if not numbering['configured'] or numbering['style'] != 'english' or numbering['timezone'] != 'America/New_York':
+        raise AssertionError('升级后编号规则发生变化')
     rows = request_json(port, certificate, "/api/v1/suppliers", token=login["token"])
     if not any(row["id"] == supplier_id and row["name"] == SUPPLIER for row in rows):
         raise AssertionError("升级或回退后无法读取原供应商")
@@ -146,6 +150,10 @@ def main() -> None:
                          {"username": "ci_admin", "password": password})
             login = request_json(port, certificate, "/api/v1/auth/login",
                                  {"username": "ci_admin", "password": password})
+            # 新实例必须先由管理员确认编号规则，安装与恢复验收走同一初始化流程。
+            request_json(port, certificate, "/api/v1/system/document-numbering",
+                         {"style": "english", "timezone_mode": "specified", "timezone": "America/New_York", "version": 0},
+                         login["token"], method="PUT")
             supplier = request_json(port, certificate, "/api/v1/suppliers",
                                     {"name": SUPPLIER}, login["token"])
             original_certificate_hash = sha256(certificate)

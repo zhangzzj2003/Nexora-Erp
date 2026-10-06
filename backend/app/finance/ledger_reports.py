@@ -1,5 +1,6 @@
 """已过账总账查询；列表、合计与导出保持同一读取快照。"""
 
+from app.core.document_responses import NumberedRoute
 import csv
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -23,7 +24,7 @@ from app.finance.opening_balances import (
     history as opening_history,
 )
 
-router = APIRouter(prefix="/api/v1/finance/ledger-reports")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1/finance/ledger-reports")
 ZERO = Decimal(0)
 BALANCE_KEYS = (
     "opening_debit",
@@ -72,7 +73,7 @@ COLUMNS = {
     "account_ledger": [
         ("date", "凭证日期"),
         ("period_code", "会计期间"),
-        ("journal_id", "凭证号"),
+        ("journal_document_no", "凭证号"),
         ("position", "分录序号"),
         ("reference", "依据编号"),
         ("account", "科目快照"),
@@ -180,6 +181,7 @@ def account_ledger(db: Session, filters: LedgerReportQuery) -> tuple[list[dict],
                 date=journal.journal_date,
                 period_code=period_code,
                 journal_id=str(journal.id),
+                journal_document_no=journal.document_no or str(journal.id),
                 position=str(line.position),
                 reference=journal.reference,
                 account=f"{line.account_code} · {line.account_name}",
@@ -190,7 +192,7 @@ def account_ledger(db: Session, filters: LedgerReportQuery) -> tuple[list[dict],
                 balance=money(abs(net)),
                 reversal_of_id=str(journal.reversal_of_id or ""),
                 source=(
-                    f"冲销记-{journal.reversal_of_id}"
+                    f"冲销 {db.get(Journal, journal.reversal_of_id).document_no or journal.reversal_of_id}"
                     if journal.reversal_of_id
                     else "损益结转" if journal.id in transfers else "手工录入"
                 ),

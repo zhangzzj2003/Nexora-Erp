@@ -1,5 +1,6 @@
 """按物料汇总的移动加权平均库存计价及可追溯人工核价。"""
 
+from app.core.document_responses import NumberedRoute
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -15,7 +16,7 @@ from app.core.models import (StockMovement, Material, InventoryCostInput, Receip
     PurchaseOrderLine, SalesReturnLine, MaterialReturnLine, User,
     ProductionCostAllocation, ProductionSettlementDependency, ProductionSettlementReversal)
 
-router = APIRouter(prefix="/api/v1/inventory/valuation")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1/inventory/valuation")
 CENT = Decimal("0.01")
 FOUR_PLACES = Decimal("0.0001")
 MANUAL_SOURCES = {"receipt", "other_inbound", "stocktake", "adjustment",

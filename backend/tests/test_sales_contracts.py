@@ -33,7 +33,7 @@ def test_sales_contract_revisions_preserve_history_and_order_terms(monkeypatch, 
         url = f'{base}/sales-orders/{order_id}/contract'
         assert client.get(url).status_code == 401
         assert client.get(url, headers=admin).json() == {
-            'sales_order_id': order_id, 'status': 'draft', 'version': 0,
+            'sales_order_id': order_id, 'sales_order_document_no': order.json()['document_no'], 'status': 'draft', 'version': 0,
             'current': None, 'history': []}
 
         first = {'expected_version': 0, 'body': ' 合同全文第一版 ',
@@ -131,7 +131,7 @@ def test_contract_migration_is_atomic_and_preserves_existing_orders(monkeypatch,
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 87
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
         assert db.execute('SELECT * FROM sales_orders').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
-    assert len(Base.metadata.tables) == 185
+    assert len(Base.metadata.tables) == 187

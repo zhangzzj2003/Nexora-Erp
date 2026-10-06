@@ -1,5 +1,6 @@
 """生产报工经质检确认后，将合格成品入目标仓库。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
@@ -33,7 +34,7 @@ UserCreator = aliased(User)
 UserInspector = aliased(User)
 UserReverser = aliased(User)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class CompletionInput(BaseModel):

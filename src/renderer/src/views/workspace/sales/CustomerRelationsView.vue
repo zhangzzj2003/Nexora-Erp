@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
 import { computed,onMounted,onUnmounted,ref,watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal } from 'naive-ui'
@@ -39,7 +41,7 @@ function rowStatus(row:CrmRecord):string {return 'stage' in row?crmStageLabel[ro
 function deadline(row:CrmRecord):string{return 'valid_until' in row?row.valid_until:'expected_close_date' in row?row.expected_close_date:'due_date' in row?row.due_date:'—'}
 const records=computed(()=>{
   const rows:CrmRecord[]=mode.value==='contact'?overview.value?.contacts??[]:mode.value==='activity'?overview.value?.activities??[]:mode.value==='opportunity'?overview.value?.opportunities??[]:overview.value?.quotes??[]
-  return rows.filter(row=>(!customer.value || row.customer_id===customer.value) && [rowTitle(row),row.customer_name,row.contact_name,
+  return rows.filter(row=>(!customer.value || row.customer_id===customer.value) && [documentSearch(row),rowTitle(row),row.customer_name,row.contact_name,
     'owner_name' in row?row.owner_name:'',rowStatus(row),'phone' in row?row.phone:''].join(' ').toLowerCase().includes(query.value.toLowerCase().trim()))
     .sort((a,b)=>mode.value==='activity' ? Number('overdue' in b && b.overdue)-Number('overdue' in a && a.overdue) : 0)
 })
@@ -118,7 +120,7 @@ onUnmounted(()=>store.clearCrmDetail())
     <template v-else>
       <WorkspaceTable :title="crmKindLabel[mode]" :show-title="false" :columns="columns" :data="records" :min-table-width="1050" :loading="loading">
         <template #filters><label>客户范围<WorkspaceSelect v-model="customer" :options="customers" :disabled="disabled" /></label><label>搜索{{ crmKindLabel[mode] }}<AppInput v-model="query" placeholder="名称、客户、负责人或阶段" /></label></template>
-        <template #cell-title="{row}"><strong>{{ rowTitle(row) }}</strong><span class="crm-secondary muted">#{{ row.id }} · {{ row.created_by_name }}</span></template>
+        <template #cell-title="{row}"><strong>{{ rowTitle(row) }}</strong><span class="crm-secondary muted">{{ documentLabel(row) }} · {{ row.created_by_name }}</span></template>
         <template #cell-context="{row}"><template v-if="mode==='contact'"><span>{{ (row as CrmContact).phone || '未填写电话' }}</span><span class="crm-secondary muted">{{ (row as CrmContact).email || '未填写邮箱' }}</span></template>
           <template v-else><span>{{ mode==='quote' ? (row as CrmQuote).total_amount+' 元' : (row as CrmOpportunity|CrmActivity).owner_name }}</span><span class="crm-secondary muted">{{ mode==='quote'?'有效至':mode==='opportunity'?'预计成交':'跟进期限' }} {{ deadline(row) }}</span>
           <span v-if="mode==='opportunity'" class="crm-secondary muted">预估 {{ (row as CrmOpportunity).estimated_amount }} 元 · 成交概率 {{ (row as CrmOpportunity).probability_percent===null?'未评估':`${(row as CrmOpportunity).probability_percent}%` }}</span></template></template>

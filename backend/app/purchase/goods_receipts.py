@@ -1,5 +1,6 @@
 """采购收货事实与待入库单的单向生成。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.engine import RowMapping
@@ -31,7 +32,7 @@ from app.purchase.orders import received_quantity
 UserConfirmer = aliased(User)
 UserCreator = aliased(User)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class GoodsReceiptLineInput(BaseModel):

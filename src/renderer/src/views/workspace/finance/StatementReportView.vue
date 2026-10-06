@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 凭证与来源保留内部 ID，界面优先显示服务端保存的业务单号。
+import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, nextTick, ref } from 'vue'
 import { NCollapse } from 'naive-ui'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
@@ -42,7 +44,7 @@ async function inspect(row: { code: string; name: string; account_ids: number[] 
   <div class="stack statement-report">
     <div class="statement-report-context">
       <p><strong>{{ archived ? '已归档快照' : report.can_archive ? '已核对，可归档' : '核对中' }}</strong> · {{ report.filters.from_date }} 至 {{ report.filters.to_date }} · 人民币 · 配置版本 {{ report.policy_version }} · 生成于 {{ new Date(report.generated_at).toLocaleString('zh-CN', { hour12: false }) }}</p>
-      <p>{{ report.opening_balance_id ? `正式期初来源：期初-${report.opening_balance_id}` : '尚无正式期初：期初仅来自历史已过账金额累计。' }}</p>
+      <p>{{ report.opening_balance_id ? `正式期初来源：${relatedDocumentLabel(report, 'opening_balance')}` : '尚无正式期初：期初仅来自历史已过账金额累计。' }}</p>
       <p v-if="archived">金额、配置与下列来源保留归档时的快照；凭证详情会另读当前记录。</p>
       <ul v-if="report.blockers.length" aria-label="归档阻止事项"><li v-for="item in report.blockers" :key="item">{{ item }}</li></ul>
       <NCollapse><AppCollapseItem name="statement-rules" title="报表口径"><ul><li v-for="item in report.warnings" :key="item">{{ item }}</li></ul></AppCollapseItem></NCollapse>
@@ -66,16 +68,16 @@ async function inspect(row: { code: string; name: string; account_ids: number[] 
       <div class="statement-actions"><h3>{{ selected.name }} · 来源核对</h3><AppButton type="button" variant="secondary" @click="selected = null">收起来源</AppButton></div>
       <p>以下金额与报表来自同一快照。科目本期发生额按收入贷减借、其他借减贷列示，排除结转；资产负债取期末余额，利润取本期发生额。未结转损益按收入余额减费用余额汇总。</p>
       <WorkspaceTable title="科目贡献" :columns="contributionColumns" :data="contributions" :min-table-width="800" />
-      <WorkspaceTable v-if="report.opening_balance_id" :title="`正式期初来源 · 期初-${report.opening_balance_id}`" :columns="openingColumns" :data="openings" :min-table-width="890"><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable>
+      <WorkspaceTable v-if="report.opening_balance_id" :title="`正式期初来源 · ${relatedDocumentLabel(report, 'opening_balance')}`" :columns="openingColumns" :data="openings" :min-table-width="890"><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable>
       <WorkspaceTable title="已过账分录来源" :columns="sourceColumns" :data="sources" :min-table-width="1670">
         <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template>
-        <template #cell-journal_id="{ row }"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', row.journal_id)">记-{{ row.journal_id }}</AppButton><span v-else>记-{{ row.journal_id }}</span></template>
+        <template #cell-journal_id="{ row }"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', row.journal_id)">{{ relatedDocumentLabel(row, 'journal') }}</AppButton><span v-else>{{ relatedDocumentLabel(row, 'journal') }}</span></template>
         <template #footer><p>{{ canOpenJournal ? '点击凭证编号查看当前分录、来源证据与操作记录。' : '当前账号仅查看报表来源快照；另有凭证查看权限才可打开当前凭证。' }} 本表包含截至期末的历史分录，借贷原值未改变；本期利润只取日期范围内的损益科目。</p></template>
       </WorkspaceTable>
     </section>
     <WorkspaceTable v-if="report.unmapped.length" title="未映射非零科目" :columns="unmappedColumns" :data="report.unmapped" :min-table-width="800" />
     <div v-if="report.pending.length || report.unclassified_transfers.length" class="statement-report-context">
-      <p v-if="report.pending.length">待处理凭证：<span v-for="item in report.pending" :key="item.id"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', item.id)">记-{{ item.id }}</AppButton><span v-else>记-{{ item.id }}</span>（{{ journalStatusLabels[item.status] }}，{{ item.date }}） </span></p>
+      <p v-if="report.pending.length">待处理凭证：<span v-for="item in report.pending" :key="item.id"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', item.id)">{{ documentLabel(item) }}</AppButton><span v-else>{{ documentLabel(item) }}</span>（{{ journalStatusLabels[item.status] }}，{{ item.date }}） </span></p>
       <p v-if="report.unclassified_transfers.length">待核对手工结转：<span v-for="id in report.unclassified_transfers" :key="id"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', id)">记-{{ id }}</AppButton><span v-else>记-{{ id }}</span> </span>；请核对后在配置中明确结转范围。</p>
     </div>
   </div>

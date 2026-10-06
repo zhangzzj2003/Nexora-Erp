@@ -131,7 +131,8 @@ def test_reversal_only_counts_after_post_and_keeps_source(journals):
     assert report["totals"]["debit"] == report["totals"]["credit"] == "246.90"
     detail = query(client, kind="account_ledger", account_id=1)
     assert detail["rows"][-1]["balance_direction"] == "平"
-    assert detail["rows"][-1]["source"] == f'冲销记-{original["id"]}'
+    # 总账来源使用已保存的业务单号，内部 ID 继续保留给操作接口。
+    assert detail["rows"][-1]["source"] == f'冲销 {original["document_no"]}'
     assert detail["rows"][-1]["reversal_of_id"] == str(original["id"])
     assert query(client, to_date="2026-01-19")["rows"][0]["closing_debit"] == "123.45"
     assert (

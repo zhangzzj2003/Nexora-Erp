@@ -1,5 +1,6 @@
 """联系人、跟进与商机的附件留存和追加式撤销。"""
 
+from app.core.document_responses import NumberedRoute
 import hashlib
 from typing import Literal
 
@@ -15,7 +16,7 @@ from app.core.models import CrmRecordAttachment, CrmRecordAttachmentReversal, Us
 from app.core.orm import add_model, orm_session
 from app.sales.crm_rules import OPEN_STAGES, get_record
 
-router = APIRouter(prefix='/api/v1/crm/records')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/crm/records')
 RecordKind = Literal['contact', 'activity', 'opportunity']
 
 

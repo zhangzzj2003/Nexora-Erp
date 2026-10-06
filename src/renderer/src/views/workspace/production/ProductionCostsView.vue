@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -59,7 +61,7 @@ const settlementOptions = computed(() =>
     )
     .map((item) => ({
       value: item.work_order_id,
-      label: `工单 #${item.work_order_id} · ${item.product_name} · ¥${item.total_amount}`
+      label: `工单 ${relatedDocumentLabel(item, 'work_order')} · ${item.product_name} · ¥${item.total_amount}`
     }))
 )
 const settlementColumns = recordColumns
@@ -84,13 +86,16 @@ async function submitSettlement(): Promise<void> {
 const costUnit = (value: string): string => Number(value).toFixed(4)
 const filteredOrders = computed(() =>
   (productionCostReport.value?.orders ?? []).filter((item) =>
-    matchesRecordQuery(costQuery.value, [item.work_order_id, item.product_name])
+    matchesRecordQuery(costQuery.value, [documentSearch(item), item.work_order_id, item.product_name])
   )
 )
+// 结算单单独检索系统号、外部依据和工单关联，不混入费用明细 ID。
+const settlementQuery = ref('')
+const filteredSettlements = computed(() => productionCostSettlements.value.filter(item =>
+  matchesRecordQuery(settlementQuery.value, [documentSearch(item), item.id, item.reference, item.work_order_id])))
 const filteredEntries = computed(() =>
   (productionCostReport.value?.entries ?? []).filter((item) =>
-    matchesRecordQuery(entryQuery.value, [
-      item.id,
+    matchesRecordQuery(entryQuery.value, [documentSearch(item), item.id,
       item.work_order_id,
       item.material_name,
       item.reference,
@@ -117,7 +122,7 @@ const filteredEntries = computed(() =>
         </label>
       </template>
       <template #cell-document="{ row: item }">
-        <strong>工单 #{{ item.work_order_id }} · {{ item.product_name }}</strong>
+        <strong>工单 {{ relatedDocumentLabel(item, 'work_order') }} · {{ item.product_name }}</strong>
       </template>
       <template #cell-status="{ row: item }">
         <span class="pill">
@@ -146,14 +151,14 @@ const filteredEntries = computed(() =>
           type="button"
           >结算完工成本</AppButton
         >
-        <span v-else-if="item.settlement_id" class="muted">结算 #{{ item.settlement_id }}</span>
+        <span v-else-if="item.settlement_id" class="muted">结算 {{ relatedDocumentLabel(item, 'settlement') }}</span>
       </template>
       <template #cell-details="{ row: item }">
         <div class="workspace-record-lines">
           <span>材料已知金额 ¥{{ item.known_material_amount }}</span>
           <span>人工 ¥{{ item.labor_amount }}</span>
           <span>制造费用 ¥{{ item.overhead_amount }}</span>
-          <span v-if="item.rework_source">返工来源 {{ item.rework_source.reference }} · 原工单 #{{ item.rework_source.origin_work_order_id }} · 携入 {{ item.rework_amount === null ? '原工单尚未结算' : `¥${item.rework_amount}` }}</span>
+          <span v-if="item.rework_source">返工来源 {{ item.rework_source.reference }} · 原工单 {{ relatedDocumentLabel(item.rework_source, 'origin_work_order') }} · 携入 {{ item.rework_amount === null ? '原工单尚未结算' : `¥${item.rework_amount}` }}</span>
           <span>总成本 {{ item.total_amount === null ? (item.unpriced_rework ? '原工单尚未结算' : '待核价') : `¥${item.total_amount}` }}</span>
           <span v-if="item.unpriced_issue_count"
             >待核价领料 {{ item.unpriced_issue_count }} 条</span
@@ -333,7 +338,7 @@ const filteredEntries = computed(() =>
       :data="productionCostReport?.material_sources ?? []"
     >
       <template #cell-issue="{ row: item }"
-        >工单 #{{ item.work_order_id }} · 领料 #{{ item.material_issue_id }}</template
+        >工单 {{ relatedDocumentLabel(item, 'work_order') }} · 领料 {{ relatedDocumentLabel(item, 'material_issue') }}</template
       >
       <template #cell-material="{ row: item }">{{ item.sku }} · {{ item.material_name }}</template>
       <template #cell-quantity="{ row: item }">{{ item.net_quantity }}</template>
@@ -347,11 +352,12 @@ const filteredEntries = computed(() =>
     <WorkspaceTable
       title="完工成本结算历史"
       :columns="settlementColumns"
-      :data="productionCostSettlements"
+      :data="filteredSettlements"
       :min-table-width="1000"
     >
+      <template #filters><label>搜索结算单<AppInput v-model.trim="settlementQuery" placeholder="单号、参考号或工单" /></label></template>
       <template #cell-document="{ row: item }">
-        <strong>结算 #{{ item.id }} · 工单 #{{ item.work_order_id }}</strong>
+        <strong>结算 {{ documentLabel(item) }} · 工单 {{ relatedDocumentLabel(item, 'work_order') }}</strong>
         <p class="muted">
           {{ item.reference }} · {{ item.created_by_name }} · {{ localTime(item.created_at) }}
         </p>
@@ -376,10 +382,10 @@ const filteredEntries = computed(() =>
         <NCollapse class="mt-3">
           <AppCollapseItem title="查看分摊与来源快照" name="sources">
             <div class="flex flex-col gap-2">
-              <span v-for="allocation in item.quality_allocations" :key="allocation.disposition_id">处置 {{ allocation.reference }} · 原完工 #{{ allocation.completion_id }} · 数量 {{ allocation.quantity }} · {{ allocation.loss_treatment === 'absorb' ? '成本已由合格品承担' : allocation.loss_treatment === 'expense' ? `独立损失 ¥${allocation.amount}` : `携入返工 ¥${allocation.amount}` }}<template v-if="allocation.rework_order_id"> · 返工工单 #{{ allocation.rework_order_id }}</template></span>
-              <span v-for="source in item.rework_sources" :key="source.disposition_id">携入处置 #{{ source.disposition_id }} · 原结算 #{{ source.origin_settlement_id }} · ¥{{ source.amount }}</span>
+              <span v-for="allocation in item.quality_allocations" :key="allocation.disposition_id">处置 {{ allocation.reference }} · 原完工 {{ relatedDocumentLabel(allocation, 'completion') }} · 数量 {{ allocation.quantity }} · {{ allocation.loss_treatment === 'absorb' ? '成本已由合格品承担' : allocation.loss_treatment === 'expense' ? `独立损失 ¥${allocation.amount}` : `携入返工 ¥${allocation.amount}` }}<template v-if="allocation.rework_order_id"> · 返工工单 {{ relatedDocumentLabel(allocation, 'rework_order') }}</template></span>
+              <span v-for="source in item.rework_sources" :key="source.disposition_id">携入处置 {{ relatedDocumentLabel(source, 'disposition') }} · 原结算 {{ relatedDocumentLabel(source, 'origin_settlement') }} · ¥{{ source.amount }}</span>
               <span v-for="allocation in item.allocations" :key="allocation.movement_id"
-                >完工 #{{ allocation.completion_id }} · 流水 #{{ allocation.movement_id }} ·
+                >完工 {{ relatedDocumentLabel(allocation, 'completion') }} · 流水 #{{ allocation.movement_id }} ·
                 合格数量 {{ allocation.quantity }} · 分摊 ¥{{ allocation.amount }}</span
               >
               <span v-for="source in item.material_sources" :key="source.material_issue_line_id"
@@ -391,7 +397,7 @@ const filteredEntries = computed(() =>
                 · 金额 ¥{{ source.amount }}</span
               >
               <span v-for="charge in item.charges" :key="charge.id"
-                >费用 #{{ charge.id }} · {{ charge.kind === 'labor' ? '人工' : '制造费用' }} ·
+                >费用 {{ documentLabel(charge) }} · {{ charge.kind === 'labor' ? '人工' : '制造费用' }} ·
                 {{ charge.reference }} · ¥{{ charge.amount }}</span
               >
             </div>
@@ -437,7 +443,7 @@ const filteredEntries = computed(() =>
       <template #cell-document="{ row: item }">
         <div>
           <strong>
-            #{{ item.id }} · 工单 #{{ item.work_order_id }} ·
+            {{ documentLabel(item) }} · 工单 {{ relatedDocumentLabel(item, 'work_order') }} ·
             {{ { material: '材料核价', labor: '人工', overhead: '制造费用' }[item.kind] }}
           </strong>
           <p class="muted">

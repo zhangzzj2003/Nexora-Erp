@@ -1,5 +1,6 @@
 """客户名称批量导入；预检与提交共用同一套 ORM 可见范围规则。"""
 
+from app.core.document_responses import NumberedRoute
 from hashlib import sha256
 import json
 
@@ -14,7 +15,7 @@ from app.core.orm import add_model, orm_session
 from app.sales.customer_names import (comparable_customer_name, duplicate_candidates,
                                       name_match, visible_name_rows)
 
-router = APIRouter(prefix='/api/v1/customers')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/customers')
 
 
 class CustomerImportPreviewInput(BaseModel):

@@ -1,5 +1,6 @@
 """客户联系人、待办跟进与销售商机；变更保留前后版本。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 from decimal import Decimal
 from typing import Literal
@@ -15,7 +16,7 @@ from app.core.orm import orm_session, add_model, model_data
 from app.sales.crm_rules import StrictInput, VersionInput, valid_date, validate_amount, get_record, require_customer, require_contact, require_owner, record_data, raw_data, audit, copy_fields
 from app.sales.customer_scope import visible_customers
 
-router = APIRouter(prefix='/api/v1/crm')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/crm')
 CONTACT_FIELDS = ('name','job_title','phone','email','note','is_active')
 OPPORTUNITY_FIELDS = ('contact_id','title','owner_id','stage','estimated_amount','expected_close_date','note')
 

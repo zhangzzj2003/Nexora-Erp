@@ -1,5 +1,6 @@
 """报废与返工处置：严格载荷、独立审核、数量占用及原子转工单。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 from decimal import Decimal
 from typing import Literal
@@ -20,7 +21,7 @@ from app.production.work_orders import issued_quantity
 from app.production.quality_rules import (source, reserved_quantity, check_quantity, record_for,
     audit, independent_reviewer, disposition_data, now, encoded, settlement_dispositions)
 
-router = APIRouter(prefix='/api/v1/production-quality')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/production-quality')
 
 
 def quantity(value: Decimal) -> Decimal:

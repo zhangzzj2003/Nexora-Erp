@@ -64,6 +64,10 @@ Snapshot: **2026-10-03, physical lot data foundation**. Work in progress is not 
 
 Candidate sequencing and entry conditions are in the [expansion assessment (Chinese)](docs/erp-expansion-assessment.md). Build success does not replace device or business acceptance.
 
+### Document numbering
+
+The server assigns stable business numbers to 29 core document and independent payment types. Administrators choose pinyin initials or English prefixes and a server, UTC or specified IANA time zone on first login, including after an existing database upgrade. Historical backfill and the initial policy lock commit atomically, while references, physical lots and frozen evidence remain intact. See [document numbering rules](docs/document-numbering.md). The complete lot traceability page remains planned.
+
 ## Development entry points
 
 Requires Node.js 22.12+ and Python 3.11+. Setup, architecture, business constraints, testing, **build instructions**, backup/restore and website publishing now live in the detailed guide:

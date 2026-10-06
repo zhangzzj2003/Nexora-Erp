@@ -1,5 +1,6 @@
 """总账科目和会计期间基础；资料修改保留版本和前后快照。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 import re
 from datetime import date
@@ -23,7 +24,7 @@ from app.core.models import (
 )
 from app.core.orm import add_model, model_data, orm_session
 
-router = APIRouter(prefix="/api/v1/finance")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1/finance")
 
 
 class MetadataInput(BaseModel):

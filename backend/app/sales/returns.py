@@ -1,5 +1,6 @@
 """销售退货单：逐项关联已出库明细，确认后追加正向库存流水。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.engine import RowMapping
@@ -36,7 +37,7 @@ from app.sales.customer_scope import (visible_customer_ids, require_visible_ship
 UserRu = aliased(User)
 UserU = aliased(User)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class SalesReturnLineInput(BaseModel):

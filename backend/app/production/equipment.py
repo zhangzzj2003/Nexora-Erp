@@ -1,5 +1,6 @@
 """设备台账、日历维护与可追溯的执行验收，业务读写统一 ORM。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 from datetime import date, timedelta
 from decimal import Decimal
@@ -21,7 +22,7 @@ from app.production.equipment_rules import (now, encoded, permission, get, versi
 from app.production.equipment_hours import (latest_reading, reading_data, hour_plan_data,
                                             hours_text, audit_hour_plan)
 
-router = APIRouter(prefix='/api/v1/equipment')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/equipment')
 
 
 def equipment_data(db, row, user, detail=False):

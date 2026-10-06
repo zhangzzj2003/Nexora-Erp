@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
 // 日期直接使用 Naive UI，保持后端字符串格式以及原有必填和范围校验。
@@ -219,7 +221,7 @@ onMounted(() => {
           </p>
           <p v-if="result?.opening_balance">
             正式期初来源：<AppButton type="button" @click="showOpening = true" variant="text"
-              >期初-{{ result.opening_balance.id }} ·
+              >{{ documentLabel(result.opening_balance) }} ·
               {{ result.opening_balance.reference }}</AppButton
             >
             · 启用日 {{ result.opening_balance.effective_date }}
@@ -271,7 +273,7 @@ onMounted(() => {
             :disabled="connectionLost"
             @click="openLedgerReportJournal(Number(row.journal_id))"
             variant="text"
-            >记-{{ row.journal_id }}</AppButton
+            >{{ relatedDocumentLabel(row, 'journal') }}</AppButton
           ></template
         >
         <template #cell-source="{ row }"
@@ -331,7 +333,7 @@ onMounted(() => {
     <NModal
       :show="!!journal || journalLoading || !!journalError"
       preset="card"
-      :title="journal ? `记-${journal.id} · ${journalStatusLabels[journal.status]}` : '凭证详情'"
+      :title="journal ? `${documentLabel(journal)} · ${journalStatusLabels[journal.status]}` : '凭证详情'"
       :style="{
         width: 'min(1100px, calc(100vw - 32px))',
         maxHeight: 'calc(100vh - 48px)',
@@ -358,7 +360,7 @@ onMounted(() => {
             :disabled="connectionLost"
             @click="openLedgerReportJournal(journal.reversal_of_id)"
             variant="text"
-            >记-{{ journal.reversal_of_id }}</AppButton
+            >{{ relatedDocumentLabel(journal, 'reversal_of') }}</AppButton
           >
         </p>
         <p v-if="journal.reversal_journal_id">
@@ -367,7 +369,7 @@ onMounted(() => {
             :disabled="connectionLost"
             @click="openLedgerReportJournal(journal.reversal_journal_id)"
             variant="text"
-            >记-{{ journal.reversal_journal_id }}</AppButton
+            >{{ relatedDocumentLabel(journal, 'reversal_journal') }}</AppButton
           >（须过账后才抵销）。
         </p>
         <WorkspaceTable
@@ -398,7 +400,7 @@ onMounted(() => {
     >
       <div v-if="result?.opening_balance" class="stack">
         <p>
-          期初-{{ result.opening_balance.id }} · 依据 {{ result.opening_balance.reference }} ·
+          {{ documentLabel(result.opening_balance) }} · 依据 {{ result.opening_balance.reference }} ·
           启用日 {{ result.opening_balance.effective_date }} · 已确认 · 版本
           {{ result.opening_balance.version }}
         </p>

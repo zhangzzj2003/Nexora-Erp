@@ -16,6 +16,7 @@ try {
   process.exit(1)
 }
 const result = spawnSync(python, ['-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir',
+  '--collect-all', 'tzdata',
   '--name', 'nexora-server', '--distpath', 'build', '--workpath', 'build/pyinstaller',
   '--add-data', `${quoteFontSource}${dataSeparator}app/sales/fonts`,
   '--specpath', 'build/pyinstaller', 'backend/launcher.py'], {

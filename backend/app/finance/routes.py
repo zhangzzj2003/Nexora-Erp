@@ -1,5 +1,6 @@
 """从已确认业务单据推导应收应付，保留每笔金额的原始单据来源。"""
 
+from app.core.document_responses import NumberedRoute
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,7 +17,7 @@ from app.core.models import (User, Material, Customer, Supplier, SalesOrder, Sal
 from app.access.security import require
 from app.finance.subledger_rules import check_subledger
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 def money(value: Decimal) -> str:

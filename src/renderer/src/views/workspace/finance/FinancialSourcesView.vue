@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { storeToRefs } from 'pinia'
 import { usePiniaAppStore } from '../../../store/app-store'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
@@ -40,7 +42,7 @@ const sourceColumns = [
       <template #cell-party="{ row: item }">{{ item.party_name }}</template>
       <template #cell-source="{ row: item }">
         {{ financialSource(item) }}
-        <small v-if="item.order_id">· 订单 #{{ item.order_id }}</small>
+        <small v-if="item.order_id">· 订单 {{ relatedDocumentLabel(item, 'order') }}</small>
       </template>
       <template #cell-material="{ row: item }">{{ item.sku }} × {{ item.quantity }}</template>
       <template #cell-amount="{ row: item }">

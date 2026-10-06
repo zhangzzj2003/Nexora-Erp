@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
 // 日期直接使用 Naive UI，保持后端字符串格式以及原有必填和范围校验。
@@ -125,8 +127,7 @@ onMounted(() => { void runLedgerQuery() })
       <template #cell-warehouse="{ row: item }">{{ item.warehouse_name }}</template>
       <template #cell-material="{ row: item }">{{ item.sku }} · {{ item.material_name }}</template>
       <template #cell-source="{ row: item }"
-        >{{ movementTypeLabel(item.source_type) }} #{{ item.source_id
-        }}<small>明细 #{{ item.source_line_id }}</small></template
+        >{{ movementTypeLabel(item.source_type) }} {{ relatedDocumentLabel(item, 'source') }}<small>明细 #{{ item.source_line_id }}</small></template
       >
       <template #cell-quantity="{ row: item }"
         >{{ item.quantity.startsWith('-') ? '' : '+' }}{{ item.quantity }} {{ item.unit }}</template

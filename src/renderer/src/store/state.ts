@@ -1,3 +1,4 @@
+import type { DocumentNumberingConfig } from '../../../shared/document-numbering'
 import type {InventoryWarningOverview,InventoryWarningDetail,InventoryWarningEventPage,InventoryWarningInput} from '../../../shared/inventory-warning-api'
 import type {PhysicalLotOverview,PhysicalLotHistory,PhysicalLotUnallocatedList} from '../../../shared/physical-lot-api'
 import { computed, ref } from 'vue'
@@ -110,6 +111,8 @@ import type { Screen } from './types'
 
 // 表单草稿与服务端快照按应用实例创建，切换页面时保留输入。
 export function createAppState() {
+  // 服务端规则与会话一起刷新，切换实例时不能沿用旧服务的编号配置。
+  const documentNumbering = ref<DocumentNumberingConfig | null>(null)
   const lotOverview=ref<PhysicalLotOverview|null>(null),lotHistory=ref<PhysicalLotHistory|null>(null)
   const lotUnallocated=ref<PhysicalLotUnallocatedList|null>(null)
   const lotLoading=ref(false),lotError=ref(''),lotWarehouseId=ref(0),lotMaterialId=ref(0)
@@ -536,6 +539,7 @@ export function createAppState() {
   )
 
   return {
+    documentNumbering,
     lotOverview,lotHistory,lotUnallocated,lotLoading,lotError,lotWarehouseId,lotMaterialId,
     dashboardResult, dashboardPeriod, dashboardLoading, dashboardError,
     qualityOverview, qualityDetail, qualityLoading, qualityError, qualityEdit, qualityForm,

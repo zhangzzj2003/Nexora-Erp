@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -68,7 +70,7 @@ const activeInbound = computed(() => otherInbounds.value.find(item =>
   item.id === activeInboundId.value && item.status === 'draft') ?? null)
 const query = ref('')
 const filtered = computed(() => otherInbounds.value.filter((item) =>
-  [item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
+  [documentSearch(item), item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
     .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const reasonName = { opening: '期初补录', gift: '赠品', other: '其他' }
 const columns = [
@@ -192,7 +194,7 @@ async function confirmLotPost(): Promise<void> {
         </WorkspaceDocumentDialog>
       </template>
       <template #cell-document="{ row: item }"
-        ><strong>#{{ item.id }}</strong
+        ><strong>{{ documentLabel(item) }}</strong
         ><small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small
         ><small>{{
           item.status === 'draft'
@@ -266,7 +268,7 @@ async function confirmLotPost(): Promise<void> {
         maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
       <form v-if="activeInbound && can('other_inbound.post')" class="stack inbound-lot-editor"
         @submit.prevent="confirmLotPost">
-        <h2>其他入库 #{{ activeInbound.id }} · 实物批次</h2>
+        <h2>其他入库 {{ documentLabel(activeInbound) }} · 实物批次</h2>
         <p>按实际入库逐行登记批次，数量之和须等于入库量。来源批号和日期缺失时留空，系统会保留独立的入库来源编号。</p>
         <section v-for="line in lotDrafts" :key="line.inbound_line_id" class="stack inbound-lot-line">
           <h3>{{ activeInbound.lines.find(item=>item.id===line.inbound_line_id)?.sku }} · {{ activeInbound.lines.find(item=>item.id===line.inbound_line_id)?.material_name }} · {{ activeInbound.lines.find(item=>item.id===line.inbound_line_id)?.quantity }} {{ activeInbound.lines.find(item=>item.id===line.inbound_line_id)?.unit }}</h3>

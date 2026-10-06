@@ -23,6 +23,7 @@ test('业务列表返回 404 时，权限目录仍优先取得服务端数据', 
   globalThis.window = { nexora: { async callApi(action) {
     calls.push(action)
     if (action === 'me') return admin
+    if (action === 'documentNumbering') return { configured: true }
     if (action === 'permissions') return [permission]
     if (action === 'materials') throw new Error('Not Found')
     return []
@@ -33,7 +34,7 @@ test('业务列表返回 404 时，权限目录仍优先取得服务端数据', 
   const { refreshData } = createDataLoader(state, can, () => {})
 
   await assert.rejects(refreshData(), /Not Found/)
-  assert.deepEqual(calls.slice(0, 2), ['me', 'permissions'])
+  assert.deepEqual(calls.slice(0, 3), ['me', 'documentNumbering', 'permissions'])
   assert.deepEqual(state.permissions.value, [permission])
   assert.equal(state.permissionLabelDrafts.value['bom.activate'], '启用 BOM')
 })

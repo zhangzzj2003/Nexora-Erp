@@ -1,5 +1,6 @@
 """生产成本 ORM 归集：库存平均成本优先，人工和制造费用独立留痕。"""
 
+from app.core.document_responses import NumberedRoute
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 
@@ -19,7 +20,7 @@ from app.inventory.valuation import calculate_valuation
 from app.production.cost_lock import active_settlement, ensure_unsettled
 from app.production.quality_rules import rework_source
 
-router = APIRouter(prefix='/api/v1')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1')
 
 
 def money(value: Decimal) -> str:

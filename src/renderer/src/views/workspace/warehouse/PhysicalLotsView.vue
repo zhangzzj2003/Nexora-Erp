@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {storeToRefs} from 'pinia'
 import {RouterLink} from 'vue-router'
@@ -343,7 +345,7 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
         <WorkspaceTable title="待补证流水" :show-title="false" :columns="unallocatedColumns"
           :data="unallocated.rows" :min-table-width="900">
           <template #cell-created_at="{row}">{{ store.localTime(row.created_at) }}</template>
-          <template #cell-source="{row}"><strong>{{ movementTypeLabel(row.source_type) }} #{{ row.source_id }}</strong><span class="lot-muted">明细 #{{ row.source_line_id }} · 流水 #{{ row.movement_id }}</span></template>
+          <template #cell-source="{row}"><strong>{{ movementTypeLabel(row.source_type) }} {{ relatedDocumentLabel(row, 'source') }}</strong><span class="lot-muted">明细 #{{ row.source_line_id }} · 流水 #{{ row.movement_id }}</span></template>
           <template #cell-action="{row}"><AppButton v-if="store.can('physical_lot.movement_evidence')" type="button" :disabled="disabled" @click="selectMovement(row)">逐笔补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectPair(row)">成对补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectGroup(row)">多笔成组</AppButton></template>
           <template #empty>当前筛选范围没有可补证的未分配流水。</template>
         </WorkspaceTable>
@@ -408,14 +410,14 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
         <h4>已归属的库存流水</h4>
         <WorkspaceTable title="批次流水" :show-title="false" :columns="movementColumns" :data="history.movements" :min-table-width="1000">
           <template #cell-created_at="{row}">{{ store.localTime(row.created_at) }}</template>
-          <template #cell-source="{row}"><strong>{{ movementTypeLabel(row.source_type) }} #{{ row.source_id }}</strong><span class="lot-muted">明细 #{{ row.source_line_id }} · 库存流水 #{{ row.movement_id }} · {{ row.created_by_name || '操作人未记录' }}</span></template>
+          <template #cell-source="{row}"><strong>{{ movementTypeLabel(row.source_type) }} {{ relatedDocumentLabel(row, 'source') }}</strong><span class="lot-muted">明细 #{{ row.source_line_id }} · 库存流水 #{{ row.movement_id }} · {{ row.created_by_name || '操作人未记录' }}</span></template>
           <template #cell-original_allocation_id="{row}">{{ row.original_allocation_id ? `冲销分配 #${row.original_allocation_id}` : '—' }}</template>
           <template #empty>该批次暂无新制分配流水；历史期初不会被伪装为逐笔来源。</template>
         </WorkspaceTable>
         <h4>旧流水逐笔补证</h4>
         <WorkspaceTable title="逐笔补证记录" :show-title="false" :columns="movementEvidenceColumns" :data="history.movement_evidence" :min-table-width="900">
           <template #cell-created_at="{row}">{{ store.localTime(row.created_at) }}</template>
-          <template #cell-source="{row}"><strong>{{ movementTypeLabel(row.source_type) }} #{{ row.source_id }}</strong><span class="lot-muted">{{ row.warehouse_name }} · 明细 #{{ row.source_line_id }} · 流水 #{{ row.movement_id }}</span></template>
+          <template #cell-source="{row}"><strong>{{ movementTypeLabel(row.source_type) }} {{ relatedDocumentLabel(row, 'source') }}</strong><span class="lot-muted">{{ row.warehouse_name }} · 明细 #{{ row.source_line_id }} · 流水 #{{ row.movement_id }}</span></template>
           <template #cell-evidence="{row}">{{ row.evidence }} · {{ row.created_by_name }}
             <span v-if="row.original_evidence_id" class="lot-muted">冲销原补证 #{{ row.original_evidence_id }}</span>
             <AppButton v-else-if="canReverseMovementEvidence(row)" type="button" :disabled="disabled" @click="reversingMovementEvidenceId=row.id">冲销逐笔补证</AppButton>

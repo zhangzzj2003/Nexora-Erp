@@ -1,5 +1,6 @@
 """按已过账余额生成损益结转；金额与来源在服务端事务内固定。"""
 
+from app.core.document_responses import NumberedRoute
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -24,7 +25,7 @@ from app.finance.ledger_reports import confirmed_opening_lines
 from app.finance.opening_rules import check_journal_opening
 from app.finance.auxiliary_rules import snapshot_values, combination
 
-router = APIRouter(prefix='/api/v1/finance/profit-transfers')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/profit-transfers')
 ZERO = Decimal(0)
 
 

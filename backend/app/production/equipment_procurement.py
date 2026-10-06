@@ -1,5 +1,6 @@
 """维护工单的备件采购来源与后续到货证据。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 from decimal import Decimal
 
@@ -18,7 +19,7 @@ from app.production.equipment_inputs import Part
 from app.production.equipment_rules import audit, get, job_data, permission, version
 from app.purchase.requests import PurchaseRequestInput, create_purchase_request_in_session
 
-router = APIRouter(prefix='/api/v1/equipment')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/equipment')
 
 
 class MaintenancePurchaseInput(BaseModel):

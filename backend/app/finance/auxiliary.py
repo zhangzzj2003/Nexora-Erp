@@ -1,5 +1,6 @@
 """辅助档案、科目规则及同一快照的辅助余额和逐笔来源。"""
 
+from app.core.document_responses import NumberedRoute
 import csv
 import json
 from datetime import datetime, timezone
@@ -24,7 +25,7 @@ from app.finance.ledger_reports import confirmed_opening_lines, sides
 from app.finance.opening_rules import active_opening
 from app.reports.routes import csv_value
 
-router = APIRouter(prefix='/api/v1/finance/auxiliary')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/auxiliary')
 ZERO = Decimal(0)
 
 

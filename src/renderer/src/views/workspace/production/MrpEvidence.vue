@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NCollapse } from 'naive-ui'
@@ -32,7 +34,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
 <template>
   <section v-if="item" class="stack">
     <div class="card mrp-panel">
-      <div class="mrp-toolbar"><h2>{{ item.reference }} · 固定计划</h2><AppButton :disabled="connectionLost" @click="store.exportMrp()">导出固定 CSV</AppButton><AppButton @click="store.clearMrpDetail()">关闭结果</AppButton></div>
+      <div class="mrp-toolbar"><h2>{{ documentLabel(item) }} · {{ item.reference }} · 固定计划</h2><AppButton :disabled="connectionLost" @click="store.exportMrp()">导出固定 CSV</AppButton><AppButton @click="store.clearMrpDetail()">关闭结果</AppButton></div>
       <p>{{ mrpStatus[item.status] }} · v{{ item.version }} · {{ item.created_by_name }} · 计划起日 {{ item.start_date }} · 计算于 {{ store.localTime(item.snapshot.captured_at) }}</p>
       <p v-if="!check?.matched" role="alert">当前来源已变化或计划已过期，旧结果保留供追溯。请回到需求编排重新读取并新建计算；此结果不能提交、批准或转单。</p>
       <p v-else role="status">当前库存、来源、BOM 与参数仍匹配。每次提交、批准及转单都会再次核对。</p>
@@ -45,7 +47,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
       <template #cell-material="{ row }">{{ row.sku }} · {{ row.name }}<span class="muted mrp-line">{{ mrpMode[row.supply_mode] }} · {{ row.unit }}<template v-if="row.bom_id"> · BOM #{{ row.bom_id }} v{{ row.bom_version }}</template></span></template>
       <template #cell-release="{ row }">{{ row.release_date }}<span v-if="row.late" class="mrp-line">提前期不足：应在 {{ row.required_release_date }} 投放</span></template>
       <template #cell-actions="{ row }">
-        <template v-if="conversions(row.key)"><span>{{ conversions(row.key)!.purchase_request_id ? '采购申请' : '工单' }} #{{ conversions(row.key)!.purchase_request_id || conversions(row.key)!.work_order_id }} · {{ conversions(row.key)!.target_reference }}</span>
+        <template v-if="conversions(row.key)"><span>{{ conversions(row.key)!.purchase_request_id ? '采购申请' : '工单' }} {{ relatedDocumentLabel(conversions(row.key)!, conversions(row.key)!.purchase_request_id ? 'purchase_request' : 'work_order') }} · {{ conversions(row.key)!.target_reference }}</span>
           <span class="muted mrp-line">{{ conversions(row.key)!.target_status === 'cancelled' ? '原单已取消，须新建计划' : '已转原单，按原单流程执行' }}</span>
           <AppButton v-if="store.can(conversions(row.key)!.purchase_request_id ? 'purchase_request.view' : 'production.view')" size="small" @click="store.navigateToRoute(conversions(row.key)!.purchase_request_id ? 'purchaseRequests' : 'workOrders')">打开原单列表</AppButton>
         </template>
@@ -67,7 +69,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
       <ul><li v-for="row in source.demand_sources" :key="row.key">需求 {{ mrpSourceLabel(row) }} · {{ row.quantity }}<template v-if="row.bom_id"> · BOM #{{ row.bom_id }} v{{ row.bom_version }}</template></li>
         <li v-for="row in source.supply_sources" :key="row.key">供给 {{ mrpSourceLabel(row) }} · {{ row.quantity }} · 安排日 {{ row.scheduled_date }}</li></ul>
       <h4>计算时参数与 BOM</h4><p v-if="materialPolicy">{{ mrpMode[materialPolicy.supply_mode] }} · 参数 v{{ materialPolicy.version }} · 提前期 {{ materialPolicy.lead_time_days }} 日 · 安全库存 {{ materialPolicy.safety_stock }} · 最小批量 {{ materialPolicy.minimum_quantity }} · 倍数 {{ materialPolicy.multiple_quantity }}</p>
-      <p v-if="materialBom">BOM #{{ materialBom.id }} v{{ materialBom.version }} · 基数 {{ materialBom.base_quantity }}</p>
+      <p v-if="materialBom">BOM {{ documentLabel(materialBom) }} v{{ materialBom.version }} · 基数 {{ materialBom.base_quantity }}</p>
       <ul v-if="materialBom"><li v-for="line in materialBom.lines" :key="line.id">{{ item.snapshot.sources.materials.find(row=>row.id===line.component_material_id)?.name }} · {{ line.quantity }}</li></ul>
       <WorkspaceTable title="计算时库存流水（全部仓库）" :columns="[{key:'id',title:'流水'}, {key:'warehouse_id',title:'仓库编号'}, {key:'quantity',title:'数量'}, {key:'source_type',title:'来源类型'}, {key:'source_id',title:'原单编号'}, {key:'created_at',title:'记入时间'}]" :data="movements" :min-table-width="800">
         <template #cell-source_type="{ row }">{{ movementTypeLabel(row.source_type) }}</template>
@@ -80,7 +82,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
       <NCollapse><AppCollapseItem v-for="change in changes" :key="change.id" :name="String(change.id)" :title="`${store.localTime(change.created_at)} · ${change.changed_by_name} · ${actionName(change.action)} · ${change.reason}`">
         <p>{{ change.before ? mrpStatus[change.before.status] + ' v' + change.before.version : '无原计划' }} → {{ mrpStatus[change.after.status] }} v{{ change.after.version }} · 累计转单 {{ change.after.conversions.length }} 条</p>
       </AppCollapseItem></NCollapse>
-      <p v-for="conversion in item.conversions" :key="conversion.id">{{ conversion.suggestion_key }} → {{ conversion.purchase_request_id ? '采购申请' : '工单' }} #{{ conversion.purchase_request_id || conversion.work_order_id }} · {{ conversion.created_by_name }} · {{ store.localTime(conversion.created_at) }} · {{ conversion.reason }}</p>
+      <p v-for="conversion in item.conversions" :key="conversion.id">{{ conversion.suggestion_key }} → {{ conversion.purchase_request_id ? '采购申请' : '工单' }} {{ relatedDocumentLabel(conversion, conversion.purchase_request_id ? 'purchase_request' : 'work_order') }} · {{ conversion.created_by_name }} · {{ store.localTime(conversion.created_at) }} · {{ conversion.reason }}</p>
     </section>
   </section>
 </template>

@@ -1,5 +1,6 @@
 """公司配置的资产负债与损益报表；查询、归档均使用同一 ORM 快照。"""
 
+from app.core.document_responses import NumberedRoute
 import csv
 import hashlib
 import json
@@ -27,7 +28,7 @@ from app.finance.opening_rules import active_opening
 from app.reports.routes import csv_value
 from app.finance.auxiliary_rules import snapshot_values
 
-router = APIRouter(prefix='/api/v1/finance/statements')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/statements')
 ZERO = Decimal(0)
 GROUPS = {'asset': '资产', 'liability': '负债', 'equity': '权益', 'revenue': '收入', 'expense': '费用及销售成本'}
 

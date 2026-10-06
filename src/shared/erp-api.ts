@@ -1,3 +1,4 @@
+import type { DocumentNumberingOperations, NumberedDocument } from './document-numbering'
 import type { Supplier, SupplierInput } from './supplier-api'
 export type { Supplier, SupplierInput } from './supplier-api'
 import type {InventoryWarningOperations} from './inventory-warning-api'
@@ -142,7 +143,7 @@ export interface JournalLine extends JournalLineInput {
   id: number; journal_id: number; position: number; account_code: string; account_name: string
   category: LedgerCategory; normal_balance: 'debit' | 'credit'
 }
-export interface Journal {
+export interface Journal extends NumberedDocument {
   id: number; reference: string; journal_date: string; period_id: number; period_code: string; note: string
   currency: 'CNY'; status: JournalStatus; version: number; reversal_of_id: number | null; reversal_journal_id: number | null
   created_by: number; created_by_name: string; created_at: string; author_ids: number[]
@@ -271,7 +272,7 @@ export interface SubledgerReconciliation {
   opening_balance_id: number; opening_version: number; effective_date: string; currency: 'CNY'; matched: boolean
   rows: { account_id: number; auxiliary: AuxiliarySnapshot[]; ledger_amount: string; subledger_amount: string; difference: string }[]
 }
-export interface SubledgerOpening extends Omit<SubledgerInput, 'reason' | 'lines'> {
+export interface SubledgerOpening extends Omit<SubledgerInput, 'reason' | 'lines'>, NumberedDocument {
   id: number; effective_date: string; status: OpeningBalance['status']; version: number; active_key: number | null
   lines: SubledgerLine[]; evidence: SubledgerReconciliation | null; currency: 'CNY'; author_ids: number[]
   created_by: number; created_by_name: string; created_at: string
@@ -284,7 +285,7 @@ export interface SubledgerChange extends FinanceMetadataChange<Omit<SubledgerOpe
   action: OpeningBalanceAction | 'create' | 'update'
 }
 export interface SubledgerPaymentInput { line_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; reason: string }
-export interface SubledgerPayment {
+export interface SubledgerPayment extends NumberedDocument {
   id: number; opening_line_id: number; action: 'settlement' | 'refund' | 'reversal'; amount: string; reference: string; note: string
   reverses_id: number | null; created_by: number; created_by_name: string; created_at: string; currency: 'CNY'
   kind: SubledgerKind; account_id: number; party_id: number; party_name: string; document_reference: string; auxiliary: AuxiliarySnapshot[]
@@ -313,7 +314,7 @@ export interface AccountingPeriodInput {
   code: string; name: string; start_date: string; end_date: string; reason: string
 }
 // 非采购入库沿用单据确认和冲销模式，不进入采购应付来源。
-export interface OtherInbound {
+export interface OtherInbound extends NumberedDocument {
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -337,7 +338,7 @@ export interface OtherInbound {
   lines: (ReceiptLine & {physical_lots: ReceiptPhysicalLot[]})[]
 }
 // 出库确认才扣库存；后续采购退货沿用仓库确认单。
-export interface WarehouseOutbound {
+export interface WarehouseOutbound extends NumberedDocument {
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -363,7 +364,7 @@ export interface WarehouseOutbound {
   purchase_return_id: number | null
 }
 // 正负调整量在审批前固定，审批人与建单人必须不同。
-export interface StockAdjustment {
+export interface StockAdjustment extends NumberedDocument {
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -437,7 +438,7 @@ export interface ReceivedLine extends ReceiptLine {
   returnable_quantity: string
   physical_lots: ReceiptPhysicalLot[]
 }
-export interface Receipt {
+export interface Receipt extends NumberedDocument {
   id: number
   supplier_id: number
   supplier_name: string
@@ -471,7 +472,7 @@ export interface GoodsReceiptLine {
   rejected_quantity: string
   rejection_reason: string
 }
-export interface GoodsReceipt {
+export interface GoodsReceipt extends NumberedDocument {
   id: number
   purchase_order_id: number
   supplier_id: number
@@ -498,7 +499,7 @@ export interface PurchaseRequestLine extends ReceiptLine {
   ordered_quantity: string
   remaining_quantity: string
 }
-export interface PurchaseRequest {
+export interface PurchaseRequest extends NumberedDocument {
   id: number
   reference: string
   note: string
@@ -526,7 +527,7 @@ export interface PurchaseOrderLine extends ReceiptLine {
   remaining_quantity: string
   line_total: string
 }
-export interface PurchaseOrder {
+export interface PurchaseOrder extends NumberedDocument {
   id: number
   purchase_request_id: number | null
   supplier_id: number
@@ -549,7 +550,7 @@ export interface PurchaseReturnLine extends ReceiptLine {
   unit_price: string | null
   line_total: string | null
 }
-export interface PurchaseReturn {
+export interface PurchaseReturn extends NumberedDocument {
   id: number
   receipt_id: number
   supplier_id: number
@@ -616,7 +617,7 @@ export interface FinanceAccount {
   source_keys: string[]
 }
 // 原收付款和冲销均为独立、不可编辑的记录，负金额表示退款或反向冲销。
-export interface PaymentRecord {
+export interface PaymentRecord extends NumberedDocument {
   id: number
   kind: 'receivable' | 'payable'
   order_id: number
@@ -632,7 +633,7 @@ export interface PaymentRecord {
   party_name: string
   currency: 'CNY'
 }
-export interface OrderSettlementTransfer {
+export interface OrderSettlementTransfer extends NumberedDocument {
   id: number
   kind: 'receivable' | 'payable'
   party_id: number
@@ -743,7 +744,7 @@ export interface WorkOrderLine {
   remaining_quantity: string
 }
 // 工单组件需求在建单时固定，旧 BOM 停用也不会改变已下达工单。
-export interface WorkOrder {
+export interface WorkOrder extends NumberedDocument {
   id: number
   bom_id: number
   bom_version: number
@@ -788,7 +789,7 @@ export interface MaterialIssueLine {
   physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
 // 确认后的领料单生成独立负向库存流水；原单据保留供追溯。
-export interface MaterialIssue {
+export interface MaterialIssue extends NumberedDocument {
   id: number
   work_order_id: number
   warehouse_id: number
@@ -820,7 +821,7 @@ export interface MaterialReturnLine {
   physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
 // 退料引用原领料明细并回到原仓库，确认后生成独立正向流水。
-export interface MaterialReturn {
+export interface MaterialReturn extends NumberedDocument {
   id: number
   material_issue_id: number
   work_order_id: number
@@ -842,7 +843,7 @@ export interface MaterialReturn {
   lines: MaterialReturnLine[]
 }
 // 完工单记录报工与质检结果；确认时只有合格数量进入成品仓库。
-export interface ProductionCompletion {
+export interface ProductionCompletion extends NumberedDocument {
   id: number
   work_order_id: number
   warehouse_id: number
@@ -927,7 +928,7 @@ export interface ProductionMaterialSource {
   cost_source: 'inventory' | 'manual'
   cost_entry_id: number | null
 }
-export interface ProductionCostSettlement {
+export interface ProductionCostSettlement extends NumberedDocument {
   id: number
   work_order_id: number
   reference: string
@@ -972,7 +973,7 @@ export interface SalesOrderLine extends ReceiptLine {
   remaining_quantity: string
   line_total: string
 }
-export interface SalesOrder {
+export interface SalesOrder extends NumberedDocument {
   id: number
   customer_id: number
   customer_name: string
@@ -1025,7 +1026,7 @@ export interface SalesOrderContractAttachmentList {
   can_modify: boolean
   items: SalesOrderContractAttachment[]
 }
-export interface Shipment {
+export interface Shipment extends NumberedDocument {
   id: number
   sales_order_id: number
   warehouse_id: number
@@ -1059,7 +1060,7 @@ export interface SalesReturnLine extends ReceiptLine {
   line_total: string
   physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
-export interface SalesReturn {
+export interface SalesReturn extends NumberedDocument {
   id: number
   shipment_id: number
   sales_order_id: number
@@ -1108,7 +1109,7 @@ export interface StocktakeLine {
   difference: string
   physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
-export interface Stocktake {
+export interface Stocktake extends NumberedDocument {
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -1220,7 +1221,7 @@ export interface ReportResult {
   csv: string
 }
 
-export interface ErpOperations extends MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations {
+export interface ErpOperations extends DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations {
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
   login: { input: { username: string; password: string }; output: User }

@@ -1,5 +1,6 @@
 """生产 BOM 版本与启停用；工单将引用固定版本的成品和组件。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session
 from decimal import Decimal
@@ -11,7 +12,7 @@ from app.core.orm import orm_session, add_model
 from app.core.models import Bom, BomLine, Material, User
 from app.access.security import require
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class BomLineInput(BaseModel):

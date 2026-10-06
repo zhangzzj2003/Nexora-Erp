@@ -1,5 +1,6 @@
 """采购入库单及冲销接口。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
@@ -38,7 +39,7 @@ from app.purchase.returns import returned_quantity as purchase_returned_quantity
 UserRu = aliased(User)
 UserU = aliased(User)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class ReceiptLineInput(BaseModel):

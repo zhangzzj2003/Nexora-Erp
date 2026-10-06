@@ -18,7 +18,7 @@ export interface FooterStatus {
 
 // 引导页保留连接操作的反馈；进入登录或工作台后只汇报服务连接本身。
 export function resolveFooterStatus(input: FooterStatusInput): FooterStatus {
-  const isOnboarding = !['login', 'setup', 'app'].includes(input.screen)
+  const isOnboarding = !['login', 'setup', 'numbering', 'app'].includes(input.screen)
   if (isOnboarding) {
     if (input.error) return { message: input.error, tone: 'error' }
     if (input.notice) return { message: input.notice, tone: 'success' }

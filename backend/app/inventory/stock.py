@@ -1,5 +1,6 @@
 """库存余额与流水 ORM 查询，数量始终使用 Decimal 汇总。"""
 
+from app.core.document_responses import NumberedRoute
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,7 +10,7 @@ from app.access.security import require
 from app.core.models import Material, Warehouse, StockMovement
 from app.core.orm import orm_session, model_data
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 # 保留旧桌面接口的单据链接字段，调拨的一出一入指向同一张来源单据。
 MOVEMENT_LINKS = {

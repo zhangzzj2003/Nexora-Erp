@@ -44,6 +44,12 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 物料、供应商和客户资料、采购申请与订单、分批收货及待入库确认、采购退货待出库确认、其他入出库、多仓库存、调拨、盘点、独立调整、库存台账与基础报表已实现。销售与生产原有单据继续使用。确认入库、出库、退货、调拨或有差异的盘点会在单个事务中生成库存流水；重复确认返回冲突。所有数据由服务端 SQLite 保存，远程客户端没有离线副本或自动同步。
 
+## 实例级单据编号
+
+数据库第 88 版为 29 类主单增加只读 `document_no`，并增加 `document_numbering_settings` 与 `document_number_sequences`。`app/core/document_types.py` 维护前缀白名单，`document_numbering.py` 提供时区换算与 ORM 同事务流水，`document_responses.py` 在已授权响应补充主单和来源编号；不改变历史快照或财务指纹。`app/service/document_numbering.py` 提供认证后的配置 GET 和管理员 PUT，并在全局依赖拒绝未配置的业务写入。升级后须由管理员选择规则再补号，启动不自动选择风格。
+
+指定时区依赖 `tzdata` 并通过 PyInstaller 收集完整包，以统一 Windows、macOS 与独立服务的 IANA 数据。本机模式仍读取系统当前时区。详见 [编号规则、接口和升级边界](../docs/document-numbering.md)。
+
 ## 基础资料与供货关系
 
 第 86 版增加供应商联系及结算资料，旧资料默认空值并保留编号、关系、版本和历史审计。`app/catalog/supplier_profiles.py` 维护完善状态及物料保存时的原子绑定；物料编辑可搜索已有供应商或从新名称创建待完善档案，联系人、电话、地址补齐后自动变为已完善。取消表单不创建，失败整体回滚；单独绑定也递增物料版本。字段、兼容与冲突规则见 [物料管理规则](../docs/material-catalog.md#供应商绑定与待完善档案)。客户端和服务端须同步升级。

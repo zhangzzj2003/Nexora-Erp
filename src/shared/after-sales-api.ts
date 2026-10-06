@@ -1,3 +1,4 @@
+import type { NumberedDocument } from './document-numbering'
 import type { MaterialChoice } from './material-api'
 export type AfterSalesKind = 'return' | 'exchange' | 'repair'
 export type AfterSalesStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'processing' | 'received' | 'repaired' | 'closed' | 'cancelled' | 'reversed'
@@ -47,7 +48,7 @@ export interface AfterSalesInput {
   parts:AfterSalesPart[]; reason:string
 }
 export interface AfterSalesDraft extends Omit<AfterSalesInput,'charge_mode'> {charge_mode:AfterSalesInput['charge_mode']|''}
-export interface AfterSalesEvidence extends Omit<AfterSalesInput,'parts'|'reason'> {
+export interface AfterSalesEvidence extends Omit<AfterSalesInput,'parts'|'reason'> , NumberedDocument {
   id:number; status:AfterSalesStatus; version:number; created_by:number; created_by_name:string; created_at:string
   submitted_by:number|null; reviewed_by:number|null; closed_by:number|null; reversed_by:number|null
   submitted_at:string|null; reviewed_at:string|null; closed_at:string|null; reversed_at:string|null

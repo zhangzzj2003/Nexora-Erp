@@ -128,7 +128,7 @@ def test_v68_upgrade_adds_bank_models_and_permissions(monkeypatch, tmp_path):
         db.execute('PRAGMA user_version = 68')
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 87
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'bank_reconciliation.%'").fetchone()[0] == 7
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
 
@@ -230,7 +230,7 @@ def test_v69_upgrade_preserves_manual_bank_lines(monkeypatch, tmp_path):
         db.execute('PRAGMA user_version = 69')
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 87
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
         assert 'import_batch_id' in {row[1] for row in db.execute('PRAGMA table_info(bank_statement_lines)')}
         assert db.execute("SELECT transaction_id,import_batch_id FROM bank_statement_lines").fetchall() == [('OLD-1', None)]
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []

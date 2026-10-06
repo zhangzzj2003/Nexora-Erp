@@ -58,7 +58,8 @@ def orm_session(*, write: bool = False) -> Iterator[Session]:
 
 
 def model_data(model) -> dict:
-    return {column.key: getattr(model, column.key) for column in model.__mapper__.columns}
+    # 编号仅是展示标识，不进入既有审计快照和来源指纹，避免补号使历史证据失效。
+    return {column.key: getattr(model, column.key) for column in model.__mapper__.columns if column.key != 'document_no'}
 
 
 def add_model(session: Session, model: Model) -> Model:
@@ -66,3 +67,18 @@ def add_model(session: Session, model: Model) -> Model:
     session.add(model)
     session.flush()
     return model
+
+
+@event.listens_for(Session, 'before_flush')
+def number_new_documents(session: Session, flush_context, instances):
+    # 全部 ORM 建单入口都经过此边界，包含直接 add 与自动生成关联主单。
+    from app.core.document_numbering import assign_documents
+    assign_documents(session, flush_context, instances)
+
+
+@event.listens_for(Session, 'after_rollback')
+@event.listens_for(Session, 'after_commit')
+def clear_numbering_cache(session: Session):
+    # 复用 ORM 会话时必须重新读流水，避免回滚后的临时对象或其他事务变更留在缓存。
+    session.info.pop('document_sequences', None)
+    session.info.pop('backfilling_documents', None)

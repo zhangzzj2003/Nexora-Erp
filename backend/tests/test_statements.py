@@ -83,7 +83,10 @@ def test_precise_statement_before_and_after_transfer_and_archive(statements):
     saved = archived(client, after)
     assert saved['snapshot']['csv'] == after['csv']
     assert client.get(URL+'/archives').json()[0]['id'] == saved['id']
-    assert client.get(URL+f'/archives/{saved["id"]}').json()['snapshot']['sources'] == after['sources']
+    # 展示关联单号不写入固定归档；原财务来源仍逐字段一致。
+    assert all(row['journal_document_no'].startswith('JV-') for row in after['sources'])
+    assert client.get(URL+f'/archives/{saved["id"]}').json()['snapshot']['sources'] == [
+        {key: value for key, value in row.items() if not key.endswith('_document_no')} for row in after['sources']]
     archived(client, after, 409)
 
 
@@ -224,7 +227,7 @@ def test_v45_migration_atomic_retry(statements,remove_statement_schema):
         db.execute('DROP TRIGGER fail_statement_permissions')
     migrate();migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 87
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 88
 
 
 def test_opening_is_balance_only_and_pending_opening_blocks(statements):

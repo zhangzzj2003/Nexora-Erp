@@ -1,5 +1,6 @@
 """设备运行小时读数与按表计阈值触发的保养计划。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 from decimal import Decimal
 
@@ -15,7 +16,7 @@ from app.core.models import (EquipmentAsset, EquipmentMeterReading, MaintenanceH
 from app.core.orm import add_model, model_data, orm_session
 from app.production.equipment_rules import active_jobs, encoded, get, permission, version
 
-router = APIRouter(prefix='/api/v1/equipment')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/equipment')
 HUNDREDTH = Decimal('0.01')
 
 

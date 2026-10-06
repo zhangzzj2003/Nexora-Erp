@@ -108,6 +108,11 @@ export function createDataLoader(
       state.periodClosingHistory.value = []
       state.periodClosingError.value = ''
     }
+    state.documentNumbering.value = await window.nexora.callApi('documentNumbering', undefined)
+    if (!state.documentNumbering.value.configured && user.value?.roles.includes('admin')) {
+      state.screen.value = 'numbering'
+      return
+    }
     syncWorkspaceRoute()
     await loadPermissions()
     state.menuIcons.value = await window.nexora.callApi('menuIcons', undefined)

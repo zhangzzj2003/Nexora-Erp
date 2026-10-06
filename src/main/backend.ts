@@ -1,3 +1,4 @@
+import { documentNumberingBody, validateDocumentNumbering, validateDocumentNumbers } from '../shared/document-numbering.ts'
 import { supplierBody } from '../shared/supplier-api.ts'
 import { materialUnitBody, validateMaterialUnitResult } from '../shared/material-unit-api.ts'
 import { validateMaterialChoiceResult } from '../shared/material-choice-validation.ts'
@@ -559,6 +560,8 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       if (period !== '7d' && period !== '30d') throw new Error('首页统计范围无效')
       return {method:'POST', path:'/api/v1/dashboard/query', body:{period}}
     }
+    case 'documentNumbering': return { method: 'GET', path: '/api/v1/system/document-numbering' }
+    case 'saveDocumentNumbering': return { method: 'PUT', path: '/api/v1/system/document-numbering', body: documentNumberingBody(payload) }
     case 'setupStatus': return { method: 'GET', path: '/api/v1/setup/status' }
     case 'inventoryWarnings': {
       if(payload!==undefined && (!payload || typeof payload!=='object' || Array.isArray(payload)))throw new Error('预警查询范围无效')
@@ -1554,7 +1557,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     response = await sendRequest(request.path, request.method, {
         ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...(publicAction ? {} : { Authorization: `Bearer ${activeToken}` })
-      }, request.body, action === 'addJournalAttachment' || action === 'addAfterSalesAttachment'
+      }, request.body, action === 'saveDocumentNumbering' ? 120000 : action === 'addJournalAttachment' || action === 'addAfterSalesAttachment'
         || action === 'addCrmQuoteAttachment' || action === 'addCrmRecordAttachment' || action === 'addEquipmentAttachment'
         || action === 'addSalesContractAttachment' ? 30000 : 10000)
   } catch {
@@ -1570,6 +1573,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     }
     throw new Error(typeof detail === 'string' ? detail : `请求失败（HTTP ${response.status}）`)
   }
+  validateDocumentNumbers(data)
   if (action === 'login') {
     if (!data || typeof data !== 'object' || !('token' in data) || typeof data.token !== 'string'
       || !('user' in data) || !data.user) throw new Error('登录响应格式不匹配')
@@ -1577,6 +1581,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     return data.user
   }
   if (action === 'logout' || action === 'changePassword') setSessionToken(null)
+  if (action === 'documentNumbering' || action === 'saveDocumentNumbering') validateDocumentNumbering(data)
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
   if (action === 'customerImportPreview') validateCustomerImportPreview(data,
     customerImportNames(payload))

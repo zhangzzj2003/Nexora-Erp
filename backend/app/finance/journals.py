@@ -1,5 +1,6 @@
 """总账凭证：版本审计、独立审核和追加式冲销。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 import re
 from datetime import datetime, timezone
@@ -28,7 +29,7 @@ from app.finance.opening_rules import check_journal_opening
 from app.finance.auxiliary_rules import (AuxiliaryReference, line_data, validate_references,
     validate_line, save_snapshots, snapshot_values, selection_options)
 
-router = APIRouter(prefix="/api/v1/finance/journals")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1/finance/journals")
 
 
 class ReasonInput(BaseModel):

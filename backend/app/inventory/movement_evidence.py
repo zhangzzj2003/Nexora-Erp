@@ -1,5 +1,6 @@
 """旧客户端未分配流水的逐笔补证；正式库存流水保持原样。"""
 
+from app.core.document_responses import NumberedRoute
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
@@ -19,7 +20,7 @@ from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.inventory.physical_lots import lot_balance, unassigned_stock_quantity
 
 
-router = APIRouter(prefix='/api/v1/inventory/physical-lots')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/inventory/physical-lots')
 
 
 class MovementEvidenceInput(PhysicalLotPartInput):

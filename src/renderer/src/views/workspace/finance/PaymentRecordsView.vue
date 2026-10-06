@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -44,8 +46,7 @@ const paymentColumns = [
 ]
 const filteredPayments = computed(() =>
   paymentRecords.value.filter((item) =>
-    matchesRecordQuery(paymentQuery.value, [
-      item.id,
+    matchesRecordQuery(paymentQuery.value, [documentSearch(item), item.id,
       item.order_id,
       item.party_name,
       item.reference,
@@ -170,10 +171,10 @@ const transferColumns = [
           <label>贷方来源订单<WorkspaceSelect v-model="orderSettlementForm.from_order_id" required
             @change="orderSettlementForm.to_order_id = 0"
             :options="[{ label: '选择可用贷方订单', value: 0, disabled: true },
-              ...creditOptions.map(item => ({ label: `#${item.order_id} · ${item.party_name} · 可用 ¥${item.outstanding_amount.slice(1)}`, value: item.order_id }))]" /></label>
+              ...creditOptions.map(item => ({ label: `${relatedDocumentLabel(item, 'order')} · ${item.party_name} · 可用 ¥${item.outstanding_amount.slice(1)}`, value: item.order_id }))]" /></label>
           <label>待结目标订单<WorkspaceSelect v-model="orderSettlementForm.to_order_id" required
             :options="[{ label: '选择同一往来对象的未结订单', value: 0, disabled: true },
-              ...debtOptions.map(item => ({ label: `#${item.order_id} · 未结 ¥${item.outstanding_amount}`, value: item.order_id }))]" /></label>
+              ...debtOptions.map(item => ({ label: `${relatedDocumentLabel(item, 'order')} · 未结 ¥${item.outstanding_amount}`, value: item.order_id }))]" /></label>
           <label>核销金额（元）<AppInput v-model.trim="orderSettlementForm.amount" type="number"
             min="0.01" max="1000000000000" step="0.01" required /></label>
           <label>核销参考号<AppInput v-model.trim="orderSettlementForm.reference" maxlength="100" required /></label>
@@ -209,15 +210,15 @@ const transferColumns = [
       </template>
       <template #cell-document="{ row: item }">
         <div>
-          <strong>#{{ item.id }} · {{ paymentActionLabel(item) }} · {{ item.party_name }}</strong>
+          <strong>{{ documentLabel(item) }} · {{ paymentActionLabel(item) }} · {{ item.party_name }}</strong>
           <p class="muted">
             {{ localTime(item.created_at) }} ·
-            {{ item.kind === 'receivable' ? '销售订单' : '采购订单' }} #{{ item.order_id }} · ¥{{
+            {{ item.kind === 'receivable' ? '销售订单' : '采购订单' }} {{ relatedDocumentLabel(item, 'order') }} · ¥{{
               item.amount
             }}
             · 参考号 {{ item.reference }} · 操作人
             {{ item.created_by_name }}
-            <span v-if="item.reverses_id">· 冲销记录 #{{ item.reverses_id }}</span>
+            <span v-if="item.reverses_id">· 冲销记录 {{ relatedDocumentLabel(item, 'reverses') }}</span>
             <span v-if="item.note">· {{ item.note }}</span>
           </p>
         </div>
@@ -254,11 +255,11 @@ const transferColumns = [
       </template>
       <template #cell-document="{ row: item }">
         <div>
-          <strong>#{{ item.id }} · {{ item.reverses_id ? '撤销核销' : '订单间核销' }} · {{ item.party_name }}</strong>
+          <strong>{{ documentLabel(item) }} · {{ item.reverses_id ? '撤销核销' : '订单间核销' }} · {{ item.party_name }}</strong>
           <p class="muted">{{ localTime(item.created_at) }} · {{ item.kind === 'receivable' ? '销售' : '采购' }}订单
-            #{{ item.from_order_id }} → #{{ item.to_order_id }} · ¥{{ item.amount }} · 参考号 {{ item.reference }}
+            {{ relatedDocumentLabel(item, 'from_order') }} → {{ relatedDocumentLabel(item, 'to_order') }} · ¥{{ item.amount }} · 参考号 {{ item.reference }}
             · 依据 {{ item.reason }} · 操作人 {{ item.created_by_name }}
-            <span v-if="item.reverses_id"> · 原核销 #{{ item.reverses_id }}</span></p>
+            <span v-if="item.reverses_id"> · 原核销 {{ relatedDocumentLabel(item, 'reverses') }}</span></p>
         </div>
       </template>
       <template #cell-actions="{ row: item }">

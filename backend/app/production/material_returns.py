@@ -1,5 +1,6 @@
 """生产退料更正：沿原领料明细和仓库追加正向库存流水。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func
 from sqlalchemy.orm import Session
 from sqlalchemy.engine import RowMapping
@@ -37,7 +38,7 @@ from app.production.work_orders import issued_quantity, posted_completion_totals
 from app.production.cost_lock import ensure_unsettled
 from app.core.period_lock import ensure_date_unlocked, ensure_movement_unlocked
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class MaterialReturnLineInput(BaseModel):

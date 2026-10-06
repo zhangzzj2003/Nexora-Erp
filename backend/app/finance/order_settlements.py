@@ -1,5 +1,6 @@
 """同一往来对象的订单贷方余额核销，保留原收付款和追加式撤销。"""
 
+from app.core.document_responses import NumberedRoute
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -15,7 +16,7 @@ from app.core.period_lock import ensure_date_unlocked
 from app.finance.routes import account_data, money, transfer_data
 from app.finance.subledger_rules import check_subledger
 
-router = APIRouter(prefix='/api/v1/finance/order-settlements')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/order-settlements')
 
 
 class TransferInput(BaseModel):

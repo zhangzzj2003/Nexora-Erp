@@ -99,6 +99,7 @@ test('业务快照撤权清理先于其他模块加载失败', async t => {
   state.businessJournalSources.value = [{key:'receipt:1'}]; state.businessJournalOptions.value = {policy}
   state.businessJournalPolicyChanges.value = [{id:1}]
   globalThis.window = { nexora: { async callApi(operation) {
+    if (operation === 'documentNumbering') return { configured: true };
     if (operation === 'me') return { id:1,permissions:['inventory.view'] }
     if (operation === 'materials') throw Error('资料读取失败')
     return []

@@ -1,5 +1,6 @@
 """维修工时的内部标准成本核价；不生成工资、应付或总账凭证。"""
 
+from app.core.document_responses import NumberedRoute
 import re
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -15,7 +16,7 @@ from app.sales.after_sales import get_case, permission
 from app.sales.after_sales_rules import audit, labor_cost_data, now
 from app.sales.customer_scope import require_visible_after_sales
 
-router = APIRouter(prefix='/api/v1/after-sales')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/after-sales')
 
 
 class LaborCostInput(BaseModel):

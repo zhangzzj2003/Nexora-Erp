@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -62,8 +64,7 @@ async function confirmLotPost(): Promise<void> {
 }
 const filteredRecords = computed(() =>
   receipts.value.filter((item) =>
-    matchesRecordQuery(recordQuery.value, [
-      item.id,
+    matchesRecordQuery(recordQuery.value, [documentSearch(item), item.id,
       item.supplier_name,
       item.warehouse_name,
       item.created_by_name,
@@ -92,12 +93,12 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-document="{ row: item }">
         <div>
-          <strong>#{{ item.id }} · {{ item.supplier_name }} · {{ item.warehouse_name }}</strong>
+          <strong>{{ documentLabel(item) }} · {{ item.supplier_name }} · {{ item.warehouse_name }}</strong>
           <p class="muted">
             {{ localTime(item.created_at) }} · 创建人
             {{ item.created_by_name }}
-            <span v-if="item.purchase_order_id">· 采购订单 #{{ item.purchase_order_id }}</span>
-            <span v-if="item.goods_receipt_id">· 采购收货 #{{ item.goods_receipt_id }}</span>
+            <span v-if="item.purchase_order_id">· 采购订单 {{ relatedDocumentLabel(item, 'purchase_order') }}</span>
+            <span v-if="item.goods_receipt_id">· 采购收货 {{ relatedDocumentLabel(item, 'goods_receipt') }}</span>
             <span v-if="item.reference">· {{ item.reference }}</span>
             <span v-if="item.reversal_id">
               · 冲销 #{{ item.reversal_id }}（{{ item.reversal_reason }} ·
@@ -167,7 +168,7 @@ const filteredRecords = computed(() =>
       </template>
     </WorkspaceTable>
     <form v-if="activeReceipt && can('receipt.post')" class="stack receipt-lot-editor" @submit.prevent="confirmLotPost">
-      <div class="receipt-lot-heading"><h2>入库单 #{{ activeReceipt.id }} · 实物批次</h2>
+      <div class="receipt-lot-heading"><h2>入库单 {{ documentLabel(activeReceipt) }} · 实物批次</h2>
         <AppButton type="button" :disabled="busy" @click="activeReceiptId=0">返回列表</AppButton></div>
       <p>按实际收货情况逐行登记批次，批次数量之和须等于入库数量。供应商批号和日期缺失时留空，系统会保留独立的入库来源编号。</p>
       <section v-for="line in lotDrafts" :key="line.receipt_line_id" class="stack receipt-lot-line">

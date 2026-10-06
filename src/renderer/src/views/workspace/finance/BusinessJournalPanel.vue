@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 凭证与来源保留内部 ID，界面优先显示服务端保存的业务单号。
+import { documentSearch, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
@@ -31,7 +33,7 @@ const sourcePartners = computed(() => (selected.value?.auxiliary_defaults ?? [])
 }).join('；'))
 const reference = ref(''); const journalDate = ref(''); const reason = ref('')
 const rows = computed(() => sources.value.filter(row =>
-  [row.key, row.label, String(row.journal_id ?? '')].join(' ').includes(query.value.trim()) &&
+  [documentSearch(row), row.key, row.label, String(row.journal_id ?? '')].join(' ').includes(query.value.trim()) &&
   (!filter.value || (filter.value === 'pending' && !row.journal_id && !row.no_amount) ||
     (filter.value === 'generated' && row.journal_id) || (filter.value === 'blocked' && row.blockers.length) ||
     (filter.value === 'zero' && row.no_amount))))
@@ -95,13 +97,13 @@ async function generate(): Promise<void> {
     </form>
     <WorkspaceTable title="业务来源" :columns="columns" :data="rows" :min-table-width="920">
       <template #filters><label>搜索来源<AppInput v-model="query" placeholder="单据类别、来源号或凭证号" /></label><label>来源状态<WorkspaceSelect v-model="filter" :options="filterOptions" aria-label="来源状态" /></label></template>
-      <template #cell-key="{ row }">{{ row.label }} #{{ row.source_id }}</template><template #cell-amount="{ row }">{{ row.blockers.some((item: string) => item.includes('核价') || item.includes('单价')) ? '待核价' : `¥${businessTotal(row)}` }}</template>
-      <template #cell-state="{ row }"><span v-if="row.journal_id">{{ journalStatusLabels[row.journal_status as keyof typeof journalStatusLabels] }} · 记-{{ row.journal_id }}</span><span v-else-if="row.blockers.length">{{ row.blockers.join('；') }}</span><span v-else>{{ row.no_amount ? '分位净额为零' : '可生成草稿' }}</span></template>
+      <template #cell-key="{ row }">{{ row.label }} {{ relatedDocumentLabel(row, 'source') }}</template><template #cell-amount="{ row }">{{ row.blockers.some((item: string) => item.includes('核价') || item.includes('单价')) ? '待核价' : `¥${businessTotal(row)}` }}</template>
+      <template #cell-state="{ row }"><span v-if="row.journal_id">{{ journalStatusLabels[row.journal_status as keyof typeof journalStatusLabels] }} · {{ relatedDocumentLabel(row, 'journal') }}</span><span v-else-if="row.blockers.length">{{ row.blockers.join('；') }}</span><span v-else>{{ row.no_amount ? '分位净额为零' : '可生成草稿' }}</span></template>
       <template #cell-actions="{ row }"><div class="ledger-actions"><AppButton variant="text" :disabled="loading" @click="open(row)">核对来源</AppButton><AppButton v-if="row.journal_id" variant="text" @click="emit('openJournal', row.journal_id)">查看凭证</AppButton><AppButton v-else-if="can('business_journal.generate')" variant="text" :disabled="!row.can_generate || busy || connectionLost || loading" @click="open(row)">生成草稿</AppButton></div></template>
       <template #empty>{{ loading ? '正在读取业务来源…' : query || filter ? '没有匹配的业务来源。可切换到全部来源查看。' : '暂无已确认的业务来源。' }}</template>
     </WorkspaceTable>
     <NCollapse v-if="changes.length"><AppCollapseItem name="history" :title="`科目配置历史（${changes.length} 次）`"><WorkspaceTable title="配置审计" :columns="changeColumns" :data="changeRows" :min-table-width="760" /></AppCollapseItem></NCollapse>
-    <NModal :show="selected !== null" preset="card" :title="selected ? `${selected.label} #${selected.source_id} · 来源核对` : ''" :mask-closable="!busy" :style="{ width: 'min(1050px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }" @update:show="value => { if (!value) selected = null }">
+    <NModal :show="selected !== null" preset="card" :title="selected ? `${selected.label} ${relatedDocumentLabel(selected, 'source')} · 来源核对` : ''" :mask-closable="!busy" :style="{ width: 'min(1050px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }" @update:show="value => { if (!value) selected = null }">
       <div v-if="selected" class="stack">
         <BusinessSourceEvidence :source="selected" :mapping="options?.policy.mapping" :accounts="options?.accounts" />
         <AppButton variant="secondary" :disabled="loading || busy || connectionLost" @click="reloadSource">重新核对来源</AppButton>

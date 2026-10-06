@@ -16,12 +16,14 @@ import WorkspaceTitleNavigation from '../components/workspace/WorkspaceTitleNavi
 import { usesIntegratedTitleBar } from '../../../shared/window-chrome'
 import AppStatusFooter from '../components/app/AppStatusFooter.vue'
 import AuthView from './AuthView.vue'
+import DocumentNumberingSettings from '../components/workspace/DocumentNumberingSettings.vue'
 import { nexoraLogo } from '../assets/brand'
 import { accountRoleText } from '../utils/account-role'
 import { workspacePageDescriptions } from '../utils/workspace-page-copy'
 
 const {
   screen,
+  documentNumbering: storeNumbering,
   activeTab,
   workspacePageVersion,
   expandedGroupKey,
@@ -93,11 +95,13 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
             ><AppButton type="button" :disabled="busy" @click="logout" variant="text">{{ t("退出登录") }}</AppButton>
           </div>
           <!-- 浏览器和 Linux 登录页没有融合顶部栏，仍保留右上角设置入口。 -->
-          <div v-if="isAuthScreen && !integratedTitleBar" class="auth-settings-actions"><ThemeToggle /><AppSettingsButton /></div>
+          <div v-if="(isAuthScreen || screen === 'numbering') && !integratedTitleBar" class="auth-settings-actions"><ThemeToggle /><AppSettingsButton /></div>
         </header>
 
         <AuthView v-if="isAuthScreen" />
+        <DocumentNumberingSettings v-else-if="screen === 'numbering'" initial />
         <template v-else-if="screen === 'app' && activeRouteAllowed">
+          <p v-if="storeNumbering && !storeNumbering.configured" role="status">{{ t('管理员尚未设置单据编号规则，当前业务只可查看。') }}</p>
           <!-- 工作台页面由 Vue Router 装载；权限守卫和服务端鉴权共同约束访问。 -->
           <RouterView :key="`${activeTab}-${workspacePageVersion}`" />
         </template>

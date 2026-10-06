@@ -5,6 +5,7 @@ export const onboardingCopy: Record<
   Screen,
   { title: string; description: string }
 > = {
+  numbering: { title: '设置单据编号规则', description: '由管理员选择实例的编号风格和业务时区。' },
   loading: { title: '正在准备工作台', description: '请稍候。' },
   welcome: {
     title: '选择你的工作方式',

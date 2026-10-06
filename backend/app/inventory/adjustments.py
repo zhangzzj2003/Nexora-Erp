@@ -1,5 +1,6 @@
 """独立库存调整单：异人审批与仓库确认后才追加库存流水。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 
@@ -30,7 +31,7 @@ UserPoster = aliased(User)
 UserReverser = aliased(User)
 UserReviewer = aliased(User)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class AdjustmentLineInput(BaseModel):
