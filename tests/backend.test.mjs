@@ -26,6 +26,31 @@ test('成本结算与冲销仅访问固定接口，拒绝非法路径编号', as
   await assert.rejects(callBackend('reverseProductionSettlement', { settlementId: '../users', reason: '无效' }), /记录编号无效/)
 })
 
+test('订单间核销固定后端路径并校验撤销编号', async t => {
+  const originalUrl = process.env.NEXORA_API_URL
+  t.after(() => {
+    if (originalUrl === undefined) delete process.env.NEXORA_API_URL
+    else process.env.NEXORA_API_URL = originalUrl
+  })
+  process.env.NEXORA_API_URL = 'http://127.0.0.1:8123'
+  const calls = []
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls.push({ path: url.pathname, method: options.method, body: options.body })
+    return Response.json({ token: 'test-token', user: { id: 1 } })
+  })
+  await callBackend('login', {})
+  await callBackend('orderSettlements', undefined)
+  assert.equal(calls.at(-1).path, '/api/v1/finance/order-settlements')
+  const draft = { kind: 'receivable', from_order_id: 1, to_order_id: 2, amount: '6.00',
+    reference: 'OFFSET-1', reason: '同一客户抵扣' }
+  await callBackend('createOrderSettlement', draft)
+  assert.deepEqual(JSON.parse(calls.at(-1).body), draft)
+  await callBackend('reverseOrderSettlement', { transferId: 4, reason: '更正', extra: '不应转发' })
+  assert.equal(calls.at(-1).path, '/api/v1/finance/order-settlements/4/reverse')
+  assert.deepEqual(JSON.parse(calls.at(-1).body), { reason: '更正' })
+  await assert.rejects(callBackend('reverseOrderSettlement', { transferId: '../users', reason: '无效' }), /记录编号无效/)
+})
+
 test('刷新同一已信任实例时保留会话，切换实例或证书时必须清除', () => {
   const current = { host: '192.168.3.5', port: 8000, instanceId: 'server-a', certificate: 'trusted-cert-a' }
   assert.equal(retainedSessionToken('private-token', current, { ...current }), 'private-token')

@@ -15,14 +15,28 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 
 // 登记与冲销集中在记录页；切换页面保留 Pinia 中的付款草稿和冲销原因。
 const store = usePiniaAppStore()
-const { error, notice, busy, connectionLost, financeAccounts, paymentRecords, paymentForm, reversalReasons } = storeToRefs(store)
-const { can, localTime, createPaymentRecord, reversePaymentRecord, paymentActionLabel } = store
+const { error, notice, busy, connectionLost, financeAccounts, paymentRecords, paymentForm, reversalReasons,
+  orderSettlements, orderSettlementForm, orderSettlementReversalReasons } = storeToRefs(store)
+const { can, localTime, createPaymentRecord, reversePaymentRecord, createOrderSettlement,
+  reverseOrderSettlement, paymentActionLabel } = store
 const createOpen = ref(false)
+const transferOpen = ref(false)
 async function submitCreate(): Promise<void> {
   // 断线或权限撤销时不提交；保存失败继续保留弹窗供修正。
   if (connectionLost.value || !can('finance.record')) return
   await submitCreateDialog(createPaymentRecord, { busy, error, notice }, createOpen)
 }
+async function submitTransfer(): Promise<void> {
+  if (connectionLost.value || !can('finance.record')) return
+  await submitCreateDialog(createOrderSettlement, { busy, error, notice }, transferOpen)
+}
+const creditSource = computed(() => financeAccounts.value.find(item =>
+  item.kind === orderSettlementForm.value.kind && item.order_id === orderSettlementForm.value.from_order_id))
+const creditOptions = computed(() => financeAccounts.value.filter(item =>
+  item.kind === orderSettlementForm.value.kind && Number(item.outstanding_amount) < 0))
+const debtOptions = computed(() => financeAccounts.value.filter(item =>
+  item.kind === orderSettlementForm.value.kind && item.party_id === creditSource.value?.party_id
+  && item.order_id !== creditSource.value?.order_id && Number(item.outstanding_amount) > 0))
 const paymentQuery = ref('')
 const paymentColumns = [
   { key: 'document', title: '收付款记录' },
@@ -39,6 +53,10 @@ const filteredPayments = computed(() =>
     ])
   )
 )
+const transferColumns = [
+  { key: 'document', title: '订单间核销' },
+  { key: 'actions', title: '操作', width: '300' }
+]
 </script>
 
 <template>
@@ -135,6 +153,35 @@ const filteredPayments = computed(() =>
         </AppButton>
       </form>
     </NModal>
+    <NModal
+      v-if="can('finance.record')"
+      v-model:show="transferOpen"
+      preset="card"
+      :mask-closable="!busy"
+      :style="{ width: 'min(820px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }"
+    >
+      <div class="section-heading"><div><p class="eyebrow">ORDER SETTLEMENT</p><h2>订单间核销</h2></div></div>
+      <p class="muted">将同一客户或供应商订单的可用贷方余额核销到另一张未结订单。此操作不登记新的收付款。</p>
+      <form @submit.prevent="submitTransfer">
+        <div class="form-grid">
+          <label>往来类别<WorkspaceSelect v-model="orderSettlementForm.kind"
+            @change="orderSettlementForm.from_order_id = 0; orderSettlementForm.to_order_id = 0"
+            :options="[{ label: '客户应收', value: 'receivable' }, { label: '供应商应付', value: 'payable' }]" /></label>
+          <label>贷方来源订单<WorkspaceSelect v-model="orderSettlementForm.from_order_id" required
+            @change="orderSettlementForm.to_order_id = 0"
+            :options="[{ label: '选择可用贷方订单', value: 0, disabled: true },
+              ...creditOptions.map(item => ({ label: `#${item.order_id} · ${item.party_name} · 可用 ¥${item.outstanding_amount.slice(1)}`, value: item.order_id }))]" /></label>
+          <label>待结目标订单<WorkspaceSelect v-model="orderSettlementForm.to_order_id" required
+            :options="[{ label: '选择同一往来对象的未结订单', value: 0, disabled: true },
+              ...debtOptions.map(item => ({ label: `#${item.order_id} · 未结 ¥${item.outstanding_amount}`, value: item.order_id }))]" /></label>
+          <label>核销金额（元）<AppInput v-model.trim="orderSettlementForm.amount" type="number"
+            min="0.01" max="1000000000000" step="0.01" required /></label>
+          <label>核销参考号<AppInput v-model.trim="orderSettlementForm.reference" maxlength="100" required /></label>
+          <label>核销依据<AppInput v-model.trim="orderSettlementForm.reason" maxlength="200" required /></label>
+        </div>
+        <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !debtOptions.length">登记核销</AppButton>
+      </form>
+    </NModal>
     <!-- 冲销入口仍按原记录和反向记录判断，列表筛选不影响防重复冲销。 -->
     <WorkspaceTable
       :show-title="false"
@@ -199,6 +246,29 @@ const filteredPayments = computed(() =>
         </form>
       </template>
       <template #empty>{{ paymentQuery ? '没有匹配的记录。' : '暂无收付款记录。' }}</template>
+    </WorkspaceTable>
+    <WorkspaceTable title="订单间核销与撤销" :columns="transferColumns" :data="orderSettlements" :min-table-width="900">
+      <template #actions>
+        <AppButton v-if="can('finance.record')" type="button" variant="primary"
+          :disabled="busy || connectionLost || !creditOptions.length" @click="transferOpen = true">订单间核销</AppButton>
+      </template>
+      <template #cell-document="{ row: item }">
+        <div>
+          <strong>#{{ item.id }} · {{ item.reverses_id ? '撤销核销' : '订单间核销' }} · {{ item.party_name }}</strong>
+          <p class="muted">{{ localTime(item.created_at) }} · {{ item.kind === 'receivable' ? '销售' : '采购' }}订单
+            #{{ item.from_order_id }} → #{{ item.to_order_id }} · ¥{{ item.amount }} · 参考号 {{ item.reference }}
+            · 依据 {{ item.reason }} · 操作人 {{ item.created_by_name }}
+            <span v-if="item.reverses_id"> · 原核销 #{{ item.reverses_id }}</span></p>
+        </div>
+      </template>
+      <template #cell-actions="{ row: item }">
+        <form v-if="!item.reverses_id && !orderSettlements.some(record => record.reverses_id === item.id)
+          && can('finance.reverse')" class="inline-form" @submit.prevent="reverseOrderSettlement(item.id)">
+          <label>撤销原因<AppInput v-model.trim="orderSettlementReversalReasons[item.id]" required maxlength="200" /></label>
+          <AppButton type="submit" variant="secondary" size="small" :disabled="busy || connectionLost">撤销核销</AppButton>
+        </form>
+      </template>
+      <template #empty>暂无订单间核销记录。</template>
     </WorkspaceTable>
   </section>
 </template>

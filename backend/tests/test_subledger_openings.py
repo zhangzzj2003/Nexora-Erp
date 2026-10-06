@@ -339,7 +339,7 @@ def test_v47_upgrade_is_atomic_and_keeps_old_amounts(subledger, remove_subledger
     monkeypatch.setattr(database,'connection',original_connection)
     migrate(); migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 84
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 85
         assert [tuple(row) for row in db.execute('SELECT * FROM opening_balance_lines ORDER BY id')] == original
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
     assert api('GET','finance/subledger-openings') == []

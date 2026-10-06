@@ -28,6 +28,8 @@ export const state = {
   roles:ref([{code:'admin',label:'管理员'}]), users:ref([{id:1,username:'当前账号',is_active:true,roles:['admin']},{id:2,username:'其他账号',is_active:true,roles:['admin']}]),
   roleDrafts:ref({1:['admin'],2:['admin']}), resetPasswords:ref({1:'sample-password-1',2:'sample-password-2'}), newUser:ref({roles:[]}),
   financeAccounts:ref([]), paymentForm:ref({kind:'receivable'}), reversalReasons:ref({}),
+  orderSettlements:ref([]), orderSettlementForm:ref({kind:'receivable',from_order_id:0,to_order_id:0,
+    amount:'',reference:'',reason:''}), orderSettlementReversalReasons:ref({}),
   receivablesPayables:ref({receivable_amount:'100',payable_amount:'0',unpriced_count:0,entries:[]}),
   paymentRecords:ref([{id:1,action:'settlement',party_name:'客户A',amount:'100'},{id:2,action:'settlement',party_name:'客户B',amount:'20'},{id:3,action:'reversal',reverses_id:2,amount:'-20'}]),
   workOrders:ref([]), completionForm:ref({}), selectedCompletionOrder:ref(null), completionReversalReasons:ref({}),
@@ -70,13 +72,13 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
   // 每个财务页面只保留自己的列表，不再依赖旧 finance 标签键才能显示。
   state.activeTab.value = 'financePayments'
   const financePages = [
-    ['finance/ReceivablesPayablesView.vue', '订单核对'],
-    ['finance/PaymentRecordsView.vue', '收付款与冲销记录'],
-    ['finance/FinancialSourcesView.vue', '应收应付来源']
+    ['finance/ReceivablesPayablesView.vue', ['订单核对']],
+    ['finance/PaymentRecordsView.vue', ['收付款与冲销记录', '订单间核销与撤销']],
+    ['finance/FinancialSourcesView.vue', ['应收应付来源']]
   ]
-  for (const [file, title] of financePages) {
+  for (const [file, titles] of financePages) {
     const html = await render(file)
-    assert.deepEqual([...html.matchAll(/data-table="([^"]+)"/g)].map(match => match[1]), [title])
+    assert.deepEqual([...html.matchAll(/data-table="([^"]+)"/g)].map(match => match[1]), titles)
   }
   const accountHtml = await render(financePages[0][0])
   assert.match(accountHtml, /业务应收净额/)

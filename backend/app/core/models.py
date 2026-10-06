@@ -1,6 +1,6 @@
 """业务 ORM 模型；金额保留文本精度，库结构由版本迁移维护。"""
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, LargeBinary, Text, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, LargeBinary, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -1581,6 +1581,24 @@ class PaymentRecord(Base):
     reverses_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('payment_records.id'), nullable=True)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class OrderSettlementTransfer(Base):
+    __tablename__ = 'order_settlement_transfers'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    party_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    from_order_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    to_order_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reverses_id: Mapped[int | None] = mapped_column(ForeignKey('order_settlement_transfers.id'), unique=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    __table_args__ = (Index('order_settlement_reference', 'kind', 'from_order_id',
+                            'to_order_id', 'reference', unique=True,
+                            sqlite_where=reverses_id.is_(None)),)
 
 
 class BankAccount(Base):

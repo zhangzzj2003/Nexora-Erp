@@ -5,7 +5,7 @@ export function createFinanceActions(
   state: AppState,
   perform: (action: () => Promise<unknown>, success: string) => Promise<void>
 ) {
-  const { paymentForm, reversalReasons } = state
+  const { paymentForm, reversalReasons, orderSettlementForm, orderSettlementReversalReasons } = state
 
   async function createPaymentRecord(): Promise<void> {
     if (!window.nexora) return
@@ -31,5 +31,25 @@ export function createFinanceActions(
     }, `收付款记录 #${paymentId} 已冲销，原记录已保留。`)
   }
 
-  return { createPaymentRecord, reversePaymentRecord }
+  async function createOrderSettlement(): Promise<void> {
+    if (!window.nexora) return
+    await perform(async () => {
+      await window.nexora!.callApi('createOrderSettlement', { ...orderSettlementForm.value })
+      orderSettlementForm.value.amount = ''
+      orderSettlementForm.value.reference = ''
+      orderSettlementForm.value.reason = ''
+    }, '订单间核销已登记，双方未结余额已更新。')
+  }
+
+  async function reverseOrderSettlement(transferId: number): Promise<void> {
+    if (!window.nexora) return
+    await perform(async () => {
+      await window.nexora!.callApi('reverseOrderSettlement', {
+        transferId, reason: orderSettlementReversalReasons.value[transferId] ?? ''
+      })
+      delete orderSettlementReversalReasons.value[transferId]
+    }, `订单核销 #${transferId} 已撤销，原记录已保留。`)
+  }
+
+  return { createPaymentRecord, reversePaymentRecord, createOrderSettlement, reverseOrderSettlement }
 }

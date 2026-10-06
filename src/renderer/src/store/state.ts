@@ -64,6 +64,7 @@ import type {
   OtherInbound,
   WarehouseOutbound,
   PaymentRecord,
+  OrderSettlementTransfer,
   BankReconciliationOverview,
   BankCsvPreview,
   BankBalanceOverview,
@@ -267,6 +268,11 @@ export function createAppState() {
     id: null, version: 1, code: '', name: '', start_date: '', end_date: '', reason: ''
   })
   const paymentRecords = ref<PaymentRecord[]>([])
+  const orderSettlements = ref<OrderSettlementTransfer[]>([])
+  const orderSettlementForm = ref<{ kind: 'receivable' | 'payable'; from_order_id: number; to_order_id: number; amount: string; reference: string; reason: string }>({
+    kind: 'receivable', from_order_id: 0, to_order_id: 0, amount: '', reference: '', reason: ''
+  })
+  const orderSettlementReversalReasons = ref<Record<number, string>>({})
   const bankOverview = ref<BankReconciliationOverview | null>(null)
   const bankAccountForm = ref({ code: '', name: '' })
   const bankCsvForm = ref({ account_id: 0, file_name: '', content_base64: '' })
@@ -629,6 +635,9 @@ export function createAppState() {
     ledgerAccountForm,
     accountingPeriodForm,
     paymentRecords,
+    orderSettlements,
+    orderSettlementForm,
+    orderSettlementReversalReasons,
     bankOverview,
     bankAccountForm,
     bankCsvForm,

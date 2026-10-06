@@ -68,3 +68,45 @@ test('登记页继续保留失败草稿，退款成功仅清空凭据字段，�
     ['reversePaymentRecord', { paymentId: 9, reason: '重复登记' }]
   ])
 })
+
+test('订单间核销失败保留依据，成功清空金额及凭据，撤销失败保留原因', async t => {
+  const previous = globalThis.window
+  t.after(() => { globalThis.window = previous })
+  const orderSettlementForm = ref({ kind: 'receivable', from_order_id: 7, to_order_id: 8,
+    amount: '6.00', reference: 'OFFSET-7', reason: '同一客户贷方抵扣' })
+  const orderSettlementReversalReasons = ref({ 3: '原单关联错误' })
+  const calls = []
+  let fail = true
+  globalThis.window = { nexora: { async callApi(action, payload) {
+    calls.push([action, structuredClone(payload)])
+    if (fail) throw new Error('核销余额已变化')
+  } } }
+  const state = { busy: ref(false), error: ref(''), notice: ref('') }
+  const actions = createFinanceActions({ orderSettlementForm, orderSettlementReversalReasons },
+    async (action, success) => {
+      state.error.value = ''
+      try { await action(); state.notice.value = success }
+      catch (error) { state.error.value = error.message }
+    })
+  const open = ref(true)
+  await submitCreateDialog(actions.createOrderSettlement, state, open)
+  assert.equal(open.value, true)
+  assert.equal(orderSettlementForm.value.reference, 'OFFSET-7')
+  await actions.reverseOrderSettlement(3)
+  assert.equal(orderSettlementReversalReasons.value[3], '原单关联错误')
+  fail = false
+  await submitCreateDialog(actions.createOrderSettlement, state, open)
+  assert.equal(open.value, false)
+  assert.deepEqual(orderSettlementForm.value, { kind: 'receivable', from_order_id: 7,
+    to_order_id: 8, amount: '', reference: '', reason: '' })
+  await actions.reverseOrderSettlement(3)
+  assert.equal(orderSettlementReversalReasons.value[3], undefined)
+  assert.deepEqual(calls, [
+    ['createOrderSettlement', { kind: 'receivable', from_order_id: 7, to_order_id: 8,
+      amount: '6.00', reference: 'OFFSET-7', reason: '同一客户贷方抵扣' }],
+    ['reverseOrderSettlement', { transferId: 3, reason: '原单关联错误' }],
+    ['createOrderSettlement', { kind: 'receivable', from_order_id: 7, to_order_id: 8,
+      amount: '6.00', reference: 'OFFSET-7', reason: '同一客户贷方抵扣' }],
+    ['reverseOrderSettlement', { transferId: 3, reason: '原单关联错误' }]
+  ])
+})

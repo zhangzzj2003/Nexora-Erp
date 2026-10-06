@@ -608,6 +608,8 @@ export interface FinanceAccount {
   currency: 'CNY'
   business_amount: string
   settled_amount: string
+  credit_used_amount: string
+  debt_covered_amount: string
   outstanding_amount: string
   source_keys: string[]
 }
@@ -626,6 +628,22 @@ export interface PaymentRecord {
   created_at: string
   party_id: number
   party_name: string
+  currency: 'CNY'
+}
+export interface OrderSettlementTransfer {
+  id: number
+  kind: 'receivable' | 'payable'
+  party_id: number
+  party_name: string
+  from_order_id: number
+  to_order_id: number
+  amount: string
+  reference: string
+  reason: string
+  reverses_id: number | null
+  created_by: number
+  created_by_name: string
+  created_at: string
   currency: 'CNY'
 }
 export interface BankAccount { id: number; code: string; name: string; ledger_account_id: number | null; opening_balance: string | null; effective_date: string | null; version: number; created_by: number; created_by_name: string; created_at: string }
@@ -680,6 +698,7 @@ export interface FinanceOverview {
   report: ReceivablesPayables
   accounts: FinanceAccount[]
   payments: PaymentRecord[]
+  transfers: OrderSettlementTransfer[]
 }
 export interface BomLine {
   id: number
@@ -1349,6 +1368,7 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   periodClosingHistory: { input: { id: number }; output: PeriodClosingRecord[] }
   changePeriodClosingStatus: { input: { id: number; version: number; action: 'close' | 'reopen'; reason: string }; output: { period: AccountingPeriod; closing_id: number } }
   paymentRecords: { input: undefined; output: PaymentRecord[] }
+  orderSettlements: { input: undefined; output: OrderSettlementTransfer[] }
   bankReconciliationOverview: { input: undefined; output: BankReconciliationOverview }
   createBankAccount: { input: { code: string; name: string }; output: BankAccount }
   importBankLines: { input: { account_id: number; lines: { transaction_id: string; occurred_on: string; amount: string; counterparty: string; note: string }[] }; output: { account_id: number; line_ids: number[]; imported_count: number } }
@@ -1367,6 +1387,8 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   decideBankBalanceReport: { input: { reportId: number; action: 'approve' | 'reject'; reason: string }; output: Omit<BankBalanceReport['decisions'][number], 'created_by_name'> }
   createPaymentRecord: { input: { kind: 'receivable' | 'payable'; order_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; note: string }; output: PaymentRecord }
   reversePaymentRecord: { input: { paymentId: number; reason: string }; output: PaymentRecord }
+  createOrderSettlement: { input: { kind: 'receivable' | 'payable'; from_order_id: number; to_order_id: number; amount: string; reference: string; reason: string }; output: OrderSettlementTransfer }
+  reverseOrderSettlement: { input: { transferId: number; reason: string }; output: OrderSettlementTransfer }
   boms: { input: undefined; output: Bom[] }
   createBom: { input: { product_material_id: number; base_quantity: string; note: string; lines: { component_material_id: number; quantity: string }[] }; output: Bom }
   activateBom: { input: { bomId: number }; output: Bom }

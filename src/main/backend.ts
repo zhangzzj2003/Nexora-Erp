@@ -1266,6 +1266,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: `/api/v1/finance/journals/${id}/reverse`, body: { version, reference, journal_date, reason } }
     }
     case 'paymentRecords': return { method: 'GET', path: '/api/v1/finance/payment-records' }
+    case 'orderSettlements': return { method: 'GET', path: '/api/v1/finance/order-settlements' }
     case 'bankReconciliationOverview': return { method: 'GET', path: '/api/v1/finance/bank-reconciliation/overview' }
     case 'createBankAccount': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/accounts', body: bankBody(payload, 'account') }
     case 'importBankLines': return { method: 'POST', path: '/api/v1/finance/bank-reconciliation/lines/import', body: bankBody(payload, 'lines') }
@@ -1285,6 +1286,11 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'createPaymentRecord': return { method: 'POST', path: '/api/v1/finance/payment-records', body: payload }
     case 'reversePaymentRecord': return {
       method: 'POST', path: `/api/v1/finance/payment-records/${positiveId(payload, 'paymentId')}/reverse`,
+      body: { reason: (payload as { reason: unknown }).reason }
+    }
+    case 'createOrderSettlement': return { method: 'POST', path: '/api/v1/finance/order-settlements', body: payload }
+    case 'reverseOrderSettlement': return {
+      method: 'POST', path: `/api/v1/finance/order-settlements/${positiveId(payload, 'transferId')}/reverse`,
       body: { reason: (payload as { reason: unknown }).reason }
     }
     // BOM 的生命周期操作只接受经校验的单据编号。

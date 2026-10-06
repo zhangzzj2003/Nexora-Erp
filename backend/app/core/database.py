@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 84:
+        if version > 85:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2595,3 +2595,23 @@ def migrate() -> None:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
             db.execute('CREATE INDEX IF NOT EXISTS maintenance_purchase_requests_job ON maintenance_purchase_requests(job_id,id)')
             db.execute('PRAGMA user_version = 84')
+
+        if version < 85:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS order_settlement_transfers (
+                id INTEGER PRIMARY KEY,
+                kind TEXT NOT NULL,
+                party_id INTEGER NOT NULL,
+                from_order_id INTEGER NOT NULL,
+                to_order_id INTEGER NOT NULL,
+                amount TEXT NOT NULL,
+                reference TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                reverses_id INTEGER UNIQUE REFERENCES order_settlement_transfers(id),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX IF NOT EXISTS order_settlement_transfers_from ON order_settlement_transfers(kind,from_order_id)')
+            db.execute('CREATE INDEX IF NOT EXISTS order_settlement_transfers_to ON order_settlement_transfers(kind,to_order_id)')
+            db.execute('CREATE UNIQUE INDEX IF NOT EXISTS order_settlement_reference ON order_settlement_transfers(kind,from_order_id,to_order_id,reference) WHERE reverses_id IS NULL')
+            db.execute('PRAGMA user_version = 85')

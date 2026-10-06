@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.core.models import AccountingPeriod, Journal, JournalLine, PaymentRecord, PeriodClosing, User
+from app.core.models import AccountingPeriod, Journal, JournalLine, PaymentRecord, OrderSettlementTransfer, PeriodClosing, User
 from app.core.orm import add_model, model_data, orm_session
 from app.finance.journals import VersionInput
 from app.finance.ledger import audit, get_record, snapshot
@@ -116,6 +116,8 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
         ledger=dict(rows=rows, totals=totals), inventory=valuation, business_sources=business,
         payments=[model_data(item) for item in db.scalars(select(PaymentRecord).where(
             PaymentRecord.created_at < period.end_date + ' 24:00:00').order_by(PaymentRecord.id))],
+        order_settlements=[model_data(item) for item in db.scalars(select(OrderSettlementTransfer).where(
+            OrderSettlementTransfer.created_at < period.end_date + ' 24:00:00').order_by(OrderSettlementTransfer.id))],
         posted_journal_ids=list(db.scalars(select(Journal.id).where(
             Journal.journal_date <= period.end_date, Journal.status == 'posted').order_by(Journal.id))))
     return dict(period=snapshot(period), can_close=not blockers, blockers=blockers,

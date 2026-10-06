@@ -31,6 +31,7 @@ export function createDataLoader(
     openingBalances,
     accountingPeriods,
     paymentRecords,
+    orderSettlements,
     bankOverview,
     bankBalanceOverview,
     boms,
@@ -186,10 +187,12 @@ export function createDataLoader(
       receivablesPayables.value = overview.report
       financeAccounts.value = overview.accounts
       paymentRecords.value = overview.payments
+      orderSettlements.value = overview.transfers
     } else {
       receivablesPayables.value = null
       financeAccounts.value = []
       paymentRecords.value = []
+      orderSettlements.value = []
     }
     if (can('bank_reconciliation.view')) {
       const owner = `${state.server.value?.id}:${state.server.value?.fingerprint}:${user.value?.id}`

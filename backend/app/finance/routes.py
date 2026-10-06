@@ -12,7 +12,7 @@ from app.core.orm import orm_session, model_data
 from app.core.models import (User, Material, Customer, Supplier, SalesOrder, SalesOrderLine,
     Shipment, ShipmentLine, ShipmentReversal, SalesReturn, SalesReturnLine, SalesReturnReversal,
     PurchaseOrder, PurchaseOrderLine, Receipt, ReceiptLine, ReceiptOrderLink, ReceiptReversal,
-    PurchaseReturn, PurchaseReturnLine, PurchaseReturnReversal, PaymentRecord)
+    PurchaseReturn, PurchaseReturnLine, PurchaseReturnReversal, PaymentRecord, OrderSettlementTransfer)
 from app.access.security import require
 from app.finance.subledger_rules import check_subledger
 
@@ -219,9 +219,14 @@ def account_data(db: Session, kind: str, order_id: int,
     billed = sum((Decimal(item["amount"]) for item in source), Decimal(0))
     settled = sum((Decimal(value) for value in db.scalars(select(PaymentRecord.amount)
         .where(PaymentRecord.kind == kind, PaymentRecord.order_id == order_id))), Decimal(0))
+    credit_used = sum((Decimal(value) for value in db.scalars(select(OrderSettlementTransfer.amount)
+        .where(OrderSettlementTransfer.kind == kind, OrderSettlementTransfer.from_order_id == order_id))), Decimal(0))
+    debt_covered = sum((Decimal(value) for value in db.scalars(select(OrderSettlementTransfer.amount)
+        .where(OrderSettlementTransfer.kind == kind, OrderSettlementTransfer.to_order_id == order_id))), Decimal(0))
     return {"kind": kind, "order_id": order_id, **dict(row), "currency": "CNY",
             "business_amount": money(billed), "settled_amount": money(settled),
-            "outstanding_amount": money(billed - settled),
+            "credit_used_amount": money(credit_used), "debt_covered_amount": money(debt_covered),
+            "outstanding_amount": money(billed - settled + credit_used - debt_covered),
             "source_keys": [item["key"] for item in source]}
 
 
@@ -241,6 +246,15 @@ def payment_data(db: Session, payment_id: int) -> dict:
             **party_data(db, record.kind, record.order_id), 'currency': 'CNY'}
 
 
+def transfer_data(db: Session, transfer_id: int) -> dict:
+    record = db.get(OrderSettlementTransfer, transfer_id)
+    if record is None:
+        raise HTTPException(404, '订单核销记录不存在')
+    party = party_data(db, record.kind, record.from_order_id)
+    return {**model_data(record), 'created_by_name': db.get(User, record.created_by).username,
+            'party_name': party['party_name'], 'currency': 'CNY'}
+
+
 @router.get("/finance/payment-records")
 def list_payment_records(_: dict = Depends(require("finance.view"))) -> list[dict]:
     with orm_session() as db:
@@ -256,8 +270,10 @@ def finance_overview(_: dict = Depends(require("finance.view"))) -> dict:
         keys = {(item["kind"], item["order_id"]) for item in entries if item["order_id"] is not None}
         accounts = [account_data(db, kind, order_id, entries) for kind, order_id in sorted(keys)]
         ids = list(db.scalars(select(PaymentRecord.id).order_by(PaymentRecord.id.desc())))
+        transfer_ids = list(db.scalars(select(OrderSettlementTransfer.id).order_by(OrderSettlementTransfer.id.desc())))
         return {"report": report_data(entries), "accounts": accounts,
-                "payments": [payment_data(db, payment_id) for payment_id in ids]}
+                "payments": [payment_data(db, payment_id) for payment_id in ids],
+                "transfers": [transfer_data(db, transfer_id) for transfer_id in transfer_ids]}
 
 
 @router.post("/finance/payment-records", status_code=201)
