@@ -93,3 +93,39 @@ test('真实设置页展示双风格示例、中英文、锁定只读和断网�
   const locked = await render()
   assert.match(locked, /policy are locked/); assert.doesNotMatch(locked, /type="submit"/)
 })
+
+
+test('另一管理员完成设置后，等待管理员读取已锁定规则即可离开首次引导', async t => {
+  const previous = globalThis.window
+  t.after(() => { globalThis.window = previous })
+  const account = { id: 1, roles: ['admin'], permissions: [] }
+  const confirmed = { ...config, configured: true, locked: true, style: 'english', version: 1 }
+  // 直接执行真实 Pinia 操作，覆盖后台轮询和保存冲突后的同一重读入口。
+  globalThis.window = { nexora: { callApi: async action =>
+    action === 'me' ? account : action === 'documentNumbering' ? confirmed : [] } }
+  const store = useStore(createPinia())
+  store.user = account; store.screen = 'numbering'; store.documentNumbering = config
+  await store.loadDocumentNumbering()
+  assert.equal(store.screen, 'app')
+  assert.equal(store.documentNumbering.style, 'english')
+  assert.equal(store.documentNumbering.locked, true)
+})
+
+
+test('切换服务端后到达的旧规则响应不能污染新实例', async t => {
+  const previous = globalThis.window
+  t.after(() => { globalThis.window = previous })
+  let resolveRead
+  const pending = new Promise(resolve => { resolveRead = resolve })
+  globalThis.window = { nexora: { callApi: async () => pending } }
+  const store = useStore(createPinia())
+  store.user = { id: 1, roles: ['admin'], permissions: [] }
+  store.server = { id: 'before' }; store.screen = 'numbering'; store.documentNumbering = config
+  const loading = store.loadDocumentNumbering()
+  // 模拟请求在旧服务端发出，用户切换完成后响应才到达。
+  store.server = { id: 'after' }; store.documentNumbering = null; store.screen = 'login'
+  resolveRead({ ...config, configured: true, style: 'english', locked: true, version: 1 })
+  await loading
+  assert.equal(store.documentNumbering, null)
+  assert.equal(store.screen, 'login')
+})

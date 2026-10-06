@@ -222,7 +222,19 @@ function createAppStore() {
   })
   const refreshWorkspacePage = workspaceRefresh.refresh
   async function loadDocumentNumbering(): Promise<void> {
-    if (window.nexora && user.value) state.documentNumbering.value = await window.nexora.callApi('documentNumbering', undefined)
+    if (!window.nexora || !user.value) return
+    const serverId = state.server.value?.id, userId = user.value.id
+    const confirmed = await window.nexora.callApi('documentNumbering', undefined)
+    // 切换实例、退出或保存后的旧轮询响应不能覆盖当前服务端规则。
+    if (state.server.value?.id !== serverId || user.value?.id !== userId
+      || (state.documentNumbering.value?.version ?? -1) > confirmed.version
+      || state.documentNumbering.value?.locked && !confirmed.locked) return
+    state.documentNumbering.value = confirmed
+    // 其他管理员已配置或超时请求已提交时，按已确认的服务端状态解除首次引导。
+    if (state.documentNumbering.value.configured && screen.value === 'numbering') {
+      screen.value = 'app'
+      await refreshData()
+    }
   }
   // 设置成功后才进入工作台；失败保留组件中的风格与时区草稿。
   async function saveDocumentNumbering(input: DocumentNumberingInput): Promise<boolean> {
