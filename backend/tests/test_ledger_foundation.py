@@ -321,7 +321,7 @@ def test_v39_upgrade_preserves_data_and_is_repeatable(ledger, remove_journal_sch
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 83
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 84
         assert db.execute("SELECT name FROM suppliers").fetchone()[0] == "升级前供应商"
         assert (
             db.execute(

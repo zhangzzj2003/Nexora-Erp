@@ -23,6 +23,10 @@ const plan:Check=value=>fields(value,{...base,equipment_id:id,reference:text,tit
 const hourPlan:Check=value=>fields(value,{...base,equipment_id:id,reference:text,title:text,interval_hours:decimal,
   next_due_hours:decimal,current_hours:nullable(decimal),current_reading_id:nullable(id),enabled:flag,due:flag,open_job_ids:array(id)})
 const part:Check=value=>fields(value,{material_id:id,quantity:decimal})
+const procurementReceipt:Check=value=>fields(value,{id,status:text,accepted_quantity:decimal,inbound_receipt_id:nullable(id),inbound_status:nullable(text)})
+const procurementOrder:Check=value=>fields(value,{id,status:text,quantity:decimal,goods_receipts:array(procurementReceipt)})
+const procurementRequest:Check=value=>fields(value,{id,reference:text,status:text,reason:text,evidence:text,created_by:id,created_at:text,
+  lines:array(row=>fields(row,{material_id:id,quantity:decimal,orders:array(procurementOrder)}))})
 const roll:Check=value=>object(value) && (value.before===undefined || object(value.before)) && (value.after===undefined || object(value.after))
   && (value.reading_id===undefined || id(value.reading_id))
   && (value.reversal_effect===undefined || choice([null,'restored_due','retained_newer_schedule'])(value.reversal_effect))
@@ -33,7 +37,8 @@ const job:Check=value=>fields(value,{...base,reference:text,equipment_id:id,kind
   work_order_snapshot:nullable(object),work_order_linked:flag,work_order_current_status:nullable(text),parts_outbound_id:nullable(id),
   parts_status:choice([null,'draft','posted','cancelled','reversed','missing']),solution:text,labor_hours:nullable(decimal),service_amount:nullable(decimal),
   plan_roll:roll,created_by_name:text,assigned_to_name:text,author_ids:array(id),reviewed_by:nullable(id),reported_by:nullable(id),accepted_by:nullable(id),
-  started_at:nullable(text),reported_at:nullable(text),accepted_at:nullable(text),allowed_actions:array(choice(actions)),can_edit:flag,downtime:nullable(downtime)})
+  started_at:nullable(text),reported_at:nullable(text),accepted_at:nullable(text),allowed_actions:array(choice(actions)),can_edit:flag,downtime:nullable(downtime),
+  purchase_requests:array(procurementRequest)})
 const overview:Check=value=>fields(value,{as_of:text,equipment:array(asset),plans:array(plan),hour_plans:array(hourPlan),jobs:array(job),
   executors:array(value=>fields(value,{id,username:text})),materials:array(value=>fields(value,{id,sku:text,name:text,unit:text})),
   warehouses:array(value=>fields(value,{id,name:text})),work_orders:array(value=>fields(value,{id,status:text,target_quantity:decimal}))})
@@ -41,6 +46,6 @@ export function validateEquipmentResult(action:string,value:unknown):void{
   const check=({equipmentOverview:overview,equipmentDetail:asset,maintenancePlanDetail:plan,maintenanceJobDetail:job,
     maintenanceHourPlanDetail:hourPlan,recordEquipmentMeter:reading,
     saveEquipment:asset,saveMaintenancePlan:plan,saveMaintenanceHourPlan:hourPlan,
-    saveMaintenanceJob:job,changeMaintenanceJob:job} as Record<string,Check>)[action]
+    saveMaintenanceJob:job,changeMaintenanceJob:job,createMaintenancePurchaseRequest:job} as Record<string,Check>)[action]
   if(check && !check(value))throw new Error('设备维护响应格式不匹配，请核对桌面端与服务端版本后重新读取。')
 }

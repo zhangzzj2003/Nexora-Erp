@@ -1,7 +1,7 @@
 import {watch} from 'vue'
 import type {AppState} from '../state'
 import type {EquipmentEntity,EquipmentForms,EquipmentDetail,EquipmentMeterInput,MaintenanceCommand,
-  EquipmentAttachmentKind,EquipmentAttachment,EquipmentAttachmentList} from '../../../../shared/equipment-api'
+  EquipmentAttachmentKind,EquipmentAttachment,EquipmentAttachmentList,MaintenancePurchaseInput} from '../../../../shared/equipment-api'
 import {displayError} from '../../utils/formatters.ts'
 
 export function emptyEquipmentForms():EquipmentForms {
@@ -109,6 +109,11 @@ export function createEquipmentActions(state:AppState,perform:(run:()=>Promise<u
     return write('job','equipment.'+permission,()=>window.nexora!.callApi('changeMaintenanceJob',command),
       '维护阶段与证据已更新；耗材实物及资金仍以原业务记录为准。')
   }
+  function createMaintenancePurchaseRequest(input:MaintenancePurchaseInput):Promise<boolean>{
+    if(!can('purchase_request.view'))return Promise.resolve(false)
+    return write('job','purchase_request.create',()=>window.nexora!.callApi('createMaintenancePurchaseRequest',input),
+      '已从维护工单创建采购申请草稿，仍须按采购流程提交、审核和转单。')
+  }
   async function recordEquipmentMeter(input:EquipmentMeterInput):Promise<boolean>{
     if(!available() || !can('equipment.meter') || (input.correction && !can('equipment.manage')) || state.busy.value)return false
     const session=owner
@@ -153,6 +158,6 @@ export function createEquipmentActions(state:AppState,perform:(run:()=>Promise<u
     return result
   }
   return {loadEquipment,loadEquipmentDetail,clearEquipmentDetail,startEquipmentRecord,editEquipmentRecord,
-    saveEquipmentRecord,changeMaintenanceJob,recordEquipmentMeter,
+    saveEquipmentRecord,changeMaintenanceJob,createMaintenancePurchaseRequest,recordEquipmentMeter,
     loadEquipmentAttachments,uploadEquipmentAttachment,reverseEquipmentAttachment,saveEquipmentAttachment}
 }

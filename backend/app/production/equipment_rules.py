@@ -211,6 +211,11 @@ def job_data(db, row, user, detail=True):
     result['assigned_to_name'] = db.get(User, row.assigned_to).username
     result['author_ids'] = authors(db, row)
     result['parts_status'] = parts_status(db, row)
+    if detail and 'purchase_request.view' in user['permissions']:
+        from app.production.equipment_procurement import procurement_data
+        result['purchase_requests'] = procurement_data(db, row.id)
+    else:
+        result['purchase_requests'] = []
     result['allowed_actions'] = available_actions(db, row, user)
     result['can_edit'] = (row.status in ('draft','rejected') and 'equipment.create' in user['permissions']
                           and (row.work_order_id is None or 'production.view' in user['permissions']))

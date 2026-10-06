@@ -14,6 +14,8 @@ const hourPlan=computed(()=>props.detail.kind==='hour_plan'?props.detail.row:nul
 const job=computed(()=>props.detail.kind==='job'?props.detail.row:null)
 const material=(id:number)=>store.equipmentOverview?.materials.find(row=>row.id===id)
 const orderStatus:Record<string,string>={draft:'草稿',released:'已下达',in_progress:'生产中',completed:'已完工',cancelled:'已取消'}
+const procurementStatus:Record<string,string>={draft:'草稿',submitted:'待审核',approved:'已批准',rejected:'已驳回',
+  cancelled:'已取消',confirmed:'已确认',partially_received:'部分入库',received:'已入库',posted:'已入库',reversed:'已冲销'}
 function changeLabel(action:string):string{return maintenanceCommand[action as keyof typeof maintenanceCommand]??({create:'建立记录',edit:'修订记录',advance:'推进计划',restore_due:'恢复到期阈值'}[action]??action)}
 </script>
 <template>
@@ -52,6 +54,22 @@ function changeLabel(action:string):string{return maintenanceCommand[action as k
       </dl>
       <ul v-if="job.parts.length"><li v-for="part in job.parts" :key="part.material_id">物料 #{{ part.material_id }} · {{ material(part.material_id)?.name || '按原编号核对' }} · {{ part.quantity }} {{ material(part.material_id)?.unit }}</li></ul>
       <p v-else>未登记耗材，不产生维护出库。</p>
+      <template v-if="store.can('purchase_request.view') && job.purchase_requests.length">
+        <h4>备件采购来源与到货</h4>
+        <ul><li v-for="request in job.purchase_requests" :key="request.id">
+          采购申请 #{{ request.id }} · {{ request.reference }} · {{ procurementStatus[request.status]??request.status }} · {{ request.reason }}
+          <ul><li v-for="line in request.lines" :key="line.material_id">
+            物料 #{{ line.material_id }} · 申请 {{ line.quantity }}
+            <ul><li v-for="order in line.orders" :key="order.id">
+              采购订单 #{{ order.id }} · {{ procurementStatus[order.status]??order.status }} · {{ order.quantity }}
+              <ul><li v-for="receipt in order.goods_receipts" :key="receipt.id">
+                收货 #{{ receipt.id }} · {{ procurementStatus[receipt.status]??receipt.status }} · 合格 {{ receipt.accepted_quantity }} · {{ receipt.inbound_receipt_id?'入库单 #'+receipt.inbound_receipt_id+' · '+(procurementStatus[receipt.inbound_status??'']??receipt.inbound_status):'尚无入库单' }}
+              </li></ul>
+            </li></ul>
+          </li></ul>
+        </li></ul>
+        <p><RouterLink to="/workspace/purchase-requests">查看采购申请</RouterLink> · <RouterLink to="/workspace/purchase-orders">查看采购订单</RouterLink> · <RouterLink to="/workspace/purchase-goods-receipts">查看采购收货</RouterLink></p>
+      </template>
       <p v-if="job.plan_roll.reversal_effect==='restored_due'">验收更正已恢复原计划到期阈值；停机和实际领用历史保留。</p>
       <p v-else-if="job.plan_roll.reversal_effect==='retained_newer_schedule'">计划已被后续修订或工单使用，保留较新安排。请另行复核周期计划。</p>
     </template>

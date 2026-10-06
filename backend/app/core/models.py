@@ -1850,6 +1850,19 @@ class PurchaseRequestLine(Base):
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class MaintenancePurchaseRequest(Base):
+    __tablename__ = "maintenance_purchase_requests"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(Integer, ForeignKey("maintenance_jobs.id"), nullable=False)
+    purchase_request_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("purchase_requests.id"), nullable=False, unique=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
 class PurchaseOrderRequestLink(Base):
     __tablename__ = "purchase_order_request_links"
     purchase_order_line_id: Mapped[int] = mapped_column(

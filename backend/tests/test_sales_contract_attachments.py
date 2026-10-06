@@ -203,6 +203,6 @@ def test_attachment_upgrade_rolls_back_and_keeps_contract(monkeypatch, tmp_path)
     migrate()
     migrate()
     with sqlite3.connect(path_db) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 83
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 84
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
-    assert len(Base.metadata.tables) == 181
+    assert len(Base.metadata.tables) == 182

@@ -504,6 +504,12 @@ function equipmentHours(value: unknown, maximum: number, allowZero: boolean): st
   return value
 }
 
+function maintenanceQuantity(value: unknown): string {
+  if(typeof value!=='string' || !/^\d+(?:\.\d{1,3})?$/.test(value)
+    || Number(value)<=0 || Number(value)>1_000_000)throw new Error('备件数量须为正数，最多三位小数')
+  return value
+}
+
 function equipmentEvidence(value: unknown, label: string, maximum=200): string {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > maximum)throw new Error(`${label}无效`)
   return value.trim()
@@ -624,6 +630,18 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'maintenancePlanDetail': return {method:'GET',path:`/api/v1/equipment/plans/${positiveId(payload,'id')}`}
     case 'maintenanceHourPlanDetail': return {method:'GET',path:`/api/v1/equipment/hour-plans/${positiveId(payload,'id')}`}
     case 'maintenanceJobDetail': return {method:'GET',path:`/api/v1/equipment/jobs/${positiveId(payload,'id')}`}
+    case 'createMaintenancePurchaseRequest': {
+      const source=payload as Record<string,unknown>
+      if(!source || typeof source!=='object' || Array.isArray(source) || !Array.isArray(source.parts)
+          || source.parts.length<1 || source.parts.length>100)throw new Error('维护采购明细无效')
+      const parts=source.parts.map(row=>{
+        if(!row || typeof row!=='object' || Array.isArray(row) || typeof row.quantity!=='string')throw new Error('备件数量须为精确字符串')
+        return {material_id:positiveId(row,'material_id'),quantity:maintenanceQuantity(row.quantity)}
+      })
+      return {method:'POST',path:`/api/v1/equipment/jobs/${positiveId(source,'id')}/purchase-requests`,
+        body:{version:positiveId(source,'version'),reason:equipmentEvidence(source.reason,'采购原因'),
+          evidence:equipmentEvidence(source.evidence,'采购依据',600),parts}}
+    }
     case 'recordEquipmentMeter': {
       const source=payload as Record<string,unknown>
       if(!source || typeof source!=='object' || Array.isArray(source) || typeof source.correction!=='boolean')throw new Error('设备读数无效')

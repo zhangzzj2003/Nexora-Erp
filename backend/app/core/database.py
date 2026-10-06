@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 83:
+        if version > 84:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2582,3 +2582,16 @@ def migrate() -> None:
             db.executemany('INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES (?,?)',
                            [(role,'after_sales.cost') for role in ('admin','finance')])
             db.execute('PRAGMA user_version = 83')
+
+        if version < 84:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS maintenance_purchase_requests (
+                id INTEGER PRIMARY KEY,
+                job_id INTEGER NOT NULL REFERENCES maintenance_jobs(id),
+                purchase_request_id INTEGER NOT NULL UNIQUE REFERENCES purchase_requests(id),
+                reason TEXT NOT NULL, evidence TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('CREATE INDEX IF NOT EXISTS maintenance_purchase_requests_job ON maintenance_purchase_requests(job_id,id)')
+            db.execute('PRAGMA user_version = 84')

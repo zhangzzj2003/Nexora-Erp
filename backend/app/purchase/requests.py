@@ -12,6 +12,7 @@ from app.production.mrp_rules import protect_request
 from app.core.orm import orm_session, add_model
 from app.core.models import (
     Material,
+    MaintenancePurchaseRequest,
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseOrderRequestLink,
@@ -201,6 +202,9 @@ def update_purchase_request(
             raise HTTPException(404, "采购申请不存在")
         if row["status"] not in ("draft", "rejected"):
             raise HTTPException(409, "只能修改草稿或已驳回的申请")
+        if db.scalar(select(MaintenancePurchaseRequest.id).where(
+                MaintenancePurchaseRequest.purchase_request_id == request_id)):
+            raise HTTPException(409, "维护工单来源采购申请不能直接修订，请取消后从工单重新创建")
         validate_lines(db, payload)
         db.execute(delete(PurchaseRequestLine).where((PurchaseRequestLine.purchase_request_id == request_id)))
         db.add_all(

@@ -12,7 +12,29 @@ const row={...input,id:1,version:3,status:'draft',plan_version:null,plan_due_dat
   work_order_snapshot:{},work_order_linked:false,work_order_current_status:null,parts_outbound_id:null,parts_status:null,
   solution:'',labor_hours:null,service_amount:null,plan_roll:{},created_by:1,created_by_name:'admin',assigned_to_name:'admin',author_ids:[1],
   reviewed_by:null,reported_by:null,accepted_by:null,created_at:'2026-10-01 12:00:00',started_at:null,reported_at:null,accepted_at:null,
-  allowed_actions:['submit','cancel'],can_edit:true,downtime:null,changes:[]}
+  allowed_actions:['submit','cancel'],can_edit:true,downtime:null,changes:[],purchase_requests:[]}
+
+test('维护采购 IPC 限定来源和三位小数，详情校验收货与入库证据',async t=>{
+  const previous=globalThis.fetch;t.after(()=>{globalThis.fetch=previous})
+  const calls=[];globalThis.fetch=async(url,options)=>{
+    calls.push([new URL(url).pathname,options.body?JSON.parse(options.body):null])
+    return new Response(JSON.stringify(new URL(url).pathname.endsWith('/login')?{token:'test',user:{id:1}}:row),{status:200})
+  }
+  await callBackend('login',{});calls.length=0
+  const input={id:1,version:3,reason:'维修备件',evidence:'检修记录',parts:[{material_id:2,quantity:'0.125',uiOnly:true}]}
+  await callBackend('createMaintenancePurchaseRequest',input)
+  assert.deepEqual(calls[0],['/api/v1/equipment/jobs/1/purchase-requests',{
+    version:3,reason:'维修备件',evidence:'检修记录',parts:[{material_id:2,quantity:'0.125'}]}])
+  await assert.rejects(callBackend('createMaintenancePurchaseRequest',{...input,parts:[{material_id:2,quantity:'0.1234'}]}),/最多三位小数/)
+  await assert.rejects(callBackend('createMaintenancePurchaseRequest',{...input,id:'../users'}),/编号无效/)
+  const linked={...row,purchase_requests:[{id:1,reference:'M-1-3',status:'approved',reason:'维修备件',evidence:'检修记录',created_by:1,
+    created_at:'2026-10-01',lines:[{material_id:2,quantity:'0.125',orders:[{id:4,status:'confirmed',quantity:'0.125',goods_receipts:[{
+      id:5,status:'confirmed',accepted_quantity:'0.125',inbound_receipt_id:6,inbound_status:'posted'}]}]}]}]}
+  validateEquipmentResult('maintenanceJobDetail',linked)
+  assert.throws(()=>validateEquipmentResult('maintenanceJobDetail',{...linked,purchase_requests:[{...linked.purchase_requests[0],
+    lines:[{material_id:2,quantity:'0.125',orders:[{id:4,status:'confirmed',quantity:'0.125',goods_receipts:[{
+      id:5,status:'confirmed',accepted_quantity:'0.125',inbound_receipt_id:6,inbound_status:1}]}]}]}]}),/响应格式/)
+})
 const overview={as_of:'2026-10-01 12:00:00',equipment:[],plans:[],hour_plans:[],jobs:[row],executors:[{id:1,username:'admin'}],materials:[],warehouses:[],work_orders:[]}
 const meter={id:1,equipment_id:1,hours:'100.00',reference:'METER-1',reason:'现场表计',previous_reading_id:null,
   correction:false,recorded_by:1,recorded_by_name:'admin',recorded_at:'2026-10-01 12:00:00'}

@@ -64,6 +64,8 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 采购申请与采购订单
 
+第 84 版起，`POST /api/v1/equipment/jobs/{id}/purchase-requests` 可从已批准或执行中的维护工单建立备件采购申请草稿，使用 `equipment.view` 和采购申请查看、创建权限。申请明细受工单计划耗材与未取消申请累计数量约束，采购页不能直接修订该来源申请；取消后可从工单重建。工单详情可追溯申请、订单、收货及仓库入库状态，实际采购仍走既有审批、转单和入库流程。规则见 [设备维护](../docs/equipment-maintenance.md)。
+
 数据库第 29 版新增采购申请、申请明细和订单明细来源关联。`GET /api/v1/purchase-requests` 查询申请及每行已转、待转数量；`POST /purchase-requests` 建草稿，`PUT /purchase-requests/{id}` 修改草稿或驳回后的申请，`/submit` 提交审批，`/approve` 与 `/reject` 由有审批权限的人处理，驳回必须填写原因，`/cancel` 取消尚未被有效订单使用的申请。修改驳回申请会恢复为草稿，需重新提交。查看、建改、提交、审批、取消分别要求 `purchase_request.view`、`purchase_request.create`、`purchase_request.submit`、`purchase_request.review`、`purchase_request.cancel`；管理员默认可全部操作，采购员和仓库员默认可查看、建改、提交及取消，审批权限默认仅管理员拥有，也可授予自定义角色。审批不要求与建单人不同。
 
 `POST /api/v1/purchase-orders` 可选传 `purchase_request_id`，并为每条明细传 `purchase_request_line_id`。服务端在写事务内校验申请已批准、物料匹配以及数量不超过待转量；未取消的订单草稿也占用申请额度，取消订单后释放。每张订单只关联一张申请，同一申请可按明细和数量拆成多张订单、分别选择供应商；不关联申请的直接采购继续可用。旧订单保留原样，不推断申请来源。申请和订单本身均不改变库存或应付。
@@ -114,7 +116,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 数据库第 39 版增加成本结算、分摊、来源依赖和独立冲销表。GET `/api/v1/production-costs/settlements` 查看历史；POST 同路径传入 `work_order_id`、`reference`、可选 `note`，仅可结算全部报工、无未处理草稿且净领料全部核价的工单。成本按合格入库数量累计比例分摊到各完工批次，以分为单位处理尾差；没有合格成品时拒绝结算。完工入库在库存计价中返回 `cost_source: production_settlement` 与 `settlement_id`，内部分摊金额不由四位展示单价倒算。POST `/{id}/reverse` 按原因冲销结算，原快照保留；有关联后续有效工单结算时拒绝冲销。结算冻结该工单费用、完工来源和有关核价依赖，先冲销后才能更正。结算、冲销分别要求 `production_cost.settle`、`production_cost.reopen`，默认授予管理员和财务员；查看沿用 `production_cost.view`。成本规则与边界见 [完工成本规则](../docs/production-cost-settlement.md)。
 
-现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 181 张静态模型表及第 83 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
+现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 182 张静态模型表及第 84 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
 
 ## 多仓库库存与调拨
 

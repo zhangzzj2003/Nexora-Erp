@@ -59,6 +59,16 @@ export interface MaintenanceHourPlanRecord extends Omit<MaintenanceHourPlanInput
   due: boolean; open_job_ids: number[]; changes: EquipmentChange[]
 }
 export interface MaintenancePart { material_id: number; quantity: string }
+export interface MaintenanceProcurementReceipt { id: number; status: string; accepted_quantity: string; inbound_receipt_id: number | null; inbound_status: string | null }
+export interface MaintenanceProcurementOrder { id: number; status: string; quantity: string; goods_receipts: MaintenanceProcurementReceipt[] }
+export interface MaintenanceProcurementRequest {
+  id: number; reference: string; status: string; reason: string; evidence: string
+  created_by: number; created_at: string
+  lines: {material_id: number; quantity: string; orders: MaintenanceProcurementOrder[]}[]
+}
+export interface MaintenancePurchaseInput {
+  id: number; version: number; reason: string; evidence: string; parts: MaintenancePart[]
+}
 export interface MaintenanceJobInput {
   reference: string; equipment_id: number; kind: MaintenanceKind; plan_id: number | null
   hour_plan_id: number | null
@@ -77,6 +87,7 @@ export interface MaintenanceJobRecord extends Omit<MaintenanceJobInput, 'reason'
   reviewed_by: number | null; reported_by: number | null; accepted_by: number | null
   created_at: string; started_at: string | null; reported_at: string | null; accepted_at: string | null
   allowed_actions: MaintenanceAction[]; can_edit: boolean; downtime: EquipmentDowntime | null; changes: EquipmentChange[]
+  purchase_requests: MaintenanceProcurementRequest[]
 }
 export interface EquipmentOverview {
   as_of: string; equipment: EquipmentRecord[]; plans: MaintenancePlanRecord[]
@@ -105,6 +116,7 @@ export interface EquipmentOperations {
   saveMaintenanceHourPlan: { input: MaintenanceHourPlanInput & { id?: number; version?: number }; output: MaintenanceHourPlanRecord }
   saveMaintenanceJob: { input: MaintenanceJobInput & { id?: number; version?: number }; output: MaintenanceJobRecord }
   changeMaintenanceJob: { input: MaintenanceCommand; output: MaintenanceJobRecord }
+  createMaintenancePurchaseRequest: { input: MaintenancePurchaseInput; output: MaintenanceJobRecord }
 }
 export type EquipmentEntity = 'asset' | 'plan' | 'hour_plan' | 'job'
 export type EquipmentDetail = {kind:'asset';row:EquipmentRecord} | {kind:'plan';row:MaintenancePlanRecord} |

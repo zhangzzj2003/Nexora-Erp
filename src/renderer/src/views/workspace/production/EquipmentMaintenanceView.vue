@@ -17,7 +17,11 @@ const mode=ref<EquipmentEntity>('job'),editor=ref(false),query=ref(''),filter=re
 const command=ref<{row:MaintenanceJobRecord;action:MaintenanceAction}|null>(null)
 const reason=ref(''),evidence=ref(''),solution=ref(''),hours=ref(''),amount=ref('')
 const meterHours=ref(''),meterReference=ref(''),meterReason=ref(''),meterCorrection=ref(false)
+const purchaseParts=ref<Record<number,string>>({}),purchaseReason=ref(''),purchaseEvidence=ref('')
 const disabled=computed(()=>busy.value || loading.value || preparing.value || connectionLost.value)
+const purchaseJob=computed(()=>detail.value?.kind==='job' && detail.value.row.parts.length
+  && ['approved','in_progress'].includes(detail.value.row.status) && store.can('purchase_request.view')
+  && store.can('purchase_request.create')?detail.value.row:null)
 const entityLabel={asset:'设备台账',plan:'日历计划',hour_plan:'运行小时计划',job:'维护工单'}
 const assetColumns=[{key:'name',title:'设备 / 序列号'},{key:'location',title:'位置'},{key:'status',title:'状态 / 版本'},{key:'actions',title:'操作 / 证据'}]
 const planColumns=[{key:'name',title:'计划 / 设备'},{key:'schedule',title:'到期 / 间隔'},{key:'status',title:'状态 / 工单'},{key:'actions',title:'操作 / 证据'}]
@@ -61,8 +65,18 @@ async function recordMeter():Promise<void>{
     previous_reading_id:asset.meter_reading?.id??null,correction:meterCorrection.value})
   if(saved)clearMeter()
 }
+async function createPurchaseRequest():Promise<void>{
+  const job=purchaseJob.value
+  if(!job || disabled.value)return
+  const parts=job.parts.filter(part=>purchaseParts.value[part.material_id]?.trim())
+    .map(part=>({material_id:part.material_id,quantity:purchaseParts.value[part.material_id].trim()}))
+  if(!parts.length)return
+  const saved=await store.createMaintenancePurchaseRequest({id:job.id,version:job.version,
+    reason:purchaseReason.value,evidence:purchaseEvidence.value,parts})
+  if(saved){purchaseParts.value={};purchaseReason.value='';purchaseEvidence.value=''}
+}
 watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{
-  command.value=null;editor.value=false;reason.value='';evidence.value='';solution.value='';hours.value='';amount.value='';query.value='';filter.value=null;clearMeter()
+  command.value=null;editor.value=false;reason.value='';evidence.value='';solution.value='';hours.value='';amount.value='';query.value='';filter.value=null;purchaseParts.value={};purchaseReason.value='';purchaseEvidence.value='';clearMeter()
   if(!connectionLost.value && store.can('equipment.view'))void store.loadEquipment()
 })
 watch(connectionLost,()=>{command.value=null;if(!connectionLost.value && store.can('equipment.view'))void store.loadEquipment()})
@@ -115,6 +129,19 @@ onMounted(()=>{void store.loadEquipment()});onUnmounted(()=>store.clearEquipment
         </WorkspaceTable>
         <p v-if="overview" class="equipment-secondary">读取时间：{{ store.localTime(overview.as_of) }}。停机时长为此时的登记区间，不等于现场自动采集或生产工时。</p>
         <EquipmentEvidence v-if="detail" :detail="detail" />
+        <form v-if="purchaseJob" class="equipment-operation" @submit.prevent="createPurchaseRequest">
+          <h3>从维护工单申请备件采购</h3>
+          <p>按已批准的耗材数量填写本次采购量。创建后进入采购申请草稿，仍须提交、审核、转采购订单和收货入库；取消的申请不占用数量。</p>
+          <div v-for="part in purchaseJob.parts" :key="part.material_id" class="equipment-facts">
+            <label>{{ overview?.materials.find(item=>item.id===part.material_id)?.name || '物料 #'+part.material_id }} · 计划 {{ part.quantity }}
+              <AppInput v-model="purchaseParts[part.material_id]" type="number" min="0.001" max="1000000" step="0.001" placeholder="留空表示本次不采购" :disabled="disabled" />
+            </label>
+          </div>
+          <label>采购原因<AppInput v-model.trim="purchaseReason" maxlength="200" required :disabled="disabled" /></label>
+          <label>采购依据<AppInput v-model.trim="purchaseEvidence" maxlength="600" required :disabled="disabled" /></label>
+          <p v-if="error" role="alert">{{ error }} 请复核工单版本及剩余可申请数量。</p>
+          <AppButton type="submit" variant="primary" :disabled="disabled || !purchaseReason.trim() || !purchaseEvidence.trim() || !Object.values(purchaseParts).some(value=>value?.trim())">创建采购申请草稿</AppButton>
+        </form>
         <form v-if="detail?.kind==='asset' && detail.row.status==='active' && store.can('equipment.meter')" class="equipment-operation" @submit.prevent="recordMeter">
           <h3>登记设备运行小时</h3>
           <p>基于设备 #{{ detail.row.id }} 当前读数 {{ detail.row.meter_reading?.hours??'未登记' }} 小时。普通登记不能倒退；错误读数由有设备资料权限的账号追加更正，原记录保留。</p>

@@ -76,6 +76,61 @@ def approved(erp, **extra):
     return action(api, row, 'approve', actor='reviewer')
 
 
+def test_maintenance_purchase_request_keeps_source_quantity_and_receipt_evidence(erp):
+    _, api, _, _, _, part = erp
+    row = approved(erp, warehouse_id=1, parts=[{'material_id': part, 'quantity': '3'}])
+    path = ROOT + f'/jobs/{row["id"]}/purchase-requests'
+    payload = {'version': row['version'], 'reason': '库内备件不足需采购',
+               'evidence': '检修记录 EQ-1', 'parts': [{'material_id': part, 'quantity': '2'}]}
+    api('POST', path, {**payload, 'parts': [{'material_id': part + 999, 'quantity': '1'}]}, status=422)
+    api('POST', path, {**payload, 'parts': [{'material_id': part, 'quantity': '4'}]}, status=409)
+    api('POST', path, payload, actor='observer', status=403)
+    row = api('POST', path, payload, status=201)
+    request = row['purchase_requests'][0]
+    assert request['status'] == 'draft' and request['lines'][0]['quantity'] == '2'
+    assert any(change['action'] == 'procure' for change in row['changes'])
+    api('POST', path, payload, status=409)
+    api('PUT', f'purchase-requests/{request["id"]}',
+        {'lines': [{'material_id': part, 'quantity': '99'}]}, status=409)
+    api('POST', path, {**payload, 'version': row['version'],
+        'parts': [{'material_id': part, 'quantity': '2'}]}, status=409)
+    api('POST', f'purchase-requests/{request["id"]}/submit')
+    api('POST', f'purchase-requests/{request["id"]}/approve', actor='reviewer')
+    supplier = api('POST', 'suppliers', {'name': '维修供应商'}, status=201)['id']
+    order = api('POST', 'purchase-orders', {'supplier_id': supplier,
+        'purchase_request_id': request['id'], 'lines': [{'material_id': part,
+        'purchase_request_line_id': api('GET', 'purchase-requests')[0]['lines'][0]['id'],
+        'quantity': '2', 'unit_price': '10'}]}, status=201)
+    evidence = api('GET', ROOT + f'/jobs/{row["id"]}')['purchase_requests'][0]
+    assert evidence['lines'][0]['orders'][0]['id'] == order['id']
+    assert evidence['lines'][0]['orders'][0]['quantity'] == '2'
+    api('POST', f'purchase-orders/{order["id"]}/confirm')
+    goods = api('POST', 'purchase-goods-receipts', {'purchase_order_id': order['id'],
+        'warehouse_id': 1, 'reference': '到货 EQ-1', 'lines': [{
+        'purchase_order_line_id': order['lines'][0]['id'], 'accepted_quantity': '2',
+        'rejected_quantity': '0'}]}, status=201)
+    receipt = api('POST', f'purchase-goods-receipts/{goods["id"]}/confirm')
+    link = api('GET', ROOT + f'/jobs/{row["id"]}')['purchase_requests'][0]['lines'][0]['orders'][0]['goods_receipts'][0]
+    assert link['id'] == goods['id'] and link['inbound_status'] == 'draft'
+    api('POST', f'receipts/{receipt["inbound_receipt_id"]}/post')
+    link = api('GET', ROOT + f'/jobs/{row["id"]}')['purchase_requests'][0]['lines'][0]['orders'][0]['goods_receipts'][0]
+    assert link['inbound_status'] == 'posted' and link['accepted_quantity'] == '2'
+    assert api('GET', ROOT + f'/jobs/{row["id"]}', actor='observer')['purchase_requests'] == []
+
+
+def test_maintenance_purchase_cancel_releases_planned_quantity(erp):
+    _, api, _, _, _, part = erp
+    row = approved(erp, warehouse_id=1, parts=[{'material_id': part, 'quantity': '1'}])
+    path = ROOT + f'/jobs/{row["id"]}/purchase-requests'
+    payload = {'version': row['version'], 'reason': '预订备件', 'evidence': '需求记录',
+               'parts': [{'material_id': part, 'quantity': '1'}]}
+    row = api('POST', path, payload, status=201)
+    old = row['purchase_requests'][0]['id']
+    api('POST', f'purchase-requests/{old}/cancel')
+    row = api('POST', path, {**payload, 'version': row['version']}, status=201)
+    assert [request['status'] for request in row['purchase_requests']] == ['cancelled', 'draft']
+
+
 def reported(erp, **extra):
     api = erp[1]
     row = action(api, approved(erp, **extra), 'start')
@@ -361,11 +416,11 @@ def test_v52_upgrade_is_idempotent_and_preserves_old_business(erp,remove_equipme
         db.execute('PRAGMA user_version=52')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 83
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 84
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'equipment.%'").fetchone()[0]==11
-    assert len(Base.metadata.tables)== 181
+    assert len(Base.metadata.tables)== 182
 
 
 def test_v52_migration_failure_does_not_leave_partial_tables(erp,remove_equipment_schema,monkeypatch):
@@ -518,7 +573,7 @@ def test_v62_hour_migration_preserves_calendar_business_and_is_idempotent(erp):
         remove_hour_schema(db)
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 83
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 84
         assert db.execute('SELECT id,status,plan_id FROM maintenance_jobs ORDER BY id').fetchall() == old_jobs
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code='equipment.meter'").fetchone()[0] == 1
