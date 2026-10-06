@@ -53,8 +53,9 @@ async function save(): Promise<void> {
         <label>联系人姓名<AppInput v-model.trim="forms.contact.name" required maxlength="120" :disabled="disabled" /></label>
         <label>职务<AppInput v-model.trim="forms.contact.job_title" maxlength="120" :disabled="disabled" /></label>
         <label>电话<AppInput v-model.trim="forms.contact.phone" maxlength="80" :disabled="disabled" /></label>
-        <label>邮箱<AppInput v-model.trim="forms.contact.email" maxlength="160" :disabled="disabled" /></label>
-        <label>联系人状态<WorkspaceSelect v-model="forms.contact.is_active" :options="[{label:'启用',value:true},{label:'停用',value:false}]" :disabled="disabled" /></label>
+        <label :class="{'crm-wide':!isEdit}">邮箱<AppInput v-model.trim="forms.contact.email" maxlength="160" :disabled="disabled" /></label>
+        <!-- 新建默认启用；启停只在已有联系人的修订中维护。 -->
+        <label v-if="isEdit">联系人状态<WorkspaceSelect v-model="forms.contact.is_active" :options="[{label:'启用',value:true},{label:'停用',value:false}]" :disabled="disabled" /></label>
         <label class="crm-wide">备注<AppInput v-model.trim="forms.contact.note" maxlength="1000" :disabled="disabled" /></label>
       </div>
       <div v-else-if="kind==='activity'" class="form-grid">

@@ -216,7 +216,8 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
     const edit=state.crmEdit.value[kind]
     const version=edit?.kind===kind ? {id:edit.id,version:edit.version,reason:edit.reason} : {}
     const forms=state.crmForms.value;const session=owner
-    const saved=await (kind==='contact' ? write('crm_contact.manage',()=>window.nexora!.callApi('saveCrmContact',{...forms.contact,...version}),'联系人已保存。',kind)
+    // 新建表单不提供启停选择，提交时固定启用；修订仍保留用户选择的状态。
+    const saved=await (kind==='contact' ? write('crm_contact.manage',()=>window.nexora!.callApi('saveCrmContact',{...forms.contact,...version,is_active:edit?.kind==='contact' ? forms.contact.is_active : true}),'联系人已保存。',kind)
       : kind==='opportunity' ? write('crm_opportunity.manage',()=>window.nexora!.callApi('saveCrmOpportunity',{...forms.opportunity,...version}),'商机已保存，预估金额不计收入。',kind)
       : kind==='activity' ? write('crm_activity.manage',()=>window.nexora!.callApi('createCrmActivity',{...forms.activity}),'跟进已安排。',kind)
       : write('crm_quote.create',()=>window.nexora!.callApi('saveCrmQuote',{...forms.quote,...version,lines:forms.quote.lines.map(({material_id,quantity,unit_price})=>({material_id,quantity,unit_price}))}),'报价已保存，须提交并独立审核。',kind))

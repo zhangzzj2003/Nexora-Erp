@@ -321,6 +321,29 @@ test('保存冲突保留输入、修订原因和行标记，成功后清空且�
   fail=false;assert.equal(await actions.saveCrm('quote'),true);assert.equal(state.crmForms.value.quote.reference,'');assert.equal(state.crmDetail.value.record.id,9)
 })
 
+test('新建联系人固定启用，失败保留草稿；修订可按原版本停用',async t=>{
+  const calls=[];let fail=true
+  const contact={id:9,version:2,customer_id:4,name:'王女士',is_active:true}
+  const {state,actions}=fixture(t,async(action,data)=>{
+    if(action==='saveCrmContact'){calls.push(data);if(fail)throw Error('保存失败');return {...contact,...data}}
+    return action==='crmOptions'?options:action==='crmOverview'?overview:action==='crmChanges'?[]:contact
+  },async run=>{try{await run()}catch{}})
+  // 历史草稿即使残留停用值，新建请求仍按隐藏字段的默认规则启用。
+  const draft={customer_id:4,name:'王女士',job_title:'采购',phone:'100',email:'',note:'重点客户',is_active:false}
+  state.crmForms.value.contact={...draft}
+  assert.equal(await actions.saveCrm('contact'),false)
+  assert.equal(calls[0].is_active,true)
+  assert.deepEqual(state.crmForms.value.contact,draft)
+  fail=false
+  assert.equal(await actions.saveCrm('contact'),true)
+  assert.equal(calls[1].is_active,true)
+  assert.equal(state.crmForms.value.contact.name,'')
+  state.crmForms.value.contact={...draft}
+  state.crmEdit.value.contact={kind:'contact',id:9,version:2,reason:'已离职'}
+  assert.equal(await actions.saveCrm('contact'),true)
+  assert.deepEqual(calls[2],{...draft,id:9,version:2,reason:'已离职'})
+})
+
 test('旧会话保存结束不能清除新账号草稿；未发出的旧保存不能使用新会话',async t=>{
   const pending=deferred();const {state,actions}=fixture(t,()=>pending.promise)
   state.crmForms.value.quote=structuredClone(quoteInput);const write=actions.saveCrm('quote')
