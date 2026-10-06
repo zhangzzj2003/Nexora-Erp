@@ -21,6 +21,15 @@ export interface AfterSalesLaborCostSummary {
   entries:{labor_id:number; hours:string; reversed:boolean; latest:AfterSalesLaborCostRecord|null}[]
   history:AfterSalesLaborCostRecord[]
 }
+export interface AfterSalesRepairMargin {
+  case_id:number; case_version:number; currency:'CNY'; basis:'recognized_repair_direct_margin'
+  finalized:boolean; complete:boolean; revenue:string; labor_cost:string|null; material_cost:string|null
+  total_direct_cost:string|null; direct_margin:string|null; missing_labor_ids:number[]
+  unpriced_movement_ids:number[]; parts_pending:boolean
+  movements:{id:number;source_type:'other_outbound'|'other_outbound_reversal';source_line_id:number;
+    material_id:number;quantity:string;cost_source:string;cost_input_id:number|null;
+    settlement_id:number|null;cost:string|null}[]
+}
 export interface AfterSalesSource {
   shipment_line_id:number; shipment_id:number; sales_order_id:number; customer_id:number; customer_name:string
   material_id:number; sku:string; material_name:string; unit:string; quantity:string; unit_price:string
@@ -79,5 +88,6 @@ export interface AfterSalesOperations {
   recordAfterSalesLabor:{input:{id:number;version:number;hours:string;reason:string;evidence:string};output:AfterSalesEvidence}
   reverseAfterSalesLabor:{input:{id:number;version:number;entry_id:number;reason:string;evidence:string};output:AfterSalesEvidence}
   afterSalesLaborCost:{input:{id:number};output:AfterSalesLaborCostSummary}
+  afterSalesRepairMargin:{input:{id:number};output:AfterSalesRepairMargin}
   valueAfterSalesLaborCost:{input:{id:number;version:number;entry_id:number;hourly_rate:string|null;reason:string;evidence:string};output:AfterSalesLaborCostSummary}
 }

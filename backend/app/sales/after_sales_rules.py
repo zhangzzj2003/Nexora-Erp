@@ -150,6 +150,49 @@ def labor_cost_data(db, row, labor=None, cutoff=None):
         history=history)
 
 
+def repair_margin_data(db, row, *, header=None, labor_cost=None, valuation=None, cutoff_date=None):
+    """按可追溯的服务费、耗材流水和有效工时核价计算维修直接毛利。"""
+    from app.inventory.valuation import calculate_valuation
+
+    case = header if header is not None else model_data(row)
+    if case['kind'] != 'repair':
+        return None
+    if labor_cost is None:
+        labor_cost = labor_cost_data(db, row)
+    if valuation is None:
+        valuation = calculate_valuation(db, through_date=cutoff_date).report
+    outbound_id = case['parts_outbound_id']
+    movements = [item for item in valuation['movements']
+        if outbound_id is not None and item['source_id'] == outbound_id
+        and item['source_type'] in ('other_outbound', 'other_outbound_reversal')]
+    parts = json.loads(case['parts_json'])
+    missing_movements = [item['id'] for item in movements if item['accounting_amount'] is None]
+    parts_pending = bool(parts) and not any(item['source_type'] == 'other_outbound' for item in movements)
+    material_cost = None if missing_movements else -sum(
+        (Decimal(item['accounting_amount']) for item in movements), Decimal(0))
+    labor_missing = labor_cost['missing_labor_ids']
+    labor_amount = Decimal(labor_cost['total_amount'])
+    revenue = Decimal(case['fee_amount']) if (case['charge_mode'] == 'charge'
+        and case['closed_at'] is not None and case['reversed_at'] is None) else Decimal(0)
+    finalized = case['status'] in ('closed', 'reversed')
+    complete = finalized and not parts_pending and not missing_movements and not labor_missing
+    total_cost = material_cost + labor_amount if material_cost is not None and not labor_missing else None
+    return dict(case_id=case['id'], case_version=case['version'], currency='CNY',
+        basis='recognized_repair_direct_margin', finalized=finalized, complete=complete,
+        revenue=f'{revenue:.2f}', labor_cost=None if labor_missing else f'{labor_amount:.2f}',
+        material_cost=None if material_cost is None else f'{material_cost:.2f}',
+        total_direct_cost=None if total_cost is None else f'{total_cost:.2f}',
+        direct_margin=f'{revenue - total_cost:.2f}' if complete and total_cost is not None else None,
+        missing_labor_ids=labor_missing, unpriced_movement_ids=missing_movements,
+        parts_pending=parts_pending,
+        movements=[dict(id=item['id'], source_type=item['source_type'],
+            source_line_id=item['source_line_id'], material_id=item['material_id'],
+            quantity=item['quantity'], cost_source=item['cost_source'],
+            cost_input_id=item['cost_input_id'], settlement_id=item['settlement_id'],
+            cost=None if item['accounting_amount'] is None
+                else f'{-Decimal(item["accounting_amount"]):.2f}') for item in movements])
+
+
 def responsibility_data(db, row, cutoff=None):
     query = select(AfterSalesResponsibility).where(AfterSalesResponsibility.case_id == row.id)
     if cutoff is not None:
@@ -203,10 +246,13 @@ def case_data(db, row):
     return result
 
 
-def archive_cases(db, end_date):
+def archive_cases(db, end_date, valuation=None):
     """结账固定截至期末的方案、保管和工时记录，不混入期末后的更正。"""
     cutoff = end_date + ' 24:00:00'
     result = []
+    if valuation is None:
+        from app.inventory.valuation import calculate_valuation
+        valuation = calculate_valuation(db, through_date=end_date).report
     for row in db.scalars(select(AfterSalesCase).where(AfterSalesCase.created_at < cutoff)
             .order_by(AfterSalesCase.id)):
         changes = list(db.scalars(select(AfterSalesChange).where(AfterSalesChange.case_id == row.id,
@@ -224,11 +270,14 @@ def archive_cases(db, end_date):
         labor, labor_hours = labor_data(db, row, cutoff)
         labor_cost = labor_cost_data(db, row, labor, cutoff)
         labor_cost['case_version'] = header['version']
+        repair_margin = repair_margin_data(db, row, header=header, labor_cost=labor_cost,
+            valuation=valuation, cutoff_date=end_date)
         responsibilities = responsibility_data(db, row, cutoff)
         result.append(dict(case=header, source=original,
             custody=custody, custody_quantity=str(sum((Decimal(item['quantity']) *
                 (1 if item['action'] == 'receive' else -1) for item in custody), Decimal(0))),
             labor=labor, labor_hours=labor_hours, labor_cost=labor_cost,
+            repair_margin=repair_margin,
             responsibilities=responsibilities,
             responsibility=responsibilities[-1] if responsibilities else None,
             changes=[dict(id=item.id, action=item.action, reason=item.reason, evidence=item.evidence,

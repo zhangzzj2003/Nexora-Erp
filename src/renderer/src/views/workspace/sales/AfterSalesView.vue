@@ -12,6 +12,7 @@ import AfterSalesEditor from './AfterSalesEditor.vue'
 import AfterSalesEvidenceView from './AfterSalesEvidence.vue'
 import AfterSalesAttachments from './AfterSalesAttachments.vue'
 import AfterSalesLaborCost from './AfterSalesLaborCost.vue'
+import AfterSalesRepairMargin from './AfterSalesRepairMargin.vue'
 import {afterSalesActions,afterSalesKind,afterSalesStatus,afterSalesCommand,afterSalesReversalHint} from './after-sales-display'
 const store=usePiniaAppStore()
 const {afterSalesOverview:overview,afterSalesDetail:detail,afterSalesLoading:loading,afterSalesError:failure,busy,user,connectionLost,error}=storeToRefs(store)
@@ -101,6 +102,7 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
       </WorkspaceTable>
       <AfterSalesEvidenceView v-if="detail" :row="detail" />
       <AfterSalesLaborCost v-if="detail?.kind==='repair'&&store.can('after_sales.cost')" :row="detail" />
+      <AfterSalesRepairMargin v-if="detail?.kind==='repair'&&store.can('after_sales.cost')" :row="detail" />
       <AfterSalesAttachments v-if="detail" :case-id="detail.id" />
       <div v-if="detail&&canAssess(detail)" class="after-toolbar"><AppButton :disabled="disabled" @click="prepareResponsibility(detail.id)">{{ detail.responsibility?'更正责任核定':'登记责任核定' }}</AppButton></div>
       <div v-if="detail?.kind==='repair'&&['received','repaired'].includes(detail.status)&&store.can('after_sales.labor')" class="after-toolbar">

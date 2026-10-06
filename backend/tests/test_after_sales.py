@@ -440,6 +440,87 @@ def test_labor_cost_is_finance_only_append_only_and_excludes_reversed_hours(erp)
         assert len(list(db.scalars(select(AfterSalesLaborCost))))==4
 
 
+def test_repair_margin_combines_recognized_fee_parts_and_labor_without_hiding_gaps(erp):
+    _,api,_,_,_,part,_=erp
+    row=approved(erp,payload(erp,reference='MARGIN-1',charge_mode='charge',fee_amount='50.00',
+        warehouse_id=1,parts=[{'material_id':part,'quantity':'2'}]))
+    margin_path=f'{ROOT}/{row["id"]}/repair-margin'
+    api('GET',margin_path,actor='warehouse',status=403)
+    api('GET',margin_path,actor='seller',status=403)
+    pending=api('GET',margin_path,actor='reviewer')
+    assert not pending['finalized'] and not pending['complete'] and pending['parts_pending']
+    assert pending['revenue']=='0.00' and pending['direct_margin'] is None
+    row=action(api,row,'receive')
+    row=api('POST',f'{ROOT}/{row["id"]}/labor',dict(version=row['version'],hours='1.50',
+        reason='拆机维修',evidence='维修工单 M-1'),actor='warehouse',status=201)
+    labor_id=row['labor'][0]['id']
+    api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
+    row=action(api,row,'inspect',inspection_result='pass')
+    row=action(api,row,'close')
+    incomplete=api('GET',margin_path,actor='reviewer')
+    assert incomplete['revenue']=='50.00' and incomplete['material_cost']=='2.00'
+    assert incomplete['labor_cost'] is None and incomplete['missing_labor_ids']==[labor_id]
+    assert incomplete['direct_margin'] is None and not incomplete['complete']
+    api('POST',f'{ROOT}/{row["id"]}/labor-cost/{labor_id}',dict(version=row['version'],
+        hourly_rate='20.00',reason='按标准核价',evidence='内部费率表 M-1'),actor='reviewer',status=201)
+    complete=api('GET',margin_path,actor='reviewer')
+    assert complete['complete'] and complete['finalized']
+    assert (complete['revenue'],complete['material_cost'],complete['labor_cost'],
+        complete['total_direct_cost'],complete['direct_margin'])==('50.00','2.00','30.00','32.00','18.00')
+    assert len(complete['movements'])==1 and complete['movements'][0]['cost']=='2.00'
+    assert complete['movements'][0]['source_line_id'] and complete['movements'][0]['cost_source']=='moving_average'
+    assert 'repair_margin' not in api('GET',f'{ROOT}/{row["id"]}',actor='warehouse')
+    row=api('GET',f'{ROOT}/{row["id"]}')
+    action(api,row,'reverse')
+    reversed_margin=api('GET',margin_path,actor='reviewer')
+    assert reversed_margin['complete'] and reversed_margin['revenue']=='0.00'
+    assert reversed_margin['direct_margin']=='-32.00'
+    with orm_session() as db:
+        archive=next(item for item in archive_cases(db,'2099-12-31') if item['case']['id']==row['id'])
+        assert archive['repair_margin']['direct_margin']=='-32.00'
+
+
+def test_repair_margin_rejects_non_repair_case(erp):
+    api=erp[1]
+    row=api('POST',ROOT,payload(erp,kind='return',reference='MARGIN-RETURN'),status=201)
+    api('GET',f'{ROOT}/{row["id"]}/repair-margin',actor='reviewer',status=409)
+
+
+def test_repair_margin_honors_customer_scope(erp):
+    api=erp[1]
+    row=approved(erp,payload(erp,reference='MARGIN-SCOPE'))
+    with orm_session(write=True) as db:
+        db.add(RolePermission(role_code='seller',permission_code='after_sales.cost'))
+    path=f'{ROOT}/{row["id"]}/repair-margin'
+    assert api('GET',path,actor='seller')['case_id']==row['id']
+    with orm_session(write=True) as db:
+        db.get(Customer,row['frozen_source']['customer_id']).owner_id=1
+    api('GET',path,actor='seller',status=404)
+
+
+def test_repair_margin_waits_for_missing_stock_price_and_recomputes_after_valuation(erp):
+    api=erp[1];part=erp[5]
+    inbound=api('POST','warehouse-inbounds',dict(warehouse_id=1,reason='gift',
+        note='待核价入库',reference='MARGIN-IN',lines=[dict(material_id=part,quantity='1')]),status=201)
+    api('POST',f'warehouse-inbounds/{inbound["id"]}/post')
+    source_id=api('GET','inventory/valuation')['unpriced_movement_ids'][0]
+    row=approved(erp,payload(erp,reference='MARGIN-UNPRICED',warehouse_id=1,
+        parts=[dict(material_id=part,quantity='1')]))
+    row=action(api,row,'receive')
+    api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
+    row=action(api,row,'inspect',inspection_result='pass')
+    row=action(api,row,'close')
+    path=f'{ROOT}/{row["id"]}/repair-margin'
+    pending=api('GET',path,actor='reviewer')
+    assert pending['material_cost'] is None and pending['direct_margin'] is None
+    assert len(pending['unpriced_movement_ids'])==1
+    api('POST','inventory/valuation/inputs',dict(movement_id=source_id,unit_cost='5',
+        reference='MARGIN-PRICE',reason='核对入库价格'),status=201)
+    valued=api('GET',path,actor='reviewer')
+    assert valued['complete'] and valued['unpriced_movement_ids']==[]
+    assert valued['material_cost']=='1.19' and valued['direct_margin']=='-1.19'
+
+
 def test_labor_cost_checks_scope_author_and_transaction_rollback(erp,monkeypatch):
     _,api,_,_,_,_,_=erp
     row=action(api,approved(erp,payload(erp)),'receive')
@@ -825,12 +906,15 @@ def test_closing_archives_open_custody_and_fee_and_rolls_back_locked_corrections
     assert evidence[1]['case']['status']=='received' and evidence[1]['custody_quantity']=='1'
     assert evidence[1]['labor_hours']=='1.50' and evidence[1]['labor'][0]['evidence']=='维修工单 R-9'
     assert evidence[1]['labor_cost']['total_amount']=='30.00'
+    assert evidence[0]['repair_margin']['direct_margin']=='5.50'
+    assert evidence[1]['repair_margin']['direct_margin'] is None
     assert evidence[1]['labor_cost']['history'][0]['evidence']=='费率批准单 C-9'
     assert evidence[1]['custody'][0]['evidence']=='交接检验记录 A-002'
     with orm_session(write=True) as db:
         db.add(RolePermission(role_code='warehouse',permission_code='accounting_period.closing_view'))
     limited=api('GET',path+'/closings',actor='warehouse')[0]['evidence']['after_sales']
-    assert 'labor_cost' not in limited[1] and limited[1]['labor_hours']=='1.50'
+    assert 'labor_cost' not in limited[1] and 'repair_margin' not in limited[1]
+    assert limited[1]['labor_hours']=='1.50'
     action(api,closed,'reverse',status=409)
     action(api,held,'cancel',status=409)
     api('POST',f'{ROOT}/{held["id"]}/labor',{'version':held['version'],'hours':'1',

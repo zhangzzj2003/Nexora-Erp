@@ -766,6 +766,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
         body:{version:positiveId(source,'version'),reason:source.reason,evidence:source.evidence}}
     }
     case 'afterSalesLaborCost': return {method:'GET',path:`/api/v1/after-sales/cases/${positiveId(payload,'id')}/labor-cost`}
+    case 'afterSalesRepairMargin': return {method:'GET',path:`/api/v1/after-sales/cases/${positiveId(payload,'id')}/repair-margin`}
     case 'valueAfterSalesLaborCost': {
       const source=payload as ErpOperations['valueAfterSalesLaborCost']['input']
       if(!source || (source.hourly_rate!==null && (typeof source.hourly_rate!=='string' ||

@@ -129,6 +129,27 @@ test('内部工时成本只向有权会话读取，写入后重读售后证据',
   assert.deepEqual(calls[1][1],{id:1,version:3,entry_id:2,hourly_rate:'20.00',reason:'复核',evidence:'批准表'})
 })
 
+test('维修直接毛利 IPC 固定只读路径且受内部成本权限隔离',async t=>{
+  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original})
+  const requests=[];globalThis.fetch=async(url,options)=>{
+    requests.push([new URL(url).pathname,options.method])
+    return new Response(JSON.stringify({case_id:1,case_version:3,direct_margin:'18.00'}),{status:200})
+  }
+  await callBackend('afterSalesRepairMargin',{id:1,other:'ignored'})
+  await assert.rejects(callBackend('afterSalesRepairMargin',{id:'../users'}),/编号无效/)
+  assert.deepEqual(requests,[['/api/v1/after-sales/cases/1/repair-margin','GET']])
+  const calls=[]
+  const {state,actions}=fixture(t,async(operation,input)=>{
+    calls.push([operation,input]);return {case_id:1,case_version:3,direct_margin:'18.00'}
+  })
+  state.user.value={id:1,permissions:['after_sales.view']}
+  await assert.rejects(actions.loadAfterSalesRepairMargin(1),/不能读取/)
+  assert.equal(calls.length,0)
+  state.user.value={id:1,permissions}
+  assert.equal((await actions.loadAfterSalesRepairMargin(1)).direct_margin,'18.00')
+  assert.deepEqual(calls,[['afterSalesRepairMargin',{id:1}]])
+})
+
 test('责任核定 IPC 只发送枚举与依据，独立审核权限控制写入',async t=>{
   const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original})
   const requests=[];globalThis.fetch=async(url,options)=>{

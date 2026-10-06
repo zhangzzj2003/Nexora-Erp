@@ -106,7 +106,7 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
         rows=[subledger_balance(db, line, period.end_date) for line in subledger_lines(db, subledger.id)])
     evidence = dict(period=snapshot(period), currency='CNY', time_basis='UTC',
         subledger=subledger_evidence,
-        after_sales=archive_cases(db, period.end_date),
+        after_sales=archive_cases(db, period.end_date, valuation),
         quality=[dict(disposition=model_data(record), allocations=[model_data(value) for value in db.scalars(
             select(QualityCostAllocation).where(QualityCostAllocation.disposition_id == record.id))]) for record in quality_records],
         auxiliary=dict(lines=auxiliary_lines, opening=auxiliary_opening, unassigned_count=unassigned_count,
@@ -150,6 +150,7 @@ def closing_history(period_id: int = Path(gt=0),
                 # 结账查看权限可独立分配，不能借固定归档绕过售后内部成本授权。
                 for case in evidence.get('after_sales', []):
                     case.pop('labor_cost', None)
+                    case.pop('repair_margin', None)
             result.append(dict(id=item.id, period_id=item.period_id, period_version=item.period_version,
                 action=item.action, evidence=evidence, reason=item.reason,
                 created_by=item.created_by, created_by_name=username, created_at=item.created_at))

@@ -11,7 +11,7 @@
 | `app/core/` | 数据库迁移、静态 SQLAlchemy ORM 模型与统一会话事务边界。 |
 | `app/purchase/` | 采购申请、采购订单、采购收货、入库单、采购退货。 |
 | `app/inventory/` | 仓库、其他入出库、调拨、盘点、独立调整、库存余额、台账和按仓库预警。 |
-| `app/sales/` | 客户、联系人、跟进、商机、独立审核报价与转销售草稿、销售订单及合同正文版本、出库、销售退货与售后退换修（含保修期限与内部工时成本核价）。 |
+| `app/sales/` | 客户、联系人、跟进、商机、独立审核报价与转销售草稿、销售订单及合同正文版本、出库、销售退货与售后退换修（含保修期限、内部工时成本核价与维修直接毛利）。 |
 | `app/production/` | BOM、工单、领退料、报工、工单成本、完工批次结算、不合格品处置与返工、MRP 日期计划及设备维护接口。 |
 | `app/finance/` | 应收应付、订单余额、手工收付款、人工银行流水勾对与余额调节、总账科目、会计期间、期初余额、手工及业务来源凭证与附件、损益结转、已过账报表、公司财务报表与固定归档、辅助核算及期间结账与重开。 |
 | `app/reports/` | 采购执行、收退货、库存余额与收发存报表，及按原有权限返回的首页经营快照。 |
@@ -249,7 +249,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 售后退换修
 
-第 52 版新增售后方案、审计和客户物品保管三张静态 ORM 表，共 122 张。路由与规则位于 `app/sales/after_sales.py`、`after_sales_labor.py`、`after_sales_labor_cost.py`、`after_sales_attachments.py` 和 `after_sales_rules.py`；业务 CRUD 均为 ORM。维修费与追加式更正进入原订单应收，客户物品不计公司库存；`repair_income` 须显式映射科目。第 64 版新增维修工时追加记录的静态 ORM 表；第 83 版新增独立权限的内部标准工时成本核价表，逐条核价、更正、撤销和已结期间固定归档均保留历史，不自动形成工资、应付或总账分录。第 74 版新增售后附件及追加式撤销两张 ORM 表；按客户可见范围读取原文，上传和撤销另需 `after_sales.attachment`，结案、取消或更正后只读。独立审核、关联单据权限、版本、并发占用、锁期与固定归档见 [售后规则](../docs/after-sales.md)。
+第 52 版新增售后方案、审计和客户物品保管三张静态 ORM 表，共 122 张。路由与规则位于 `app/sales/after_sales.py`、`after_sales_labor.py`、`after_sales_labor_cost.py`、`after_sales_margin.py`、`after_sales_attachments.py` 和 `after_sales_rules.py`；业务 CRUD 均为 ORM。维修费与追加式更正进入原订单应收，客户物品不计公司库存；`repair_income` 须显式映射科目。第 64 版新增维修工时追加记录的静态 ORM 表；第 83 版新增独立权限的内部标准工时成本核价表，逐条核价、更正、撤销和已结期间固定归档均保留历史，不自动形成工资、应付或总账分录。`GET /api/v1/after-sales/cases/{id}/repair-margin` 要求售后查看与内部成本权限及客户可见范围，基于已结案服务费、有效工时核价和耗材移动平均计价只读计算人民币直接毛利；缺价或未结案时毛利为 `null`，不新增表或凭证，期间结账固定其证据并隔离成本权限。第 74 版新增售后附件及追加式撤销两张 ORM 表；按客户可见范围读取原文，上传和撤销另需 `after_sales.attachment`，结案、取消或更正后只读。独立审核、关联单据权限、版本、并发占用、锁期与固定归档见 [售后规则](../docs/after-sales.md)。
 
 ## 设备维护
 

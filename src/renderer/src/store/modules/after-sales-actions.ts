@@ -1,5 +1,5 @@
 import {watch} from 'vue'
-import type {AfterSalesAction,AfterSalesAttachment,AfterSalesAttachmentList,AfterSalesDraft,AfterSalesEvidence,AfterSalesInput,AfterSalesLaborCostSummary,AfterSalesResponsibilityOutcome} from '../../../../shared/after-sales-api'
+import type {AfterSalesAction,AfterSalesAttachment,AfterSalesAttachmentList,AfterSalesDraft,AfterSalesEvidence,AfterSalesInput,AfterSalesLaborCostSummary,AfterSalesRepairMargin,AfterSalesResponsibilityOutcome} from '../../../../shared/after-sales-api'
 import type {AppState} from '../state'
 import {displayError} from '../../utils/formatters.ts'
 
@@ -122,6 +122,13 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
     if(session!==owner || !can('after_sales.cost') || !can('after_sales.view'))throw new Error('会话或权限已变化，请重新读取成本。')
     return result
   }
+  async function loadAfterSalesRepairMargin(id:number):Promise<AfterSalesRepairMargin>{
+    if(!available() || !can('after_sales.view') || !can('after_sales.cost'))throw new Error('当前不能读取维修直接毛利。')
+    const session=owner
+    const result=await window.nexora!.callApi('afterSalesRepairMargin',{id})
+    if(session!==owner || !can('after_sales.cost') || !can('after_sales.view'))throw new Error('会话或权限已变化，请重新读取维修直接毛利。')
+    return result
+  }
   async function valueAfterSalesLaborCost(row:AfterSalesEvidence,entryId:number,hourlyRate:string|null,
     reason:string,evidence:string):Promise<AfterSalesLaborCostSummary|null>{
     if(!available() || !can('after_sales.view') || !can('after_sales.cost') || state.busy.value)return null
@@ -138,7 +145,7 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
   }
   return {loadAfterSales,loadAfterSalesDetail,clearAfterSalesDetail,startAfterSalesCase,editAfterSalesCase,saveAfterSalesCase,
     loadAfterSalesAttachments,uploadAfterSalesAttachment,reverseAfterSalesAttachment,saveAfterSalesAttachment,
-    loadAfterSalesLaborCost,valueAfterSalesLaborCost,
+    loadAfterSalesLaborCost,valueAfterSalesLaborCost,loadAfterSalesRepairMargin,
     recordAfterSalesLabor:(row:AfterSalesEvidence,hours:string,reason:string,evidence:string)=>write('after_sales.labor',
       ()=>window.nexora!.callApi('recordAfterSalesLabor',{id:row.id,version:row.version,hours,reason,evidence}),
       '维修实际工时已登记，原始证据保留；工时不自动形成成本或收费。'),
