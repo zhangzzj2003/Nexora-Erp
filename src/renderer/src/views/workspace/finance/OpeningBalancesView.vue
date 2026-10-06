@@ -228,7 +228,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
     <NModal
       v-model:show="showForm"
       preset="card"
-      :title="form.id === null ? '新增期初方案' : `编辑${documentLabel(form)}`"
+      :title="form.id === null ? '新增期初方案' : `编辑${documentLabel(form, records)}`"
       :mask-closable="!busy"
       :style="{
         width: 'min(1100px, calc(100vw - 32px))',

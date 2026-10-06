@@ -67,8 +67,11 @@ export function validateDocumentNumbering(value: unknown): asserts value is Docu
   }
 }
 // 展示时直接使用已保存的完整单号，切换语言不能重新翻译前缀。
-export function documentLabel(value: { id?: number | null; document_no?: string | null }): string {
-  return value.document_no || (value.id ? `#${value.id}` : '—')
+type DocumentLabelRecord = { id?: number | null; readonly document_no?: string | null }
+export function documentLabel(value: DocumentLabelRecord, records?: readonly DocumentLabelRecord[]): string {
+  // 编辑草稿只保存可写字段，标题按原 ID 从已授权的当前列表读取只读业务单号。
+  const saved = value.id ? records?.find(row => row.id === value.id) : undefined
+  return value.document_no || saved?.document_no || (value.id ? `#${value.id}` : '—')
 }
 export function relatedDocumentLabel(value: object, field: string, frozen?: object): string {
   const row = value as Record<string, unknown>

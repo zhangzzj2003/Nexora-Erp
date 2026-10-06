@@ -41,6 +41,15 @@ test('受限桥接拒绝非法配置与编号响应，过滤额外参数', () =>
     assert.throws(() => validateDocumentNumbers({ rows: [{ document_no: number }] }))
 })
 
+test('编辑草稿标题读取当前单据编号，保持原 ID 请求和未编号历史回退', () => {
+  const draft = { id: 5 }
+  const saved = { id: 5, document_no: 'JV-20261007-000001' }
+  assert.equal(documentLabel(draft, [saved]), saved.document_no)
+  assert.deepEqual(draft, { id: 5 })
+  assert.equal(documentLabel(draft, [{ ...saved, id: 6 }]), '#5')
+  assert.equal(documentLabel(draft, [{ id: 5, document_no: null }]), '#5')
+})
+
 test('首次登录及恢复会话强制管理员设置，普通用户仍查询，切换实例清空规则', async t => {
   const previous = globalThis.window
   t.after(() => { globalThis.window = previous })
