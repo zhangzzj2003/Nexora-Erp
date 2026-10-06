@@ -2,16 +2,21 @@
 import { computed } from 'vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
+import WorkspaceSupplierSelect from '../../../components/workspace/WorkspaceSupplierSelect.vue'
+import type { Supplier } from '../../../../../shared/supplier-api'
+import type { MaterialUnit } from '../../../../../shared/material-unit-api'
+import { materialUnitOptions } from './unit-options'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import type { MaterialCategory } from '../../../../../shared/material-api'
 import type { MaterialDraft } from './material-form'
 
 // 编辑器只维护表单交互，保存、权限与刷新仍由页面和 Pinia 处理。
 const props = defineProps<{
-  form: MaterialDraft; categories: MaterialCategory[]; editing: boolean; busy: boolean; disconnected: boolean
+  units?: MaterialUnit[]; suppliers?: Supplier[]; form: MaterialDraft; categories: MaterialCategory[]; editing: boolean; busy: boolean; disconnected: boolean
 }>()
 const emit = defineEmits<{ save: []; cancel: [] }>()
 const groups = computed(() => props.categories.map(group => ({ value: group.code, label: group.name })))
+const unitOptions = computed(() => materialUnitOptions(props.units ?? [], props.form.original_unit, props.editing))
 const children = computed(() => [
   ...(props.editing ? [{ value: '', label: '未分类（保留旧资料）' }] : []),
   ...(props.categories.find(group => group.code === props.form.group_code)?.children ?? [])
@@ -38,16 +43,27 @@ function submit(): void {
       <div class="form-grid">
         <label>物料大类 *<WorkspaceSelect v-model="form.group_code" :options="groups" required aria-label="物料大类" :disabled="busy || disconnected" @change="changeGroup" /></label>
         <label>物料子类 {{ editing ? '' : '*' }}<WorkspaceSelect v-model="form.category_code" :options="children" :required="!editing" placeholder="请选择物料子类" aria-label="物料子类" :disabled="busy || disconnected" /></label>
-        <label class="material-wide">物料编码<AppInput :model-value="editing ? form.sku : form.category_code ? `${form.category_code}-######` : '选择子类后，保存时自动生成'" readonly aria-label="物料编码" />
+        <!-- 编码与大类、子类放在同一行，分类和编码规则可在一起查看。 -->
+        <label>物料编码<AppInput :model-value="editing ? form.sku : form.category_code ? `${form.category_code}-######` : '选择子类后，保存时自动生成'" readonly aria-label="物料编码" />
           <span class="material-hint">{{ editing ? '编码固定；调整分类后保留原编码，保证历史单据追溯。' : '各子类独立使用六位流水号，由服务端统一分配，删除后不复用。' }}</span>
         </label>
         <label>物料名称 *<AppInput v-model.trim="form.name" required maxlength="120" placeholder="如：贴片电阻" /></label>
-        <label>单位 *<AppInput v-model.trim="form.unit" required maxlength="20" placeholder="如：件、个、米、千克" /></label>
+        <!-- 单位从独立目录选择，避免在物料弹窗临时输入造成同义单位分散。 -->
+        <label>单位 *<WorkspaceSelect v-model="form.unit" :options="unitOptions" required aria-label="单位" placeholder="搜索并选择单位" :disabled="busy || disconnected" />
+          <span class="material-hint">单位可在“基础资料 → 单位管理”中维护。</span>
+        </label>
         <label>规格型号<AppInput v-model.trim="form.specification" maxlength="200" placeholder="如：10kΩ ±1% 1/10W；尺寸、材质等" /></label>
         <label>封装 / 外形<AppInput v-model.trim="form.package" maxlength="80" placeholder="如：0603、SOP-8、插件" /></label>
         <label>品牌 / 制造商<AppInput v-model.trim="form.brand" maxlength="120" placeholder="如：国巨、村田、TI" /></label>
         <label>制造商料号<AppInput v-model.trim="form.manufacturer_part_number" maxlength="120" placeholder="制造商的具体型号或订货料号" /></label>
       </div>
+    </fieldset>
+    <fieldset :disabled="busy || disconnected" class="material-section">
+      <legend>供应商绑定</legend>
+      <label>供货供应商（可多选）
+        <WorkspaceSupplierSelect v-model="form.supplier_selection" :suppliers="suppliers ?? []" :disabled="busy || disconnected" />
+      </label>
+      <p class="material-hint">最多绑定 20 家供应商。搜索选择已有档案，或输入新名称后按 Enter 添加；新供应商将在保存物料时创建为“待完善供应商”，后续到供应商管理补齐资料。</p>
     </fieldset>
     <fieldset v-if="electronics" :disabled="busy || disconnected" class="material-section">
       <legend>电子参数（选填）</legend>

@@ -1,3 +1,5 @@
+import type { Supplier, SupplierInput } from './supplier-api'
+export type { Supplier, SupplierInput } from './supplier-api'
 import type {InventoryWarningOperations} from './inventory-warning-api'
 import type {PhysicalLotOperations} from './physical-lot-api'
 import type {InboundLotLineInput,ReceiptLotLineInput,ReceiptPhysicalLot} from './receipt-lot-api'
@@ -11,6 +13,7 @@ import type {AdjustmentLotLineInput,AdjustmentLotOptions} from './adjustment-lot
 import type {SalesReturnLotLineInput,SalesReturnLotOptions} from './sales-return-lot-api'
 import type {CompletionLotPartInput,CompletionPhysicalLot} from './completion-lot-api'
 import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
+import type { MaterialUnit, MaterialUnitInput, MaterialUnitChange } from './material-unit-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
 import type { MenuIconKey, MenuIconSetting } from './menu-icons'
 import type { MrpOperations } from './mrp-api'
@@ -39,7 +42,6 @@ export interface PageQuery { query: string; page: number; page_size: number }
 export interface PageResult<T> { items: T[]; total: number; page: number; page_size: number }
 
 export interface SupplierMaterial { supplier_id: number; material_id: number }
-export interface Supplier { id: number; name: string; version: number }
 export interface Customer { id: number; name: string; owner_id: number | null; version: number }
 export interface CustomerDuplicateCandidate {
   id: number; name: string; match: 'same_name' | 'similar_name'
@@ -1246,7 +1248,7 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   supplierDetail: { input: { id: number }; output: Supplier }
   supplierChanges: { input: { id: number }; output: SupplierChange[] }
   recentSupplierChanges: { input: { before_id?: number }; output: SupplierChange[] }
-  updateSupplier: { input: { id: number; name: string; version: number; reason: string }; output: Supplier }
+  updateSupplier: { input: SupplierInput & { id: number; version: number; reason: string }; output: Supplier }
   deleteSupplier: { input: { id: number; version: number }; output: void }
   warehouseDetail: { input: { id: number }; output: Warehouse }
   warehouseChanges: { input: { id: number }; output: WarehouseChange[] }
@@ -1256,15 +1258,20 @@ export interface ErpOperations extends MrpOperations, CrmOperations, QualityOper
   supplierMaterials: { input: undefined; output: SupplierMaterial[] }
   bindSupplierMaterial: { input: { supplierId: number; materialId: number }; output: void }
   unbindSupplierMaterial: { input: { supplierId: number; materialId: number }; output: void }
-  createSupplier: { input: { name: string }; output: Supplier }
+  createSupplier: { input: SupplierInput; output: Supplier }
   customers: { input: undefined; output: Customer[] }
   customerDuplicateCandidates: { input: { name: string }; output: CustomerDuplicateCandidate[] }
   customerImportPreview: { input: { names: string[] }; output: CustomerImportPreview }
   importCustomers: { input: { names: string[]; reason: string; allow_similar: boolean }; output: CustomerImportResult }
   createCustomer: { input: { name: string }; output: Customer }
   materialCategories: { input: undefined; output: MaterialCategory[] }
+  materialUnits: { input: undefined; output: MaterialUnit[] }
+  materialUnitDetail: { input: { id: number }; output: MaterialUnit }
+  createMaterialUnit: { input: MaterialUnitInput; output: MaterialUnit }
+  updateMaterialUnit: { input: MaterialUnitInput & { id: number; version: number; reason: string }; output: MaterialUnit }
+  materialUnitChanges: { input: { id: number }; output: MaterialUnitChange[] }
   materials: { input: undefined; output: Material[] }
-  materialDetail: { input: { id: number }; output: Material }
+  materialDetail: { input: { id: number; include_suppliers?: boolean }; output: Material }
   createMaterial: { input: MaterialInput; output: Material }
   warehouses: { input: undefined; output: Warehouse[] }
   otherInbounds: { input: undefined; output: OtherInbound[] }

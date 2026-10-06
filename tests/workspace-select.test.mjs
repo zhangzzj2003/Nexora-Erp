@@ -34,8 +34,8 @@ test('必填区分合法全部选项与占位，并在选项删除后恢复无�
   assert.equal(hasWorkspaceSelection([{ label: '停用', value: false }], false), true)
 })
 
-// 防止遗漏页面继续使用系统弹层；Naive UI 只从公共组件入口渲染单值选择。
-test('所有工作台页面与公共表格都通过 WorkspaceSelect 使用下拉选择', () => {
+// 防止页面直接使用原生或 Naive 下拉；单选与供应商可创建多选均从公共封装入口渲染。
+test('所有工作台页面与公共表格都通过公共封装使用下拉选择', () => {
   // URL 转成本机路径，兼容 Windows 盘符及包含空格的工作区。
   const root = fileURLToPath(new URL('../src/renderer/src/', import.meta.url))
   function files(directory) {
@@ -45,7 +45,8 @@ test('所有工作台页面与公共表格都通过 WorkspaceSelect 使用下拉
     })
   }
   for (const file of files(root)) {
-    if (file.endsWith('WorkspaceSelect.vue')) continue
+    if (file === join(root, 'components/workspace/WorkspaceSelect.vue')
+      || file === join(root, 'components/workspace/WorkspaceSupplierSelect.vue')) continue
     assert.doesNotMatch(readFileSync(file, 'utf8'), /<(?:select|NSelect|n-select)\b/, file)
   }
 })

@@ -65,6 +65,7 @@ MENU_KEYS = {
     'route:stockAdjustments',
     'route:stocktakes',
     'route:suppliers',
+    'route:materialUnits',
     'route:transfers',
     'route:users',
     'route:warehouseOutbounds',

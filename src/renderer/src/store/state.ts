@@ -1,6 +1,7 @@
 import type {InventoryWarningOverview,InventoryWarningDetail,InventoryWarningEventPage,InventoryWarningInput} from '../../../shared/inventory-warning-api'
 import type {PhysicalLotOverview,PhysicalLotHistory,PhysicalLotUnallocatedList} from '../../../shared/physical-lot-api'
 import { computed, ref } from 'vue'
+import type { MaterialUnit } from '../../../shared/material-unit-api'
 import type {EquipmentOverview,EquipmentDetail,EquipmentForms,EquipmentEntity} from '../../../shared/equipment-api'
 import type {DashboardPeriod, DashboardResult} from '../../../shared/dashboard-api'
 import type { CrmOptions, CrmOverview, CrmForecast, CrmKind, CrmRecord, CrmChange, CrmForms, CrmEditTarget, CustomerOwnerChange } from '../../../shared/crm-api'
@@ -176,6 +177,7 @@ export function createAppState() {
   const password = ref('')
   // 分类目录与物料快照一同读取，供各页面复用。
   const materialCategories = ref<MaterialCategory[]>([])
+  const materialUnits = ref<MaterialUnit[]>([])
   const materials = ref<Material[]>([])
   const supplierMaterials = ref<SupplierMaterial[]>([])
   const suppliers = ref<Supplier[]>([])
@@ -555,6 +557,7 @@ export function createAppState() {
     password,
     materials,
     materialCategories,
+    materialUnits,
     suppliers,
     supplierMaterials,
     stock,

@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 85:
+        if version > 87:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2615,3 +2615,37 @@ def migrate() -> None:
             db.execute('CREATE INDEX IF NOT EXISTS order_settlement_transfers_to ON order_settlement_transfers(kind,to_order_id)')
             db.execute('CREATE UNIQUE INDEX IF NOT EXISTS order_settlement_reference ON order_settlement_transfers(kind,from_order_id,to_order_id,reference) WHERE reverses_id IS NULL')
             db.execute('PRAGMA user_version = 85')
+
+
+        if version < 86:
+            # 仅补空资料，不推测历史供应商信息，也不改编号、供货关系或审计。
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(suppliers)')}
+            for key in ('contact_name', 'phone', 'email', 'address', 'tax_number',
+                        'bank_name', 'bank_account', 'notes'):
+                if key not in columns:
+                    db.execute(f"ALTER TABLE suppliers ADD COLUMN {key} TEXT NOT NULL DEFAULT ''")
+            db.execute('PRAGMA user_version = 86')
+
+        if version < 87:
+            # 新建独立目录并收录历史单位，不改原物料名称、版本或业务数量。
+            from app.catalog.unit_seed import DEFAULT_UNIT_NAMES
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS material_units (
+                id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE,
+                enabled BOOLEAN NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+                notes TEXT NOT NULL DEFAULT '', version INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS material_unit_changes (
+                id INTEGER PRIMARY KEY, unit_id INTEGER NOT NULL REFERENCES material_units(id),
+                before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.executemany('INSERT OR IGNORE INTO material_units(name) VALUES (?)',
+                           [(name,) for name in DEFAULT_UNIT_NAMES])
+            # 原样保留旧库的单位文字，重复单位只建立一个目录项。
+            db.execute('''INSERT OR IGNORE INTO material_units(name)
+                SELECT DISTINCT unit FROM materials WHERE length(unit) > 0 ORDER BY unit''')
+            db.execute('PRAGMA user_version = 87')

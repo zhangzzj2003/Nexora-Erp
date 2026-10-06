@@ -14,6 +14,7 @@ import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import { usePagedQuery } from '../../../composables/use-paged-query'
 import { displayError } from '../../../utils/formatters'
+import { supplierDraft, supplierStatusLabel } from '../../../../../shared/supplier-api'
 import './catalog.css'
 
 const store = usePiniaAppStore()
@@ -23,7 +24,7 @@ const { can, saveSupplier, deleteSupplier, localTime } = store
 const query = ref('')
 const editingId = ref<number | undefined>()
 const showForm = ref(false)
-const form = reactive({ name: '', version: 0, reason: '' })
+const form = reactive(supplierDraft())
 const detailLoading = ref(false)
 const detailError = ref('')
 const auditOpen = ref(false)
@@ -57,6 +58,9 @@ watch(
 // 主列表与供货物料明细共用表格外壳，绑定关系的操作仍留在本页。
 const supplierColumns = [
   { key: 'name', title: '供应商名称' },
+  { key: 'status', title: '资料状态', width: '160px' },
+  { key: 'contact_name', title: '联系人' },
+  { key: 'phone', title: '联系电话' },
   { key: 'actions', title: '操作' }
 ]
 const materialColumns = [
@@ -69,7 +73,7 @@ async function edit(item?: Supplier): Promise<void> {
   detailError.value = ''
   if (!item) {
     editingId.value = undefined
-    Object.assign(form, { name: '', version: 0, reason: '' })
+    Object.assign(form, supplierDraft())
     showForm.value = true
     return
   }
@@ -81,7 +85,7 @@ async function edit(item?: Supplier): Promise<void> {
     const latest = await window.nexora.callApi('supplierDetail', { id: item.id })
     if (store.user !== user || store.server !== server || connectionLost.value) return
     editingId.value = item.id
-    Object.assign(form, { name: latest.name, version: latest.version, reason: '' })
+    Object.assign(form, supplierDraft(latest))
     showForm.value = true
   } catch (cause) {
     detailError.value = displayError(cause)
@@ -114,6 +118,15 @@ function openAudit(): void {
   auditRows.value = []
   auditOpen.value = true
   void loadAudit()
+}
+// 审计展示实际变化的联系资料，避免补全信息时只有名称和版本可见。
+function changedSupplierFields(change: SupplierChange) {
+  const labels = { contact_name: '联系人', phone: '联系电话', email: '电子邮箱', address: '地址',
+    tax_number: '税号', bank_name: '开户银行', bank_account: '银行账号', notes: '备注' } as const
+  return Object.entries(labels).map(([key, label]) => {
+    const field = key as keyof typeof labels
+    return { key, label, before: change.before?.[field] ?? '', after: change.after?.[field] ?? '' }
+  }).filter(field => field.before !== field.after)
 }
 const selectedId = ref(0)
 const bindOpen = ref(false)
@@ -173,7 +186,7 @@ async function submitBinding(): Promise<void> {
       @page-change="load"
       title="供应商列表"
       :columns="supplierColumns"
-      :min-table-width="360"
+      :min-table-width="880"
     >
       <template #actions>
         <AppButton
@@ -219,12 +232,22 @@ async function submitBinding(): Promise<void> {
             @submit.prevent="save"
           >
             <h3>{{ editingId ? '编辑供应商' : '新增供应商' }}</h3>
-            <div class="form-grid">
-              <label
-                >供应商名称<AppInput v-model.trim="form.name" required maxlength="120"
-              /></label>
-              <label v-if="editingId">修改原因<AppInput v-model.trim="form.reason" required maxlength="500" /></label>
-            </div>
+            <p class="material-hint">联系人、联系电话和地址填写完整后，状态自动变为“已完善”。资料可分次保存，未补齐时保留“待完善供应商”。</p>
+            <fieldset class="material-section" :disabled="busy || connectionLost">
+              <legend>供应商资料</legend>
+              <div class="form-grid">
+                <label>供应商名称 *<AppInput v-model.trim="form.name" required maxlength="120" /></label>
+                <label>联系人<AppInput v-model.trim="form.contact_name" maxlength="80" /></label>
+                <label>联系电话<AppInput v-model.trim="form.phone" maxlength="40" /></label>
+                <label>电子邮箱<AppInput v-model.trim="form.email" inputmode="email" maxlength="150" /></label>
+                <label class="supplier-wide">地址<AppInput v-model.trim="form.address" maxlength="300" /></label>
+                <label>税号<AppInput v-model.trim="form.tax_number" maxlength="80" /></label>
+                <label>开户银行<AppInput v-model.trim="form.bank_name" maxlength="120" /></label>
+                <label class="supplier-wide">银行账号<AppInput v-model.trim="form.bank_account" maxlength="80" /></label>
+                <label class="supplier-wide">备注<AppInput v-model.trim="form.notes" maxlength="1000" /></label>
+                <label v-if="editingId" class="supplier-wide">修改原因 *<AppInput v-model.trim="form.reason" required maxlength="500" /></label>
+              </div>
+            </fieldset>
             <div class="form-actions">
               <AppButton :disabled="busy || connectionLost" variant="primary" type="submit"
                 >保存</AppButton
@@ -247,6 +270,7 @@ async function submitBinding(): Promise<void> {
               · 供应商 #{{ change.supplier_id }}</strong>
             <span>{{ change.before?.name || '无' }} → {{ change.after?.name || '无' }}
               · 版本 {{ change.before?.version || '无' }} → {{ change.after?.version || '无' }}</span>
+            <span v-for="field in changedSupplierFields(change)" :key="field.key">{{ field.label }}：{{ field.before || '未填写' }} → {{ field.after || '未填写' }}</span>
             <small>{{ change.reason }} · {{ change.changed_by_name }} · {{ localTime(change.created_at) }}</small>
           </div>
           <p v-if="!auditRows.length && !auditLoading">暂无升级后的变更记录。</p>
@@ -254,6 +278,9 @@ async function submitBinding(): Promise<void> {
             @click="loadAudit(true)">加载更早记录</AppButton>
         </NModal>
       </template>
+      <template #cell-status="{ row: item }"><span :class="item.profile_status === 'complete' ? 'supplier-complete' : 'supplier-pending'">{{ supplierStatusLabel(item) }}</span></template>
+      <template #cell-contact_name="{ row: item }">{{ item.contact_name || '—' }}</template>
+      <template #cell-phone="{ row: item }">{{ item.phone || '—' }}</template>
       <template #cell-name="{ row: item }">{{ item.name }}</template>
       <template #cell-actions="{ row: item }"
         ><div class="catalog-actions">
@@ -264,7 +291,7 @@ async function submitBinding(): Promise<void> {
               @click="edit(item)"
               variant="text"
               type="button"
-              >编辑</AppButton
+              >{{ item.profile_status === 'complete' ? '编辑' : '完善资料' }}</AppButton
             >
             <NPopconfirm
               positive-text="确认"

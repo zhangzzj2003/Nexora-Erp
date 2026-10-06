@@ -14,7 +14,12 @@ export interface MaterialDetails {
   compliance: string
   notes: string
 }
-export interface Material extends MaterialSummary, MaterialDetails { version: number }
+export interface Material extends MaterialSummary, MaterialDetails {
+  version: number
+  // 编辑专用详情同时返回绑定编号；列表及旧调用继续使用原有简要响应。
+  supplier_ids?: number[]
+}
+export type MaterialSupplierInput = { supplier_id: number; name?: never } | { name: string; supplier_id?: never }
 export interface MaterialCategory {
   code: string
   name: string
@@ -25,6 +30,9 @@ export interface MaterialInput extends Partial<MaterialDetails> {
   sku?: string
   name: string
   unit: string
+  // 新客户端提交目录编号，服务端核对名称和启用状态；旧调用可省略。
+  unit_id?: number
   version?: number
   reason?: string
+  suppliers?: MaterialSupplierInput[]
 }

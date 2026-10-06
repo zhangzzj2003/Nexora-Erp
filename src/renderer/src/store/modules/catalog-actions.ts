@@ -1,5 +1,8 @@
-import type { Material, MaterialInput, Supplier } from '../../../../shared/erp-api'
+import type { Material, MaterialInput, SupplierInput } from '../../../../shared/erp-api'
 import type { AppState } from '../state'
+import { supplierBody } from '../../../../shared/supplier-api.ts'
+import { materialUnitBody } from '../../../../shared/material-unit-api.ts'
+import type { MaterialUnitInput } from '../../../../shared/material-unit-api'
 import { displayError } from '../../utils/formatters.ts'
 
 // 基础资料操作独立维护；写入后由统一入口刷新服务端快照。
@@ -21,7 +24,7 @@ export function createCatalogActions(
     state.error.value = ''
     try {
       // 单条查询不触发全业务刷新；切换账号、实例或断线后的迟到结果不打开编辑器。
-      const latest = await window.nexora.callApi('materialDetail', { id })
+      const latest = await window.nexora.callApi('materialDetail', { id, include_suppliers: true })
       if (state.user.value !== user || state.server.value !== server || state.connectionLost.value) return undefined
       state.materials.value = state.materials.value.map(item => item.id === id ? latest : item)
       return latest
@@ -72,14 +75,14 @@ export function createCatalogActions(
     await perform(() => window.nexora!.callApi('deleteMaterial', { id }), '物料已删除。')
   }
 
-  async function saveSupplier(data: Pick<Supplier, 'name'> & { version?: number; reason?: string }, id?: number): Promise<boolean> {
+  async function saveSupplier(data: SupplierInput, id?: number): Promise<boolean> {
     if (!window.nexora) return false
     let saved = false
     await perform(async () => {
       if (id) {
         if (!data.version || !data.reason?.trim()) throw new Error('请重新读取供应商版本并填写修改原因。')
-        await window.nexora!.callApi('updateSupplier', { name: data.name, version: data.version, reason: data.reason, id })
-      } else await window.nexora!.callApi('createSupplier', { name: data.name })
+        await window.nexora!.callApi('updateSupplier', { ...supplierBody(data, true), name: data.name, version: data.version, reason: data.reason, id })
+      } else await window.nexora!.callApi('createSupplier', { ...supplierBody(data, false), name: data.name })
       saved = true
     }, '供应商已保存。')
     return saved
@@ -97,5 +100,22 @@ export function createCatalogActions(
     }), bound ? '物料已绑定。' : '已解除物料绑定。')
   }
 
-  return { loadMaterial, createMaterial, createSupplier, saveMaterial, deleteMaterial, saveSupplier, deleteSupplier, setSupplierMaterial }
+  async function saveMaterialUnit(data: MaterialUnitInput, id?: number): Promise<boolean> {
+    if (!window.nexora) return false
+    let saved = false
+    await perform(async () => {
+      // 页面不持有跨页目录，写成功后统一刷新单位和物料快照。
+      if (id) {
+        if (!data.version || !data.reason?.trim()) throw new Error('请重新读取单位版本并填写修改原因。')
+        await window.nexora!.callApi('updateMaterialUnit', {
+          ...materialUnitBody(data, true), name: data.name, enabled: data.enabled, notes: data.notes,
+          id, version: data.version, reason: data.reason
+        })
+      } else await window.nexora!.callApi('createMaterialUnit', {name: data.name, enabled: data.enabled, notes: data.notes})
+      saved = true
+    }, '单位已保存。')
+    return saved
+  }
+
+  return { loadMaterial, createMaterial, createSupplier, saveMaterial, deleteMaterial, saveSupplier, deleteSupplier, setSupplierMaterial, saveMaterialUnit }
 }

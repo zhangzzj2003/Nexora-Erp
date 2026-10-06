@@ -46,6 +46,10 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 基础资料与供货关系
 
+第 86 版增加供应商联系及结算资料，旧资料默认空值并保留编号、关系、版本和历史审计。`app/catalog/supplier_profiles.py` 维护完善状态及物料保存时的原子绑定；物料编辑可搜索已有供应商或从新名称创建待完善档案，联系人、电话、地址补齐后自动变为已完善。取消表单不创建，失败整体回滚；单独绑定也递增物料版本。字段、兼容与冲突规则见 [物料管理规则](../docs/material-catalog.md#供应商绑定与待完善档案)。客户端和服务端须同步升级。
+
+第 87 版新增独立单位目录和变更表。`app/catalog/units.py` 提供 `GET/POST /api/v1/material-units`、`GET/PUT /api/v1/material-units/{id}` 与 `GET /api/v1/material-units/{id}/changes`；读取要求 `inventory.view`，写入要求 `catalog.manage`。编辑携带版本与原因；已引用名称不能修改，停用单位只允许原物料继续保留。升级收录原单位并预置常用单位，不改历史物料和数量；旧物料 API 仍可仅提交单位文字，新桌面提交目录编号核对，详见[单位兼容规则](../docs/material-catalog.md#升级与兼容边界)。
+
 仓库提供 [50 条物料演示数据及本机导入工具](../scripts/demo/README.md)，覆盖电子、五金、塑料、包装与辅料。工具须在服务升级后显式指定目标实例、现有管理员和备份路径；整批 ORM 写入并记录审计，重复导入跳过已有示例档案，不在启动时自动生成数据。
 
 客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。第 61 版增加客户负责人、版本和归属变更 ORM 表；第 65 版增加商机可空概率列及按可见客户范围的预测查询 `app/sales/crm_forecast.py`，`app/sales/customer_scope.py` 为 CRM 及销售单据提供统一服务端归属边界。旧客户保持未分配，由管理员凭依据分配；新客户默认归创建账号。提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。第 76 版的 `app/sales/crm_record_attachments.py` 为联系人、跟进和商机提供 ORM 原文留存与追加式撤销；客户归属和 `crm.view` 限定读取，写入另需 `crm.attachment`，停用或终态只读。第 75 版的 `app/sales/crm_quote_attachments.py` 通过 ORM 留存报价附件原文、摘要、上传依据及追加式撤销；查看遵循客户归属和 `crm.view`，写入另需 `crm_quote.attachment`，取消或转单后只读。PDF、PNG、JPEG 单文件最多 5 MiB，每张报价最多 10 个有效附件；桌面通过受限 IPC 选择和保存文件。`app/sales/crm_quote_pdf.py` 使用只读 ORM 快照和随服务打包的 OFL 中文字体导出已批准或已转单报价；桌面固定 IPC 保存，不自动发送。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。

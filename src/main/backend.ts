@@ -1,3 +1,5 @@
+import { supplierBody } from '../shared/supplier-api.ts'
+import { materialUnitBody, validateMaterialUnitResult } from '../shared/material-unit-api.ts'
 import {validateInventoryWarningResult} from '../shared/inventory-warning-validation.ts'
 import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
 import {physicalLotEvidenceBody,physicalLotEvidenceGroupBody,physicalLotEvidencePairBody,physicalLotMovementEvidenceBody,physicalLotReverseBody} from '../shared/physical-lot-api.ts'
@@ -966,7 +968,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'supplierDetail': return { method: 'GET', path: `/api/v1/suppliers/${positiveId(payload, 'id')}` }
     case 'supplierChanges': return { method: 'GET', path: `/api/v1/suppliers/${positiveId(payload, 'id')}/changes` }
     case 'recentSupplierChanges': return { method: 'GET', path: `/api/v1/supplier-changes${payload && typeof payload==='object' && 'before_id' in payload ? '?before_id='+positiveId(payload,'before_id') : ''}` }
-    case 'updateSupplier': return { method: 'PUT', path: `/api/v1/suppliers/${positiveId(payload, 'id')}`, body: masterDataEdit(payload, false) }
+    case 'updateSupplier': return { method: 'PUT', path: `/api/v1/suppliers/${positiveId(payload, 'id')}`, body: supplierBody(payload, true) }
     case 'deleteSupplier': return { method: 'DELETE', path: `/api/v1/suppliers/${positiveId(payload, 'id')}?version=${positiveId(payload, 'version')}` }
     case 'warehouseDetail': return { method: 'GET', path: `/api/v1/warehouses/${positiveId(payload, 'id')}` }
     case 'warehouseChanges': return { method: 'GET', path: `/api/v1/warehouses/${positiveId(payload, 'id')}/changes` }
@@ -975,14 +977,25 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'deleteWarehouse': return { method: 'DELETE', path: `/api/v1/warehouses/${positiveId(payload, 'id')}?version=${positiveId(payload, 'version')}` }
     // 只允许固定分类目录地址，客户端不能指定外部资源。
     case 'materialCategories': return { method: 'GET', path: '/api/v1/material-categories' }
-    case 'materialDetail': return { method: 'GET', path: `/api/v1/materials/${positiveId(payload, 'id')}` }
+    // 地址固定在主进程，渲染层只能通过有类型的操作维护单位。
+    case 'materialUnits': return { method: 'GET', path: '/api/v1/material-units' }
+    case 'materialUnitDetail': return { method: 'GET', path: `/api/v1/material-units/${positiveId(payload, 'id')}` }
+    case 'materialUnitChanges': return { method: 'GET', path: `/api/v1/material-units/${positiveId(payload, 'id')}/changes` }
+    case 'createMaterialUnit': return { method: 'POST', path: '/api/v1/material-units', body: materialUnitBody(payload, false) }
+    case 'updateMaterialUnit': return { method: 'PUT', path: `/api/v1/material-units/${positiveId(payload, 'id')}`, body: materialUnitBody(payload, true) }
+    case 'materialDetail': {
+      // 只有明确的布尔标记才能附加查询参数，页面不能传任意路径或查询片段。
+      const flag = (payload as Record<string, unknown>)?.include_suppliers
+      if (flag !== undefined && typeof flag !== 'boolean') throw new Error('物料供应商查询参数无效')
+      return { method: 'GET', path: `/api/v1/materials/${positiveId(payload, 'id')}${flag ? '?include_suppliers=true' : ''}` }
+    }
     case 'supplierMaterials': return { method: 'GET', path: '/api/v1/supplier-materials' }
     case 'bindSupplierMaterial': return { method: 'PUT', path: `/api/v1/suppliers/${positiveId(payload, 'supplierId')}/materials/${positiveId(payload, 'materialId')}` }
     case 'unbindSupplierMaterial': return { method: 'DELETE', path: `/api/v1/suppliers/${positiveId(payload, 'supplierId')}/materials/${positiveId(payload, 'materialId')}` }
     // 分页搜索经由受限 IPC 转发，权限和参数范围由服务端再次校验。
     case 'querySuppliers': return { method: 'POST', path: '/api/v1/suppliers/query', body: payload }
     case 'suppliers': return { method: 'GET', path: '/api/v1/suppliers' }
-    case 'createSupplier': return { method: 'POST', path: '/api/v1/suppliers', body: payload }
+    case 'createSupplier': return { method: 'POST', path: '/api/v1/suppliers', body: supplierBody(payload, false) }
     case 'customers': return { method: 'GET', path: '/api/v1/customers' }
     case 'customerDuplicateCandidates': {
       const name = payload && typeof payload === 'object' && !Array.isArray(payload)
@@ -1662,6 +1675,12 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   validatePhysicalLotResult(action,data)
   validateEquipmentResult(action,data)
   validateMaterialResult(action, data)
+  validateMaterialUnitResult(action, data)
+  if (action === 'materialDetail' && (payload as ErpOperations['materialDetail']['input']).include_suppliers
+    && !Array.isArray((data as Record<string, unknown>).supplier_ids)) {
+    // 旧服务忽略查询标记时拒绝打开编辑器，避免把“未知绑定”误当作空绑定提交。
+    throw new Error('服务端尚不支持物料供应商绑定，请先升级 ERP 服务。')
+  }
   if (action === 'journalAttachments' || action === 'addJournalAttachment' || action === 'reverseJournalAttachment') {
     validateJournalAttachmentResult(action, data,
       positiveId(payload, action === 'reverseJournalAttachment' ? 'journalId' : 'id'))

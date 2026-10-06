@@ -146,4 +146,4 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
             headers=finance, json={'reason': '锁期撤销'})
         assert locked_reverse.status_code == 409 and '锁定' in locked_reverse.json()['detail']
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 85
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 87

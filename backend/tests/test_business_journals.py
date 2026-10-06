@@ -345,5 +345,5 @@ def test_v43_upgrade_atomic_failure_and_idempotent_retry(business, remove_transf
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 85
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 87
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'business_journal.%'").fetchone()[0] == 3

@@ -1,35 +1,45 @@
+import { supplierSelectionInput } from '../../../utils/supplier-selection.ts'
 import type { Material, MaterialCategory, MaterialDetails, MaterialInput } from '../../../../../shared/material-api'
+import type { MaterialUnit } from '../../../../../shared/material-unit-api'
 
 // 草稿的大类只用于选择联动，实际接口提交经过目录验证的子类代码。
 export interface MaterialDraft extends MaterialDetails {
   sku: string
   name: string
   unit: string
+  // 原单位只用于停用后的保留选项，不写入接口。
+  original_unit: string
   group_code: string
   version?: number
   reason: string
+  supplier_selection: string[]
 }
 export function materialDraft(item?: Material): MaterialDraft {
   return {
     sku: item?.sku ?? '', name: item?.name ?? '', unit: item?.unit ?? '件',
+    original_unit: item?.unit ?? '',
     category_code: item?.category_code ?? '', group_code: item?.category_code.split('-')[0] || 'EL',
     specification: item?.specification ?? '', package: item?.package ?? '', brand: item?.brand ?? '',
     manufacturer_part_number: item?.manufacturer_part_number ?? '', electrical_value: item?.electrical_value ?? '',
     tolerance: item?.tolerance ?? '', rated_voltage: item?.rated_voltage ?? '', rated_power: item?.rated_power ?? '',
     temperature_range: item?.temperature_range ?? '', compliance: item?.compliance ?? '', notes: item?.notes ?? '',
-    version: item?.version, reason: ''
+    version: item?.version, reason: '', supplier_selection: (item?.supplier_ids ?? []).map(id => `id:${id}`)
   }
 }
-export function materialInput(draft: MaterialDraft, editing: boolean): MaterialInput {
+export function materialInput(draft: MaterialDraft, editing: boolean, units?: readonly MaterialUnit[]): MaterialInput {
+  const unit = units?.find(item => item.name === draft.unit)
+  if (units && !unit) throw new Error('请从单位目录选择单位，或先到单位管理中新增。')
+  if (unit && !unit.enabled && (!editing || draft.unit !== draft.original_unit)) throw new Error('所选单位已停用，请重新选择。')
   // 白名单避免把表格的 UI 字段或仅用于联动的大类写进服务端。
   return {
     ...(editing ? { sku: draft.sku, version: draft.version } : {}),
     name: draft.name, unit: draft.unit, category_code: draft.category_code,
+    ...(unit ? { unit_id: unit.id } : {}),
     specification: draft.specification, package: draft.package, brand: draft.brand,
     manufacturer_part_number: draft.manufacturer_part_number, electrical_value: draft.electrical_value,
     tolerance: draft.tolerance, rated_voltage: draft.rated_voltage, rated_power: draft.rated_power,
     temperature_range: draft.temperature_range, compliance: draft.compliance, notes: draft.notes,
-    reason: draft.reason
+    reason: draft.reason, suppliers: supplierSelectionInput(draft.supplier_selection)
   }
 }
 export function materialCategoryLabel(code: string, categories: MaterialCategory[]): string {

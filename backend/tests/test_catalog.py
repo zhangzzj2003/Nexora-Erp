@@ -43,6 +43,10 @@ def test_crud_validation_and_conflicts(client, resource, original, updated):
     else:
         assert client.put(path, json=updated).status_code == 409
         expected = {"id": record, **updated, "version": 2}
+        if resource == 'suppliers':
+            # 第 86 版补充资料与待完善状态，名称和版本的旧行为保持一致。
+            from app.catalog.supplier_profiles import PROFILE_FIELDS
+            expected.update(profile_status='pending', **{key: '' for key in PROFILE_FIELDS})
         assert client.put(path, json={**updated, "version": 1, "reason": "修正基础资料"}).json() == expected
         other = create(client, resource, original)
         assert client.put(f"/api/v1/{resource}/{other}",
@@ -151,7 +155,7 @@ def test_v27_migration_preserves_existing_materials(client, remove_v39_schema):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 85
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 87
         assert db.execute("SELECT name FROM materials WHERE id = ?", (material,)).fetchone()[0] == "旧物料"
         assert db.execute("SELECT COUNT(*) FROM supplier_materials").fetchone()[0] == 0
 

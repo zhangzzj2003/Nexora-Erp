@@ -1,6 +1,6 @@
 """业务 ORM 模型；金额保留文本精度，库结构由版本迁移维护。"""
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, LargeBinary, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, Integer, LargeBinary, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -671,6 +671,29 @@ class Material(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
 
 
+class MaterialUnit(Base):
+    # 单位独立维护；物料继续保存单位名称，历史数量不会随单位表编辑而重新解释。
+    __tablename__ = 'material_units'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('1'))
+    notes: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class MaterialUnitChange(Base):
+    # 停用代替删除，并追加前后快照；版本冲突不能覆盖另一人的修改。
+    __tablename__ = 'material_unit_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    unit_id: Mapped[int] = mapped_column(Integer, ForeignKey('material_units.id'), nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class MaterialCodeSequence(Base):
     # 永久保留各子类流水，删除档案不会重置编号。
     __tablename__ = 'material_code_sequences'
@@ -763,6 +786,15 @@ class Supplier(Base):
     __tablename__ = 'suppliers'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    # 旧供应商仅有名称；空资料保留原意，完善状态由服务端根据联系资料推导。
+    contact_name: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    phone: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    email: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    address: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    tax_number: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    bank_name: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    bank_account: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    notes: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 

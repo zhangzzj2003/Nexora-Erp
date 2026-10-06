@@ -13,10 +13,11 @@ import { usePiniaAppStore } from '../../../store/app-store'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import MaterialEditor from './MaterialEditor.vue'
 import { materialDraft, materialInput, materialCategoryLabel, matchesMaterial } from './material-form'
+import { defaultMaterialUnit } from './unit-options'
 import './catalog.css'
 
 const store = usePiniaAppStore()
-const { busy, connectionLost, materials, materialCategories, suppliers, supplierMaterials } = storeToRefs(store)
+const { busy, error, connectionLost, materials, materialCategories, materialUnits, suppliers, supplierMaterials } = storeToRefs(store)
 const { can, loadMaterial, saveMaterial, deleteMaterial } = store
 const query = ref('')
 const editingId = ref<number | undefined>()
@@ -52,10 +53,14 @@ async function edit(item?: Material): Promise<void> {
   if (item && !latest) return
   editingId.value = latest?.id
   form.value = materialDraft(latest)
+  if (!latest) form.value.unit = defaultMaterialUnit(materialUnits.value)
   showForm.value = true
 }
 async function save(): Promise<void> {
-  if (await saveMaterial(materialInput(form.value, !!editingId.value), editingId.value)) showForm.value = false
+  // 目录刷新导致选择失效时保留草稿，并显示可操作的错误提示。
+  try {
+    if (await saveMaterial(materialInput(form.value, !!editingId.value, materialUnits.value), editingId.value)) showForm.value = false
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : '物料保存失败' }
 }
 function supplierNames(id: number): string {
   const ids = new Set(
@@ -101,6 +106,7 @@ function supplierNames(id: number): string {
         <label class="material-category-filter">物料分类<WorkspaceSelect v-model="categoryFilter" :options="categoryOptions" aria-label="筛选物料分类" /></label>
       </template>
       <template #beforeTable>
+        <!-- 资料和供应商绑定较多，桌面端加宽；小窗口仍保留两侧各 16px 的边距。 -->
         <NModal
           v-model:show="showForm"
           preset="card"
@@ -108,13 +114,15 @@ function supplierNames(id: number): string {
           :closable="!busy"
           :close-on-esc="!busy"
           :style="{
-            width: 'min(900px, calc(100vw - 32px))',
+            width: 'min(1200px, calc(100vw - 32px))',
             maxHeight: 'calc(100vh - 48px)',
             overflowY: 'auto'
           }"
         >
           <!-- 原生表单校验与中文分组在编辑器中，页面只连接状态和保存动作。 -->
           <MaterialEditor
+            :units="materialUnits"
+            :suppliers="suppliers"
             v-if="showForm && can('catalog.manage')" :form="form" :categories="materialCategories"
             :editing="!!editingId" :busy="busy" :disconnected="connectionLost"
             @save="save" @cancel="showForm = false"

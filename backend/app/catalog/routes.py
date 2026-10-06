@@ -15,38 +15,11 @@ from app.core.orm import orm_session, model_data
 from app.catalog.material_rules import (CATEGORY_CODES, MATERIAL_CATEGORIES, DETAIL_FIELDS,
     allocate_material_code, reserve_legacy_code, material_data, record_material_change)
 
+from app.catalog.supplier_profiles import (PROFILE_FIELDS, SupplierInput, SupplierBindingInput,
+    supplier_data, record_supplier_change, material_supplier_ids, save_material_suppliers)
+from app.catalog.units import resolve_material_unit
+
 router = APIRouter(prefix="/api/v1")
-
-
-class SupplierInput(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    version: int | None = Field(default=None, ge=1, strict=True)
-    reason: str = Field(default="", max_length=500)
-
-    @field_validator("name")
-    @classmethod
-    def trim_name(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("供应商名称不能为空")
-        return value.strip()
-
-    @field_validator("reason")
-    @classmethod
-    def trim_reason(cls, value: str) -> str:
-        return value.strip()
-
-
-def supplier_data(row: Supplier) -> dict:
-    return {'id': row.id, 'name': row.name, 'version': row.version}
-
-
-def record_supplier_change(db: Session, row: Supplier, action: str,
-                           before: dict | None, actor: dict, reason: str) -> None:
-    # 不加供应商外键，删除未引用的档案后仍保留原编号和前后快照。
-    db.add(SupplierChange(supplier_id=row.id, action=action,
-        before_json=json.dumps(before, ensure_ascii=False) if before is not None else None,
-        after_json=json.dumps(supplier_data(row), ensure_ascii=False) if action != 'delete' else None,
-        reason=reason, changed_by=actor['id']))
 
 
 def supplier_change_data(change: SupplierChange, username: str) -> dict:
@@ -58,10 +31,14 @@ def supplier_change_data(change: SupplierChange, username: str) -> dict:
 
 
 class MaterialInput(BaseModel):
+    # 未传供货关系时兼容旧客户端；显式空列表表示解除所有绑定。
+    suppliers: list[SupplierBindingInput] | None = Field(default=None, max_length=20)
     # 编码留空时由类别分配；无分类的旧客户端仍可提交原有手工编码。
     sku: str = Field(default="", max_length=40)
     name: str = Field(min_length=1, max_length=120)
     unit: str = Field(min_length=1, max_length=20)
+    # 可选编号兼容旧调用；新桌面必须提交从单位目录选择的编号和名称。
+    unit_id: int | None = Field(default=None, ge=1, strict=True)
     category_code: str = Field(default="", max_length=10)
     specification: str = Field(default="", max_length=200)
     package: str = Field(default="", max_length=80)
@@ -160,7 +137,8 @@ def supplier_changes(supplier_id: int, _: dict = Depends(require("inventory.view
 @router.post("/suppliers", status_code=201)
 def create_supplier(payload: SupplierInput, actor: dict = Depends(require("catalog.manage"))) -> dict:
     with orm_session(write=True) as db:
-        supplier = Supplier(name=payload.name, version=1)
+        supplier = Supplier(name=payload.name, version=1,
+                            **{key: getattr(payload, key) for key in PROFILE_FIELDS})
         db.add(supplier)
         flush_catalog(db, "供应商已存在")
         record_supplier_change(db, supplier, 'create', None, actor, payload.reason or '新增供应商')
@@ -180,13 +158,16 @@ def list_materials(_: dict = Depends(require("inventory.view"))) -> list[dict]:
 
 
 @router.get("/materials/{material_id}")
-def material_detail(material_id: int, _: dict = Depends(require("inventory.view"))) -> dict:
+def material_detail(material_id: int, include_suppliers: bool = False, _: dict = Depends(require("inventory.view"))) -> dict:
     # 打开编辑器时重新读取当前版本，冲突后取消再打开不重复使用旧列表快照。
     with orm_session() as db:
         material = db.get(Material, material_id)
         if material is None:
             raise HTTPException(404, '物料不存在')
-        return material_data(material)
+        result = material_data(material)
+        if include_suppliers:
+            result['supplier_ids'] = material_supplier_ids(db, material.id)
+        return result
 
 
 @router.post("/materials", status_code=201)
@@ -196,6 +177,7 @@ def create_material(payload: MaterialInput, actor: dict = Depends(require("catal
     if payload.category_code and payload.sku:
         raise HTTPException(422, '分类物料的编码由系统自动生成，请勿手工填写')
     with orm_session(write=True) as db:
+        resolve_material_unit(db, payload.unit, payload.unit_id, actor)
         sku = allocate_material_code(db, payload.category_code) if payload.category_code else payload.sku
         if not payload.category_code:
             reserve_legacy_code(db, sku)
@@ -203,7 +185,8 @@ def create_material(payload: MaterialInput, actor: dict = Depends(require("catal
                             **{key: getattr(payload, key) for key in DETAIL_FIELDS}, version=1)
         db.add(material)
         flush_catalog(db, "物料编码已存在")
-        record_material_change(db, material, 'create', None, actor, payload.reason or '新增物料')
+        ids = save_material_suppliers(db, material, payload.suppliers, actor) if payload.suppliers is not None else None
+        record_material_change(db, material, 'create', None, actor, payload.reason or '新增物料', supplier_ids=ids)
         return material_data(material)
 
 
@@ -218,14 +201,18 @@ def update_material(material_id: int, payload: MaterialInput,
             raise HTTPException(409, '物料资料已更新或未提供版本，请重新加载后编辑')
         if payload.sku and payload.sku != material.sku:
             raise HTTPException(409, '物料编码建立后不可修改')
+        resolve_material_unit(db, payload.unit, payload.unit_id, actor, material.unit)
         before = material_data(material)
+        if payload.suppliers is not None:
+            before['supplier_ids'] = material_supplier_ids(db, material.id)
         # 兼容仅改名称/单位的请求；未提交的详细字段保留，显式空字符串才清除。
         material.name, material.unit = payload.name, payload.unit
         for key in DETAIL_FIELDS:
             if key in payload.model_fields_set:
                 setattr(material, key, getattr(payload, key))
         material.version += 1
-        record_material_change(db, material, 'update', before, actor, payload.reason or '修改物料资料')
+        ids = save_material_suppliers(db, material, payload.suppliers, actor) if payload.suppliers is not None else None
+        record_material_change(db, material, 'update', before, actor, payload.reason or '修改物料资料', supplier_ids=ids)
         return material_data(material)
 
 
@@ -251,10 +238,14 @@ def update_supplier(supplier_id: int, payload: SupplierInput,
             raise HTTPException(409, '供应商资料已更新或未提供版本，请重新加载后编辑')
         if not payload.reason:
             raise HTTPException(422, '请填写供应商资料修改原因')
-        if payload.name == supplier.name:
+        # 只修改调用方明确传入的字段；同名供应商也可以补充联系资料。
+        changed = {key: getattr(payload, key) for key in ('name', *PROFILE_FIELDS)
+                   if key in payload.model_fields_set}
+        if all(getattr(supplier, key) == value for key, value in changed.items()):
             raise HTTPException(409, '供应商资料没有变化')
         before = supplier_data(supplier)
-        supplier.name = payload.name
+        for key, value in changed.items():
+            setattr(supplier, key, value)
         supplier.version += 1
         flush_catalog(db, "供应商已存在")
         record_supplier_change(db, supplier, 'update', before, actor, payload.reason)
@@ -285,21 +276,32 @@ def list_supplier_materials(_: dict = Depends(require("inventory.view"))) -> lis
 
 @router.put("/suppliers/{supplier_id}/materials/{material_id}", status_code=204)
 def bind_supplier_material(supplier_id: int, material_id: int,
-                           _: dict = Depends(require("catalog.manage"))) -> None:
+                           actor: dict = Depends(require("catalog.manage"))) -> None:
     with orm_session(write=True) as db:
         if db.get(Supplier, supplier_id) is None:
             raise HTTPException(404, "供应商不存在")
-        if db.get(Material, material_id) is None:
+        material = db.get(Material, material_id)
+        if material is None:
             raise HTTPException(404, "物料不存在")
         if db.get(SupplierMaterial, (supplier_id, material_id)) is None:
+            before = dict(material_data(material), supplier_ids=material_supplier_ids(db, material_id))
             db.add(SupplierMaterial(supplier_id=supplier_id, material_id=material_id))
+            # 其他页面绑定同样推进版本，防止已打开的物料草稿覆盖新的供货关系。
+            material.version += 1
+            record_material_change(db, material, 'update', before, actor, '绑定供应商',
+                                   supplier_ids=sorted([*before['supplier_ids'], supplier_id]))
 
 
 @router.delete("/suppliers/{supplier_id}/materials/{material_id}", status_code=204)
 def unbind_supplier_material(supplier_id: int, material_id: int,
-                             _: dict = Depends(require("catalog.manage"))) -> None:
+                             actor: dict = Depends(require("catalog.manage"))) -> None:
     with orm_session(write=True) as db:
         link = db.get(SupplierMaterial, (supplier_id, material_id))
         if link is None:
             raise HTTPException(404, "供货关系不存在")
+        material = db.get(Material, material_id)
+        before = dict(material_data(material), supplier_ids=material_supplier_ids(db, material_id))
         db.delete(link)
+        material.version += 1
+        record_material_change(db, material, 'update', before, actor, '解除供应商绑定',
+                               supplier_ids=[key for key in before['supplier_ids'] if key != supplier_id])

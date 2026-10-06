@@ -228,6 +228,9 @@ defineSlots<{
   overflow: hidden;
 }
 .workspace-vxe-table table { border-collapse: separate; border-spacing: 0; }
+/* 弹窗关闭时浏览器会恢复行按钮焦点；外层只裁切，不允许隐式滚动把表头推走。 */
+/* 表格实际滚动仍由 VXE 的表体容器和共享横向滚动条处理。 */
+.workspace-vxe-table .vxe-table--viewport-wrapper { overflow: clip; }
 .workspace-vxe-table :is(th, td) { padding: 0; border-bottom: 0; vertical-align: middle; }
 /* 表头与内容共用列内边距，首列再多留一点空间，避免标题贴住表格边框。 */
 .workspace-vxe-table :is(.vxe-header--column, .vxe-body--column) > .vxe-cell { padding-inline: 14px; }

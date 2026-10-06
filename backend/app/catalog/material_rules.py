@@ -76,9 +76,14 @@ def reserve_legacy_code(db: Session, sku: str) -> None:
 
 
 def record_material_change(db: Session, material: Material, action: str,
-                           before: dict | None, actor: dict, reason: str) -> None:
+                           before: dict | None, actor: dict, reason: str,
+                           *, supplier_ids: list[int] | None = None) -> None:
     # 不设置物料外键，删除未被引用的档案后仍可保留原编码及完整变更证据。
+    after = material_data(material)
+    if supplier_ids is not None:
+        # 供货关系变更与物料版本共用审计，旧调用仍保留原快照格式。
+        after['supplier_ids'] = supplier_ids
     db.add(MaterialChange(material_id=material.id, sku=material.sku, action=action,
         before_json=json.dumps(before, ensure_ascii=False) if before is not None else None,
-        after_json=json.dumps(material_data(material), ensure_ascii=False) if action != 'delete' else None,
+        after_json=json.dumps(after, ensure_ascii=False) if action != 'delete' else None,
         changed_by=actor['id'], reason=reason))

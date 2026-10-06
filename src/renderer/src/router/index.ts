@@ -21,6 +21,7 @@ const workspaceRouteComponents = {
   inventoryReports: () => import('../views/workspace/warehouse/InventoryReportsView.vue'),
   catalog: () => import('../views/workspace/catalog/MaterialsView.vue'),
   suppliers: () => import('../views/workspace/catalog/SuppliersView.vue'),
+  materialUnits: () => import('../views/workspace/catalog/UnitsView.vue'),
   customers: () => import('../views/workspace/catalog/CustomersView.vue'),
   warehouses: () => import('../views/workspace/catalog/WarehousesView.vue'),
   purchaseRequests: () => import('../views/workspace/purchase/PurchaseRequestsView.vue'),

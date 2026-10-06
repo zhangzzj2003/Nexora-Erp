@@ -128,6 +128,14 @@ export const workspaceRouteGroups = [
         permission: 'inventory.view',
         icon: 'archive'
       },
+      // 单位目录与物料共用查看权限，新增和编辑仍单独检查资料管理权限。
+      {
+        key: 'materialUnits',
+        path: '/workspace/material-units',
+        label: '单位管理',
+        permission: 'inventory.view',
+        icon: 'archive'
+      },
       // 客户列表沿用服务端销售查看权限，新增仍单独检查客户管理权限。
       {
         key: 'customers',

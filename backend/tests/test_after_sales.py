@@ -143,7 +143,7 @@ def test_v79_responsibility_upgrade_is_atomic_and_preserves_old_cases(erp,monkey
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_responsibilities'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 85
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 87
         assert db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_responsibilities'").fetchone()
     assert api('GET',f'{ROOT}/{old["id"]}')['responsibilities']==[]
 
@@ -242,7 +242,7 @@ def test_v78_order_warranty_upgrade_is_atomic_and_keeps_old_orders_unknown(erp,m
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(sales_order_lines)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 85
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 87
         assert db.execute('SELECT warranty_days,warranty_basis FROM sales_order_lines WHERE sales_order_id=?',
             (old_order['id'],)).fetchone()==(None,'')
     old=next(item for item in api('GET','sales-orders') if item['id']==old_order['id'])
@@ -322,7 +322,7 @@ def test_v77_warranty_upgrade_keeps_old_cases_unknown_and_is_idempotent(erp,monk
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(after_sales_cases)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 85
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 87
         assert db.execute('SELECT warranty_days,warranty_basis FROM after_sales_cases WHERE id=?',
             (old['id'],)).fetchone()==(None,'')
     assert api('GET',f'{ROOT}/{old["id"]}')['warranty_status']=='unknown'
@@ -776,10 +776,10 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 85
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 87
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
-    assert len(Base.metadata.tables)== 183
+    assert len(Base.metadata.tables)== 185
 
 
 def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_after_sales_labor_schema,monkeypatch):
@@ -806,7 +806,7 @@ def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_
         assert not db.execute("SELECT 1 FROM permissions WHERE code='after_sales.labor'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 85
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 87
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?',(case['id'],)).fetchone()[0]=='approved'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.labor'").fetchone()[0]==2
 

@@ -224,7 +224,7 @@ def test_v45_migration_atomic_retry(statements,remove_statement_schema):
         db.execute('DROP TRIGGER fail_statement_permissions')
     migrate();migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 85
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 87
 
 
 def test_opening_is_balance_only_and_pending_opening_blocks(statements):

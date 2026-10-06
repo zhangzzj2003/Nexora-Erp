@@ -22,6 +22,24 @@ export function materialBody(payload: unknown, editing: boolean): Record<string,
     }
   }
   if (!body.name || !body.unit) throw new Error('请填写物料名称和单位')
+  if (input.unit_id !== undefined) {
+    if (!positiveVersion(input.unit_id)) throw new Error('所选单位编号无效')
+    body.unit_id = input.unit_id
+  }
+  if (input.suppliers !== undefined) {
+    // 绑定只能传已有编号或新名称，禁止通过物料接口伪造供应商完善状态。
+    if (!Array.isArray(input.suppliers) || input.suppliers.length > 20) throw new Error('供应商绑定数量无效')
+    body.suppliers = input.suppliers.map(raw => {
+      const choice = object(raw)
+      if (Object.keys(choice).some(key => !['supplier_id', 'name'].includes(key))) throw new Error('供应商绑定格式无效')
+      if (choice.supplier_id !== undefined && choice.name === undefined && positiveVersion(choice.supplier_id)) {
+        return { supplier_id: choice.supplier_id }
+      }
+      if (choice.supplier_id === undefined && typeof choice.name === 'string' && choice.name.trim()
+        && choice.name.length <= 120) return { name: choice.name.trim() }
+      throw new Error('供应商绑定格式无效')
+    })
+  }
   if (editing) {
     if (!positiveVersion(input.version)) throw new Error('物料版本无效，请重新加载')
     body.version = input.version
@@ -54,6 +72,9 @@ export function validateMaterialResult(action: string, data: unknown): void {
   for (const raw of action === 'materials' ? data as unknown[] : [data]) {
     const row = object(raw)
     if (!positiveVersion(row.id) || !positiveVersion(row.version)) throw new Error('物料响应版本或编号无效，请升级服务端')
+    if (row.supplier_ids !== undefined && (!Array.isArray(row.supplier_ids)
+      || row.supplier_ids.some(value => !positiveVersion(value))
+      || new Set(row.supplier_ids).size !== row.supplier_ids.length)) throw new Error('物料供应商绑定响应无效')
     for (const [key, limit] of Object.entries(lengths)) {
       if (key === 'reason') continue
       if (typeof row[key] !== 'string' || row[key].length > limit) throw new Error('物料响应字段无效，请升级服务端')

@@ -11,6 +11,18 @@
 .material-section .form-grid { width: 100%; }
 .material-section legend { padding: 0 8px; font-weight: 600; }
 .material-hint { margin: 0; color: var(--workspace-field-muted); font-size: 12px; font-weight: 400; line-height: 1.6; }
+/* 加宽后的物料弹窗按三列展示普通字段；长说明和备注仍通过 material-wide 占整行。 */
+/* 各列顶端对齐，编码列带说明时也不会把同排的选择框向下拉伸。 */
+.material-editor .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+.material-editor .form-grid > label { min-width: 0; }
 .material-editor .material-wide { grid-column: 1 / -1; }
 .material-category-filter { display: grid; gap: 8px; width: min(100%, 320px); }
+/* 窗口缩小时逐级减少列数，避免选择框、编码和规格挤在狭窄的列内。 */
+@media (max-width: 1000px) { .material-editor .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .material-editor .form-grid { grid-template-columns: minmax(0, 1fr); } .material-section { padding: 12px; } }
+
+/* 联系资料与物料参数沿用相同分组；较长的地址和账号占满一行。 */
+.catalog-editor .supplier-wide { grid-column: 1 / -1; }
+.supplier-pending { color: var(--workspace-field-muted); }
+.supplier-complete { font-weight: 600; }
+@media (max-width: 600px) { .catalog-editor .form-grid { grid-template-columns: minmax(0, 1fr); } }

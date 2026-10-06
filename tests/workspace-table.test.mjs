@@ -147,6 +147,8 @@ test('新增入口打开弹窗，失败时保留草稿', () => {
 test('公共 vxe 表格匹配工作台明暗主题与单元格高度', () => {
   const source = readFileSync(new URL('../src/renderer/src/components/workspace/WorkspaceTable.vue', import.meta.url), 'utf8')
   assert.match(source, /\.workspace-vxe-table :is\(th, td\) \{[^}]*vertical-align: middle;/)
+  // 外层裁切不能成为焦点滚动容器，表体自身继续承担表格滚动。
+  assert.match(source, /\.workspace-vxe-table \.vxe-table--viewport-wrapper \{ overflow: clip; \}/)
   // 首列标题和数据使用同一规则，防止只有表头向内缩而内容仍贴边。
   assert.match(source, /:is\(\.vxe-header--column, \.vxe-body--column\):first-child > \.vxe-cell \{ padding-left: 18px; \}/)
   // 边框渐变必须只有一像素高，不能作为整行底色覆盖数据区。
