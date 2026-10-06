@@ -32,9 +32,9 @@ test('预览区分服务端本机、UTC 和指定时区，语言切换不修改�
 
 test('受限桥接拒绝非法配置与编号响应，过滤额外参数', () => {
   assert.deepEqual(documentNumberingBody({ ...input, locked: false, extra: 'ignored' }), input)
-  for (const bad of [{ style: 'auto' }, { version: -1 }, { version: true }, { timezone: 'UTC' }])
+  for (const bad of [{ style: 'auto' }, { style: ['pinyin'] }, { timezone_mode: ['server'] }, { version: -1 }, { version: true }, { timezone: 'UTC' }])
     assert.throws(() => documentNumberingBody({ ...input, ...bad }))
-  for (const bad of [{ locked: true }, { version: '1' }, { configured_by: 'admin' }, { backfilled_count: -1 }])
+  for (const bad of [{ locked: true }, { timezone_mode: ['server'] }, { version: '1' }, { configured_by: 'admin' }, { backfilled_count: -1 }])
     assert.throws(() => validateDocumentNumbering({ ...config, ...bad }))
   validateDocumentNumbers({ document_no: null, rows: [{ source_document_no: 'PO-20261007-000001' }] })
   for (const number of ['#1', '', 1, 'PO-20261007-1'])

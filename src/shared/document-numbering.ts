@@ -34,8 +34,8 @@ export interface DocumentNumberingOperations {
 export function documentNumberingBody(value: unknown): DocumentNumberingInput {
   if (!value || typeof value !== 'object') throw new Error('编号设置格式不正确')
   const row = value as Record<string, unknown>
-  if (!['pinyin', 'english'].includes(String(row.style))
-    || !['server', 'utc', 'specified'].includes(String(row.timezone_mode))
+  if (typeof row.style !== 'string' || !['pinyin', 'english'].includes(row.style)
+    || typeof row.timezone_mode !== 'string' || !['server', 'utc', 'specified'].includes(row.timezone_mode)
     || !Number.isSafeInteger(row.version) || Number(row.version) < 0
     || (row.timezone_mode === 'specified' ? typeof row.timezone !== 'string'
       || !row.timezone || row.timezone.length > 100 : row.timezone !== null)) {
@@ -51,7 +51,7 @@ export function validateDocumentNumbering(value: unknown): asserts value is Docu
   if (typeof row.configured !== 'boolean' || typeof row.locked !== 'boolean'
     || !Number.isSafeInteger(row.version) || Number(row.version) < 0
     || !(row.style === null || row.style === 'pinyin' || row.style === 'english')
-    || !['server', 'utc', 'specified'].includes(String(row.timezone_mode))
+    || typeof row.timezone_mode !== 'string' || !['server', 'utc', 'specified'].includes(row.timezone_mode)
     || !(row.timezone === null || typeof row.timezone === 'string')
     || (row.configured && row.style === null) || (row.locked && !row.configured)
     || (row.timezone_mode === 'specified' && (typeof row.timezone !== 'string' || !row.timezone))
