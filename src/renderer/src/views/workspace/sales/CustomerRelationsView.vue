@@ -46,6 +46,10 @@ const records=computed(()=>{
 const columns=computed(()=>[{key:'title',title:mode.value==='contact'?'联系人':'事项 / 编号',width:'24%'},{key:'customer_name',title:'客户',width:'16%'},
   {key:'context',title:mode.value==='contact'?'联系信息':mode.value==='quote'?'报价金额 / 有效期':'负责人 / 日期',width:'22%'},{key:'status',title:'阶段',width:'13%'},{key:'actions',title:'处理 / 证据',width:'25%'}])
 function selectMode(value:CrmKind):void{if(busy.value)return;mode.value=value;editor.value=null;store.clearCrmDetail();query.value=''}
+function closeEditor():void {
+  // 弹窗关闭只收起视图，Pinia 中的草稿继续保留；保存期间禁止关闭。
+  if(!busy.value)editor.value=null
+}
 function newRecord(kind:CrmKind, source?:CrmContact|CrmOpportunity):void {
   if(!store.can(permission(kind)) || disabled.value)return
   store.startNewCrm(kind);editor.value=kind;mode.value=kind;store.clearCrmDetail()
@@ -110,7 +114,7 @@ onUnmounted(()=>store.clearCrmDetail())
       <p>已评估预估金额 {{ forecast.estimated_amount }} 元 · 加权预计金额 <strong>{{ forecast.weighted_amount }} 元</strong>（人民币，逐项四舍五入到分）</p>
       <p v-if="!forecast.rated_count" class="muted">暂无已评估的开放商机，请在商机修订中填写成交概率。</p>
     </section>
-    <CrmEditor v-if="editor && store.can(permission(editor))" :kind="editor" @saved="editor=null" @close="editor=null" @create-opportunity="newRecord('opportunity')" />
+    <CrmEditor v-if="editor && editor!=='contact' && store.can(permission(editor))" :kind="editor" @saved="editor=null" @close="closeEditor" @create-opportunity="newRecord('opportunity')" />
     <template v-else>
       <WorkspaceTable :title="crmKindLabel[mode]" :show-title="false" :columns="columns" :data="records" :min-table-width="1050" :loading="loading">
         <template #filters><label>客户范围<WorkspaceSelect v-model="customer" :options="customers" :disabled="disabled" /></label><label>搜索{{ crmKindLabel[mode] }}<AppInput v-model="query" placeholder="名称、客户、负责人或阶段" /></label></template>
@@ -133,6 +137,15 @@ onUnmounted(()=>store.clearCrmDetail())
       </WorkspaceTable>
       <CrmEvidence />
     </template>
+    <!-- 联系人复用现有表单与 Naive UI 弹窗，列表保留在背景；修订沿用同一入口。 -->
+    <NModal :show="editor==='contact' && store.can('crm_contact.manage')" preset="card"
+      :title="store.crmEdit.contact ? '修订联系人' : '新建联系人'"
+      :style="{width:'min(860px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}"
+      :mask-closable="false" :close-on-esc="!busy" :closable="!busy"
+      @update:show="value=>{if(!value)closeEditor()}">
+      <CrmEditor v-if="editor==='contact' && store.can('crm_contact.manage')" kind="contact" dialog
+        @saved="editor=null" @close="closeEditor" />
+    </NModal>
     <ContactImportDialog v-if="store.can('crm_contact.manage')" v-model:show="contactImportOpen" />
     <OpportunityImportDialog v-if="store.can('crm_opportunity.manage')" v-model:show="opportunityImportOpen" />
     <NModal :show="!!command" preset="card" :title="command ? crmCommandLabel[command.action] : ''" :style="{width:'min(680px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)command=null}">

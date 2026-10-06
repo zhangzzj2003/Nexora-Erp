@@ -10,7 +10,8 @@ import CrmDate from './CrmDate.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { crmFormError, crmKindLabel, crmStageLabel } from './crm-display'
 
-const props=defineProps<{kind: CrmKind}>()
+// 同一表单可在页内或弹窗使用，校验、修订原因及保存逻辑保持一致。
+const props=withDefaults(defineProps<{kind: CrmKind;dialog?:boolean}>(),{dialog:false})
 const emit=defineEmits<{saved:[];close:[];createOpportunity:[]}>()
 const store=usePiniaAppStore()
 const {crmForms:forms,crmEdit:edits,crmOptions:options,crmOverview:overview,busy,connectionLost,crmLoading:loading,error}=storeToRefs(store)
@@ -40,8 +41,8 @@ async function save(): Promise<void> {
 }
 </script>
 <template>
-  <section class="card crm-editor" :aria-label="`${isEdit ? '修订' : '新建'}${crmKindLabel[kind]}`">
-    <div class="section-heading"><h2>{{ isEdit ? '修订' : '新建' }}{{ crmKindLabel[kind] }}</h2><AppButton :disabled="busy" @click="emit('close')">返回列表</AppButton></div>
+  <section class="crm-editor" :class="dialog ? 'crm-editor--dialog' : 'card'" :aria-label="`${isEdit ? '修订' : '新建'}${crmKindLabel[kind]}`">
+    <div v-if="!dialog" class="section-heading"><h2>{{ isEdit ? '修订' : '新建' }}{{ crmKindLabel[kind] }}</h2><AppButton :disabled="busy" @click="emit('close')">返回列表</AppButton></div>
     <p v-if="kind==='quote'">人民币报价不含税费和折扣计算。提交时固定客户、联系人和物料资料；之后须由未参与编制的账号独立审核。</p>
     <p v-if="kind==='quote' && opportunities.length===1 && !isEdit">暂无开放商机，须先建立销售商机才能编制报价。<AppButton v-if="store.can('crm_opportunity.manage')" variant="text" :disabled="disabled" @click="emit('createOpportunity')">建立销售商机</AppButton></p>
     <p v-else-if="kind==='opportunity'">逐条填写成交概率；留空表示未评估，不计入加权预测。预估金额和预测金额不代表订单、收入或收款。“已转单”由批准报价转订单后自动登记。</p>
@@ -96,8 +97,19 @@ async function save(): Promise<void> {
       <label v-if="isEdit && edit">修订原因<AppInput v-model.trim="edit.reason" required maxlength="500" :disabled="disabled" /></label>
       <p v-if="failure" role="alert">{{ failure }}</p>
       <p v-if="error" role="alert">{{ error }} 输入及修订原因已保留，请修正后重试；版本冲突时先重新读取记录。</p>
-      <div class="crm-toolbar"><AppButton type="submit" variant="primary" :disabled="disabled">{{ busy ? '正在保存…' : isEdit ? '保存修订' : `保存${crmKindLabel[kind]}` }}</AppButton>
+      <div class="crm-toolbar"><AppButton v-if="dialog" type="button" :disabled="busy" @click="emit('close')">取消</AppButton>
+        <AppButton type="submit" variant="primary" :disabled="disabled">{{ busy ? '正在保存…' : isEdit ? '保存修订' : `保存${crmKindLabel[kind]}` }}</AppButton>
         <span v-if="!options?.customers.length" class="muted">暂无客户资料。</span><AppButton v-if="store.can('customer.manage')" variant="text" :disabled="busy" @click="store.navigateToRoute('customers')">前往客户资料</AppButton></div>
     </form>
   </section>
 </template>
+<style scoped>
+/* 弹窗传送到 body 后不再位于 CRM 页内，局部样式保证表单间距及窄窗布局。 */
+.crm-editor--dialog form { display: grid; gap: 18px; }
+.crm-editor--dialog .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.crm-editor--dialog .crm-wide { grid-column: 1 / -1; }
+.crm-editor--dialog .crm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+@media (max-width: 650px) {
+  .crm-editor--dialog .form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
