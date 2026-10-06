@@ -181,7 +181,8 @@ async function confirmLotPost(): Promise<void> {
           </template>
           <template #cell-unit="{ row }">{{ row.material?.unit ?? '—' }}</template>
           <template #cell-quantity="{ row }">
-            <AppInput v-model.trim="row.line.quantity" type="number" min="0.001"
+            <!-- 明细数量直接输入；隐藏步进按钮但仍沿用原来的数值边界。 -->
+            <AppInput v-model.trim="row.line.quantity" type="number" hide-number-controls min="0.001"
               max="1000000" step="0.001" required :disabled="busy || connectionLost"
               :aria-label="`${row.material?.name ?? '物料'}数量`" />
           </template>

@@ -14,8 +14,10 @@ const props = withDefaults(
     type?: 'text' | 'password' | 'number' | 'tel' | 'search' | 'textarea'
     disabled?: boolean
     readonly?: boolean
+    // 表格数量可按需隐藏步进按钮，默认保留其他数字字段的现有操作。
+    hideNumberControls?: boolean
   }>(),
-  { type: 'text', disabled: false, readonly: false }
+  { type: 'text', disabled: false, readonly: false, hideNumberControls: false }
 )
 const emit = defineEmits<{ 'update:modelValue': [value: T] }>()
 const attrs = useAttrs()
@@ -40,7 +42,7 @@ function update(value: string): void {
 <template>
   <NInput
     class="app-input"
-    :class="$attrs.class"
+    :class="[$attrs.class, { 'app-input--no-number-controls': type === 'number' && hideNumberControls }]"
     :style="$attrs.style as string | undefined"
     :value="modelValue == null ? '' : String(modelValue)"
     :type="type === 'password' ? 'password' : type === 'textarea' ? 'textarea' : 'text'"
@@ -55,3 +57,16 @@ function update(value: string): void {
     @update:value="update"
   />
 </template>
+
+<style scoped>
+/* 只调整原生按钮外观，保留 number 类型、键盘操作及 min/max/step 校验。 */
+.app-input--no-number-controls :deep(input[type='number']) {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.app-input--no-number-controls :deep(input[type='number']::-webkit-inner-spin-button),
+.app-input--no-number-controls :deep(input[type='number']::-webkit-outer-spin-button) {
+  -webkit-appearance: none;
+  margin: 0;
+}
+</style>
