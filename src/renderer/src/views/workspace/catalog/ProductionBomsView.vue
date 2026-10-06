@@ -9,7 +9,9 @@ import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMate
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
-import { NModal } from 'naive-ui'
+// 共用单据弹窗的基础信息、物料表格和固定操作区。
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
+import { bomDraftIssue, bomComponentOptions } from './bom-form'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
@@ -17,7 +19,8 @@ import { submitCreateDialog } from '../../../utils/create-dialog'
 const {
   error,
   notice,
-  version,
+  connectionLost,
+  materialCategories,
   busy,
   materials,
   boms,
@@ -33,6 +36,8 @@ const {
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
 async function submitCreate(): Promise<void> {
+  // 断线、撤权或草稿无效时不触发请求，失败后仍留在原弹窗。
+  if (connectionLost.value || !can('bom.create') || bomIssue.value) return
   await submitCreateDialog(createBom, { busy, error, notice }, createOpen)
 }
 // 只筛选当前列表快照，原有单据状态与跨页面草稿保持不变。
@@ -48,96 +53,61 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 行包装保留原 Pinia 对象；删行后重算索引，后续编辑不会错改其他组件。
+const componentRows = computed(() => bomForm.value.lines.map((line, index) => ({ line, index })))
+const componentColumns = [
+  { key: 'material', title: '组件物料 / 资料', width: '470' },
+  { key: 'unit', title: '单位', width: '80' },
+  { key: 'quantity', title: '基准用量', width: '150' },
+  { key: 'actions', title: '操作', width: '90' }
+]
+const bomIssue = computed(() => bomDraftIssue(bomForm.value, materials.value))
+function addComponent(): void {
+  // 与接口的一百行上限一致，并在事件入口重复核对交互状态。
+  if (busy.value || connectionLost.value || !can('bom.create') || bomForm.value.lines.length >= 100) return
+  bomForm.value.lines.push({ component_material_id: 0, quantity: '1' })
+}
+function removeComponent(index: number): void {
+  if (busy.value || connectionLost.value || !can('bom.create') || bomForm.value.lines.length <= 1) return
+  bomForm.value.lines.splice(index, 1)
+}
 </script>
 
 <template>
   <section class="stack">
-    <NModal
-      v-if="can('bom.create')"
-      v-model:show="createOpen"
-      preset="card"
-      :mask-closable="!busy"
-      :style="{
-        width: 'min(900px, calc(100vw - 32px))',
-        maxHeight: 'calc(100vh - 48px)',
-        overflowY: 'auto'
-      }"
+    <!-- 业务草稿仍由 Pinia 保存，公共弹窗只负责布局和交互边界。 -->
+    <WorkspaceDocumentDialog
+      v-if="can('bom.create')" v-model:show="createOpen" title="新建 BOM 版本"
+      :data="componentRows" :columns="componentColumns" :busy="busy" :disabled="connectionLost"
+      :submit-disabled="Boolean(bomIssue)" :add-disabled="bomForm.lines.length >= 100"
+      :hint="bomIssue || '旧版本会保留供追溯；同一成品一次只能启用一个版本。'"
+      @add-material="addComponent" @submit="submitCreate"
     >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">BILL OF MATERIALS</p>
-          <h2>新建 BOM 版本</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
-      <p class="muted">
-        BOM 记录生产指定数量成品所需的组件。旧版本会保留供追溯；同一成品一次只能启用一个版本。
-      </p>
-      <form @submit.prevent="submitCreate">
-        <div class="form-grid">
-          <label
-            >成品物料<WorkspaceMaterialSelect :materials="materials"
-              v-model="bomForm.product_material_id"
-              required
-              :options="[
-                { label: '选择成品'.trim(), value: 0, disabled: true },
-                ...materials.map((item) => ({
-                  label: (item.sku + ' · ' + item.name).trim(),
-                  value: item.id
-                }))
-              ]" /></label
-          ><label
-            >基准产出数量<AppInput
-              v-model.trim="bomForm.base_quantity"
-              type="number"
-              min="0.001"
-              max="1000000"
-              step="0.001"
-              required /></label
-          ><label>版本说明（可选）<AppInput v-model.trim="bomForm.note" maxlength="200" /></label>
-        </div>
-        <h3>组件用量</h3>
-        <div v-for="(line, index) in bomForm.lines" :key="index" class="line-row">
-          <label
-            >组件物料<WorkspaceMaterialSelect :materials="materials"
-              v-model="line.component_material_id"
-              required
-              :options="[
-                { label: '选择组件'.trim(), value: 0, disabled: true },
-                ...materials
-                  .filter((entry) => entry.id !== bomForm.product_material_id)
-                  .map((item) => ({ label: (item.sku + ' · ' + item.name).trim(), value: item.id }))
-              ]" /></label
-          ><label
-            >基准用量<AppInput
-              v-model.trim="line.quantity"
-              type="number"
-              min="0.001"
-              max="1000000"
-              step="0.001"
-              required /></label
-          ><AppButton
-            type="button"
-            :disabled="bomForm.lines.length === 1"
-            @click="bomForm.lines.splice(index, 1)"
-            variant="text"
-          >
-            移除
-          </AppButton>
-        </div>
-        <div class="form-actions">
-          <AppButton
-            type="button"
-            @click="bomForm.lines.push({ component_material_id: 0, quantity: '1' })"
-            variant="secondary"
-          >
-            添加组件</AppButton
-          ><AppButton type="submit" :disabled="busy || materials.length < 2" variant="primary">
-            保存草稿
-          </AppButton>
-        </div>
-      </form>
-    </NModal>
+      <template #basicInfo>
+        <label class="bom-basic-field">成品物料<WorkspaceMaterialSelect v-model="bomForm.product_material_id"
+          :materials="materials" :categories="materialCategories" :disabled="busy || connectionLost"
+          placeholder="选择成品" required /></label>
+        <label class="bom-basic-field">基准产出数量<AppInput v-model.trim="bomForm.base_quantity" :disabled="busy || connectionLost"
+          type="number" min="0.001" max="1000000" step="0.001" required /></label>
+        <label class="bom-basic-field">版本说明（可选）<AppInput v-model.trim="bomForm.note" :disabled="busy || connectionLost" maxlength="200" /></label>
+      </template>
+      <template #cell-material="{ row: { line, index } }">
+        <WorkspaceMaterialSelect v-model="line.component_material_id" :materials="materials"
+          :categories="materialCategories" :options="bomComponentOptions(bomForm, materials, index)"
+          :disabled="busy || connectionLost" aria-label="组件物料" placeholder="选择组件" required />
+      </template>
+      <template #cell-unit="{ row: { line } }">
+        {{ materials.find(item => item.id === line.component_material_id)?.unit ?? '—' }}
+      </template>
+      <template #cell-quantity="{ row: { line } }">
+        <AppInput v-model.trim="line.quantity" :disabled="busy || connectionLost" aria-label="基准用量"
+          type="number" min="0.001" max="1000000" step="0.001" required />
+      </template>
+      <template #cell-actions="{ row: { index } }">
+        <AppButton type="button" variant="text" :disabled="busy || connectionLost || bomForm.lines.length === 1"
+          @click="removeComponent(index)">移除</AppButton>
+      </template>
+    </WorkspaceDocumentDialog>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"
@@ -150,7 +120,7 @@ const filteredRecords = computed(() =>
         <AppButton
           v-if="can('bom.create')"
           type="button"
-          :disabled="busy"
+          :disabled="busy || connectionLost"
           @click="createOpen = true"
           variant="primary"
         >
@@ -250,3 +220,8 @@ const filteredRecords = computed(() =>
     </WorkspaceTable>
   </section>
 </template>
+
+<style scoped>
+/* 成品资料卡展开时，同行数量输入框保持正常高度，避免随资料卡一起拉伸。 */
+.bom-basic-field { align-content: start; }
+</style>

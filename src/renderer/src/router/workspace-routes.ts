@@ -136,6 +136,14 @@ export const workspaceRouteGroups = [
         permission: 'inventory.view',
         icon: 'archive'
       },
+      // BOM 归入基础资料，旧地址和生产查看权限保留以兼容工单与已打开标签。
+      {
+        key: 'boms',
+        path: '/workspace/boms',
+        label: '生产 BOM',
+        permission: 'production.view',
+        icon: 'stack'
+      },
       // 客户列表沿用服务端销售查看权限，新增仍单独检查客户管理权限。
       {
         key: 'customers',
@@ -307,13 +315,6 @@ export const workspaceRouteGroups = [
     icon: 'production',
     label: '生产管理',
     routes: [
-      {
-        key: 'boms',
-        path: '/workspace/boms',
-        label: '生产 BOM',
-        permission: 'production.view',
-        icon: 'stack'
-      },
       {
         key: 'workOrders',
         path: '/workspace/work-orders',

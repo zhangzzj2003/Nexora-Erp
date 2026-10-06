@@ -14,6 +14,7 @@
 | `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，`material-form.ts` 管理草稿与搜索；展示关联供应商；沿用 `/workspace/catalog` 地址 |
 | `catalog/` | `SuppliersView.vue` | 供应商增删改查及供货物料绑定、解绑 |
 | `catalog/` | `UnitsView.vue` | 独立单位表的搜索、分页、新增、版本编辑、启停和变更记录；物料弹窗从单位目录选择 |
+| `catalog/` | `ProductionBomsView.vue` | 生产 BOM 基础资料；复用公共单据弹窗编辑成品与组件用量，`bom-form.ts` 校验重复、自引用及数量；保留原地址、权限和 Pinia 草稿 |
 | `catalog/` | `CustomersView.vue` | 客户搜索、新增相似名称核对及单列 CSV 预检和批量导入；销售查看权限可浏览，客户管理权限可写入 |
 | `catalog/` | `WarehousesView.vue` | 仓库增删改查，默认主仓库禁止删除 |
 | `purchase/` | `PurchaseOrdersView.vue` | 建立和管理采购订单 |
@@ -36,7 +37,6 @@
 | `finance/` | `SubledgerOpeningsView.vue` | 历史未结单据逐组合核对、独立审核启用、资金历史及 CSV |
 | `finance/` | `FinancialSourcesView.vue` | 查看应收应付的业务来源明细 |
 | `finance/` | `InventoryValuationView.vue` | 查看移动平均库存金额、待核价来源和核价修订历史 |
-| `production/` | `ProductionBomsView.vue` | 管理生产 BOM 版本 |
 | `production/` | `ProductionWorkOrdersView.vue` | 建立和下达生产工单 |
 | `production/` | `MaterialIssuesView.vue` | 处理生产领料，逐行选择来源仓批次确认并展示固定证据或旧确认差额 |
 | `production/` | `MaterialReturnsView.vue` | 处理生产退料，核对原领料批次或登记退料新批次并展示固定证据 |
