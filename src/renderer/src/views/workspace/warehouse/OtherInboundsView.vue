@@ -19,6 +19,7 @@ import {datePickerString,vDateField} from '../../../utils/date-field'
 import {receiptLotDate,receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
 import type {InboundLotLineInput} from '../../../../../shared/receipt-lot-api'
 import type {OtherInbound} from '../../../../../shared/erp-api'
+import { useOtherInboundMaterialDetails } from './other-inbound-material-details'
 
 const store = usePiniaAppStore()
 const { error, notice, busy, connectionLost, materials, warehouses, otherInbounds, otherInboundForm,
@@ -26,6 +27,7 @@ const { error, notice, busy, connectionLost, materials, warehouses, otherInbound
 const { can, localTime, createOtherInbound, postOtherInbound, cancelOtherInbound,
   reverseOtherInbound } = store
 const showForm = ref(false)
+const { activeLine, showLine, setCompact } = useOtherInboundMaterialDetails(() => otherInboundForm.value.lines)
 // 表格行直接引用 Pinia 草稿，资料刷新及删行后仍按该行的真实对象修改数量。
 const materialRows = computed(() => otherInboundForm.value.lines.map((line, index) => ({
   line, index, material: materials.value.find(item => item.id === line.material_id)
@@ -49,6 +51,8 @@ function addMaterialRow(): void {
   if (busy.value || connectionLost.value || addDisabled.value) return
   otherInboundForm.value.lines = appendDocumentMaterialRow(otherInboundForm.value.lines)
   pendingFocus.value = otherInboundForm.value.lines.at(-1) ?? null
+  // 新增时把资料展示切换到新行，之前的行自动保留简短摘要。
+  if (pendingFocus.value) showLine(pendingFocus.value)
 }
 function focusNewRow(line: (typeof otherInboundForm.value.lines)[number], instance: Element | ComponentPublicInstance | null): void {
   // vxe 可能延迟挂载新行，等选择器的真实引用出现后再聚焦，不依赖固定延时。
@@ -172,6 +176,7 @@ async function confirmLotPost(): Promise<void> {
           <template #cell-name="{ row }">
             <WorkspaceMaterialSelect :ref="instance => focusNewRow(row.line, instance)"
               v-model="row.line.material_id" :options="materialOptions(row.index)" :materials="materials" :categories="store.materialCategories" required
+              :compact="activeLine !== row.line" @update:compact="value => setCompact(row.line, value)" @change="showLine(row.line)"
               :disabled="busy || connectionLost" :aria-label="`第 ${row.index + 1} 行物料`" />
           </template>
           <template #cell-unit="{ row }">{{ row.material?.unit ?? '—' }}</template>
