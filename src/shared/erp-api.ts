@@ -517,6 +517,8 @@ export interface PurchaseRequestLine extends ReceiptLine {
   remaining_quantity: string
 }
 export interface PurchaseRequest extends NumberedDocument {
+  // 审批流程由服务端统一保存，原申请状态继续用于分批转单。
+  approval?: DocumentApprovalState
   id: number
   reference: string
   note: string

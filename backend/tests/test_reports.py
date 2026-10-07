@@ -26,8 +26,8 @@ def test_report_csv_matches_filtered_rows(monkeypatch, tmp_path):
             "reference": "RPT-REQ", "note": "采购", "lines": [
                 {"material_id": material, "quantity": "5"}]}).json()
         request_id = request["id"]
-        client.post(f"{base}/purchase-requests/{request_id}/submit", headers=admin)
-        client.post(f"{base}/purchase-requests/{request_id}/approve", headers=admin)
+        # 申请独立审批后才允许拆单。
+        approve_document(client, admin, "PurchaseRequest", request_id)
         order = client.post(f"{base}/purchase-orders", headers=admin, json={
             "supplier_id": supplier, "purchase_request_id": request_id,
             "lines": [{"purchase_request_line_id": request["lines"][0]["id"],

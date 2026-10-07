@@ -130,7 +130,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]
     summary = document_summary(db, document_type, frozen_content)
-    if document_type == 'StockAdjustment' and intent == 'execute':
+    if document_type in ('StockAdjustment', 'PurchaseRequest') and intent == 'execute':
         # 升级前记录只作历史核对；首次送审后从不可改写的事件恢复。
         previous = native_review_evidence(db, document_type, identifier) if row is None else None
         if row:

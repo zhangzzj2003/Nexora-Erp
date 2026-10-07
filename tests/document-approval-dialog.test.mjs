@@ -84,6 +84,12 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
     assert.match(html, /已处理单据保留原业务记录/)
     assert.doesNotMatch(html, /未送审|>提交审批</)
   }
+  // 旧申请已无剩余需求只供查询，不为已转订单补造新批准。
+  store.documentApprovalRecord.document_type = 'PurchaseRequest'
+  store.documentApprovalRecord.business_status = 'approved'
+  html = await render()
+  assert.match(html, /申请已无待转数量，保留原转单记录/)
+  assert.doesNotMatch(html, /未送审|>提交审批</)
   store.documentApprovalRecord.document_type = 'ProductionCompletion'
   store.documentApprovalRecord.business_status = 'draft'
   html = await render()

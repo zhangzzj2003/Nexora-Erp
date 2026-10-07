@@ -17,6 +17,7 @@ from app.core.models import (
     SalesOrder, SalesOrderLine, Shipment, ShipmentLine, ShipmentReversal, SalesReturn, SalesReturnLine,
     SalesReturnReversal, Customer, CrmQuote, CrmChange, SalesOrderContractRevision,
     SalesOrderContractAttachment, SalesOrderContractAttachmentReversal,
+    PurchaseRequest, PurchaseRequestLine, MaintenancePurchaseRequest,
     Bom, WorkOrder, WorkOrderLine, MaterialIssue, MaterialIssueLine, MaterialIssueReversal,
     MaterialReturn, MaterialReturnLine, MaterialReturnReversal, ProductionCompletion, ProductionCompletionReversal,
     QualityDisposition, QualityDispositionChange, MrpPlan, MrpPlanChange, MrpConversion,
@@ -36,6 +37,33 @@ def inbound_snapshot(db: Session, identifier: int) -> dict:
                           WarehouseInboundLine.inbound_id == identifier).order_by(WarehouseInboundLine.id))]}
 
 
+def purchase_request_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'PurchaseRequest', identifier)
+    conversions = list(db.scalars(select(MrpConversion).where(
+        MrpConversion.purchase_request_id == identifier).order_by(MrpConversion.id)))
+    plans = list(db.scalars(select(MrpPlan).where(MrpPlan.id.in_([row.plan_id for row in conversions]))
+                           .order_by(MrpPlan.id)))
+    links = list(db.scalars(select(MaintenancePurchaseRequest).where(
+        MaintenancePurchaseRequest.purchase_request_id == identifier).order_by(MaintenancePurchaseRequest.id)))
+    jobs = list(db.scalars(select(MaintenanceJob).where(MaintenanceJob.id.in_([row.job_id for row in links]))
+                          .order_by(MaintenanceJob.id)))
+    # 原计划作者、维护方案作者及本单转换人都参与编制，不能通过自动建单后自审。
+    authors = {row.created_by for row in [*conversions, *plans, *links, *jobs]}
+    authors.update(row.submitted_by for row in plans if row.submitted_by is not None)
+    authors.update(db.scalars(select(MrpPlanChange.changed_by).where(
+        MrpPlanChange.plan_id.in_([row.id for row in plans]),
+        MrpPlanChange.action.in_(('create', 'edit', 'submit')))))
+    authors.update(db.scalars(select(MaintenanceChange.changed_by).where(
+        MaintenanceChange.entity_type == 'job', MaintenanceChange.entity_id.in_([row.id for row in jobs]),
+        MaintenanceChange.action.in_(('create', 'edit', 'submit')))))
+    # 转单进度不属于需求正文；其他建议的转换人员也不改变本单的批准摘要。
+    return {'reference': source.reference, 'note': source.note, 'source_author_ids': sorted(authors),
+            'mrp_conversion_ids': [row.id for row in conversions], 'maintenance_job_ids': [row.id for row in jobs],
+            'lines': [dict(row) for row in db.execute(select(
+                PurchaseRequestLine.id, PurchaseRequestLine.material_id, PurchaseRequestLine.quantity)
+                .where(PurchaseRequestLine.purchase_request_id == identifier).order_by(PurchaseRequestLine.id)).mappings()]}
+
+
 def purchase_order_snapshot(db: Session, identifier: int) -> dict:
     source = document_source(db, 'PurchaseOrder', identifier)
     # 采购数量、价格和申请关联全部固定；收货进度属于执行结果，不纳入正文。
@@ -46,7 +74,21 @@ def purchase_order_snapshot(db: Session, identifier: int) -> dict:
             PurchaseOrderRequestLink.purchase_order_line_id == PurchaseOrderLine.id)
         .where(PurchaseOrderLine.purchase_order_id == identifier)
         .order_by(PurchaseOrderLine.id)).mappings()]
-    return {'supplier_id': source.supplier_id, 'reference': source.reference, 'lines': lines}
+    # 采购订单批准不能由申请编制人完成；原申请的编制范围沿来源关系恢复。
+    requests = list(db.scalars(select(PurchaseRequest).join(PurchaseRequestLine,
+        PurchaseRequestLine.purchase_request_id == PurchaseRequest.id)
+        .where(PurchaseRequestLine.id.in_([line['purchase_request_line_id'] for line in lines
+                                          if line['purchase_request_line_id'] is not None])).distinct()))
+    authors = {row.created_by for row in requests}
+    authors.update(row.submitted_by for row in requests if row.submitted_by is not None)
+    from app.core.models import DocumentApprovalAuthor
+    authors.update(db.scalars(select(DocumentApprovalAuthor.user_id).where(
+        DocumentApprovalAuthor.document_type == 'PurchaseRequest',
+        DocumentApprovalAuthor.document_id.in_([row.id for row in requests]))))
+    for request in requests:
+        authors.update(purchase_request_snapshot(db, request.id)['source_author_ids'])
+    return {'supplier_id': source.supplier_id, 'reference': source.reference,
+            'source_author_ids': sorted(authors), 'lines': lines}
 
 
 def goods_receipt_snapshot(db: Session, identifier: int) -> dict:
@@ -303,9 +345,9 @@ def completion_snapshot(db: Session, identifier: int) -> dict:
 
 def native_review_evidence(db: Session, document_type: str, identifier: int) -> dict | None:
     # 首次接入前保存原流程信息，独立于新审批正文，不能冒充新模板中的批准。
-    if document_type != 'StockAdjustment':
+    if document_type not in ('StockAdjustment', 'PurchaseRequest'):
         return None
-    source = db.get(StockAdjustment, identifier)
+    source = db.get(approval_type(document_type).model, identifier)
     if source.submitted_by is None and source.reviewed_by is None:
         return None
     return {field: getattr(source, field) for field in (
@@ -314,9 +356,9 @@ def native_review_evidence(db: Session, document_type: str, identifier: int) -> 
 
 def sync_native_review(db: Session, document_type: str, identifier: int, action: str,
                        state: dict, user_id: int, reason: str) -> None:
-    if document_type != 'StockAdjustment':
+    if document_type not in ('StockAdjustment', 'PurchaseRequest'):
         return
-    source = db.get(StockAdjustment, identifier)
+    source = db.get(approval_type(document_type).model, identifier)
     # 原单据状态投影统一审批结果，中间步骤仍为 submitted；撤回恢复草稿。
     source.status = 'draft' if action == 'withdraw' else state['status']
     if action == 'submit':
@@ -329,7 +371,7 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+_SNAPSHOTS = {'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
@@ -379,7 +421,7 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         if source.status != 'posted' or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
     elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
-                               if document_type == 'StockAdjustment' else
+                               if document_type in ('StockAdjustment', 'PurchaseRequest') else
                                ('inspected',) if document_type == 'ProductionCompletion' else ('draft',)):
         # 历史已执行记录不补造审批；只限制仍待执行的草稿。
         raise HTTPException(409, '此单据已处理，不能继续审批')
@@ -389,6 +431,13 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
             DocumentApprovalCase.status == 'executed')):
         # 退货转出库是本单执行点；后续待出库不允许再次撤回或生成另一张出库单。
         raise HTTPException(409, '退货已转出库，请在仓库出库单继续独立审批')
+    if intent == 'execute' and document_type == 'PurchaseRequest':
+        from app.purchase.requests import ordered_quantity
+        # 旧库已全部转完的申请只供查询；部分剩余需求可以重新取得独立批准，不改写旧订单。
+        lines = list(db.scalars(select(PurchaseRequestLine).where(
+            PurchaseRequestLine.purchase_request_id == identifier)))
+        if not any(Decimal(line.quantity) > ordered_quantity(db, line.id) for line in lines):
+            raise HTTPException(409, '申请已无待转数量，保留原转单记录')
     return source
 
 
@@ -427,6 +476,15 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
     if 'work_order_id' in content:
         order = db.get(WorkOrder, content['work_order_id'])
         summary.append({'label': '生产工单', 'value': order.document_no or f'#{order.id}'})
+    if document_type == 'PurchaseRequest':
+        summary.append({'label': '采购说明', 'value': content['note'] or '—'})
+        for conversion_id in content['mrp_conversion_ids']:
+            conversion = db.get(MrpConversion, conversion_id)
+            plan = db.get(MrpPlan, conversion.plan_id)
+            summary.append({'label': '物料需求计划', 'value': plan.document_no or f'#{plan.id}'})
+        for identifier in content['maintenance_job_ids']:
+            job = db.get(MaintenanceJob, identifier)
+            summary.append({'label': '维护工单', 'value': job.document_no or f'#{job.id}'})
     if document_type == 'WorkOrder':
         product = db.get(Material, content['product_material_id'])
         summary.extend([{'label': '成品目标', 'value': f"{product.sku} · {product.name} × {content['target_quantity']} {product.unit}"},

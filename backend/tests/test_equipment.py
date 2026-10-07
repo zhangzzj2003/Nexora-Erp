@@ -96,8 +96,8 @@ def test_maintenance_purchase_request_keeps_source_quantity_and_receipt_evidence
         {'lines': [{'material_id': part, 'quantity': '99'}]}, status=409)
     api('POST', path, {**payload, 'version': row['version'],
         'parts': [{'material_id': part, 'quantity': '2'}]}, status=409)
-    api('POST', f'purchase-requests/{request["id"]}/submit')
-    api('POST', f'purchase-requests/{request["id"]}/approve', actor='reviewer')
+    # 申请独立审批后才允许拆单；每张订单继续按原规则单独审批。
+    approve_document(erp[0], erp[2]["admin"], "PurchaseRequest", request["id"])
     supplier = api('POST', 'suppliers', {'name': '维修供应商'}, status=201)['id']
     order = api('POST', 'purchase-orders', {'supplier_id': supplier,
         'purchase_request_id': request['id'], 'lines': [{'material_id': part,

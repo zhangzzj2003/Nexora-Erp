@@ -1,6 +1,8 @@
 """采购申请审批与分批转单数量查询。"""
 
 from app.core.document_responses import NumberedRoute
+# 本模块保留申请数量和转单规则，审批统一从带版本的公共入口完成。
+from app.core import document_approval as approval
 from sqlalchemy import select, update, delete, func, literal
 from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
@@ -132,7 +134,7 @@ def request_data(db: Session, request_id: int) -> dict:
                 "remaining_quantity": str(Decimal(item["quantity"]) - ordered),
             }
         )
-    return {**dict(row), "lines": lines}
+    return {**dict(row), "approval": approval.case_data(approval.find_case(db, "PurchaseRequest", request_id)), "lines": lines}
 
 
 def validate_lines(db: Session, payload: PurchaseRequestInput) -> None:
@@ -186,7 +188,7 @@ def create_purchase_request(payload: PurchaseRequestInput, user: dict = Depends(
 
 @router.put("/purchase-requests/{request_id}")
 def update_purchase_request(
-    request_id: int, payload: PurchaseRequestInput, _: dict = Depends(require("purchase_request.create"))
+    request_id: int, payload: PurchaseRequestInput, user: dict = Depends(require("purchase_request.create"))
 ) -> dict:
     with orm_session(write=True) as db:
         protect_request(db, request_id)
@@ -203,9 +205,15 @@ def update_purchase_request(
             raise HTTPException(404, "采购申请不存在")
         if row["status"] not in ("draft", "rejected"):
             raise HTTPException(409, "只能修改草稿或已驳回的申请")
+        # 升级前已部分转单的申请可以审查剩余需求，但不能删除旧订单仍引用的来源行。
+        if db.scalar(select(PurchaseOrderRequestLink.purchase_order_line_id)
+                .join(PurchaseRequestLine, PurchaseRequestLine.id == PurchaseOrderRequestLink.purchase_request_line_id)
+                .where(PurchaseRequestLine.purchase_request_id == request_id).limit(1)) is not None:
+            raise HTTPException(409, "申请已有转单记录，不能改写原需求或删除来源行")
         if db.scalar(select(MaintenancePurchaseRequest.id).where(
                 MaintenancePurchaseRequest.purchase_request_id == request_id)):
             raise HTTPException(409, "维护工单来源采购申请不能直接修订，请取消后从工单重新创建")
+        approval.record_author(db, "PurchaseRequest", request_id, user["id"])
         validate_lines(db, payload)
         db.execute(delete(PurchaseRequestLine).where((PurchaseRequestLine.purchase_request_id == request_id)))
         db.add_all(
@@ -233,83 +241,21 @@ def update_purchase_request(
         return request_data(db, request_id)
 
 
+# 旧入口没有审批版本，不能保证步骤、自审或并发边界，保留权限校验后明确拒绝。
 @router.post("/purchase-requests/{request_id}/submit")
-def submit_purchase_request(
-    request_id: int, user: dict = Depends(require("purchase_request.submit"))
-) -> dict:
-    with orm_session(write=True) as db:
-        cursor = db.execute(
-            update(PurchaseRequest)
-            .where(PurchaseRequest.id == request_id, PurchaseRequest.status == "draft")
-            .values(status="submitted", submitted_by=user["id"], submitted_at=func.current_timestamp())
-        )
-        if not cursor.rowcount:
-            if (
-                not db.execute(
-                    select(literal(1)).select_from(PurchaseRequest).where((PurchaseRequest.id == request_id))
-                )
-                .mappings()
-                .first()
-            ):
-                raise HTTPException(404, "采购申请不存在")
-            raise HTTPException(409, "只能提交草稿采购申请")
-        return request_data(db, request_id)
+def submit_purchase_request(request_id: int, _: dict = Depends(require("purchase_request.submit"))) -> dict:
+    raise HTTPException(409, "请使用带版本的单据审批入口送审")
 
 
 @router.post("/purchase-requests/{request_id}/approve")
-def approve_purchase_request(
-    request_id: int, user: dict = Depends(require("purchase_request.review"))
-) -> dict:
-    with orm_session(write=True) as db:
-        cursor = db.execute(
-            update(PurchaseRequest)
-            .where(PurchaseRequest.id == request_id, PurchaseRequest.status == "submitted")
-            .values(
-                status="approved",
-                reviewed_by=user["id"],
-                reviewed_at=func.current_timestamp(),
-                review_reason="",
-            )
-        )
-        if not cursor.rowcount:
-            if (
-                not db.execute(
-                    select(literal(1)).select_from(PurchaseRequest).where((PurchaseRequest.id == request_id))
-                )
-                .mappings()
-                .first()
-            ):
-                raise HTTPException(404, "采购申请不存在")
-            raise HTTPException(409, "只能批准已提交的采购申请")
-        return request_data(db, request_id)
+def approve_purchase_request(request_id: int, _: dict = Depends(require("purchase_request.review"))) -> dict:
+    raise HTTPException(409, "请使用带版本的单据审批入口批准")
 
 
 @router.post("/purchase-requests/{request_id}/reject")
-def reject_purchase_request(
-    request_id: int, payload: ReviewReasonInput, user: dict = Depends(require("purchase_request.review"))
-) -> dict:
-    with orm_session(write=True) as db:
-        cursor = db.execute(
-            update(PurchaseRequest)
-            .where(PurchaseRequest.id == request_id, PurchaseRequest.status == "submitted")
-            .values(
-                status="rejected",
-                reviewed_by=user["id"],
-                reviewed_at=func.current_timestamp(),
-                review_reason=payload.reason,
-            )
-        )
-        if not cursor.rowcount:
-            if (
-                not db.execute(
-                    select(literal(1)).select_from(PurchaseRequest).where((PurchaseRequest.id == request_id))
-                )
-                .mappings()
-                .first()
-            ):
-                raise HTTPException(404, "采购申请不存在")
-            raise HTTPException(409, "只能驳回已提交的采购申请")
-        return request_data(db, request_id)
+def reject_purchase_request(request_id: int, payload: ReviewReasonInput,
+                            _: dict = Depends(require("purchase_request.review"))) -> dict:
+    raise HTTPException(409, "请使用带版本的单据审批入口驳回")
 
 
 @router.post("/purchase-requests/{request_id}/cancel")
@@ -317,6 +263,9 @@ def cancel_purchase_request(
     request_id: int, user: dict = Depends(require("purchase_request.cancel"))
 ) -> dict:
     with orm_session(write=True) as db:
+        pending = approval.find_case(db, 'PurchaseRequest', request_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批再取消申请')
         row = (
             db.execute(
                 select(PurchaseRequest.status)

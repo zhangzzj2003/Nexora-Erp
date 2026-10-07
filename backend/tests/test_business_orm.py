@@ -294,8 +294,8 @@ def test_request_quota_and_order_links_roll_back_after_insert(erp):
         {"lines": [{"material_id": m, "quantity": "1.125"} for m in materials[:2]]},
         201,
     )
-    request("POST", f'purchase-requests/{source["id"]}/submit')
-    request("POST", f'purchase-requests/{source["id"]}/approve')
+    # 申请独立审批后才允许拆单；每张订单继续按原规则单独审批。
+    approve_document(client, dict(client.headers), "PurchaseRequest", source["id"])
     payload = {
         "supplier_id": supplier,
         "purchase_request_id": source["id"],

@@ -3,7 +3,7 @@
 from app.core.document_responses import NumberedRoute
 # 审批核对与原业务写入共用一个事务，旧客户端也不能跳过批准直接执行。
 from app.core import document_approval as approval
-from app.core.approval_documents import purchase_order_snapshot
+from app.core.approval_documents import purchase_order_snapshot, purchase_request_snapshot
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session
 from decimal import Decimal, ROUND_HALF_UP
@@ -329,6 +329,7 @@ def create_purchase_order(
                 .first()
             ):
                 raise HTTPException(422, "物料不存在")
+        request_approval = None
         if payload.purchase_request_id is not None:
             request = (
                 db.execute(
@@ -343,6 +344,8 @@ def create_purchase_order(
                 raise HTTPException(422, "采购申请不存在")
             if request["status"] != "approved":
                 raise HTTPException(409, "只有已批准的采购申请可转订单")
+            request_approval = approval.require_conversion_approved(db, 'PurchaseRequest',
+                payload.purchase_request_id, purchase_request_snapshot(db, payload.purchase_request_id), user['id'])
             for line in payload.lines:
                 source = (
                     db.execute(
@@ -386,6 +389,9 @@ def create_purchase_order(
                         purchase_order_line_id=line_id, purchase_request_line_id=line.purchase_request_line_id
                     ),
                 )
+        # 第一次成功转单与授权执行事件一起提交，失败时申请额度、订单和事件全部回滚。
+        if request_approval is not None and request_approval.status == 'approved':
+            approval.mark_executed(db, request_approval, user['id'])
         return order_data(db, cursor.id)
 
 

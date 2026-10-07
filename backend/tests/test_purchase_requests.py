@@ -6,6 +6,7 @@ from threading import Barrier
 from fastapi.testclient import TestClient
 
 from app.main import app
+from approval_test_helpers import approve_document
 
 
 def setup(client):
@@ -43,9 +44,9 @@ def test_request_approval_split_conversion_and_release(monkeypatch, tmp_path):
                  "lines": [{"material_id": material, "purchase_request_line_id": line_id,
                             "quantity": "6", "unit_price": "2"}]}
         assert client.post(f"{base}/purchase-orders", headers=admin, json=order).status_code == 409
-        assert client.post(f"{base}/purchase-requests/{request_id}/submit", headers=admin).status_code == 200
+        assert client.post(f"{base}/purchase-requests/{request_id}/submit", headers=admin).status_code == 409
         assert client.post(f"{base}/purchase-requests/{request_id}/approve", headers=view).status_code == 403
-        assert client.post(f"{base}/purchase-requests/{request_id}/approve", headers=admin).status_code == 200
+        approve_document(client, admin, "PurchaseRequest", request_id)
         assert client.post(f"{base}/purchase-requests/{request_id}/approve", headers=admin).status_code == 409
 
         first = client.post(f"{base}/purchase-orders", headers=admin, json=order)
@@ -79,17 +80,25 @@ def test_rejected_request_can_be_revised_and_invalid_links_fail(monkeypatch, tmp
                            json={"lines": payload["lines"] * 2}).status_code == 422
         request = client.post(f"{base}/purchase-requests", headers=admin, json=payload).json()
         request_id = request["id"]
-        assert client.post(f"{base}/purchase-requests/{request_id}/submit", headers=admin).status_code == 200
+        path = f"{base}/system/document-approvals/PurchaseRequest/{request_id}"
+        sent = client.post(path + '/submit', headers=admin, json={'version': 0})
+        assert sent.status_code == 200
         assert client.post(f"{base}/purchase-requests/{request_id}/reject", headers=admin,
                            json={"reason": " "}).status_code == 422
         assert client.post(f"{base}/purchase-requests/{request_id}/reject", headers=admin,
-                           json={"reason": "数量不符"}).status_code == 200
+                           json={"reason": "数量不符"}).status_code == 409
+        assert client.post(f"{base}/users", headers=admin, json={
+            'username': 'request_reviewer', 'password': 'secure-pass-123', 'roles': ['admin']}).status_code == 201
+        token = client.post(f"{base}/auth/login", json={
+            'username': 'request_reviewer', 'password': 'secure-pass-123'}).json()['token']
+        reviewer = {'Authorization': 'Bearer ' + token}
+        rejected = client.post(path + '/reject', headers=reviewer, json={'version': 1, 'reason': '数量不符'})
+        assert rejected.status_code == 200, rejected.text
         revised = client.put(f"{base}/purchase-requests/{request_id}", headers=admin, json={
             "lines": [{"material_id": material, "quantity": "5"}]}).json()
         assert revised["status"] == "draft"
         assert revised["review_reason"] == ""
-        assert client.post(f"{base}/purchase-requests/{request_id}/submit", headers=admin).status_code == 200
-        assert client.post(f"{base}/purchase-requests/{request_id}/approve", headers=admin).status_code == 200
+        approve_document(client, admin, "PurchaseRequest", request_id)
         invalid = {"supplier_id": supplier, "purchase_request_id": request_id,
                    "lines": [{"material_id": material, "purchase_request_line_id": 999,
                               "quantity": "1", "unit_price": "2"}]}
@@ -103,8 +112,7 @@ def test_two_clients_cannot_convert_same_request_quantity(monkeypatch, tmp_path)
         base, admin, supplier, material = setup(first)
         request = first.post(f"{base}/purchase-requests", headers=admin, json={
             "lines": [{"material_id": material, "quantity": "10"}]}).json()
-        first.post(f"{base}/purchase-requests/{request['id']}/submit", headers=admin)
-        first.post(f"{base}/purchase-requests/{request['id']}/approve", headers=admin)
+        approve_document(first, admin, "PurchaseRequest", request["id"])
         payload = {"supplier_id": supplier, "purchase_request_id": request["id"],
                    "lines": [{"material_id": material,
                               "purchase_request_line_id": request["lines"][0]["id"],

@@ -16,14 +16,16 @@ import { NPopconfirm } from 'naive-ui'
 import { documentRows } from '../../../utils/document-rows'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+// 统一弹窗读取真实版本和审批历史，不在列表保留另一套批准操作。
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
+import type { PurchaseRequest } from '../../../../../shared/erp-api'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
 const store = usePiniaAppStore()
 const { busy, error, notice, connectionLost, materials, suppliers, purchaseRequests, purchaseRequestForm,
-  requestConversionForm, requestRejectReasons } = storeToRefs(store)
-const { can, localTime, editPurchaseRequest, savePurchaseRequest, submitPurchaseRequest,
-  approvePurchaseRequest, rejectPurchaseRequest, cancelPurchaseRequest,
+  requestConversionForm } = storeToRefs(store)
+const { can, localTime, editPurchaseRequest, savePurchaseRequest, cancelPurchaseRequest,
   selectRequestConversion, convertPurchaseRequest } = store
 const query = ref('')
 const showForm = ref(false)
@@ -38,6 +40,15 @@ const columns = [
 ]
 const statusName = { draft: '草稿', submitted: '待审批', approved: '已批准', rejected: '已驳回', cancelled: '已取消' }
 
+const approvalNames = { draft: '未送审', submitted: '审批中', approved: '已批准，待转单',
+  rejected: '已驳回', withdrawn: '已撤回', executed: '已开始转单' }
+// 拆单可以继续消费同一份批准需求，每张新订单仍独立送审；缺少审批状态时不放行。
+function canConvert(item: PurchaseRequest): boolean {
+  return item.status === 'approved' && ['approved', 'executed'].includes(item.approval?.status ?? '')
+    && item.lines.some((line) => Number(line.remaining_quantity) > 0) && can('purchase_order.create')
+}
+const conversionAllowed = computed(() => !!selectedRequest.value && canConvert(selectedRequest.value))
+
 function openEditor(requestId?: number): void {
   // 收起后再次打开同一份草稿不重新初始化；切换新单或其他申请才载入对应表单。
   if (purchaseRequestForm.value.requestId !== (requestId ?? null)) editPurchaseRequest(requestId)
@@ -45,11 +56,15 @@ function openEditor(requestId?: number): void {
 }
 
 function openConversion(requestId: number): void {
+  const item = purchaseRequests.value.find((row) => row.id === requestId)
+  if (!item || !canConvert(item) || busy.value || connectionLost.value) return
   selectRequestConversion(requestId)
   conversionOpen.value = true
 }
 
 async function submitConversion(): Promise<void> {
+  // 弹窗打开后发生撤回或权限变化，也不能提交过期的批准。
+  if (!conversionAllowed.value || busy.value || connectionLost.value) return
   await submitCreateDialog(convertPurchaseRequest, { busy, error, notice }, conversionOpen)
 }
 
@@ -77,6 +92,7 @@ const requestConversionFormColumns = [
 
 <template>
   <section class="stack">
+    <DocumentApprovalDialog />
     <!-- 列表保留操作与筛选，页面标题在卡片外统一显示。 -->
     <WorkspaceTable
       :show-title="false"
@@ -178,7 +194,7 @@ const requestConversionFormColumns = [
           :busy="busy"
           :disabled="connectionLost"
           :submit-disabled="
-            busy || connectionLost || !requestConversionForm.lines.some((line) => Number(line.quantity) > 0)
+            busy || connectionLost || !conversionAllowed || !requestConversionForm.lines.some((line) => Number(line.quantity) > 0)
           "
           submit-label="生成订单草稿"
           :min-table-width="800"
@@ -243,7 +259,8 @@ const requestConversionFormColumns = [
       >
       <template #cell-status="{ row: item }"
         ><span class="pill" :class="item.status">{{ statusName[item.status] }}</span
-        ><small v-if="item.review_reason">{{ item.review_reason }}</small></template
+        ><small>{{ approvalNames[item.approval?.status ?? 'draft'] }}</small>
+        <small v-if="item.review_reason">{{ item.review_reason }}</small></template
       >
       <template #cell-lines="{ row: item }"
         ><div v-for="line in item.lines" :key="line.id">
@@ -262,27 +279,12 @@ const requestConversionFormColumns = [
             >修改</AppButton
           >
           <AppButton
-            v-if="item.status === 'draft' && can('purchase_request.submit')"
+            v-if="can('purchase_request.view')"
             :disabled="busy || connectionLost"
-            @click="submitPurchaseRequest(item.id)"
-            variant="text"
-            type="button"
-            >提交审批</AppButton
-          >
+            @click="store.openDocumentApproval({ document_type: 'PurchaseRequest', document_id: item.id, intent: 'execute' })"
+            variant="text" type="button">单据审批</AppButton>
           <AppButton
-            v-if="item.status === 'submitted' && can('purchase_request.review')"
-            :disabled="busy || connectionLost"
-            @click="approvePurchaseRequest(item.id)"
-            variant="text"
-            type="button"
-            >批准</AppButton
-          >
-          <AppButton
-            v-if="
-              item.status === 'approved' &&
-              can('purchase_order.create') &&
-              item.lines.some((line) => Number(line.remaining_quantity) > 0)
-            "
+            v-if="canConvert(item)"
             :disabled="busy || connectionLost"
             @click="openConversion(item.id)"
             variant="text"
@@ -290,7 +292,7 @@ const requestConversionFormColumns = [
             >转订单</AppButton
           >
           <NPopconfirm
-            v-if="item.status !== 'cancelled' && can('purchase_request.cancel')"
+            v-if="item.status !== 'cancelled' && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('purchase_request.cancel')"
             positive-text="确认"
             negative-text="返回"
             @positive-click="cancelPurchaseRequest(item.id)"
@@ -303,25 +305,7 @@ const requestConversionFormColumns = [
             已关联有效订单的申请无法取消。确认取消这张申请？
           </NPopconfirm>
         </div>
-        <form
-          v-if="item.status === 'submitted' && can('purchase_request.review')"
-          class="inline-form"
-          @submit.prevent="rejectPurchaseRequest(item.id)"
-        >
-          <label
-            >驳回原因<AppInput
-              v-model.trim="requestRejectReasons[item.id]"
-              required
-              maxlength="200"
-          /></label>
-          <AppButton
-            :disabled="busy || connectionLost"
-            variant="secondary"
-            size="small"
-            type="submit"
-            >驳回</AppButton
-          >
-        </form></template
+</template
       >
       <template #empty>{{ query ? '没有匹配的采购申请。' : '暂无采购申请。' }}</template>
     </WorkspaceTable>

@@ -40,6 +40,8 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
         </dl>
         <!-- 已下达或已完工的历史工单同样保留原流程，不能误显示为等待新审批。 -->
         <p v-if="record.intent === 'execute' && record.version === 0 && ['posted', 'cancelled', 'confirmed', 'partially_shipped', 'shipped', 'closed', 'released', 'in_progress', 'completed'].includes(record.business_status)">已处理单据保留原业务记录，不补造审批记录。</p>
+        <!-- 旧申请全部转完后只保留原事实；剩余需求的新批准不能倒写成历史订单的批准。 -->
+        <p v-else-if="record.document_type === 'PurchaseRequest' && record.version === 0 && record.business_status === 'approved' && !record.can_submit">申请已无待转数量，保留原转单记录，不补造审批。</p>
         <p v-else><strong>{{ labels[record.status] }}</strong> · 审批版本 {{ record.version }}</p>
         <!-- 完工的质检前置由服务端约束；这里说明不能送审的实际原因。 -->
         <p v-if="record.document_type === 'ProductionCompletion' && record.intent === 'execute' && record.business_status === 'draft'">请先记录质检结果，完成后再提交本单审批。</p>
