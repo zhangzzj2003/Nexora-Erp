@@ -306,7 +306,10 @@ function createAppStore() {
   const inventoryWarningAlerts = createInventoryWarningAlerts(state)
   const physicalLotActions = createPhysicalLotActions(state)
   const documentApprovalActions = { ...createDocumentApprovalActions(state),
-    ...createDocumentApprovalCaseActions(state, refreshData) }
+    ...createDocumentApprovalCaseActions(state, refreshData, async target => {
+      // CRM 不在通用数据快照中，审批变化后同步其业务版本与可转单动作。
+      if (target.document_type === 'CrmQuote') await crmActions.refreshCrmApproval(target.document_id)
+    }) }
   const equipmentActions = createEquipmentActions(state, perform)
   const dashboardActions = createDashboardActions(state)
   const ledgerReportActions = createLedgerReportActions(state)

@@ -49,7 +49,7 @@ async function fixture(t) {
       if(id.endsWith('/AppInput.vue'))return '\0contact-input'
       if(id.endsWith('/WorkspaceSelect.vue'))return '\0contact-select'
       if(id.endsWith('/WorkspaceTable.vue'))return '\0contact-table'
-      if(/\/(CrmEvidence|ContactImportDialog|OpportunityImportDialog|CrmDate)\.vue$/.test(id))return '\0contact-empty'
+      if(/\/(CrmEvidence|ContactImportDialog|OpportunityImportDialog|CrmDate|DocumentApprovalDialog)\.vue$/.test(id))return '\0contact-empty'
     },load(id){return {'\0contact-store':storeSource,'\0contact-modal':modalSource,'\0contact-button':buttonSource,
       '\0contact-input':inputSource,'\0contact-select':selectSource,'\0contact-table':tableSource,
       '\0contact-empty':`export default {render:()=>null}`}[id]}

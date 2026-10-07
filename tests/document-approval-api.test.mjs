@@ -95,3 +95,14 @@ test('单据审批响应校验实际进度和完整历史，不能凭伪造状�
   caseApi.validateDocumentApprovalRecord(approved)
   assert.throws(() => caseApi.validateDocumentApprovalRecord({ ...approved, status: 'executed' }))
 })
+
+// 报价最多百行加十份附件；审批摘要额度按单据类型扩展，其他单据仍保持原上限。
+test('合法报价完整摘要保留全部物料与附件且拒绝越界',()=>{
+  const state={document_type:'CrmQuote',document_id:1,intent:'execute',document_no:null,business_status:'draft',reversal_reason:'',
+    version:0,status:'draft',generation:0,current_step:0,steps:[],policy_version:null,submitted_by:null,submitted_at:null,
+    executed_by:null,executed_at:null,content_matches:true,can_submit:true,can_review:false,can_withdraw:false,events:[],
+    summary:Array.from({length:117},(_,i)=>({label:'固定依据'+i,value:'物料或附件摘要'}))}
+  caseApi.validateDocumentApprovalRecord(state)
+  assert.throws(()=>caseApi.validateDocumentApprovalRecord({...state,document_type:'WarehouseInbound'}))
+  assert.throws(()=>caseApi.validateDocumentApprovalRecord({...state,summary:Array(129).fill({label:'越界',value:''})}))
+})

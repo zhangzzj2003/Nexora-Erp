@@ -12,6 +12,7 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import CrmEditor from './CrmEditor.vue'
 import CrmEvidence from './CrmEvidence.vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import ContactImportDialog from './ContactImportDialog.vue'
 import OpportunityImportDialog from './OpportunityImportDialog.vue'
 import { crmKindLabel,crmQuoteLabel,crmActivityLabel,crmStageLabel,crmCommandLabel,quoteActions } from './crm-display'
@@ -88,6 +89,11 @@ async function openCommand(kind:CrmKind,id:number,action:Command):Promise<void>{
 async function execute():Promise<void>{
   const task=command.value
   if(!task || !reason.value.trim() || disabled.value)return
+  // 弹窗打开后他人撤回、改版或当前账号撤权时，保留输入但不能继续使用旧批准。
+  if(task.kind==='quote'){
+    const current=overview.value?.quotes.find(row=>row.id===task.record.id)
+    if(!current || current.version!==task.record.version || !quoteCommands(current).includes(task.action as CrmQuoteAction|'convert'))return
+  }
   const saved=task.action==='convert' ? await store.convertCrmQuote(task.record as CrmQuote,acceptance.value.trim(),reason.value)
     : task.action==='reopen' ? await store.reopenCrmOpportunity(task.record as CrmOpportunity,reason.value)
     : task.kind==='activity' ? await store.closeCrmActivity(task.record as CrmActivity,task.action==='complete'?'complete':'cancel',reason.value)
@@ -133,11 +139,14 @@ onUnmounted(()=>store.clearCrmDetail())
           <AppButton v-if="mode==='opportunity' && store.can('crm_activity.manage')" size="small" :disabled="disabled" @click="newRecord('activity',row as CrmOpportunity)">安排跟进</AppButton>
           <AppButton v-if="canReopen(row)" size="small" :disabled="disabled" @click="openCommand('opportunity',row.id,'reopen')">重开商机</AppButton>
           <template v-if="mode==='activity' && (row as CrmActivity).status==='planned' && store.can('crm_activity.manage')"><AppButton size="small" :disabled="disabled" @click="openCommand('activity',row.id,'complete')">完成跟进</AppButton><AppButton size="small" :disabled="disabled" @click="openCommand('activity',row.id,'cancelActivity')">取消跟进</AppButton></template>
+          <!-- 每张报价拥有自己的审批步骤；原提交/审核动作不再走无审批版本的接口。 -->
+          <AppButton v-if="mode==='quote'" size="small" :disabled="disabled" @click="store.openDocumentApproval({document_type:'CrmQuote',document_id:row.id,intent:'execute'})">单据审批</AppButton>
           <AppButton v-for="action in quoteCommands(row)" :key="action" size="small" :disabled="disabled" @click="openCommand('quote',row.id,action)">{{ crmCommandLabel[action] }}</AppButton>
         </div></template>
         <template #empty>{{ connectionLost ? '连接恢复后将重新读取资料。' : failure ? '资料读取失败，请刷新后重试。' : query || customer ? '当前筛选没有匹配记录。' : store.can(permission(mode)) ? `尚无${crmKindLabel[mode]}，可从上方新建。` : `尚无${crmKindLabel[mode]}，须由有权限的人员建立。` }}</template>
       </WorkspaceTable>
       <CrmEvidence />
+      <DocumentApprovalDialog />
     </template>
     <!-- 联系人复用现有表单与 Naive UI 弹窗，列表保留在背景；修订沿用同一入口。 -->
     <NModal :show="editor==='contact' && store.can('crm_contact.manage')" preset="card"

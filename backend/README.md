@@ -44,6 +44,8 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 物料、供应商和客户资料、采购申请与订单、分批收货及待入库确认、采购退货待出库确认、其他入出库、多仓库存、调拨、盘点、独立调整、库存台账与基础报表已实现。销售与生产原有单据继续使用。确认入库、出库、退货、调拨或有差异的盘点会在单个事务中生成库存流水；重复确认返回冲突。所有数据由服务端 SQLite 保存，远程客户端没有离线副本或自动同步。
 
+报价 `CrmQuote` 已接入带版本的统一审批入口，提交前沿原领域冻结客户、联系人与物料标签，固定正文、商务条款及附件指纹；原创建、编辑、提交及附件参与者均不能自审。每步保留原报价审计和独立业务版本，最后一步才允许转单；转单和审批执行事件同事务提交，销售订单仍是独立待审草稿。旧 `/submit`、`/approve`、`/reject` 保留原权限、范围与版本校验后返回 409。详情及审批查询沿用客户归属；待审或批准报价取消、编辑或变更附件须先撤回。
+
 ## 实例级单据编号
 
 数据库第 88 版为 29 类主单增加只读 `document_no`，并增加 `document_numbering_settings` 与 `document_number_sequences`。`app/core/document_types.py` 维护前缀白名单，`document_numbering.py` 提供时区换算与 ORM 同事务流水，`document_responses.py` 在已授权响应补充主单和来源编号；不改变历史快照或财务指纹。`app/service/document_numbering.py` 提供认证后的配置 GET 和管理员 PUT，并在全局依赖拒绝未配置的业务写入。升级后须由管理员选择规则再补号，启动不自动选择风格。
@@ -66,11 +68,11 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 销售订单 `SalesOrder`、销售出库 `Shipment` 与销售退货 `SalesReturn` 已分别接入统一审批，沿用 `sales.view` 及原客户归属检查，审核使用各自独立权限。订单固定价格、保修与合同正文/附件指纹；草稿审批期间修改合同依据返回 409，已确认订单仍保留原追加合同证据能力。报价转单和售后派生退货/换货草稿送审时从原审计恢复编制人员，禁止原方案作者审核下游。出库、退货保留原剩余数量、售后占用、库存与实物分配检查，执行和冲销与审批事件原子提交；两者均支持批准后的普通确认和可选实物批次，冲销另行批准固定原因。
 
-**当前处于需求分支开发阶段，已接入十七类，不能据此认为 29 类接口已全部实施新审批门槛。** 财务草稿状态、其余八类原审批兼容和生产关联查询仍待实施，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
+**当前处于需求分支开发阶段，已接入十八类，不能据此认为 29 类接口已全部实施新审批门槛。** 财务草稿状态、其余七类原审批兼容和生产关联查询仍待实施，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
 
 采购申请 `PurchaseRequest` 已接入统一步骤；旧无版本审批入口不能绕过自审、步骤或并发约束。转订单在原事务重核批准正文及剩余额度，第一次成功转换记录执行，后续合法拆单不重复追加执行事件。派生申请及子订单从 MRP、维护和申请编制审计恢复自审排除人员，每张订单仍独立审批。
 
-工单 `WorkOrder`、领料 `MaterialIssue`、退料 `MaterialReturn` 和完工 `ProductionCompletion` 已接入统一审批。工单批准后才下达；领退料批准后在原事务内重核净领料、余额和可选批次。完工必须先质检，再独立批准；质检人不能审核自己填写的结果，确认时仍重核目标产量与净领料。MRP 和返工生成的工单独立送审，从原计划/处置审计恢复编制、提交和转换人员，不能因换人转单而洗掉作者身份。领退料及完工冲销另行批准固定原因；普通操作不要求批次，选择批次时仍沿原分配校验、执行或回滚。当前共十七类业务接入，仍有八类原审批兼容和四类即时生效记录待接入，生产关联查询也未完成。
+工单 `WorkOrder`、领料 `MaterialIssue`、退料 `MaterialReturn` 和完工 `ProductionCompletion` 已接入统一审批。工单批准后才下达；领退料批准后在原事务内重核净领料、余额和可选批次。完工必须先质检，再独立批准；质检人不能审核自己填写的结果，确认时仍重核目标产量与净领料。MRP 和返工生成的工单独立送审，从原计划/处置审计恢复编制、提交和转换人员，不能因换人转单而洗掉作者身份。领退料及完工冲销另行批准固定原因；普通操作不要求批次，选择批次时仍沿原分配校验、执行或回滚。当前共十八类业务接入，仍有七类原审批兼容和四类即时生效记录待接入，生产关联查询也未完成。
 
 ## 基础资料与供货关系
 
@@ -80,7 +82,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 仓库提供 [50 条物料演示数据及本机导入工具](../scripts/demo/README.md)，覆盖电子、五金、塑料、包装与辅料。工具须在服务升级后显式指定目标实例、现有管理员和备份路径；整批 ORM 写入并记录审计，重复导入跳过已有示例档案，不在启动时自动生成数据。
 
-客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。第 61 版增加客户负责人、版本和归属变更 ORM 表；第 65 版增加商机可空概率列及按可见客户范围的预测查询 `app/sales/crm_forecast.py`，`app/sales/customer_scope.py` 为 CRM 及销售单据提供统一服务端归属边界。旧客户保持未分配，由管理员凭依据分配；新客户默认归创建账号。提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。第 76 版的 `app/sales/crm_record_attachments.py` 为联系人、跟进和商机提供 ORM 原文留存与追加式撤销；客户归属和 `crm.view` 限定读取，写入另需 `crm.attachment`，停用或终态只读。第 75 版的 `app/sales/crm_quote_attachments.py` 通过 ORM 留存报价附件原文、摘要、上传依据及追加式撤销；查看遵循客户归属和 `crm.view`，写入另需 `crm_quote.attachment`，取消或转单后只读。PDF、PNG、JPEG 单文件最多 5 MiB，每张报价最多 10 个有效附件；桌面通过受限 IPC 选择和保存文件。`app/sales/crm_quote_pdf.py` 使用只读 ORM 快照和随服务打包的 OFL 中文字体导出已批准或已转单报价；桌面固定 IPC 保存，不自动发送。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。
+客户关系与报价使用第 50 版的六张静态 ORM 模型表，路由及规则位于 `app/sales/crm.py`、`crm_quotes.py`、`crm_rules.py`。第 61 版增加客户负责人、版本和归属变更 ORM 表；第 65 版增加商机可空概率列及按可见客户范围的预测查询 `app/sales/crm_forecast.py`，`app/sales/customer_scope.py` 为 CRM 及销售单据提供统一服务端归属边界。旧客户保持未分配，由管理员凭依据分配；新客户默认归创建账号。提交报价冻结正文、独立审核、客户接受依据和双版本转单，原单与审计在同一事务内更新，详见 [客户关系规则](../docs/customer-relations.md)。第 76 版的 `app/sales/crm_record_attachments.py` 为联系人、跟进和商机提供 ORM 原文留存与追加式撤销；客户归属和 `crm.view` 限定读取，写入另需 `crm.attachment`，停用或终态只读。第 75 版的 `app/sales/crm_quote_attachments.py` 通过 ORM 留存报价附件原文、摘要、上传依据及追加式撤销；查看遵循客户归属和 `crm.view`，写入另需 `crm_quote.attachment`，送审或批准后须先撤回才能修改附件，取消或转单后只读。PDF、PNG、JPEG 单文件最多 5 MiB，每张报价最多 10 个有效附件；桌面通过受限 IPC 选择和保存文件。`app/sales/crm_quote_pdf.py` 使用只读 ORM 快照和随服务打包的 OFL 中文字体导出已批准或已转单报价；桌面固定 IPC 保存，不自动发送。CRM 联系信息要求独立 `crm.view` 权限，报价转销售草稿同时要求 `crm_quote.convert` 和 `sales_order.create`；转单不改变库存或财务金额。
 
 客户新增前可通过 `POST /api/v1/customers/duplicate-candidates` 查询当前账号可见范围内的相似名称；候选来自客户 ORM 模型，仅读取并提示，不自动合并或阻止用户确认后的新增。接口要求 `customer.manage`，细则见 [客户关系规则](../docs/customer-relations.md)。
 

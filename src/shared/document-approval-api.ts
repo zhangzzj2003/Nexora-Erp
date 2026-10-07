@@ -181,7 +181,7 @@ export function validateDocumentApprovalRecord(value: unknown): asserts value is
       || typeof row.reversal_reason !== 'string' || row.reversal_reason.length > 200
       || typeof row.can_submit !== 'boolean' || typeof row.can_review !== 'boolean'
       || typeof row.can_withdraw !== 'boolean' || !Array.isArray(row.events)) throw Error('服务端单据审批格式不匹配')
-  if (typeof row.content_matches !== 'boolean' || !Array.isArray(row.summary) || row.summary.length > 110) throw Error('服务端审批摘要格式不匹配')
+  if (typeof row.content_matches !== 'boolean' || !Array.isArray(row.summary) || row.summary.length > (row.document_type === 'CrmQuote' ? 128 : 110)) throw Error('服务端审批摘要格式不匹配')
   for (const item of row.summary) {
     const entry = record(item)
     if (typeof entry.label !== 'string' || !entry.label.trim() || typeof entry.value !== 'string'

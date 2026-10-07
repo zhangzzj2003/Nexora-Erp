@@ -135,7 +135,7 @@ async function reverse(): Promise<void> {
     <div class="crm-attachment-toolbar"><strong>报价附件</strong>
       <AppButton type="button" variant="secondary" :disabled="loading || busy || connectionLost" @click="reload">刷新附件</AppButton>
     </div>
-    <p>支持 PDF、PNG、JPEG，单文件不超过 5 MiB，最多 10 个有效附件。取消或转单后只能查看与导出历史。</p>
+    <p>支持 PDF、PNG、JPEG，单文件不超过 5 MiB，最多 10 个有效附件。待审或已批准时须先撤回才能增撤附件；取消或转单后只能查看与导出历史。</p>
     <div v-if="store.can('crm_quote.attachment') && canModify" class="crm-attachment-toolbar">
       <label>上传依据<AppInput v-model.trim="reason" maxlength="200" placeholder="填写客户沟通或报价附件依据" /></label>
       <AppButton type="button" :disabled="busy || loading || connectionLost || !reason.trim()" @click="upload">选择文件并上传</AppButton>

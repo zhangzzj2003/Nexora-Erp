@@ -95,4 +95,20 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   html = await render()
   assert.match(html, /请先记录质检结果/)
   assert.doesNotMatch(html, />提交审批</)
+  // 报价送审、批准都保留原必填依据，旧已转单记录不生成虚假审批。
+  store.connectionLost = false
+  store.documentApprovalTarget = {document_type:'CrmQuote',document_id:1,intent:'execute'}
+  store.documentApprovalRecord = {...store.documentApprovalRecord, document_type:'CrmQuote', business_status:'draft', can_submit:true}
+  html = await render()
+  assert.match(html, /报价操作依据（必填）/)
+  assert.match(html, /<button[^>]*disabled[^>]*>提交审批/)
+  store.documentApprovalReasons['CrmQuote:1:execute'] = '核对报价附件与条款'
+  assert.doesNotMatch(await render(), /<button[^>]*disabled[^>]*>提交审批/)
+  store.documentApprovalRecord.can_submit=false;store.documentApprovalRecord.can_review=true
+  store.documentApprovalRecord.current_step=0
+  delete store.documentApprovalReasons['CrmQuote:1:execute']
+  assert.match(await render(), /<button[^>]*disabled[^>]*>审核/)
+  store.documentApprovalRecord.can_review=false;store.documentApprovalRecord.business_status='converted'
+  assert.match(await render(), /已处理单据保留原业务记录/)
+
 })

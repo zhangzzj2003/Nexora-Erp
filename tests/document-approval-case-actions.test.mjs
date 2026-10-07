@@ -116,3 +116,28 @@ test('刷新审批同步列表，刷新期间关闭弹窗不恢复旧记录', as
   assert.equal(await reading, false)
   assert.equal(state.documentApprovalRecord.value, null)
 })
+
+// 新领域刷新失败时不丢操作依据；切换实例后不得调用原领域刷新或恢复旧意见。
+test('审批领域刷新失败保留意见，实例切换阻止迟到领域读取',async t=>{
+  let fail=false,finish,delay=false,domainReads=0
+  const {state}=environment(t,async action=>{
+    if(action==='documentApproval')return draft()
+    return {...draft(),version:1,status:'submitted',generation:1,policy_version:1,steps:[{name:'批准',role:null}],
+      submitted_by:1,submitted_at:'2026-10-07 12:00:00',can_submit:false,can_withdraw:true,
+      events:[{id:1,version:1,generation:1,action:'submit',step:0,step_name:null,actor_id:1,actor_name:'作者',reason:'核对依据',created_at:'2026-10-07 12:00:00'}]}
+  })
+  const scope=effectScope();t.after(()=>scope.stop())
+  const actions=scope.run(()=>createDocumentApprovalCaseActions(state,async()=>{
+    if(delay)await new Promise(resolve=>{finish=resolve})
+  },async()=>{domainReads++;if(fail)throw Error('领域列表刷新失败')}))
+  assert.equal(await actions.openDocumentApproval(target),true)
+  const key=approvalTargetKey(target);state.documentApprovalReasons.value[key]='核对依据';fail=true
+  assert.equal(await actions.actDocumentApproval('submit'),false)
+  assert.equal(state.documentApprovalReasons.value[key],'核对依据')
+  assert.match(state.documentApprovalError.value,/刷新失败/)
+  fail=false;delay=true;const before=domainReads,reading=actions.loadDocumentApproval()
+  await new Promise(resolve=>setImmediate(resolve))
+  state.server.value={id:'new-instance',fingerprint:'new'};finish()
+  assert.equal(await reading,false);assert.equal(domainReads,before)
+  assert.deepEqual(state.documentApprovalReasons.value,{})
+})

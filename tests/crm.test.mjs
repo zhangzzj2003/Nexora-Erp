@@ -12,7 +12,7 @@ import { validateCrmForecast } from '../src/shared/crm-forecast-validation.ts'
 import { canVisitRoute,routeByKey } from '../src/renderer/src/router/workspace-routes.ts'
 
 const permissions=['crm.view','crm_contact.manage','crm_activity.manage','crm_opportunity.manage','crm_quote.create','crm_quote.submit','crm_quote.convert','sales_order.create']
-const quote={id:1,version:3,status:'approved',opportunity_version:2,opportunity_stage:'qualified',review_blocked:[1],expired:false,contact_active:true}
+const quote={id:1,version:3,status:'approved',approval:{status:'approved'},opportunity_version:2,opportunity_stage:'qualified',review_blocked:[1],expired:false,contact_active:true}
 const quoteInput={opportunity_id:1,contact_id:null,reference:'Q-1',valid_until:'2030-01-31',terms:'确认后交货',lines:[{material_id:1,quantity:'1.005',unit_price:'0.9999'}]}
 const overview={contacts:[],activities:[],opportunities:[],quotes:[]}
 const options={customers:[],owners:[],materials:[]}
@@ -148,13 +148,19 @@ test('CRM 入口不被普通销售查看权限放开，审核和转单按实际�
   assert.equal(canVisitRoute(routeByKey('customerRelations'),['sales.view']),false)
   assert.equal(canVisitRoute(routeByKey('customerRelations'),['crm.view']),true)
   assert.deepEqual(quoteActions({...quote,status:'submitted'},['crm_quote.review'],1),[])
-  assert.deepEqual(quoteActions({...quote,status:'submitted'},['crm_quote.review'],2),['approve','reject'])
+  assert.deepEqual(quoteActions({...quote,status:'submitted'},['crm_quote.review'],2),[])
   assert.deepEqual(quoteActions(quote,['crm_quote.convert'],2),[])
   assert.deepEqual(quoteActions(quote,permissions,2),['convert'])
+  // 原 approved 或其他单据批准不能替代本单统一批准。
+  for(const approval of [undefined,{status:'draft'},{status:'submitted'},{status:'withdrawn'},{status:'executed'}]){
+    assert.deepEqual(quoteActions({...quote,approval},permissions,2),[])
+  }
+  assert.deepEqual(quoteActions({...quote,status:'submitted',approval:{status:'submitted'}},['crm_quote.cancel'],2),[])
+  assert.deepEqual(quoteActions({...quote,status:'draft',approval:{status:'withdrawn'}},['crm_quote.cancel'],2),['cancel'])
   assert.deepEqual(quoteActions({...quote,opportunity_stage:'won'},permissions,2),[])
   assert.deepEqual(quoteActions({...quote,expired:true},permissions,2),[])
   assert.deepEqual(quoteActions({...quote,contact_active:false},permissions,2),[])
-  assert.deepEqual(quoteActions({...quote,status:'submitted',contact_active:false},['crm_quote.review'],2),['reject'])
+  assert.deepEqual(quoteActions({...quote,status:'submitted',contact_active:false},['crm_quote.review'],2),[])
 })
 
 test('表单约束拒绝非法日期、精度、重复行和不完整归属',()=>{
@@ -398,4 +404,32 @@ test('已关闭商机的旧草稿不可进入修订，原未保存输入保留',
   state.crmForms.value.quote.reference='未保存报价'
   assert.equal(await actions.editCrm('quote',1),false)
   assert.equal(state.crmForms.value.quote.reference,'未保存报价');assert.deepEqual(state.crmEdit.value,{})
+})
+
+// 审批刷新保留业务草稿并同步 CRM 独立列表，不恢复用户已关闭的详情或其他实例的响应。
+test('报价审批刷新同步版本并保留输入，详情关闭和实例切换使迟到响应失效',async t=>{
+  let pending=null
+  const calls=[]
+  const {state,actions}=fixture(t,async(action,input)=>{
+    calls.push([action,input])
+    if(action==='crmOverview')return pending?pending.promise:{...overview,quotes:[{...quote,version:4}]}
+    if(action==='crmOptions')return options
+    if(action==='crmForecast')return {rows:[],rated_count:0,unrated_count:0,estimated_amount:'0.00',weighted_amount:'0.00',currency:'CNY'}
+    if(action==='crmDetail')return {...quote,version:4}
+    if(action==='crmChanges')return []
+  })
+  state.server.value={id:'a',fingerprint:'a'}
+  state.crmDetail.value={kind:'quote',record:quote};state.crmForms.value.quote.terms='未保存条款'
+  await actions.refreshCrmApproval(1)
+  assert.equal(state.crmOverview.value.quotes[0].version,4)
+  assert.equal(state.crmDetail.value.record.version,4)
+  assert.equal(state.crmForms.value.quote.terms,'未保存条款')
+  pending=deferred();const refreshing=actions.refreshCrmApproval(1)
+  actions.clearCrmDetail();pending.resolve({...overview,quotes:[quote]})
+  await refreshing;assert.equal(state.crmDetail.value,null)
+  state.crmDetail.value={kind:'quote',record:quote}
+  pending=deferred();const old=actions.refreshCrmApproval(1)
+  state.server.value={id:'b',fingerprint:'b'};pending.resolve({...overview,quotes:[quote]})
+  await assert.rejects(old,/刷新失败/)
+  assert.equal(state.crmOverview.value,null);assert.equal(state.crmDetail.value,null)
 })

@@ -123,6 +123,8 @@ def record_data(db: Session, kind: str, record) -> dict:
         result['contact_active'] = not contact_id or bool(db.get(CrmContact, contact_id).is_active)
         result['expired'] = record.valid_until < today()
         result['sales_order_status'] = db.get(SalesOrder, record.sales_order_id).status if record.sales_order_id else None
+        from app.core.document_approval import case_data, find_case
+        result['approval'] = case_data(find_case(db, 'CrmQuote', record.id))
         result['review_blocked'] = list(db.scalars(select(CrmChange.changed_by).where(
             CrmChange.entity_kind == 'quote', CrmChange.entity_id == record.id,
             CrmChange.action.in_(('create','edit','submit'))).distinct()))

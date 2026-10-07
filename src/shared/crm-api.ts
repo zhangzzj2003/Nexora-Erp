@@ -1,3 +1,4 @@
+import type { DocumentApprovalState } from './document-approval-api'
 import type { NumberedDocument } from './document-numbering'
 import type { MaterialChoice } from './material-api'
 /** 客户关系、固定报价和审计的受限通信协议。 */
@@ -65,6 +66,8 @@ export interface CrmQuoteInput {
   opportunity_id: number; contact_id: number | null; reference: string; valid_until: string; terms: string; lines: CrmQuoteLineInput[]
 }
 export interface CrmQuote extends CrmBase, CrmQuoteInput , NumberedDocument{
+  /** 原业务状态不代替独立审批；缺少审批状态时禁止执行。 */
+  approval?: DocumentApprovalState
   status: CrmQuoteStatus; currency: 'CNY'; total_amount: string; expired: boolean; contact_active: boolean; review_blocked: number[]
   opportunity_title: string; opportunity_version: number; opportunity_stage: CrmStage; sales_order_id: number | null; sales_order_status: string | null
   acceptance_reference: string | null; submitted_by: number | null; reviewed_by: number | null; converted_by: number | null

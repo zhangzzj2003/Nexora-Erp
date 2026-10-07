@@ -8,6 +8,8 @@ from pydantic import Field, field_validator
 from sqlalchemy import delete, select, func
 from sqlalchemy.exc import IntegrityError
 
+from app.core import document_approval as approval
+from app.core.approval_documents import current_snapshot
 from app.access.security import require
 from app.core.models import CrmQuote, CrmQuoteLine, CrmChange, Material
 from app.core.orm import orm_session, add_model
@@ -111,6 +113,7 @@ def edit_quote(identifier: int, payload: QuoteEdit, user: dict = Depends(require
             raise HTTPException(409,'只有草稿或驳回的报价可以修订')
         if record.opportunity_id != payload.opportunity_id:
             raise HTTPException(409,'报价的所属商机不可修改')
+        approval.record_author(db, 'CrmQuote', identifier, user['id'])
         before = raw_data(db,'quote',record)
         try:
             write_quote(db,record,payload,user)
@@ -124,59 +127,59 @@ def edit_quote(identifier: int, payload: QuoteEdit, user: dict = Depends(require
         return record_data(db,'quote',record)
 
 
+def prepare_approval_action(db, record, action, user, reason):
+    # 沿用领域前置检查；先冻结报价资料再计算送审摘要，避免审批正文与原报价不同。
+    if action in ('submit', 'approve', 'reject') and not reason.strip():
+        raise HTTPException(422, '报价送审与审核须填写操作依据')
+    before = raw_data(db, 'quote', record)
+    if action in ('submit', 'approve'):
+        require_open_opportunity(db, record.opportunity_id, user)
+        require_contact(db, record.customer_id, record.contact_id)
+        if record.valid_until < today():
+            raise HTTPException(409, '报价已过期，请撤回并修订有效期')
+    if action == 'submit':
+        freeze_party(db, record)
+        for line in db.scalars(select(CrmQuoteLine).where(CrmQuoteLine.quote_id == record.id)):
+            material = db.get(Material, line.material_id)
+            line.sku, line.material_name, line.unit = material.sku, material.name, material.unit
+        db.flush()
+    return before
+
+
+def sync_approval_action(db, record, action, state, user_id, reason, before):
+    # 原业务版本与审批版本各自递增；多步批准期间原状态仍为待审，原审计继续追加保存。
+    record.status = 'draft' if action == 'withdraw' else state['status']
+    if action == 'submit':
+        record.submitted_by, record.submitted_at = state['submitted_by'], state['submitted_at']
+        record.reviewed_by = record.reviewed_at = None
+    elif action in ('approve', 'reject'):
+        record.reviewed_by, record.reviewed_at = user_id, approval.now(db)
+    record.version += 1
+    audit(db, 'quote', record, action, before, reason.strip() or '撤回报价审批', user_id)
+
+
+def legacy_review_blocked(db, identifier, payload, user):
+    # 旧客户端保留原范围、权限与业务版本检查，但不能绕过统一审批步骤。
+    get_record(db, 'quote', identifier, payload.version, user)
+    raise HTTPException(409, '请从单据审批入口按当前审批版本操作')
+
+
 @router.post('/{identifier}/submit')
 def submit(identifier: int, payload: VersionInput, user: dict = Depends(require('crm_quote.submit'))):
     with orm_session(write=True) as db:
-        record = get_record(db,'quote',identifier,payload.version,user)
-        if record.status != 'draft':
-            raise HTTPException(409,'只有报价草稿可以提交')
-        require_open_opportunity(db,record.opportunity_id,user)
-        if record.valid_until < today():
-            raise HTTPException(409,'报价已过期，请先修订有效期')
-        before = raw_data(db,'quote',record)
-        freeze_party(db,record)
-        for line in db.scalars(select(CrmQuoteLine).where(CrmQuoteLine.quote_id == identifier)):
-            material = db.get(Material,line.material_id)
-            line.sku, line.material_name, line.unit = material.sku, material.name, material.unit
-        record.status = 'submitted'
-        record.submitted_by = user['id']
-        record.submitted_at = func.current_timestamp()
-        record.version += 1
-        audit(db,'quote',record,'submit',before,payload.reason,user['id'])
-        return record_data(db,'quote',record)
-
-
-def review(db, record, payload, user, approved):
-    if record.status != 'submitted':
-        raise HTTPException(409,'只有已提交的报价可以审核')
-    contributors = set(db.scalars(select(CrmChange.changed_by).where(CrmChange.entity_kind == 'quote',
-        CrmChange.entity_id == record.id, CrmChange.action.in_(('create','edit','submit')))))
-    if user['id'] in contributors:
-        raise HTTPException(409,'报价创建、修订或提交人不可审核自己的报价')
-    if approved:
-        require_open_opportunity(db,record.opportunity_id,user)
-        require_contact(db,record.customer_id,record.contact_id)
-        if record.valid_until < today():
-            raise HTTPException(409,'报价已过期，不可批准')
-    before = raw_data(db,'quote',record)
-    record.status = 'approved' if approved else 'rejected'
-    record.reviewed_by = user['id']
-    record.reviewed_at = func.current_timestamp()
-    record.version += 1
-    audit(db,'quote',record,'approve' if approved else 'reject',before,payload.reason,user['id'])
-    return record_data(db,'quote',record)
+        legacy_review_blocked(db, identifier, payload, user)
 
 
 @router.post('/{identifier}/approve')
 def approve(identifier: int, payload: VersionInput, user: dict = Depends(require('crm_quote.review'))):
     with orm_session(write=True) as db:
-        return review(db,get_record(db,'quote',identifier,payload.version,user),payload,user,True)
+        legacy_review_blocked(db, identifier, payload, user)
 
 
 @router.post('/{identifier}/reject')
 def reject(identifier: int, payload: VersionInput, user: dict = Depends(require('crm_quote.review'))):
     with orm_session(write=True) as db:
-        return review(db,get_record(db,'quote',identifier,payload.version,user),payload,user,False)
+        legacy_review_blocked(db, identifier, payload, user)
 
 
 @router.post('/{identifier}/cancel')
@@ -185,6 +188,7 @@ def cancel(identifier: int, payload: VersionInput, user: dict = Depends(require(
         record = get_record(db,'quote',identifier,payload.version,user)
         if record.status in ('cancelled','converted'):
             raise HTTPException(409,'报价已取消或已转单，不可取消')
+        approval.record_author(db, 'CrmQuote', identifier, user['id'])
         before = raw_data(db,'quote',record)
         record.status = 'cancelled'
         record.version += 1
@@ -199,6 +203,8 @@ def convert(identifier: int, payload: QuoteConversion, user: dict = Depends(requ
         record = get_record(db,'quote',identifier,payload.version,user)
         if record.status != 'approved':
             raise HTTPException(409,'只有已批准且未转单的报价可以转单')
+        approval_case = approval.require_approved(db, 'CrmQuote', identifier,
+            current_snapshot(db, 'CrmQuote', identifier), user['id'])
         opportunity = get_record(db,'opportunity',record.opportunity_id,payload.opportunity_version,user)
         require_open_opportunity(db,opportunity.id,user)
         require_contact(db,record.customer_id,record.contact_id)
@@ -219,4 +225,5 @@ def convert(identifier: int, payload: QuoteConversion, user: dict = Depends(requ
         opportunity.version += 1
         audit(db,'quote',record,'convert',before,payload.reason,user['id'])
         audit(db,'opportunity',opportunity,'convert',opportunity_before,payload.reason,user['id'])
+        approval.mark_executed(db, approval_case, user['id'])
         return record_data(db,'quote',record)

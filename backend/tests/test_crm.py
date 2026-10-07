@@ -160,6 +160,15 @@ def test_probability_migration_preserves_old_opportunities_as_unrated(seeded, mo
 
 
 def action(client,headers,record,command,reason='核对依据',status=200,**extra):
+    if command in ('submit', 'approve', 'reject', 'withdraw'):
+        # 真实统一接口携带审批版本，成功后读取原详情获得最新业务版本。
+        path = B+f'/system/document-approvals/CrmQuote/{record["id"]}'
+        response = client.post(path+'/'+command, headers=headers, json={
+            'version': record.get('approval', {}).get('version', 0), 'reason': reason, **extra})
+        assert response.status_code == status, response.text
+        if status == 200:
+            return client.get(C+f'/records/quote/{record["id"]}', headers=headers).json()
+        return response.json() if status != 500 else None
     response = client.post(C+f'/quotes/{record["id"]}/{command}',headers=headers,
         json={'version':record['version'],'reason':reason,**extra})
     assert response.status_code == status,response.text
@@ -229,6 +238,7 @@ def test_quote_pdf_labels_historical_copy_and_rejects_cancelled(seeded, monkeypa
                            json={**payload, 'reference': 'Q-cancel'}).json()
     separate = action(client, admin, separate, 'submit')
     separate = action(client, seeded[2], separate, 'approve')
+    separate = action(client, admin, separate, 'withdraw')
     separate = action(client, admin, separate, 'cancel')
     assert client.get(C+f'/quotes/{separate["id"]}/pdf', headers=admin).status_code == 409
     converted = action(client, seller, quote, 'convert', acceptance_reference='客户接受依据',
@@ -641,14 +651,14 @@ def test_review_excludes_every_author_even_after_edit_and_resubmission(seeded):
     _,_,data = base_records(seeded)
     quote = client.post(C+'/quotes',headers=seller,json=data).json()
     quote = action(client,admin,quote,'submit')
-    action(client,admin,quote,'approve',status=409)
+    action(client,admin,quote,'approve',status=403)
     action(client,seller,quote,'approve',status=403)
     quote = action(client,reviewer,quote,'reject',reason='价格须更正')
     quote = client.put(C+f'/quotes/{quote["id"]}',headers=admin,json={**data,
         'version':quote['version'],'reason':'修订价格','lines':[{'material_id':data['lines'][0]['material_id'],'quantity':'2','unit_price':'3'}]}).json()
     assert quote['status'] == 'draft' and quote['total_amount'] == '6.00'
     quote = action(client,seller,quote,'submit')
-    action(client,admin,quote,'approve',status=409)
+    action(client,admin,quote,'approve',status=403)
     quote = action(client,reviewer,quote,'approve')
     assert set(quote['review_blocked']) == {1,3}
     audits = client.get(C+f'/records/quote/{quote["id"]}/changes',headers=admin).json()
@@ -795,6 +805,7 @@ def test_lost_stage_requires_cancellation_of_active_approval(seeded):
     edit = {'customer_id':opp['customer_id'],'contact_id':contact['id'],'title':opp['title'],'owner_id':1,
         'stage':'lost','estimated_amount':'0','expected_close_date':'2030-01-31','version':1,'reason':'预算取消'}
     assert client.put(C+f'/opportunities/{opp["id"]}',headers=admin,json=edit).status_code == 409
+    quote = action(client,admin,quote,'withdraw')
     action(client,admin,quote,'cancel')
     assert client.put(C+f'/opportunities/{opp["id"]}',headers=admin,json=edit).status_code == 200
     assert client.post(C+'/quotes',headers=admin,json={**data,'reference':'Q-2'}).status_code == 409

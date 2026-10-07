@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.document_approval import record_author
 from app.access.security import require
 from app.core.attachment_files import AttachmentInput, ReversalInput, decode_content, MAX_ATTACHMENTS
 from app.core.models import CrmQuote, CrmQuoteAttachment, CrmQuoteAttachmentReversal, User
@@ -25,8 +26,8 @@ def visible_quote(db: Session, quote_id: int, user: dict) -> CrmQuote:
 
 
 def modifiable(quote: CrmQuote) -> bool:
-    # 附件不参与报价正文冻结或独立审核；终态只保留历史查阅。
-    return quote.status in ('draft', 'submitted', 'approved', 'rejected')
+    # 附件也是报价审批依据；送审及批准后必须先撤回才能追加或撤销。
+    return quote.status in ('draft', 'rejected')
 
 
 def attachment_data(db: Session, row: CrmQuoteAttachment) -> dict:
@@ -68,7 +69,8 @@ def add_attachment(data: AttachmentInput, quote_id: int = Path(gt=0),
     with orm_session(write=True) as db:
         quote = visible_quote(db, quote_id, user)
         if not modifiable(quote):
-            raise HTTPException(409, '报价已取消或转单，不能添加附件')
+            raise HTTPException(409, '请先撤回报价审批；已取消或转单的报价不能添加附件')
+        record_author(db, 'CrmQuote', quote_id, user['id'])
         active = select(CrmQuoteAttachment.id).where(
             CrmQuoteAttachment.quote_id == quote_id,
             ~select(CrmQuoteAttachmentReversal.id).where(
@@ -108,10 +110,11 @@ def reverse_attachment(data: ReversalInput, quote_id: int = Path(gt=0),
             quote = visible_quote(db, quote_id, user)
             row = get_attachment(db, quote_id, attachment_id)
             if not modifiable(quote):
-                raise HTTPException(409, '报价已取消或转单，不能撤销附件')
+                raise HTTPException(409, '请先撤回报价审批；已取消或转单的报价不能撤销附件')
             if db.scalar(select(CrmQuoteAttachmentReversal.id).where(
                     CrmQuoteAttachmentReversal.attachment_id == row.id)) is not None:
                 raise HTTPException(409, '附件已撤销')
+            record_author(db, 'CrmQuote', quote_id, user['id'])
             add_model(db, CrmQuoteAttachmentReversal(attachment_id=row.id,
                 reason=data.reason, created_by=user['id']))
             return attachment_data(db, row)

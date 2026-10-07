@@ -7,7 +7,7 @@ import { displayError } from '../../utils/formatters.ts'
 export function approvalTargetKey(target: DocumentApprovalTarget): string {
   return `${target.document_type}:${target.document_id}:${target.intent}`
 }
-export function createDocumentApprovalCaseActions(state: AppState, refreshData: () => Promise<void>) {
+export function createDocumentApprovalCaseActions(state: AppState, refreshData: () => Promise<void>, refreshDomain?: (target: DocumentApprovalTarget) => Promise<void>) {
   let owner = 0, reads = 0
   const available = () => !!window.nexora && !!state.user.value && !state.connectionLost.value
   watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles.join('|')}:${state.user.value?.permissions.join('|')}`, () => {
@@ -23,6 +23,11 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
     // 同实例断线保留意见草稿，重连后先刷新版本再允许操作。
   }, { flush: 'sync' })
 
+  async function refreshBusiness(target: DocumentApprovalTarget, session: number): Promise<void> {
+    await refreshData()
+    // 领域列表采用自己的读取边界；退出或切换实例后不能再刷新旧单据详情。
+    if (session === owner && available()) await refreshDomain?.(target)
+  }
   function checked(record: DocumentApprovalRecord, target: DocumentApprovalTarget): void {
     validateDocumentApprovalRecord(record)
     if (approvalTargetKey(record) !== approvalTargetKey(target)) throw Error('审批结果与当前单据不一致。')
@@ -39,7 +44,7 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
           || !state.documentApprovalTarget.value || approvalTargetKey(state.documentApprovalTarget.value) !== key) return false
       checked(result, target)
       // 他人在另一客户端完成审批后，刷新记录同时刷新原业务列表，不能继续显示旧的下一步动作。
-      await refreshData()
+      await refreshBusiness(target, session)
       if (session !== owner || ticket !== reads || !available()
           || !state.documentApprovalTarget.value || approvalTargetKey(state.documentApprovalTarget.value) !== key) return false
       state.documentApprovalRecord.value = result
@@ -73,10 +78,10 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
       if (session !== owner || !available()) return false
       checked(result, target)
       state.documentApprovalRecord.value = result
-      // 冲销送审后保留已批准原因供真正执行使用；审核意见不覆盖冲销原因。
-      delete state.documentApprovalReasons.value[key]
-      await refreshData()
+      await refreshBusiness(target, session)
       if (session !== owner || !available()) return false
+      // 刷新失败也保留原输入；执行使用服务端固定冲销原因，审核意见不覆盖它。
+      delete state.documentApprovalReasons.value[key]
       state.notice.value = action === 'approve' ? '审批步骤已完成。' : action === 'reject' ? '单据已驳回。'
         : action === 'withdraw' ? '审批已撤回。' : '单据已提交独立审批。'
       return true

@@ -21,7 +21,7 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
   function invalidate(): void {
     reads++;ownerReads++;clearCrmDetail();state.crmOptions.value=null;state.crmOverview.value=null;state.crmForecast.value=null;state.crmOwnerChanges.value=[];state.crmLoading.value=false;state.crmError.value=''
   }
-  watch(()=>`${state.user.value?.id}:${state.user.value?.permissions.join('|')}`,()=>{
+  watch(()=>`${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`,()=>{
     owner++;invalidate();state.crmForms.value=emptyCrmForms();state.crmEdit.value={}
   },{flush:'sync'})
   // 断线作废所有读取；同账号正在填写的表单保留，重连后重新核对版本。
@@ -47,6 +47,14 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
       if(session!==owner || ticket!==details || !can('crm.view'))return false
       state.crmDetail.value={kind,record};state.crmChanges.value=changes;return true
     }catch(error){if(session===owner && ticket===details)state.crmError.value=displayError(error);return false}
+  }
+  async function refreshCrmApproval(id: number): Promise<void> {
+    const session = owner, detail = state.crmDetail.value, detailTicket = details
+    if (!await loadCrm()) throw new Error('报价列表刷新失败，请重新读取审批记录。')
+    // 只恢复原本打开的详情；刷新期间用户关闭或切换详情时，不强行打开旧报价。
+    if (session === owner && details === detailTicket + 1 && detail?.kind === 'quote' && detail.record.id === id) {
+      if (!await loadCrmDetail('quote', id)) throw new Error('报价详情刷新失败，请重新读取。')
+    }
   }
   async function exportCrmQuotePdf(item: CrmQuote): Promise<boolean> {
     if (!can('crm.view') || !available() || state.busy.value
@@ -259,7 +267,7 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
     await loadCrm()
     return session === owner
   }
-  return {loadCrm,loadCrmDetail,exportCrmQuotePdf,loadCrmQuoteAttachments,uploadCrmQuoteAttachment,
+  return {loadCrm,loadCrmDetail,refreshCrmApproval,exportCrmQuotePdf,loadCrmQuoteAttachments,uploadCrmQuoteAttachment,
     reverseCrmQuoteAttachment,saveCrmQuoteAttachment,loadCrmRecordAttachments,uploadCrmRecordAttachment,
     reverseCrmRecordAttachment,saveCrmRecordAttachment,loadCustomerOwnerChanges,assignCustomerOwner,
     clearCrmDetail,editCrm,startNewCrm,saveCrm,importContactRows,importOpportunityRows,

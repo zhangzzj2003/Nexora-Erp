@@ -160,7 +160,7 @@ def append_event(db: Session, row: DocumentApprovalCase, action: str,
 def submit(db: Session, document_type: str, document_id: int, snapshot: Mapping,
            version: int, user_id: int, *, authors: Sequence[int] = (),
            intent: str = 'execute', permission: str | None = None,
-           prior_state: Mapping | None = None) -> dict:
+           prior_state: Mapping | None = None, reason: str = '') -> dict:
     write_transaction(db)
     rule = approval_type(document_type)
     actor(db, user_id, permission or rule.submit_permission)
@@ -199,7 +199,7 @@ def submit(db: Session, document_type: str, document_id: int, snapshot: Mapping,
         row.current_step, row.status = 0, 'submitted'
         row.submitted_by, row.submitted_at = user_id, submitted_at
     db.flush()
-    append_event(db, row, 'submit', user_id, '', 0, prior_state=prior_state)
+    append_event(db, row, 'submit', user_id, reason.strip(), 0, prior_state=prior_state)
     return case_data(row)
 
 

@@ -8,19 +8,15 @@ export const crmActivityLabel = {planned:'待跟进',completed:'已完成',cance
 export const crmCommandLabel = {submit:'提交报价',approve:'批准报价',reject:'驳回报价',cancel:'取消报价',convert:'转销售草稿',
   complete:'完成跟进',cancelActivity:'取消跟进',reopen:'重开商机'}
 export const crmAuditLabel: Record<string,string> = {create:'建立记录',edit:'修订记录',submit:'提交报价',approve:'批准报价',
-  reject:'驳回报价',cancel:'取消记录',convert:'报价转单',complete:'完成跟进',reopen:'重开商机'}
+  reject:'驳回报价',cancel:'取消记录',convert:'报价转单',withdraw:'撤回报价审批',complete:'完成跟进',reopen:'重开商机'}
 
-export function quoteActions(quote: CrmQuote, permissions: string[], userId: number): (CrmQuoteAction|'convert')[] {
+export function quoteActions(quote: CrmQuote, permissions: string[], _userId: number): (CrmQuoteAction|'convert')[] {
   const result: (CrmQuoteAction|'convert')[]=[]
   const open=!['won','lost'].includes(quote.opportunity_stage)
   const valid=open && !quote.expired && quote.contact_active
-  if(quote.status==='draft' && valid && permissions.includes('crm_quote.submit'))result.push('submit')
-  if(quote.status==='submitted' && permissions.includes('crm_quote.review') && !quote.review_blocked.includes(userId)){
-    if(valid)result.push('approve')
-    result.push('reject')
-  }
-  if(quote.status==='approved' && valid && permissions.includes('crm_quote.convert') && permissions.includes('sales_order.create'))result.push('convert')
-  if(!['cancelled','converted'].includes(quote.status) && permissions.includes('crm_quote.cancel'))result.push('cancel')
+  // 送审与审核统一在审批弹窗处理；转单必须同时取得本单批准和原领域授权。
+  if(quote.status==='approved' && quote.approval?.status==='approved' && valid && permissions.includes('crm_quote.convert') && permissions.includes('sales_order.create'))result.push('convert')
+  if(!['cancelled','converted'].includes(quote.status) && !['submitted','approved'].includes(quote.approval?.status??'') && permissions.includes('crm_quote.cancel'))result.push('cancel')
   return result
 }
 
