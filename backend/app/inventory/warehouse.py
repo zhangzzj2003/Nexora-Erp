@@ -3,6 +3,8 @@
 from app.core.document_responses import NumberedRoute
 import json
 
+from app.core import document_approval as approval
+from app.core.approval_documents import transfer_snapshot, document_snapshot
 from sqlalchemy import select, update, delete, func, literal
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import IntegrityError
@@ -209,7 +211,8 @@ def transfer_data(db: Session, transfer_id: int) -> dict:
             'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
             'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
         })
-    return {**dict(row), 'lines': [
+    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'Transfer', transfer_id)),
+        'reversal_approval': approval.case_data(approval.find_case(db, 'Transfer', transfer_id, 'reverse')), 'lines': [
         {**dict(line), 'physical_lots': lots_by_line.get(line['id'], [])} for line in lines]}
 
 
@@ -340,6 +343,9 @@ def available_transfer_lots(transfer_id: int, _: dict = Depends(require('transfe
 def post_transfer(transfer_id: int, payload: TransferPostInput | None = None,
                   user: dict = Depends(require("transfer.post"))) -> dict:
     with orm_session(write=True) as db:
+        # 批准正文与本次执行内容必须一致，不能通过旧确认接口绕过审批。
+        approved = approval.require_approved(db, 'Transfer', transfer_id,
+            transfer_snapshot(db, transfer_id), user['id'])
         # 写锁覆盖库存检查、双向流水和状态变更，阻止并发调拨超出可用量。
         transfer = (
             db.execute(
@@ -417,6 +423,7 @@ def post_transfer(transfer_id: int, payload: TransferPostInput | None = None,
             .where((Transfer.id == transfer_id))
             .values(status="posted", posted_by=user["id"], posted_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return transfer_data(db, transfer_id)
 
 
@@ -425,6 +432,9 @@ def reverse_transfer(
     transfer_id: int, payload: TransferReverseInput, user: dict = Depends(require("transfer.reverse"))
 ) -> dict:
     with orm_session(write=True) as db:
+        # 批准正文与本次执行内容必须一致，不能通过旧确认接口绕过审批。
+        approved = approval.require_approved(db, 'Transfer', transfer_id,
+            document_snapshot(db, 'Transfer', transfer_id, 'reverse', payload.reason), user['id'], intent='reverse', permission='transfer.reverse')
         # 写锁内一次核对目标仓剩余库存并写入双向反向流水，避免只退回部分明细。
         transfer = (
             db.execute(
@@ -523,6 +533,7 @@ def reverse_transfer(
                 part.lot_id, -Decimal(part.quantity), part.id) for part in target_parts])
             post_lot_movement(db, incoming, [LotPart(
                 part.lot_id, -Decimal(part.quantity), part.id) for part in source_parts])
+        approval.mark_executed(db, approved, user['id'], permission='transfer.reverse')
         return transfer_data(db, transfer_id)
 
 

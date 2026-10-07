@@ -10,6 +10,7 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import { computed, ref } from 'vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import { storeToRefs } from 'pinia'
 // 单据统一使用固定关闭区、基础信息和物料明细表格。
 import { documentRows } from '../../../utils/document-rows'
@@ -28,10 +29,9 @@ import type {AdjustmentLotLineInput,AdjustmentLotOptions,AdjustmentLotPartInput}
 import type {StockAdjustment} from '../../../../../shared/erp-api'
 
 const store = usePiniaAppStore()
-const { error, notice, user, busy, connectionLost, warehouses, materials, stockAdjustments,
-  adjustmentForm, adjustmentDecisionReasons, adjustmentReversalReasons } = storeToRefs(store)
-const { can, localTime, createStockAdjustment, submitStockAdjustment,
-  approveStockAdjustment, rejectStockAdjustment, cancelStockAdjustment,
+const { error, notice, busy, connectionLost, warehouses, materials, stockAdjustments,
+  adjustmentForm, adjustmentReversalReasons } = storeToRefs(store)
+const { can, localTime, createStockAdjustment, cancelStockAdjustment,
   loadAvailableAdjustmentLots, postStockAdjustment, reverseStockAdjustment } = store
 const showForm = ref(false)
 const query = ref('')
@@ -56,7 +56,7 @@ const lotLoading = ref(false)
 const lotLoadError = ref('')
 let loadTicket = 0
 const activeAdjustment = computed(() => stockAdjustments.value.find(item =>
-  item.id === activeAdjustmentId.value && item.status === 'approved') ?? null)
+  item.id === activeAdjustmentId.value && item.status === 'approved' && item.approval?.status === 'approved') ?? null)
 const milli = (value: string): bigint => signedAdjustmentMilli(value) ?? 0n
 
 function closeLotPost(): void {
@@ -161,6 +161,18 @@ const adjustmentFormColumns = [
   { key: 'quantity', title: '调整量', width: '150' },
   { key: 'actions', title: '操作', width: '90' },
 ]
+// 冲销原因从批准记录重新读取，临时输入不能替换已经审核的原因。
+async function reverseApproved(identifier: number): Promise<void> {
+  if (!await store.openDocumentApproval({ document_type: 'StockAdjustment', document_id: identifier, intent: 'reverse' })) return
+  const record = store.documentApprovalRecord
+  if (record?.status !== 'approved' || !record.reversal_reason) return
+  adjustmentReversalReasons.value[identifier] = record.reversal_reason
+  store.closeDocumentApproval()
+  await reverseStockAdjustment(identifier)
+}
+const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '已批准，待确认',
+  rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
+
 </script>
 
 <template>
@@ -270,14 +282,14 @@ const adjustmentFormColumns = [
       </template>
       <template #cell-document="{ row: item }"
         ><strong>{{ documentLabel(item) }}</strong
-        ><small>{{ statusLabel[item.status] }}{{ item.reversal_id ? ' · 已冲销' : '' }}</small
+        ><small>{{ ['posted', 'cancelled'].includes(item.status) ? statusLabel[item.status] : approvalLabels[item.approval?.status || 'draft'] }}{{ item.reversal_id ? ' · 已冲销' : '' }}</small
         ><small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small
-        ><small v-if="item.reviewed_by_name">审批：{{ item.reviewed_by_name }}</small></template
+        ><small v-if="item.reviewed_by_name">{{ item.approval?.version ? '最近审核' : '升级前审核' }}：{{ item.reviewed_by_name }}</small></template
       >
       <template #cell-source="{ row: item }"
         >{{ item.warehouse_name }}<small>{{ item.reason }}</small
         ><small v-if="item.reference">{{ item.reference }}</small
-        ><small v-if="item.review_reason">驳回：{{ item.review_reason }}</small></template
+        ><small v-if="item.review_reason">{{ item.status === 'rejected' ? '驳回原因' : '审核意见' }}：{{ item.review_reason }}</small></template
       >
       <template #cell-lines="{ row: item }"
         ><div v-for="line in item.lines" :key="line.id">
@@ -286,95 +298,27 @@ const adjustmentFormColumns = [
           <small v-if="item.status === 'posted' && line.physical_lots?.length" class="adjustment-lot-proof">
             实物批次：{{ line.physical_lots?.map(lot => `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`).join('、') }}
           </small>
-          <small v-else-if="item.status === 'posted'" class="adjustment-lot-proof">旧确认未指定实物批次，数量在批次核对页显示为差额。</small>
+          <small v-else-if="item.status === 'posted'" class="adjustment-lot-proof">普通确认，未指定实物批次。</small>
         </div></template
       >
-      <template #cell-actions="{ row: item }"
-        ><div class="form-actions">
-          <AppButton
-            v-if="item.status === 'draft' && can('adjustment.submit')"
-            :disabled="busy || connectionLost"
-            @click="submitStockAdjustment(item.id)"
-            variant="primary"
-            size="small"
-            type="button"
-            >提交</AppButton
-          >
-          <AppButton
-            v-if="
-              item.status === 'submitted' &&
-              can('adjustment.review') &&
-              user?.id !== item.created_by
-            "
-            :disabled="busy || connectionLost"
-            @click="approveStockAdjustment(item.id)"
-            variant="primary"
-            size="small"
-            type="button"
-            >批准</AppButton
-          >
-          <AppButton
-            v-if="item.status === 'approved' && can('adjustment.post')"
-            :disabled="busy || connectionLost"
-            @click="startLotPost(item)"
-            variant="primary"
-            size="small"
-            type="button"
-            >核对批次并仓库确认</AppButton
-          >
-          <AppButton
-            v-if="
-              ['draft', 'submitted', 'approved', 'rejected'].includes(item.status) &&
-              can('adjustment.cancel')
-            "
-            :disabled="busy || connectionLost"
-            @click="cancelStockAdjustment(item.id)"
-            variant="secondary"
-            size="small"
-            type="button"
-            >取消</AppButton
-          >
+      <template #cell-actions="{ row: item }">
+        <div class="form-actions">
+          <AppButton type="button" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'StockAdjustment', document_id: item.id, intent: 'execute' })">单据审批</AppButton>
+          <template v-if="item.status === 'approved' && item.approval?.status === 'approved' && can('adjustment.post')">
+            <AppButton type="button" variant="primary" size="small" :disabled="busy || connectionLost" @click="postStockAdjustment(item.id)">仓库确认</AppButton>
+            <AppButton type="button" size="small" :disabled="busy || connectionLost" @click="startLotPost(item)">指定实物批次（可选）</AppButton>
+          </template>
+          <AppButton v-if="['draft', 'submitted', 'approved', 'rejected'].includes(item.status) && !['submitted', 'approved'].includes(item.approval?.status || '') && can('adjustment.cancel')"
+            type="button" size="small" :disabled="busy || connectionLost" @click="cancelStockAdjustment(item.id)">取消</AppButton>
+          <template v-if="item.status === 'posted' && !item.reversal_id && can('adjustment.reverse')">
+            <AppButton type="button" size="small" :disabled="busy || connectionLost"
+              @click="store.openDocumentApproval({ document_type: 'StockAdjustment', document_id: item.id, intent: 'reverse' })">冲销审批</AppButton>
+            <AppButton v-if="item.reversal_approval?.status === 'approved'" type="button" size="small" :disabled="busy || connectionLost"
+              @click="reverseApproved(item.id)">执行已批准冲销</AppButton>
+          </template>
         </div>
-        <form
-          v-if="
-            item.status === 'submitted' && can('adjustment.review') && user?.id !== item.created_by
-          "
-          class="inline-form"
-          @submit.prevent="rejectStockAdjustment(item.id)"
-        >
-          <label
-            >驳回原因<AppInput
-              v-model.trim="adjustmentDecisionReasons[item.id]"
-              required
-              maxlength="200" /></label
-          ><AppButton
-            :disabled="busy || connectionLost"
-            variant="secondary"
-            size="small"
-            type="submit"
-            >驳回</AppButton
-          >
-        </form>
-        <form
-          v-if="item.status === 'posted' && !item.reversal_id && can('adjustment.reverse')"
-          class="inline-form"
-          @submit.prevent="reverseStockAdjustment(item.id)"
-        >
-          <label
-            >冲销原因<AppInput
-              v-model.trim="adjustmentReversalReasons[item.id]"
-              required
-              maxlength="200" /></label
-          ><AppButton
-            :disabled="busy || connectionLost"
-            variant="secondary"
-            size="small"
-            type="submit"
-            >冲销</AppButton
-          >
-        </form>
-        <small v-if="item.reversal_reason">冲销：{{ item.reversal_reason }}</small></template
-      >
+      </template>
       <template #empty>{{ query ? '没有匹配的库存调整单。' : '暂无库存调整单。' }}</template>
     </WorkspaceTable>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
@@ -398,6 +342,7 @@ const adjustmentFormColumns = [
                     value:lot.lot_id}))]"
         :disabled="busy || connectionLost || lotLoading" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)" />
     </WorkspaceLotDialog>
+    <DocumentApprovalDialog />
   </section>
 </template>
 

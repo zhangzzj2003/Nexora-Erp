@@ -44,8 +44,7 @@ def test_adjustment_lots_follow_approval_and_original_allocations(monkeypatch, t
                 'warehouse_id': 1, 'reason': '实物差异',
                 'lines': [{'material_id': material, 'quantity': quantity}]}).json()
             item_id = item['id']
-            assert client.post(f'{base}/stock-adjustments/{item_id}/submit', headers=admin).status_code == 200
-            assert client.post(f'{base}/stock-adjustments/{item_id}/approve', headers=checker).status_code == 200
+            approve_document(client, admin, 'StockAdjustment', item_id)
             return item_id, item['lines'][0]['id']
 
         surplus_id, surplus_line = approved('1.000')
@@ -94,6 +93,7 @@ def test_adjustment_lots_follow_approval_and_original_allocations(monkeypatch, t
         assert client.get(f'{base}/inventory/physical-lots/overview', headers=admin,
                           params={'material_id': material}).json()['fully_allocated']
         for adjustment_id in (shortage_id, surplus_id):
+            approve_document(client, admin, 'StockAdjustment', adjustment_id, intent='reverse', reason='核对更正')
             assert client.post(f'{base}/stock-adjustments/{adjustment_id}/reverse',
                 headers=admin, json={'reason': '核对更正'}).status_code == 201
         with orm_session() as db:
@@ -128,8 +128,7 @@ def test_adjustment_surplus_reverse_refuses_consumed_lot(monkeypatch, tmp_path):
             'warehouse_id': 1, 'reason': '实物发现',
             'lines': [{'material_id': material, 'quantity': '1.000'}]}).json()
         item_id = item['id']
-        client.post(f'{base}/stock-adjustments/{item_id}/submit', headers=admin)
-        client.post(f'{base}/stock-adjustments/{item_id}/approve', headers=checker)
+        approve_document(client, admin, 'StockAdjustment', item_id)
         posted = client.post(f'{base}/stock-adjustments/{item_id}/post', headers=checker,
             json={'lines': [{'adjustment_line_id': item['lines'][0]['id'],
                              'lots': [{'quantity': '1.000'}]}]}).json()
@@ -141,6 +140,7 @@ def test_adjustment_surplus_reverse_refuses_consumed_lot(monkeypatch, tmp_path):
         assert client.post(f'{base}/warehouse-outbounds/{outbound["id"]}/post', headers=admin,
             json={'lines': [{'outbound_line_id': outbound['lines'][0]['id'],
                              'lots': [{'lot_id': lot_id, 'quantity': '0.500'}]}]}).status_code == 200
+        approve_document(client, admin, 'StockAdjustment', item_id, intent='reverse', reason='误调整')
         assert client.post(f'{base}/stock-adjustments/{item_id}/reverse', headers=admin,
                            json={'reason': '误调整'}).status_code == 409
         with orm_session() as db:

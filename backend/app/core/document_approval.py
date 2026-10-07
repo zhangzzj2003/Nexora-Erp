@@ -144,11 +144,14 @@ def case_data(row: DocumentApprovalCase | None) -> dict:
 
 
 def append_event(db: Session, row: DocumentApprovalCase, action: str,
-                 user_id: int, reason: str, step: int) -> None:
+                 user_id: int, reason: str, step: int, *, prior_state: Mapping | None = None) -> None:
     row.updated_at = now(db)
     # 事件保留全量快照；重新送审只改变当前状态，不覆盖历次批准的内容。
     state = {**case_data(row), 'snapshot': json.loads(row.snapshot_json),
              'authors': json.loads(row.authors_json), 'content_digest': row.content_digest}
+    if prior_state is not None:
+        # 升级前流程单独存证，后续投影更新不能覆盖原人员、时间或意见。
+        state['prior_native_review'] = dict(prior_state)
     db.add(DocumentApprovalEvent(case_id=row.id, version=row.version, generation=row.generation,
         action=action, step=step, actor_id=user_id, reason=reason, state_json=encoded(state)))
     db.flush()
@@ -156,7 +159,8 @@ def append_event(db: Session, row: DocumentApprovalCase, action: str,
 
 def submit(db: Session, document_type: str, document_id: int, snapshot: Mapping,
            version: int, user_id: int, *, authors: Sequence[int] = (),
-           intent: str = 'execute', permission: str | None = None) -> dict:
+           intent: str = 'execute', permission: str | None = None,
+           prior_state: Mapping | None = None) -> dict:
     write_transaction(db)
     rule = approval_type(document_type)
     actor(db, user_id, permission or rule.submit_permission)
@@ -195,7 +199,7 @@ def submit(db: Session, document_type: str, document_id: int, snapshot: Mapping,
         row.current_step, row.status = 0, 'submitted'
         row.submitted_by, row.submitted_at = user_id, submitted_at
     db.flush()
-    append_event(db, row, 'submit', user_id, '', 0)
+    append_event(db, row, 'submit', user_id, '', 0, prior_state=prior_state)
     return case_data(row)
 
 

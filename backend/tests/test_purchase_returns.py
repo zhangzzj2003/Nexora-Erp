@@ -101,6 +101,7 @@ def test_purchase_returns_source_and_inventory(monkeypatch, tmp_path):
         transfer = client.post(f"{base}/transfers", headers=warehouse, json={
             "from_warehouse_id": 1, "to_warehouse_id": second,
             "lines": [{"material_id": material, "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', transfer)
         client.post(f"{base}/transfers/{transfer}/post", headers=warehouse)
         rest = client.post(f"{base}/purchase-returns", headers=buyer, json={
             **payload, "lines": [{"receipt_line_id": line_id, "quantity": "1.000"}]}).json()["id"]
@@ -112,6 +113,7 @@ def test_purchase_returns_source_and_inventory(monkeypatch, tmp_path):
         reverse = client.post(f"{base}/transfers", headers=warehouse, json={
             "from_warehouse_id": second, "to_warehouse_id": 1,
             "lines": [{"material_id": material, "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', reverse)
         client.post(f"{base}/transfers/{reverse}/post", headers=warehouse)
         assert client.post(f"{base}/purchase-returns/{rest}/post", headers=warehouse).status_code == 200
         assert client.get(f"{base}/receipts", headers=viewer).json()[1]["lines"][0]["returnable_quantity"] == "0.000"

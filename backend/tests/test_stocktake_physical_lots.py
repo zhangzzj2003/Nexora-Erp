@@ -49,6 +49,7 @@ def test_stocktake_surplus_and_shortage_fix_actual_lots_and_reverse(monkeypatch,
         assert options.status_code == 200
         assert options.json()['lines'][0]['difference'] == '1.000'
         assert [part['lot_id'] for part in options.json()['lines'][0]['lots']] == [lot_a, lot_b]
+        approve_document(client, auth, 'Stocktake', surplus_id)
         post_url = f'{base}/stocktakes/{surplus_id}/post'
         surplus_parts = [{'lot_id': lot_a, 'quantity': '0.250'},
                          {'quantity': '0.750', 'supplier_lot': '现场找到',
@@ -79,6 +80,7 @@ def test_stocktake_surplus_and_shortage_fix_actual_lots_and_reverse(monkeypatch,
             'warehouse_id': 1, 'lines': [{'material_id': material,
                                          'counted_quantity': '2.500'}]}).json()
         shortage_id, shortage_line = shortage['id'], shortage['lines'][0]['id']
+        approve_document(client, auth, 'Stocktake', shortage_id)
         shortage_url = f'{base}/stocktakes/{shortage_id}/post'
         assert client.post(shortage_url, headers=auth, json={'lines': [{
             'stocktake_line_id': shortage_line, 'lots': [
@@ -96,6 +98,7 @@ def test_stocktake_surplus_and_shortage_fix_actual_lots_and_reverse(monkeypatch,
         assert {(row['lot_id'], row['quantity']) for row in overview['rows']} == {
             (lot_a, '0.750'), (lot_b, '1.000'), (new_lot, '0.750')}
         for stocktake_id in (shortage_id, surplus_id):
+            approve_document(client, auth, 'Stocktake', stocktake_id, intent='reverse', reason='复核更正')
             assert client.post(f'{base}/stocktakes/{stocktake_id}/reverse', headers=auth,
                                json={'reason': '复核更正'}).status_code == 200
         with orm_session() as db:
@@ -120,6 +123,7 @@ def test_stocktake_surplus_reverse_requires_original_lot_quantity(monkeypatch, t
         stocktake = client.post(f'{base}/stocktakes', headers=auth, json={
             'warehouse_id': 1, 'lines': [{'material_id': material,
                                          'counted_quantity': '1.000'}]}).json()
+        approve_document(client, auth, 'Stocktake', stocktake["id"])
         posted = client.post(f'{base}/stocktakes/{stocktake["id"]}/post', headers=auth,
             json={'lines': [{'stocktake_line_id': stocktake['lines'][0]['id'],
                              'lots': [{'quantity': '1.000'}]}]})
@@ -132,6 +136,7 @@ def test_stocktake_surplus_reverse_requires_original_lot_quantity(monkeypatch, t
         assert client.post(f'{base}/warehouse-outbounds/{outbound["id"]}/post', headers=auth,
             json={'lines': [{'outbound_line_id': outbound['lines'][0]['id'],
                              'lots': [{'lot_id': lot_id, 'quantity': '0.500'}]}]}).status_code == 200
+        approve_document(client, auth, 'Stocktake', stocktake['id'], intent='reverse', reason='误盘盈')
         assert client.post(f'{base}/stocktakes/{stocktake["id"]}/reverse', headers=auth,
                            json={'reason': '误盘盈'}).status_code == 409
         current = next(row for row in client.get(f'{base}/stocktakes', headers=auth).json()

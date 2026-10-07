@@ -1,6 +1,8 @@
 """独立库存调整单：异人审批与仓库确认后才追加库存流水。"""
 
 from app.core.document_responses import NumberedRoute
+from app.core import document_approval as approval
+from app.core.approval_documents import adjustment_snapshot, document_snapshot
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 
@@ -166,7 +168,8 @@ def adjustment_data(db: Session, adjustment_id: int) -> dict:
             'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
             'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
         })
-    return {**dict(row), 'lines': [{**dict(line), 'physical_lots': lots_by_line.get(line['id'], [])}
+    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'StockAdjustment', adjustment_id)),
+        'reversal_approval': approval.case_data(approval.find_case(db, 'StockAdjustment', adjustment_id, 'reverse')), 'lines': [{**dict(line), 'physical_lots': lots_by_line.get(line['id'], [])}
                                   for line in lines]}
 
 
@@ -217,61 +220,29 @@ def create_adjustment(payload: AdjustmentInput, user: dict = Depends(require("ad
         return adjustment_data(db, item_id)
 
 
-def transition(
-    adjustment_id: int,
-    current: str,
-    target: str,
-    actor: int,
-    actor_column: str,
-    time_column: str,
-    reason: str | None = None,
-) -> dict:
-    # 属性只由服务端固定路由指定，状态核对与修改始终在同一写事务中。
-    with orm_session(write=True) as db:
-        row = (
-            db.execute(
-                select(StockAdjustment.status, StockAdjustment.created_by)
-                .select_from(StockAdjustment)
-                .where((StockAdjustment.id == adjustment_id))
-            )
-            .mappings()
-            .first()
-        )
-        if not row:
-            raise HTTPException(404, "库存调整单不存在")
-        if row["status"] != current:
-            raise HTTPException(409, f"只能处理{current}状态的调整单")
-        if target in ("approved", "rejected") and row["created_by"] == actor:
-            raise HTTPException(409, "建单人不能审批自己的库存调整单")
-        changes = {"status": target, actor_column: actor, time_column: func.current_timestamp()}
-        if reason is not None:
-            changes["review_reason"] = reason
-        db.execute(update(StockAdjustment).where(StockAdjustment.id == adjustment_id).values(**changes))
-        return adjustment_data(db, adjustment_id)
-
-
+# 原无版本审批接口停止接受动作；旧客户端须升级到统一审批入口，不能绕过模板或冲突检查。
 @router.post("/stock-adjustments/{adjustment_id}/submit")
 def submit_adjustment(adjustment_id: int, user: dict = Depends(require("adjustment.submit"))) -> dict:
-    return transition(adjustment_id, "draft", "submitted", user["id"], "submitted_by", "submitted_at")
+    raise HTTPException(409, "请使用统一单据审批入口提交，原接口不支持审批版本")
 
 
 @router.post("/stock-adjustments/{adjustment_id}/approve")
 def approve_adjustment(adjustment_id: int, user: dict = Depends(require("adjustment.review"))) -> dict:
-    return transition(adjustment_id, "submitted", "approved", user["id"], "reviewed_by", "reviewed_at")
+    raise HTTPException(409, "请使用统一单据审批入口审核，原接口不支持审批版本")
 
 
 @router.post("/stock-adjustments/{adjustment_id}/reject")
-def reject_adjustment(
-    adjustment_id: int, payload: ReasonInput, user: dict = Depends(require("adjustment.review"))
-) -> dict:
-    return transition(
-        adjustment_id, "submitted", "rejected", user["id"], "reviewed_by", "reviewed_at", payload.reason
-    )
+def reject_adjustment(adjustment_id: int, payload: ReasonInput,
+                      user: dict = Depends(require("adjustment.review"))) -> dict:
+    raise HTTPException(409, "请使用统一单据审批入口驳回，原接口不支持审批版本")
 
 
 @router.post("/stock-adjustments/{adjustment_id}/cancel")
 def cancel_adjustment(adjustment_id: int, user: dict = Depends(require("adjustment.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        pending = approval.find_case(db, 'StockAdjustment', adjustment_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批再取消单据')
         row = (
             db.execute(
                 select(StockAdjustment.status)
@@ -329,6 +300,9 @@ def available_adjustment_lots(adjustment_id: int,
 def post_adjustment(adjustment_id: int, payload: AdjustmentPostInput | None = None,
                     user: dict = Depends(require("adjustment.post"))) -> dict:
     with orm_session(write=True) as db:
+        # 批准正文与本次执行内容必须一致，不能通过旧确认接口绕过审批。
+        approved = approval.require_approved(db, 'StockAdjustment', adjustment_id,
+            adjustment_snapshot(db, adjustment_id), user['id'])
         row = (
             db.execute(
                 select(StockAdjustment.status, StockAdjustment.warehouse_id)
@@ -405,6 +379,7 @@ def post_adjustment(adjustment_id: int, payload: AdjustmentPostInput | None = No
             .where((StockAdjustment.id == adjustment_id))
             .values(status="posted", posted_by=user["id"], posted_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return adjustment_data(db, adjustment_id)
 
 
@@ -413,6 +388,9 @@ def reverse_adjustment(
     adjustment_id: int, payload: ReasonInput, user: dict = Depends(require("adjustment.reverse"))
 ) -> dict:
     with orm_session(write=True) as db:
+        # 批准正文与本次执行内容必须一致，不能通过旧确认接口绕过审批。
+        approved = approval.require_approved(db, 'StockAdjustment', adjustment_id,
+            document_snapshot(db, 'StockAdjustment', adjustment_id, 'reverse', payload.reason), user['id'], intent='reverse', permission='adjustment.reverse')
         row = (
             db.execute(
                 select(StockAdjustment.status, StockAdjustment.warehouse_id)
@@ -477,4 +455,5 @@ def reverse_adjustment(
                     part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
             else:
                 db.add(movement)
+        approval.mark_executed(db, approved, user['id'], permission='adjustment.reverse')
         return adjustment_data(db, adjustment_id)

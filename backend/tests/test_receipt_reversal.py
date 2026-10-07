@@ -64,8 +64,10 @@ def test_receipt_reversal_dependencies_and_balances(monkeypatch, tmp_path):
         transfer = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": 1, "to_warehouse_id": warehouse,
             "lines": [{"material_id": material, "quantity": "2.000"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', transfer)
         client.post(f"{base}/transfers/{transfer}/post", headers=admin)
         assert client.post(url, headers=admin, json={"reason": "误入库"}).status_code == 409
+        approve_document(client, admin, 'Transfer', transfer, intent='reverse', reason='回原仓')
         assert client.post(f"{base}/transfers/{transfer}/reverse", headers=admin,
                            json={"reason": "回原仓"}).status_code == 200
         result = client.post(url, headers=admin, json={"reason": "误入库"})

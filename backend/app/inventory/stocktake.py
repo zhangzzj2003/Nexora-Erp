@@ -1,6 +1,8 @@
 """仓库盘点单：保留账面快照，只通过确认差异流水调整库存。"""
 
 from app.core.document_responses import NumberedRoute
+from app.core import document_approval as approval
+from app.core.approval_documents import stocktake_snapshot, document_snapshot
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
@@ -156,7 +158,8 @@ def stocktake_data(db: Session, stocktake_id: int) -> dict:
             'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
         })
     return {
-        **dict(row),
+        **dict(row), 'approval': approval.case_data(approval.find_case(db, 'Stocktake', stocktake_id)),
+        'reversal_approval': approval.case_data(approval.find_case(db, 'Stocktake', stocktake_id, 'reverse')),
         "lines": [
             {
                 **dict(line),
@@ -254,6 +257,9 @@ def available_stocktake_lots(stocktake_id: int, _: dict = Depends(require('stock
 def post_stocktake(stocktake_id: int, payload: StocktakePostInput | None = None,
                    user: dict = Depends(require("stocktake.post"))) -> dict:
     with orm_session(write=True) as db:
+        # 批准正文与本次执行内容必须一致，不能通过旧确认接口绕过审批。
+        approved = approval.require_approved(db, 'Stocktake', stocktake_id,
+            stocktake_snapshot(db, stocktake_id), user['id'])
         # 写锁覆盖快照核对、差异流水与状态，期间入库或调拨不会被盘点吞掉。
         stocktake = (
             db.execute(
@@ -356,12 +362,16 @@ def post_stocktake(stocktake_id: int, payload: StocktakePostInput | None = None,
             .where((Stocktake.id == stocktake_id))
             .values(status="posted", posted_by=user["id"], posted_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return stocktake_data(db, stocktake_id)
 
 
 @router.post("/stocktakes/{stocktake_id}/cancel")
 def cancel_stocktake(stocktake_id: int, user: dict = Depends(require("stocktake.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        pending = approval.find_case(db, 'Stocktake', stocktake_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批再取消单据')
         row = (
             db.execute(select(Stocktake.status).select_from(Stocktake).where((Stocktake.id == stocktake_id)))
             .mappings()
@@ -384,6 +394,9 @@ def reverse_stocktake(
     stocktake_id: int, payload: StocktakeReverseInput, user: dict = Depends(require("stocktake.reverse"))
 ) -> dict:
     with orm_session(write=True) as db:
+        # 批准正文与本次执行内容必须一致，不能通过旧确认接口绕过审批。
+        approved = approval.require_approved(db, 'Stocktake', stocktake_id,
+            document_snapshot(db, 'Stocktake', stocktake_id, 'reverse', payload.reason), user['id'], intent='reverse', permission='stocktake.reverse')
         # 写锁覆盖重复冲销、当前库存核对与补偿流水，避免并发操作生成负库存。
         stocktake = (
             db.execute(
@@ -470,4 +483,5 @@ def reverse_stocktake(
                         part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
                 else:
                     db.add(movement)
+        approval.mark_executed(db, approved, user['id'], permission='stocktake.reverse')
         return stocktake_data(db, stocktake_id)

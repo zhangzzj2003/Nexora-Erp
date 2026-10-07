@@ -100,10 +100,12 @@ def test_sales_returns_partial_and_over_return(monkeypatch, tmp_path):
         transfer = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": second, "to_warehouse_id": 1,
             "lines": [{"material_id": material, "quantity": "2.125"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', transfer)
         assert client.post(f"{base}/transfers/{transfer}/post", headers=admin).status_code == 200
         assert client.post(reverse_url, headers=admin, json={"reason": "误退"}).status_code == 409
         assert next(item for item in client.get(f"{base}/sales-returns", headers=admin).json()
                     if item["id"] == first_id)["reversal_id"] is None
+        approve_document(client, admin, 'Transfer', transfer, intent='reverse', reason='恢复退回仓库存')
         assert client.post(f"{base}/transfers/{transfer}/reverse", headers=admin,
                            json={"reason": "恢复退回仓库存"}).status_code == 200
         reversed_result = client.post(reverse_url, headers=admin, json={"reason": "误退"})

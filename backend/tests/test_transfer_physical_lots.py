@@ -44,6 +44,7 @@ def test_transfer_moves_lots_between_warehouses_and_reverses_original_allocation
         assert options.status_code == 200
         assert [(lot['lot_id'], lot['quantity']) for lot in options.json()['lines'][0]['lots']] == [
             (lot_a, '1.000'), (lot_b, '2.000')]
+        approve_document(client, auth, 'Transfer', transfer_id)
         post_url = f'{base}/transfers/{transfer_id}/post'
         allocation = {'lines': [{'transfer_line_id': line_id, 'lots': [
             {'lot_id': lot_a, 'quantity': '0.500'}, {'lot_id': lot_b, 'quantity': '1.000'}]}]}
@@ -74,6 +75,7 @@ def test_transfer_moves_lots_between_warehouses_and_reverses_original_allocation
         quantities = {(row['warehouse_id'], row['lot_id']): row['quantity'] for row in overview['rows']}
         assert quantities == {(1, lot_a): '0.500', (1, lot_b): '1.000',
                               (target, lot_a): '0.500', (target, lot_b): '1.000'}
+        approve_document(client, auth, 'Transfer', transfer_id, intent='reverse', reason='目标仓选择错误')
         reversed_result = client.post(f'{base}/transfers/{transfer_id}/reverse', headers=auth,
                                       json={'reason': '目标仓选择错误'})
         assert reversed_result.status_code == 200
@@ -115,6 +117,7 @@ def test_transfer_reverse_rejects_consumed_target_lot_without_partial_stock(monk
         transfer = client.post(f'{base}/transfers', headers=auth, json={
             'from_warehouse_id': 1, 'to_warehouse_id': target,
             'lines': [{'material_id': material, 'quantity': '1.000'}]}).json()
+        approve_document(client, auth, 'Transfer', transfer["id"])
         posted = client.post(f'{base}/transfers/{transfer["id"]}/post', headers=auth,
             json={'lines': [{'transfer_line_id': transfer['lines'][0]['id'],
                              'lots': [{'lot_id': lot_id, 'quantity': '1.000'}]}]})
@@ -126,6 +129,7 @@ def test_transfer_reverse_rejects_consumed_target_lot_without_partial_stock(monk
         assert client.post(f'{base}/warehouse-outbounds/{outbound["id"]}/post', headers=auth,
             json={'lines': [{'outbound_line_id': outbound['lines'][0]['id'],
                              'lots': [{'lot_id': lot_id, 'quantity': '0.500'}]}]}).status_code == 200
+        approve_document(client, auth, 'Transfer', transfer['id'], intent='reverse', reason='误调拨')
         reverse_url = f'{base}/transfers/{transfer["id"]}/reverse'
         assert client.post(reverse_url, headers=auth, json={'reason': '误调拨'}).status_code == 409
         current = next(row for row in client.get(f'{base}/transfers', headers=auth).json()

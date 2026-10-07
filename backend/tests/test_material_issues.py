@@ -87,6 +87,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         transfer = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": 1, "to_warehouse_id": second_warehouse,
             "lines": [{"material_id": components[0], "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', transfer)
         client.post(f"{base}/transfers/{transfer}/post", headers=admin)
         mixed = client.post(f"{base}/material-issues", headers=warehouse, json={
             **payload, "warehouse_id": second_warehouse,
@@ -99,6 +100,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         transfer_back = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": second_warehouse, "to_warehouse_id": 1,
             "lines": [{"material_id": components[0], "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', transfer_back)
         client.post(f"{base}/transfers/{transfer_back}/post", headers=admin)
 
         # 两份草稿都可以建立，先确认的一份会让后确认的超出剩余需料。

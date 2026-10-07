@@ -374,6 +374,9 @@ export interface WarehouseOutbound extends NumberedDocument {
 }
 // 正负调整量在审批前固定，审批人与建单人必须不同。
 export interface StockAdjustment extends NumberedDocument {
+  // 审批缺省时不能确认；状态由服务端统一审批事务提供。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -1130,6 +1133,9 @@ export interface StocktakeLine {
   physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
 export interface Stocktake extends NumberedDocument {
+  // 审批缺省时不能确认；状态由服务端统一审批事务提供。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   warehouse_id: number
   warehouse_name: string

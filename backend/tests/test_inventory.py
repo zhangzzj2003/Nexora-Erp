@@ -50,11 +50,13 @@ def test_multi_warehouse_transfer_and_audit(monkeypatch, tmp_path):
         assert client.post(f"{base}/transfers", headers=admin, json={
             **draft, "lines": [{"material_id": material, "quantity": "2.126"}]}).status_code == 201
         insufficient = client.get(f"{base}/transfers", headers=admin).json()[0]["id"]
+        approve_document(client, admin, 'Transfer', insufficient)
         assert client.post(f"{base}/transfers/{insufficient}/post", headers=admin).status_code == 409
         assert client.get(f"{base}/stock?warehouse_id=1", headers=view).json()[0]["quantity"] == "2.125"
         assert len(client.get(f"{base}/movements", headers=view).json()) == 1
 
         transfer = client.post(f"{base}/transfers", headers=admin, json=draft).json()
+        approve_document(client, admin, 'Transfer', transfer['id'])
         assert client.post(f"{base}/transfers/{transfer['id']}/post", headers=view).status_code == 403
         posted = client.post(f"{base}/transfers/{transfer['id']}/post", headers=admin)
         assert posted.status_code == 200
@@ -103,14 +105,17 @@ def test_transfer_reversal_is_linked_atomic_and_checks_target_stock(monkeypatch,
         draft = client.post(f"{base}/transfers", headers=admin, json=payload).json()["id"]
         path = f"{base}/transfers/{draft}/reverse"
         assert client.post(path, headers=admin, json={"reason": "录错仓库"}).status_code == 409
+        approve_document(client, admin, 'Transfer', draft)
         assert client.post(f"{base}/transfers/{draft}/post", headers=admin).status_code == 200
         moved = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": second, "to_warehouse_id": third,
             "lines": [{"material_id": materials[1], "quantity": "1.000"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', moved)
         assert client.post(f"{base}/transfers/{moved}/post", headers=admin).status_code == 200
 
         assert client.post(path, headers=view, json={"reason": "录错仓库"}).status_code == 403
         assert client.post(path, headers=admin, json={"reason": "  "}).status_code == 422
+        approve_document(client, admin, 'Transfer', draft, intent='reverse', reason='录错仓库')
         movement_count = len(client.get(f"{base}/movements", headers=admin).json())
         assert client.post(path, headers=admin, json={"reason": "录错仓库"}).status_code == 409
         assert len(client.get(f"{base}/movements", headers=admin).json()) == movement_count
@@ -121,6 +126,7 @@ def test_transfer_reversal_is_linked_atomic_and_checks_target_stock(monkeypatch,
         back = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": third, "to_warehouse_id": second,
             "lines": [{"material_id": materials[1], "quantity": "1.000"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', back)
         assert client.post(f"{base}/transfers/{back}/post", headers=admin).status_code == 200
         reversed_record = client.post(path, headers=admin, json={"reason": "录错仓库"})
         assert reversed_record.status_code == 200

@@ -65,6 +65,7 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
                                                      "to_warehouse_id": production_warehouse,
                                                      "lines": [{"material_id": component,
                                                                 "quantity": "4"}]})["id"]
+        approve_document(client, admin, 'Transfer', transfer)
         confirm(f"/transfers/{transfer}/post", warehouse)
 
         bom = create("/boms", planner, {"product_material_id": product, "base_quantity": "1",

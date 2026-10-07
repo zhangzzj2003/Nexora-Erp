@@ -1,5 +1,7 @@
 """审批领域适配器；明细快照和可执行状态必须由服务端业务模型生成。"""
 
+from decimal import Decimal
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,7 +12,8 @@ from app.core.models import (
     ReceiptWarehouse, Supplier, Warehouse, WarehouseInbound, WarehouseInboundLine,
     WarehouseInboundReversal, PurchaseReturn, PurchaseReturnLine, PurchaseReturnReversal,
     WarehouseOutbound, WarehouseOutboundLine, WarehouseOutboundReversal, MaintenanceJob, MaintenanceChange,
-    AfterSalesCase, AfterSalesChange,
+    AfterSalesCase, AfterSalesChange, Transfer, TransferLine, TransferReversal,
+    Stocktake, StocktakeLine, StocktakeReversal, StockAdjustment, StockAdjustmentLine, StockAdjustmentReversal,
 )
 from app.core.approval_catalog import approval_type
 
@@ -121,11 +124,70 @@ def outbound_snapshot(db: Session, identifier: int) -> dict:
                           WarehouseOutboundLine.outbound_id == identifier).order_by(WarehouseOutboundLine.id))]}
 
 
+def transfer_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'Transfer', identifier)
+    # 双仓及逐行数量一起固定，执行仍须重新核对来源库存。
+    return {'from_warehouse_id': source.from_warehouse_id, 'to_warehouse_id': source.to_warehouse_id,
+            'reference': source.reference,
+            'lines': [dict(row) for row in db.execute(select(
+                TransferLine.id, TransferLine.material_id, TransferLine.quantity)
+                .where(TransferLine.transfer_id == identifier).order_by(TransferLine.id)).mappings()]}
+
+
+def stocktake_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'Stocktake', identifier)
+    # 原账面量和流水检查点属于盘点依据；批准不能覆盖盘点期间的新库存流水。
+    return {'warehouse_id': source.warehouse_id, 'reference': source.reference,
+            'lines': [dict(row) for row in db.execute(select(
+                StocktakeLine.id, StocktakeLine.material_id, StocktakeLine.book_quantity,
+                StocktakeLine.counted_quantity, StocktakeLine.movement_id)
+                .where(StocktakeLine.stocktake_id == identifier).order_by(StocktakeLine.id)).mappings()]}
+
+
+def adjustment_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'StockAdjustment', identifier)
+    return {'warehouse_id': source.warehouse_id, 'reference': source.reference, 'reason': source.reason,
+            'lines': [dict(row) for row in db.execute(select(
+                StockAdjustmentLine.id, StockAdjustmentLine.material_id, StockAdjustmentLine.quantity)
+                .where(StockAdjustmentLine.adjustment_id == identifier).order_by(StockAdjustmentLine.id)).mappings()]}
+
+
+def native_review_evidence(db: Session, document_type: str, identifier: int) -> dict | None:
+    # 首次接入前保存原流程信息，独立于新审批正文，不能冒充新模板中的批准。
+    if document_type != 'StockAdjustment':
+        return None
+    source = db.get(StockAdjustment, identifier)
+    if source.submitted_by is None and source.reviewed_by is None:
+        return None
+    return {field: getattr(source, field) for field in (
+        'status', 'submitted_by', 'submitted_at', 'reviewed_by', 'reviewed_at', 'review_reason')}
+
+
+def sync_native_review(db: Session, document_type: str, identifier: int, action: str,
+                       state: dict, user_id: int, reason: str) -> None:
+    if document_type != 'StockAdjustment':
+        return
+    source = db.get(StockAdjustment, identifier)
+    # 原单据状态投影统一审批结果，中间步骤仍为 submitted；撤回恢复草稿。
+    source.status = 'draft' if action == 'withdraw' else state['status']
+    if action == 'submit':
+        source.submitted_by, source.submitted_at = state['submitted_by'], state['submitted_at']
+        source.reviewed_by, source.reviewed_at, source.review_reason = None, None, ''
+    elif action in ('approve', 'reject'):
+        from app.core.document_approval import now
+        source.reviewed_by, source.reviewed_at, source.review_reason = user_id, now(db), reason.strip()
+    db.flush()
+
+
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
 _SNAPSHOTS = {'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
-              'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot}
-_REVERSE = {'WarehouseInbound': (WarehouseInboundReversal, 'inbound_id', 'other_inbound.reverse'),
+              'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
+              'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot}
+_REVERSE = {'Transfer': (TransferReversal, 'transfer_id', 'transfer.reverse'),
+            'Stocktake': (StocktakeReversal, 'stocktake_id', 'stocktake.reverse'),
+            'StockAdjustment': (StockAdjustmentReversal, 'adjustment_id', 'adjustment.reverse'),
+            'WarehouseInbound': (WarehouseInboundReversal, 'inbound_id', 'other_inbound.reverse'),
             'Receipt': (ReceiptReversal, 'receipt_id', 'receipt.reverse'),
             'PurchaseReturn': (PurchaseReturnReversal, 'purchase_return_id', 'purchase_return.reverse'),
             'WarehouseOutbound': (WarehouseOutboundReversal, 'outbound_id', 'other_outbound.reverse')}
@@ -159,7 +221,8 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         model, field, _ = reversal
         if source.status != 'posted' or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
-    elif source.status != 'draft':
+    elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
+                               if document_type == 'StockAdjustment' else ('draft',)):
         # 历史已执行记录不补造审批；只限制仍待执行的草稿。
         raise HTTPException(409, '此单据已处理，不能继续审批')
     elif document_type == 'PurchaseReturn' and db.scalar(select(DocumentApprovalCase.id).where(
@@ -192,7 +255,8 @@ def submit_permission(document_type: str, intent: str) -> str | None:
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
     # 只读取固定正文和当前资料名称，不调用包含金额、客户或动态库存的其他领域详情。
     summary = []
-    for field, model, label in [('supplier_id', Supplier, '供应商'), ('warehouse_id', Warehouse, '仓库')]:
+    for field, model, label in [('supplier_id', Supplier, '供应商'), ('warehouse_id', Warehouse, '仓库'),
+                                ('from_warehouse_id', Warehouse, '来源仓库'), ('to_warehouse_id', Warehouse, '目标仓库')]:
         if field in content:
             item = db.get(model, content[field])
             summary.append({'label': label, 'value': item.name if item else str(content[field])})
@@ -222,13 +286,16 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
         if content['purchase_return_id'] is not None:
             source = db.get(PurchaseReturn, content['purchase_return_id'])
             summary.append({'label': '采购退货单', 'value': source.document_no or f'#{source.id}'})
+    if document_type == 'StockAdjustment':
+        summary.append({'label': '调整原因', 'value': content['reason']})
     if 'reference' in content:
         summary.append({'label': '参考号', 'value': content['reference'] or '—'})
     for line in content['lines']:
         material = db.get(Material, line['material_id'])
         unit = f' {material.unit}' if material else ''
         value = (f"合格 {line['accepted_quantity']}{unit}；拒收 {line['rejected_quantity']}{unit}；原因 {line['rejection_reason'] or '—'}"
-                 if document_type == 'PurchaseGoodsReceipt' else line['quantity'] + unit)
+                 if document_type == 'PurchaseGoodsReceipt' else (f"账面 {line['book_quantity']}{unit}；实盘 {line['counted_quantity']}{unit}；差异 {Decimal(line['counted_quantity']) - Decimal(line['book_quantity'])}{unit}"
+                       if document_type == 'Stocktake' else line['quantity'] + unit))
         if 'unit_price' in line:
             value += f"；单价 ¥{line['unit_price']}" if line['unit_price'] is not None else '；原价待核对'
         summary.append({'label': f'{material.sku} · {material.name}' if material else str(line['material_id']),

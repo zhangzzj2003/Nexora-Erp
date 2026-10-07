@@ -175,6 +175,7 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
             },
             201,
         )
+        approve_document(client, dict(client.headers), 'Transfer', source['id'])
         if case.endswith("reverse"):
             request("POST", f'transfers/{source["id"]}/post')
         path = f'transfers/{source["id"]}/' + ("reverse" if case.endswith("reverse") else "post")
@@ -223,6 +224,8 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
     if case.endswith("reverse"):
         payload = {"reason": "更正原单"}
     # 先完成真实独立审批，保留原业务失败和并发断言。
+    if case == 'transfer_reverse':
+        approve_document(client, dict(client.headers), 'Transfer', source['id'], intent='reverse', reason='更正原单')
     if case == 'receipt_reverse':
         approve_document(client, dict(client.headers), 'Receipt', source['id'], intent='reverse', reason='更正原单')
     before = snapshots(request)
@@ -337,6 +340,8 @@ def test_concurrent_confirmations_cannot_overconsume_order_or_stock(erp, kind):
             )["id"]
             for _ in range(2)
         ]
+        for item in ids:
+            approve_document(client, dict(client.headers), 'Transfer', item)
         paths = [f"/api/v1/transfers/{item}/post" for item in ids]
     barrier = Barrier(2)
 

@@ -36,7 +36,7 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
         <dl class="approval-summary">
           <div v-for="(item, index) in record.summary" :key="index"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>
         </dl>
-        <p v-if="record.intent === 'execute' && record.version === 0 && record.business_status !== 'draft'">历史单据保留原执行记录，不补造审批记录。</p>
+        <p v-if="record.intent === 'execute' && record.version === 0 && ['posted', 'cancelled', 'confirmed', 'closed'].includes(record.business_status)">已处理单据保留原业务记录，不补造审批记录。</p>
         <p v-else><strong>{{ labels[record.status] }}</strong> · 审批版本 {{ record.version }}</p>
         <p class="approval-hint">建单、编辑、提交人员不能自审；不同审批步骤由不同人员完成。批准后仍需执行对应业务操作。</p>
         <ol v-if="record.steps.length" class="approval-steps">

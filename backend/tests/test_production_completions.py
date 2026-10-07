@@ -141,6 +141,7 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
         transfer = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": target_warehouse, "to_warehouse_id": 1,
             "lines": [{"material_id": product, "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', transfer)
         assert client.post(f"{base}/transfers/{transfer}/post", headers=admin).status_code == 200
         before = len(client.get(f"{base}/movements", headers=admin).json())
         assert client.post(reverse_url, headers=admin, json={"reason": "质检数量录错"}).status_code == 409
@@ -148,6 +149,7 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
         back = client.post(f"{base}/transfers", headers=admin, json={
             "from_warehouse_id": 1, "to_warehouse_id": target_warehouse,
             "lines": [{"material_id": product, "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'Transfer', back)
         assert client.post(f"{base}/transfers/{back}/post", headers=admin).status_code == 200
         reversed_result = client.post(reverse_url, headers=admin, json={"reason": "  质检数量录错  "})
         assert reversed_result.status_code == 200

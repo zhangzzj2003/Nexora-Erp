@@ -10,6 +10,7 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import { computed, ref } from 'vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 单据统一使用固定关闭区、基础信息和物料明细表格。
 import { documentRows } from '../../../utils/document-rows'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
@@ -17,7 +18,8 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
 import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
-import { useAppStore } from '../../../store/app-store'
+import { storeToRefs } from 'pinia'
+import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import {displayError} from '../../../utils/formatters.ts'
 import {receiptLotDate, receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
@@ -27,24 +29,9 @@ import type {StocktakeLotLineInput, StocktakeLotOptions, StocktakeLotPartInput} 
 import type {Stocktake} from '../../../../../shared/erp-api'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
-const {
-  error,
-  notice,
-  busy,
-  connectionLost,
-  materials,
-  warehouses,
-  stocktakes,
-  stocktakeForm,
-  stocktakeReversalReasons,
-  can,
-  localTime,
-  createStocktake,
-  loadAvailableStocktakeLots,
-  postStocktake,
-  cancelStocktake,
-  reverseStocktake
-} = useAppStore()
+const store = usePiniaAppStore()
+const { error, notice, busy, connectionLost, materials, warehouses, stocktakes, stocktakeForm, stocktakeReversalReasons } = storeToRefs(store)
+const { can, localTime, createStocktake, loadAvailableStocktakeLots, postStocktake, cancelStocktake, reverseStocktake } = store
 
 // 搜索只过滤当前单据快照，不改动草稿、确认及冲销状态。
 const query = ref('')
@@ -65,7 +52,7 @@ const lotLoading = ref(false)
 const lotLoadError = ref('')
 let loadTicket = 0
 const activeStocktake = computed(() => stocktakes.value.find(item =>
-  item.id === activeStocktakeId.value && item.status === 'draft') ?? null)
+  item.id === activeStocktakeId.value && item.status === 'draft' && item.approval?.status === 'approved') ?? null)
 
 function differenceMilli(value: string): bigint {
   return signedStocktakeMilli(value) ?? 0n
@@ -179,6 +166,18 @@ const stocktakeFormColumns = [
   { key: 'quantity', title: '实盘数量', width: '150' },
   { key: 'actions', title: '操作', width: '90' },
 ]
+// 冲销原因从批准记录重新读取，临时输入不能替换已经审核的原因。
+async function reverseApproved(identifier: number): Promise<void> {
+  if (!await store.openDocumentApproval({ document_type: 'Stocktake', document_id: identifier, intent: 'reverse' })) return
+  const record = store.documentApprovalRecord
+  if (record?.status !== 'approved' || !record.reversal_reason) return
+  stocktakeReversalReasons.value[identifier] = record.reversal_reason
+  store.closeDocumentApproval()
+  await reverseStocktake(identifier)
+}
+const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '已批准，待确认',
+  rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
+
 </script>
 
 <template>
@@ -286,7 +285,8 @@ const stocktakeFormColumns = [
       ></template>
       <template #cell-document="{ row: item }">
         <strong>{{ documentLabel(item) }}</strong>
-        <small>{{
+        <small v-if="item.status !== 'posted' && item.status !== 'cancelled'">{{ approvalLabels[item.approval?.status || 'draft'] }}</small>
+        <small v-if="item.status !== 'draft' || item.reversal_id">{{
           item.reversal_id
             ? '已冲销'
             : item.status === 'posted'
@@ -306,7 +306,7 @@ const stocktakeFormColumns = [
           <small v-if="item.status === 'posted' && line.physical_lots?.length" class="stocktake-lot-proof">
             实物批次：{{ line.physical_lots?.map(lot => `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`).join('、') }}
           </small>
-          <small v-else-if="item.status === 'posted' && differenceMilli(line.difference) !== 0n" class="stocktake-lot-proof">旧确认未指定实物批次，数量在批次核对页显示为差额。</small>
+          <small v-else-if="item.status === 'posted' && differenceMilli(line.difference) !== 0n" class="stocktake-lot-proof">普通确认，未指定实物批次。</small>
         </div>
         <small v-if="item.reversal_id"
           >冲销 #{{ item.reversal_id }} · {{ item.reversal_reason }} · {{ item.reversed_by_name }} ·
@@ -315,46 +315,21 @@ const stocktakeFormColumns = [
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
-          <AppButton
-            v-if="item.status === 'draft' && can('stocktake.post')"
-            type="button"
-            :disabled="busy || connectionLost"
-            @click="startLotPost(item)"
-            variant="primary"
-            size="small"
-          >
-            核对批次并确认</AppButton
-          ><AppButton
-            v-if="item.status === 'draft' && can('stocktake.cancel')"
-            type="button"
-            :disabled="busy || connectionLost"
-            @click="cancelStocktake(item.id)"
-            variant="secondary"
-            size="small"
-          >
-            取消
-          </AppButton>
+          <AppButton type="button" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'Stocktake', document_id: item.id, intent: 'execute' })">单据审批</AppButton>
+          <template v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('stocktake.post')">
+            <AppButton type="button" variant="primary" size="small" :disabled="busy || connectionLost" @click="postStocktake(item.id)">确认盘点</AppButton>
+            <AppButton type="button" size="small" :disabled="busy || connectionLost" @click="startLotPost(item)">指定实物批次（可选）</AppButton>
+          </template>
+          <AppButton v-if="item.status === 'draft' && !['submitted', 'approved'].includes(item.approval?.status || '') && can('stocktake.cancel')"
+            type="button" size="small" :disabled="busy || connectionLost" @click="cancelStocktake(item.id)">取消</AppButton>
+          <template v-if="item.status === 'posted' && !item.reversal_id && can('stocktake.reverse')">
+            <AppButton type="button" size="small" :disabled="busy || connectionLost"
+              @click="store.openDocumentApproval({ document_type: 'Stocktake', document_id: item.id, intent: 'reverse' })">冲销审批</AppButton>
+            <AppButton v-if="item.reversal_approval?.status === 'approved'" type="button" size="small" :disabled="busy || connectionLost"
+              @click="reverseApproved(item.id)">执行已批准冲销</AppButton>
+          </template>
         </div>
-        <form
-          v-if="item.status === 'posted' && !item.reversal_id && can('stocktake.reverse')"
-          class="inline-form"
-          @submit.prevent="reverseStocktake(item.id)"
-        >
-          <label
-            >冲销原因<AppInput
-              v-model.trim="stocktakeReversalReasons[item.id]"
-              required
-              maxlength="200"
-              placeholder="说明原盘点差异为何需要冲销" /></label
-          ><AppButton
-            type="submit"
-            :disabled="busy || connectionLost"
-            variant="secondary"
-            size="small"
-          >
-            冲销已确认盘点
-          </AppButton>
-        </form>
       </template>
       <template #empty>
         <strong>{{ query ? '没有匹配的单据' : '暂无盘点单' }}</strong>
@@ -387,6 +362,7 @@ const stocktakeFormColumns = [
                     value:lot.lot_id}))]"
         :disabled="busy || connectionLost || lotLoading" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)" />
     </WorkspaceLotDialog>
+    <DocumentApprovalDialog />
   </section>
 </template>
 

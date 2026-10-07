@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { createPinia } from 'pinia'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createServer } from 'vite'
@@ -8,10 +9,12 @@ import vue from '@vitejs/plugin-vue'
 // vxe 的真实外壳另有组件测试；这里展开行插槽，核对迁移后的业务信息与权限分支。
 const storeModule = `
 import { ref } from 'vue'
+import { defineStore } from 'pinia'
 export const permissions = new Set()
 const rows = [
-  { id: 71, status: 'draft' },
-  { id: 72, status: 'posted' },
+  { id: 71, status: 'draft', approval: {status:'approved'} },
+  { id: 72, status: 'posted', reversal_approval: {status:'approved'} },
+  { id: 75, status: 'draft' },
   { id: 73, status: 'posted', reversal_id: 74, reversal_reason: '重复录入', reversed_by_name: '复核人', reversed_at: '2026-09-30' }
 ].map(row => ({...row, created_at: '2026-09-30', created_by_name: '操作员', reference: '测试参考号',
   from_warehouse_name: '原料仓', to_warehouse_name: '成品仓', warehouse_name: '原料仓',
@@ -22,7 +25,7 @@ export const state = {
   transferReversalReasons:ref({}), stocktakeReversalReasons:ref({}),
   can: permission => permissions.has(permission), localTime: value => value
 }
-export const useAppStore = () => state
+export const usePiniaAppStore = defineStore('warehouse-table-fixture', () => state)
 `
 const tableModule = `
 import { defineComponent, h } from 'vue'
@@ -40,21 +43,23 @@ test('调拨和盘点表格保留明细、冲销记录、权限及断线禁用',
       // 业务页与公共单据弹窗共用这份表格替身。
       if (!importer?.includes('/src/renderer/src/')) return
       if (id.endsWith('/store/app-store')) return '\0warehouse-test-store'
+      if (id.endsWith('/DocumentApprovalDialog.vue')) return '\0approval-dialog-stub'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0warehouse-test-table'
     },
     load(id) {
+      if (id === '\0approval-dialog-stub') return `export default {render:()=>null}`
       if (id === '\0warehouse-test-store') return storeModule
       if (id === '\0warehouse-test-table') return tableModule
     }
   }, vue()], optimizeDeps:{noDiscovery:true,include:[]}, server:{middlewareMode:true}, appType:'custom'})
   t.after(()=>server.close())
   for (const [file, kind, confirm, reversed] of [
-    ['WarehouseTransfersView.vue','transfer','指定批次并确认','冲销已确认调拨'],
-    ['InventoryStocktakesView.vue','stocktake','核对批次并确认','冲销已确认盘点']
+    ['WarehouseTransfersView.vue','transfer','确认调拨','执行已批准冲销'],
+    ['InventoryStocktakesView.vue','stocktake','确认盘点','执行已批准冲销']
   ]) {
     const {default: View} = await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/'+file)
     const {state, permissions} = await server.ssrLoadModule('\0warehouse-test-store')
-    const render = () => renderToString(createSSRApp({render:()=>h(View)}))
+    const render = () => renderToString(createSSRApp({render:()=>h(View)}).use(createPinia()))
     permissions.clear()
     state.connectionLost.value = false
     const readonly = await render()

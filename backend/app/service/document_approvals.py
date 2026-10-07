@@ -13,6 +13,7 @@ from app.core.document_approval import actor, policy, policy_data, save_policy
 from app.core import document_approval as workflow
 from app.core.approval_documents import (
     current_snapshot, document_pending, document_snapshot, document_source, document_summary, submit_permission,
+    native_review_evidence, sync_native_review,
 )
 from app.core.models import DocumentApprovalAuthor, DocumentApprovalEvent, DocumentApprovalPolicy, User
 from app.core.orm import orm_session
@@ -123,6 +124,24 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]
     summary = document_summary(db, document_type, frozen_content)
+    if document_type == 'StockAdjustment' and intent == 'execute':
+        # 升级前记录只作历史核对；首次送审后从不可改写的事件恢复。
+        previous = native_review_evidence(db, document_type, identifier) if row is None else None
+        if row:
+            first = db.scalar(select(DocumentApprovalEvent).where(
+                DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))
+            previous = json.loads(first.state_json).get('prior_native_review') if first else None
+        if previous:
+            old_status = {'draft': '草稿', 'submitted': '待审批', 'approved': '已批准',
+                          'rejected': '已驳回', 'cancelled': '已取消', 'posted': '已确认'}
+            parts = [f"原状态：{old_status.get(previous['status'], previous['status'])}"]
+            for label, field in [('提交', 'submitted'), ('审核', 'reviewed')]:
+                person = db.get(User, previous[f'{field}_by']) if previous[f'{field}_by'] else None
+                if person:
+                    parts.append(f"{label}：{person.username} · {previous[f'{field}_at']}")
+            if previous['review_reason']:
+                parts.append(f"意见：{previous['review_reason']}")
+            summary.append({'label': '升级前流程记录（仅供历史核对）', 'value': '；'.join(parts)})
     # 摘要数量来自送审快照；资料名称只用于识别，不会改变已批准的业务内容。
     return {**state, 'document_type': document_type, 'document_id': identifier, 'intent': intent,
             'document_no': source.document_no, 'business_status': source.status,
@@ -153,16 +172,22 @@ def act_document_approval(document_type: str, identifier: int,
         reason = payload.reason if action == 'submit' else (
             json.loads(row.snapshot_json).get('reversal_reason', '') if row else '')
         content = document_snapshot(db, document_type, identifier, payload.intent, reason)
+        native = native_review_evidence(db, document_type, identifier)
+        prior = native if row is None and payload.intent == 'execute' else None
         if action == 'submit':
             # 派生草稿同时排除原方案编制人员；作者范围取自服务端快照，客户端无法指定。
             original = content['document'] if payload.intent == 'reverse' else content
-            workflow.submit(db, document_type, identifier, content, payload.version, user['id'],
-                            authors=original.get('source_author_ids', ()),
+            result = workflow.submit(db, document_type, identifier, content, payload.version, user['id'],
+                            authors=[*original.get('source_author_ids', ()),
+                                     *([native['submitted_by']] if native and native['submitted_by'] else [])],
+                            prior_state=prior,
                             intent=payload.intent, permission=submit_permission(document_type, payload.intent))
         elif action in ('approve', 'reject'):
-            workflow.review(db, document_type, identifier, content, payload.version, user['id'],
+            result = workflow.review(db, document_type, identifier, content, payload.version, user['id'],
                             approve=action == 'approve', reason=payload.reason, intent=payload.intent)
         else:
-            workflow.withdraw(db, document_type, identifier, payload.version, user['id'],
+            result = workflow.withdraw(db, document_type, identifier, payload.version, user['id'],
                               intent=payload.intent, permission=submit_permission(document_type, payload.intent))
+        if payload.intent == 'execute':
+            sync_native_review(db, document_type, identifier, action, result, user['id'], payload.reason)
         return document_state(db, document_type, identifier, payload.intent, user['id'])
