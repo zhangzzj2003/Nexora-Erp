@@ -129,4 +129,10 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   html=await render();assert.match(html,/处置操作依据（必填）/);assert.match(html,/maxlength="200"/)
   assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
 
+  // 计划沿用五百字必填依据，不能以空意见完成送审或审核。
+  store.documentApprovalTarget={document_type:'MrpPlan',document_id:1,intent:'execute'}
+  store.documentApprovalRecord={...store.documentApprovalRecord,document_type:'MrpPlan',business_status:'draft',can_submit:true}
+  html=await render();assert.match(html,/计划操作依据（必填）/);assert.match(html,/maxlength="500"/)
+  assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
+
 })

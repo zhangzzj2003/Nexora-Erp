@@ -11,9 +11,9 @@ import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { movementTypeLabel } from '../../../utils/formatters'
 import type { MrpRow, MrpSuggestion } from '../../../../../shared/mrp-api'
-import { mrpMode, mrpSourceLabel, mrpStatus } from './mrp-display'
+import { mrpMode, mrpSourceLabel, mrpStatus, mrpCanConvert } from './mrp-display'
 const store = usePiniaAppStore()
-const { mrpDetail: item, mrpCheck: check, mrpChanges: changes, busy, connectionLost } = storeToRefs(store)
+const { mrpDetail: item, mrpCheck: check, mrpChanges: changes, busy, connectionLost, user } = storeToRefs(store)
 const emit = defineEmits<{ convert: [suggestion: MrpSuggestion] }>()
 const query = ref(''); const source = ref<MrpRow | null>(null)
 watch(item, () => { source.value = null })
@@ -27,8 +27,7 @@ const movements = computed(() => item.value?.snapshot.sources.movements.filter(r
 const materialPolicy = computed(() => item.value?.snapshot.sources.policies.find(row => row.material_id === source.value?.material_id))
 const materialBom = computed(() => item.value?.snapshot.sources.boms.find(row => row.product_material_id === source.value?.material_id))
 const conversions = (key: string) => item.value?.conversions.find(row => row.suggestion_key === key)
-const canConvert = (row: MrpSuggestion) => item.value?.status === 'approved' && check.value?.matched && store.can('mrp.convert')
-  && store.can(row.supply_mode === 'buy' ? 'purchase_request.create' : 'work_order.create')
+const canConvert = (row: MrpSuggestion) => mrpCanConvert(item.value, check.value, row, user.value?.permissions ?? [])
 const actionName = (action?: string) => ({create:'建立计划',submit:'提交审核',approve:'批准',reject:'驳回',cancel:'取消',convert:'建议转单'})[action ?? ''] ?? action
 </script>
 <template>
@@ -52,7 +51,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
           <AppButton v-if="store.can(conversions(row.key)!.purchase_request_id ? 'purchase_request.view' : 'production.view')" size="small" @click="store.navigateToRoute(conversions(row.key)!.purchase_request_id ? 'purchaseRequests' : 'workOrders')">打开原单列表</AppButton>
         </template>
         <AppButton v-else-if="canConvert(row)" size="small" variant="primary" :disabled="busy || connectionLost" @click="emit('convert',row)">{{ row.supply_mode === 'buy' ? '转采购申请' : '转生产工单' }}</AppButton>
-        <span v-else class="muted">{{ item.status !== 'approved' ? '须独立审核批准' : !check?.matched ? '须新建重算' : '缺少计划或原单建单权限' }}</span>
+        <span v-else class="muted">{{ item.status !== 'approved' || !['approved', 'executed'].includes(item.approval?.status ?? '') ? '须完成本单独立审批' : !check?.matched ? '须新建重算' : '缺少计划或原单建单权限' }}</span>
       </template>
       <template #empty>没有净缺口，不需要新增采购或生产供给。</template>
     </WorkspaceTable>

@@ -136,7 +136,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]
     summary = document_summary(db, document_type, frozen_content)
-    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition') and intent == 'execute':
+    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan') and intent == 'execute':
         # 升级前记录只作历史核对；首次送审后从不可改写的事件恢复。
         previous = native_review_evidence(db, document_type, identifier) if row is None else None
         if row:
@@ -186,14 +186,16 @@ def act_document_approval(document_type: str, identifier: int,
         native = native_review_evidence(db, document_type, identifier)
         prior = native if row is None and payload.intent == 'execute' else None
         before = None
-        if document_type in ('CrmQuote', 'AfterSalesCase', 'QualityDisposition') and payload.intent == 'execute':
+        if document_type in ('CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan') and payload.intent == 'execute':
             # 使用外层业务事务准备固定正文，失败时原资料、原审计与审批事件全部回滚。
             if document_type == 'CrmQuote':
                 from app.sales.crm_quotes import prepare_approval_action
             elif document_type == 'AfterSalesCase':
                 from app.sales.after_sales import prepare_approval_action
-            else:
+            elif document_type == 'QualityDisposition':
                 from app.production.quality import prepare_approval_action
+            else:
+                from app.production.mrp import prepare_approval_action
             workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else rule.submit_permission)
             workflow.check_version(row.version if row else 0, payload.version)
             document_pending(db, document_type, identifier, payload.intent)
@@ -243,6 +245,9 @@ def act_document_approval(document_type: str, identifier: int,
                 sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
             elif document_type == 'QualityDisposition':
                 from app.production.quality import sync_approval_action
+                sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
+            elif document_type == 'MrpPlan':
+                from app.production.mrp import sync_approval_action
                 sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
             else:
                 sync_native_review(db, document_type, identifier, action, result, user['id'], payload.reason)

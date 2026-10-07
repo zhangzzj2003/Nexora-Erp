@@ -20,6 +20,8 @@ from app.catalog.material_rules import MATERIAL_CATEGORIES
 from app.core.models import (Material, MrpConversion, MrpPlan, MrpPlanChange, MrpPolicy,
     MrpPolicyChange, PurchaseRequest, User, Warehouse, WorkOrder)
 from app.core.orm import model_data, orm_session
+from app.core import document_approval as approval
+from app.core.approval_documents import mrp_snapshot
 from app.production.mrp_engine import calculate
 from app.production.mrp_sources import collect, encode, fingerprint
 from app.production.work_orders import WorkOrderInput, create_work_order_in_session
@@ -150,7 +152,8 @@ def metadata(db: Session, record: MrpPlan) -> dict:
         'author_ids': sorted({record.created_by, *db.scalars(select(MrpPlanChange.changed_by)
             .where(MrpPlanChange.plan_id == record.id, MrpPlanChange.action == 'submit'))}),
         'start_date': json.loads(record.input_json)['start_date'], 'suggestion_count': len(snapshot['suggestions']),
-        'warning_count': len(snapshot['warnings']), 'conversions': conversions}
+        'warning_count': len(snapshot['warnings']), 'conversions': conversions,
+        'approval': approval.case_data(approval.find_case(db, 'MrpPlan', record.id))}
 
 
 def report_csv(record: MrpPlan) -> str:
@@ -194,6 +197,28 @@ def current_check(db: Session, record: MrpPlan) -> dict:
 def ensure_current(db: Session, record: MrpPlan) -> None:
     if not current_check(db, record)['matched']:
         raise HTTPException(409, '库存、来源、BOM、参数或计划日期已变化，须新建计划重算；旧快照仍保留')
+
+
+def prepare_approval_action(db: Session, record: MrpPlan, action: str, user: dict, reason: str) -> dict:
+    # 不重算或改写旧计划；每次提交及批准都核对原固定来源是否仍有效。
+    if action in ('submit', 'approve', 'reject') and (not reason.strip() or len(reason.strip()) > 500):
+        raise HTTPException(422, '计划送审与审核依据必填，最多五百字')
+    if action in ('submit', 'approve'):
+        ensure_current(db, record)
+    return metadata(db, record)
+
+
+def sync_approval_action(db: Session, record: MrpPlan, action: str, state: dict,
+                         user_id: int, reason: str, before: dict) -> None:
+    # 审批版本与业务版本分别推进；中间步骤仍待审批，全部通过才可转单。
+    record.status = 'draft' if action == 'withdraw' else state['status']
+    if action == 'submit':
+        record.submitted_by, record.submitted_at = state['submitted_by'], state['submitted_at']
+        record.reviewed_by = record.reviewed_at = None
+    elif action in ('approve', 'reject'):
+        record.reviewed_by, record.reviewed_at = user_id, approval.now(db)
+    record.version += 1
+    record_change(db, record, action, before, reason.strip() or '撤回计划审批', {'id': user_id})
 
 
 @router.get('/options')
@@ -305,6 +330,7 @@ def convert(payload: ConversionInput, plan_id: int = Path(gt=0), user: dict = De
         record = get_plan(db, plan_id, payload.version)
         if record.status != 'approved':
             raise HTTPException(409, '须先完成独立审核批准物料计划')
+        approved = approval.require_conversion_approved(db, 'MrpPlan', record.id, mrp_snapshot(db, record.id), user['id'])
         ensure_current(db, record)
         suggestion = next((row for row in json.loads(record.snapshot_json)['suggestions'] if row['key'] == payload.suggestion_key), None)
         if suggestion is None:
@@ -334,6 +360,9 @@ def convert(payload: ConversionInput, plan_id: int = Path(gt=0), user: dict = De
         db.add(conversion)
         record.version += 1
         db.flush()
+        if approved.status == 'approved':
+            # 首次转单记录执行事件，后续只转换剩余建议，不重复审批或制造执行历史。
+            approval.mark_executed(db, approved, user['id'])
         record_change(db, record, 'convert', before, payload.reason, user)
         return conversion_data(db, conversion)
 
@@ -348,26 +377,19 @@ def change_status(payload: VersionInput, plan_id: int = Path(gt=0), action: str 
         raise HTTPException(403, '没有此物料计划动作权限')
     with orm_session(write=True) as db:
         record = get_plan(db, plan_id, payload.version)
-        if (action == 'submit' and record.status not in ('draft', 'rejected')) or (
-                action in ('approve', 'reject') and record.status != 'submitted') or (
-                action == 'cancel' and record.status == 'cancelled'):
+        # 旧客户端不可绕过统一分步审批；仍保留原领域权限和业务版本检查。
+        if action in ('submit', 'approve', 'reject'):
+            raise HTTPException(409, '请从单据审批入口按当前审批版本操作')
+        pending = approval.find_case(db, 'MrpPlan', record.id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回计划审批再取消')
+        if record.status == 'cancelled':
             raise HTTPException(409, '物料计划当前阶段不允许此动作')
-        if action in ('approve', 'reject') and user['id'] in metadata(db, record)['author_ids']:
-            raise HTTPException(403, '编制或提交计划的账号不能审核自身计划')
-        if action in ('submit', 'approve'):
-            ensure_current(db, record)
-        if action == 'cancel' and any(row['target_status'] != 'cancelled' for row in metadata(db, record)['conversions']):
+        if any(row['target_status'] != 'cancelled' for row in metadata(db, record)['conversions']):
             raise HTTPException(409, '计划已有有效转入原单，须先通过原单流程取消；历史计划保留')
         before = metadata(db, record)
-        now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-        if action == 'submit':
-            record.status, record.submitted_by, record.submitted_at = 'submitted', user['id'], now
-            record.reviewed_by, record.reviewed_at = None, None
-        elif action in ('approve', 'reject'):
-            record.status, record.reviewed_by, record.reviewed_at = ('approved' if action == 'approve' else 'rejected'), user['id'], now
-        else:
-            record.status, record.cancelled_by, record.cancelled_at = 'cancelled', user['id'], now
+        record.status, record.cancelled_by, record.cancelled_at = 'cancelled', user['id'], approval.now(db)
         record.version += 1
         db.flush()
-        record_change(db, record, action, before, payload.reason, user)
+        record_change(db, record, 'cancel', before, payload.reason, user)
         return metadata(db, record)

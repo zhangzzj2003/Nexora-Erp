@@ -1,4 +1,4 @@
-import type { MrpAction, MrpPlan, MrpPlanInput, MrpSource } from '../../../../../shared/mrp-api'
+import type { MrpAction, MrpPlan, MrpPlanInput, MrpSource, MrpCheck, MrpSuggestion } from '../../../../../shared/mrp-api'
 import { dateFieldError } from '../../../utils/date-field.ts'
 
 export const mrpStatus = { draft: '草稿', submitted: '待审核', approved: '已批准', rejected: '已驳回', cancelled: '已取消' }
@@ -12,10 +12,16 @@ export function mrpSourceStatus(status?: string): string {
 }
 export function mrpActions(item: MrpPlan, permissions: string[], userId: number): MrpAction[] {
   const result: MrpAction[] = []
-  if (['draft','rejected'].includes(item.status) && permissions.includes('mrp.submit')) result.push('submit')
-  if (item.status === 'submitted' && permissions.includes('mrp.review') && !item.author_ids.includes(userId)) result.push('approve','reject')
-  if (item.status !== 'cancelled' && permissions.includes('mrp.cancel') && item.conversions.every(row => row.target_status === 'cancelled')) result.push('cancel')
+  // 审核动作统一进入共用审批弹窗，待审或已批准计划须先撤回才能取消。
+  if (!['submitted', 'approved'].includes(item.approval?.status ?? '') && item.status !== 'cancelled' && permissions.includes('mrp.cancel') && item.conversions.every(row => row.target_status === 'cancelled')) result.push('cancel')
   return result
+}
+export function mrpCanConvert(item: MrpPlan | null, check: MrpCheck | null, row: MrpSuggestion, permissions: string[]): boolean {
+  // 原生旧批准不能代替独立审批；分批转单沿用同一批准正文。
+  return !!item && item.status === 'approved' && ['approved', 'executed'].includes(item.approval?.status ?? '')
+    && !!check?.matched && permissions.includes('mrp.convert')
+    && permissions.includes(row.supply_mode === 'buy' ? 'purchase_request.create' : 'work_order.create')
+    && !item.conversions.some(value => value.suggestion_key === row.key)
 }
 export const mrpQuantityValid = (value: string): boolean => /^\d{1,7}(?:\.\d{1,3})?$/.test(value) && Number(value) <= 1_000_000
 export function mrpDraftError(form: MrpPlanInput, today: string): string {

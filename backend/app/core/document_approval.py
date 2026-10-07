@@ -290,15 +290,15 @@ def mark_executed(db: Session, row: DocumentApprovalCase, user_id: int,
 
 def require_conversion_approved(db: Session, document_type: str, document_id: int,
                                 snapshot: Mapping, user_id: int) -> DocumentApprovalCase:
-    # 申请可拆成多张原单；只对此类需求授权允许重复转换，不能放宽库存或资金的单次执行边界。
-    if document_type != 'PurchaseRequest':
+    # 申请和物料计划可拆成多张原单；只对此类需求授权允许重复转换，不能放宽库存或资金的单次执行边界。
+    if document_type not in ('PurchaseRequest', 'MrpPlan'):
         raise HTTPException(422, '此类单据不支持分批转换授权')
     write_transaction(db)
     actor(db, user_id, approval_type(document_type).execute_permission)
     row = find_case(db, document_type, document_id)
     if row is None or row.status not in ('approved', 'executed'):
-        raise HTTPException(409, '请先提交申请并完成独立审批')
+        raise HTTPException(409, '请先送审并完成本单独立审批')
     if row.content_digest != digest(snapshot)[1]:
-        raise HTTPException(409, '申请内容与批准内容不一致，请重新送审')
+        raise HTTPException(409, '单据内容与批准内容不一致，请重新送审')
     # 实际可转数量仍由领域在同一写事务核对；后续拆单不追加虚假的重复批准或执行事件。
     return row

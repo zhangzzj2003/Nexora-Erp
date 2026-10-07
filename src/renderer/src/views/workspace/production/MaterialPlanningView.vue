@@ -4,23 +4,25 @@ import { documentSearch, documentLabel } from '../../../../../shared/document-nu
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal } from 'naive-ui'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import type { MrpAction, MrpPlan, MrpSuggestion } from '../../../../../shared/mrp-api'
-import { mrpActions, mrpAction, mrpStatus } from './mrp-display'
+import { mrpActions, mrpAction, mrpStatus, mrpCanConvert } from './mrp-display'
 import MrpEditor from './MrpEditor.vue'
 import MrpPolicies from './MrpPolicies.vue'
 import MrpEvidence from './MrpEvidence.vue'
 import './mrp.css'
 const store = usePiniaAppStore()
 const { mrpPlans: records, mrpOptions: options, mrpDetail: detail, mrpCheck: check, mrpError: error,
-  mrpLoading: loading, user, busy, connectionLost, error: operationError } = storeToRefs(store)
+  mrpLoading: loading, user, server, busy, connectionLost, error: operationError } = storeToRefs(store)
 const mode = ref<'plans' | 'input' | 'policies'>('plans'); const query = ref('')
 const command = ref<{ record: MrpPlan; action: MrpAction } | null>(null)
 const conversion = ref<MrpSuggestion | null>(null)
+const conversionPlan = ref<{ id: number; version: number } | null>(null)
 const reason = ref(''); const reference = ref(''); const warehouse = ref<number | null>(null)
 const preparing = ref(false)
 const disabled = computed(() => loading.value || busy.value || connectionLost.value || preparing.value)
@@ -38,15 +40,22 @@ async function openAction(item: MrpPlan, action: MrpAction): Promise<void> {
 }
 async function act(): Promise<void> {
   const value = command.value
+  const current = records.value.find(row => row.id === value?.record.id)
+  if (!current || current.version !== value?.record.version || !actions(current).includes(value.action)) { operationError.value = '计划阶段或审批已变化，请关闭并重新读取。'; return }
   if (value && reason.value.trim() && await store.changeMrpStatus(value.record,value.action,reason.value)) command.value = null
 }
-function openConversion(row: MrpSuggestion): void { conversion.value = row; reason.value = ''; reference.value = ''; warehouse.value = null }
+function openConversion(row: MrpSuggestion): void {
+  if (disabled.value || !detail.value || !mrpCanConvert(detail.value, check.value, row, user.value?.permissions ?? [])) return
+  conversionPlan.value = { id: detail.value.id, version: detail.value.version }; conversion.value = row; reason.value = ''; reference.value = ''; warehouse.value = null }
 async function convert(): Promise<void> {
+  // 固定打开弹窗的计划及版本，不能将旧建议写到后来打开或撤回的另一份计划。
+  if (!conversion.value || !detail.value || detail.value.id !== conversionPlan.value?.id || detail.value.version !== conversionPlan.value.version
+    || !mrpCanConvert(detail.value, check.value, conversion.value, user.value?.permissions ?? [])) { operationError.value = '计划或审批已变化，请关闭并重新读取。'; return }
   if (conversion.value && detail.value && reason.value.trim() && await store.convertMrpSuggestion(detail.value,conversion.value.key,warehouse.value,reference.value,reason.value)) conversion.value = null
 }
 onMounted(() => store.loadMrp())
 onUnmounted(store.clearMrpDetail)
-watch(() => `${user.value?.id}:${user.value?.permissions.join('|')}`, () => {
+watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`, () => {
   command.value = null; conversion.value = null; mode.value = 'plans'; reason.value = ''; reference.value = ''
   if (store.can('mrp.view')) void store.loadMrp()
 })
@@ -69,6 +78,7 @@ watch(connectionLost, lost => { command.value = null; conversion.value = null; i
         <template #cell-reference="{ row }"><strong>{{ documentLabel(row) }} · {{ row.reference }}</strong><span class="muted mrp-line">{{ row.created_by_name }} · {{ store.localTime(row.created_at) }}</span></template>
         <template #cell-status="{ row }">{{ mrpStatus[row.status] }} · v{{ row.version }}</template>
         <template #cell-actions="{ row }"><div class="mrp-toolbar"><AppButton size="small" :disabled="disabled" @click="store.loadMrpDetail(row)">结果与来源</AppButton>
+          <AppButton size="small" :disabled="disabled" @click="store.openDocumentApproval({document_type:'MrpPlan',document_id:row.id,intent:'execute'})">单据审批</AppButton>
           <AppButton v-for="action in actions(row)" :key="action" size="small" :disabled="disabled" @click="openAction(row,action)">{{ mrpAction[action] }}</AppButton></div></template>
         <template #empty>{{ query ? '没有匹配的计划。' : store.can('mrp.create') ? '尚无计划。进入需求编排，安排日期后计算并保存草稿。' : '尚无固定计划，须由计划编制人员建立。' }}</template>
       </WorkspaceTable>
@@ -76,14 +86,15 @@ watch(connectionLost, lost => { command.value = null; conversion.value = null; i
     </template>
     <MrpEditor v-else-if="mode==='input' && store.can('mrp.create')" @saved="mode='plans'" />
     <MrpPolicies v-else-if="mode==='policies'" />
+    <DocumentApprovalDialog />
     <NModal :show="!!command" preset="card" :title="command ? mrpAction[command.action] : ''" :style="modalStyle" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)command=null}">
       <form v-if="command" class="mrp-editor" @submit.prevent="act">
         <p>{{ command.record.reference }} · {{ mrpStatus[command.record.status] }} · v{{ command.record.version }}</p>
-        <p v-if="!check?.matched" role="alert">来源变化或起日已过期。提交和批准须新建重算；驳回和取消仍按当前原单依赖检查。</p>
+        <p v-if="!check?.matched" role="alert">来源变化或起日已过期。取消仍须核对当前原单依赖；后续供给须新建计划重算。</p>
         <p>操作原因和账号会留入审计。编制及曾提交此计划的账号不能审核。</p>
         <label>操作依据<AppInput v-model.trim="reason" required maxlength="500" :disabled="busy" /></label>
         <p v-if="operationError" role="alert">{{ operationError }}</p>
-        <AppButton type="submit" variant="primary" :disabled="disabled || !reason.trim() || (['submit','approve'].includes(command.action) && !check?.matched)">确认{{ mrpAction[command.action] }}</AppButton>
+        <AppButton type="submit" variant="primary" :disabled="disabled || !reason.trim()">确认{{ mrpAction[command.action] }}</AppButton>
       </form>
     </NModal>
     <NModal :show="!!conversion" preset="card" title="建议转入原单" :style="modalStyle" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)conversion=null}">

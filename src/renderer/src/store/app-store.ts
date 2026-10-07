@@ -307,9 +307,10 @@ function createAppStore() {
   const physicalLotActions = createPhysicalLotActions(state)
   const documentApprovalActions = { ...createDocumentApprovalActions(state),
     ...createDocumentApprovalCaseActions(state, refreshData, async target => {
-      // CRM、售后与处置有独立列表和详情，审批变化后同步业务版本与可执行动作。
+      // CRM、售后、处置和计划有独立列表和详情，审批变化后同步业务版本与可执行动作。
       if (target.document_type === 'CrmQuote') await crmActions.refreshCrmApproval(target.document_id)
       if (target.document_type === 'AfterSalesCase') await afterSalesActions.refreshAfterSalesApproval(target.document_id)
+      if (target.document_type === 'MrpPlan') await mrpActions.refreshMrpApproval(target.document_id)
       if (target.document_type === 'QualityDisposition') await qualityActions.refreshQualityApproval(target.document_id)
     }) }
   const equipmentActions = createEquipmentActions(state, perform)

@@ -12,7 +12,7 @@ export function createMrpActions(state: AppState, perform: (action: () => Promis
     reads++; policyReads++; clearMrpDetail(); state.mrpLoading.value = false; state.mrpError.value = ''
     state.mrpPlans.value = []; state.mrpOptions.value = null; state.mrpPolicyChanges.value = []
   }
-  watch(() => `${state.user.value?.id}:${state.user.value?.permissions.join('|')}`, () => {
+  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`, () => {
     owner++; invalidate()
     state.mrpForm.value = { reference: '', start_date: '', reason: '', demand_dates: [], supply_dates: [], manual_demands: [] }
   }, { flush: 'sync' })
@@ -48,10 +48,22 @@ export function createMrpActions(state: AppState, perform: (action: () => Promis
       state.mrpDetail.value = record; state.mrpChanges.value = changes; state.mrpCheck.value = check; return true
     } catch (error) { if (ticket === details && session === owner) state.mrpError.value = displayError(error); return false }
   }
+  async function refreshMrpApproval(id: number): Promise<void> {
+    const session = owner, previous = state.mrpDetail.value, ticket = details
+    if (!await loadMrp()) throw new Error('计划列表刷新失败，请重新读取。')
+    // 审批刷新保留未保存编排；关闭或切换的详情不能被迟到响应重新打开。
+    if (session === owner && details === ticket + 1 && previous?.id === id) {
+      if (!await loadMrpDetail({ id })) throw new Error('计划详情刷新失败，请重新读取。')
+    }
+  }
   async function write(permission: string, run: () => Promise<unknown>, message: string, planId?: number): Promise<boolean> {
     if (!can(permission) || !available() || state.busy.value) return false
     const session = owner; let saved = false
-    await perform(async () => { await run(); saved = session === owner && can(permission) }, message)
+    await perform(async () => {
+      // 排队后再次核对账号、实例及连接，避免旧弹窗向新服务端写入。
+      if (session !== owner || !can(permission) || !available()) return
+      await run(); saved = session === owner && can(permission) && available()
+    }, message)
     if (!saved || session !== owner || !can(permission)) return false
     await loadMrp()
     if (planId && session === owner) await loadMrpDetail({ id: planId })
@@ -86,7 +98,7 @@ export function createMrpActions(state: AppState, perform: (action: () => Promis
       if (await window.nexora!.saveReportCsv(`mrp-${item.id}.csv`, item.csv) && session === owner) state.notice.value = '固定计划 CSV 已保存。'
     } catch (error) { if (session === owner) state.mrpError.value = displayError(error) }
   }
-  return { loadMrp, loadMrpDetail, clearMrpDetail, createMrpPlan, exportMrp, loadMrpPolicyChanges,
+  return { loadMrp, refreshMrpApproval, loadMrpDetail, clearMrpDetail, createMrpPlan, exportMrp, loadMrpPolicyChanges,
     saveMrpPolicy: (id: number, input: MrpPolicyInput) => write('mrp.configure', () => window.nexora!.callApi('saveMrpPolicy', { id, ...input }), '计划参数已保存，旧计划须重新计算。'),
     changeMrpStatus: (item: MrpPlan, action: MrpAction, reason: string) => write(['approve','reject'].includes(action) ? 'mrp.review' : `mrp.${action}`,
       () => window.nexora!.callApi('changeMrpStatus', { id: item.id, version: item.version, action, reason }), '计划状态已更新。', item.id),

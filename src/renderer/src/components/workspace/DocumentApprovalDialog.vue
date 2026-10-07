@@ -19,7 +19,7 @@ const key = computed(() => target.value ? approvalTargetKey(target.value) : '')
 const labels = { draft: '未送审', submitted: '审批中', approved: '已批准，待执行', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
 const actions = { submit: '送审', approve: '批准', reject: '驳回', withdraw: '撤回', execute: '执行' }
 // 报价、售后及处置保留原必填依据，售后与处置意见最多二百字。
-const quoteReasonRequired = computed(() => ['CrmQuote', 'AfterSalesCase', 'QualityDisposition'].includes(target.value?.document_type ?? ''))
+const quoteReasonRequired = computed(() => ['CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan'].includes(target.value?.document_type ?? ''))
 const reversalSubmit = computed(() => target.value?.intent === 'reverse' && record.value?.can_submit)
 </script>
 
@@ -56,7 +56,7 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
         </ol>
         <p v-if="record.reversal_reason">送审冲销原因：{{ record.reversal_reason }}</p>
         <label v-if="reversalSubmit || record.can_review || (quoteReasonRequired && record.can_submit)" class="approval-reason">
-          {{ reversalSubmit ? '冲销原因（必填）' : quoteReasonRequired ? `${record.document_type === 'AfterSalesCase' ? '售后' : record.document_type === 'QualityDisposition' ? '处置' : '报价'}操作依据（必填）` : '审批意见（驳回时必填）' }}
+          {{ reversalSubmit ? '冲销原因（必填）' : quoteReasonRequired ? `${record.document_type === 'AfterSalesCase' ? '售后' : record.document_type === 'QualityDisposition' ? '处置' : record.document_type === 'MrpPlan' ? '计划' : '报价'}操作依据（必填）` : '审批意见（驳回时必填）' }}
           <AppInput v-model="reasons[key]" :maxlength="reversalSubmit || ['AfterSalesCase', 'QualityDisposition'].includes(record.document_type) ? 200 : 500" :disabled="disabled" />
         </label>
         <h3>审批记录</h3>

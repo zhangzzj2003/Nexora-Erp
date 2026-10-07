@@ -343,6 +343,18 @@ def sales_return_snapshot(db: Session, identifier: int) -> dict:
                 .where(SalesReturnLine.sales_return_id == identifier).order_by(SalesReturnLine.id)).mappings()]}
 
 
+def mrp_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'MrpPlan', identifier)
+    # 固定完整计划和全部计算依据；转单进度及其他建议的转换人不改变批准正文。
+    authors = {source.created_by}
+    authors.update(db.scalars(select(MrpPlanChange.changed_by).where(
+        MrpPlanChange.plan_id == identifier, MrpPlanChange.action.in_(('create', 'submit')))))
+    authors.update(db.scalars(select(DocumentApprovalAuthor.user_id).where(
+        DocumentApprovalAuthor.document_type == 'MrpPlan', DocumentApprovalAuthor.document_id == identifier)))
+    return {field: getattr(source, field) for field in ('reference', 'input_json', 'snapshot_json', 'fingerprint')} | {
+        'source_author_ids': sorted(authors)}
+
+
 def quality_snapshot(db: Session, identifier: int) -> dict:
     # 处置正文固定原质检与追加材料；成本分配是后续事实，不属于方案审批正文。
     source = document_source(db, 'QualityDisposition', identifier)
@@ -436,7 +448,7 @@ def completion_snapshot(db: Session, identifier: int) -> dict:
 
 def native_review_evidence(db: Session, document_type: str, identifier: int) -> dict | None:
     # 首次接入前保存原流程信息，独立于新审批正文，不能冒充新模板中的批准。
-    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition'):
+    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan'):
         return None
     source = db.get(approval_type(document_type).model, identifier)
     if source.submitted_by is None and source.reviewed_by is None:
@@ -457,6 +469,10 @@ def native_review_evidence(db: Session, document_type: str, identifier: int) -> 
             QualityDispositionChange.disposition_id == identifier,
             QualityDispositionChange.action.in_(('approve', 'reject')))
             .order_by(QualityDispositionChange.id.desc()).limit(1)) or ''
+    elif document_type == 'MrpPlan':
+        result['review_reason'] = db.scalar(select(MrpPlanChange.reason).where(
+            MrpPlanChange.plan_id == identifier, MrpPlanChange.action.in_(('approve', 'reject')))
+            .order_by(MrpPlanChange.id.desc()).limit(1)) or ''
     else:
         result['review_reason'] = source.review_reason
     return result
@@ -479,7 +495,7 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+_SNAPSHOTS = {'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
@@ -537,7 +553,7 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         if source.status != 'posted' or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
     elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
-                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition') else
+                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan') else
                                ('inspected',) if document_type == 'ProductionCompletion' else ('draft',)):
         # 历史已执行记录不补造审批；只限制仍待执行的草稿。
         raise HTTPException(409, '此单据已处理，不能继续审批')
@@ -554,6 +570,13 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
             PurchaseRequestLine.purchase_request_id == identifier)))
         if not any(Decimal(line.quantity) > ordered_quantity(db, line.id) for line in lines):
             raise HTTPException(409, '申请已无待转数量，保留原转单记录')
+    if intent == 'execute' and document_type == 'MrpPlan':
+        import json
+        converted = set(db.scalars(select(MrpConversion.suggestion_key).where(MrpConversion.plan_id == identifier)))
+        suggestions = json.loads(source.snapshot_json)['suggestions']
+        # 旧库全部转完的计划只供核对，不补造新批准；零建议计划仍可留存审核结论。
+        if suggestions and all(row['key'] in converted for row in suggestions):
+            raise HTTPException(409, '计划已无待转建议，保留原转单记录')
     return source
 
 
@@ -580,6 +603,18 @@ def submit_permission(document_type: str, intent: str) -> str | None:
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'MrpPlan':
+        import json
+        inputs, snapshot = json.loads(content['input_json']), json.loads(content['snapshot_json'])
+        summary = [{'label': label, 'value': str(value)} for label, value in [
+            ('计划依据', content['reference']), ('计划起日', inputs['start_date']),
+            ('编制依据', inputs['reason']), ('来源指纹', content['fingerprint']),
+            ('固定建议数', len(snapshot['suggestions'])), ('固定警告数', len(snapshot['warnings']))]]
+        # 完整正文参与摘要校验；通用弹窗限制展示量，明确引导核对原固定结果与 CSV。
+        summary.extend({'label': '固定供给建议', 'value': f"{row['sku']} · {row['name']} × {row['quantity']} {row['unit']}；需求日 {row['due_date']}；{'采购' if row['supply_mode'] == 'buy' else '生产'}"}
+            for row in snapshot['suggestions'][:100])
+        summary.append({'label': '完整依据', 'value': '请核对本计划的结果与来源、警告及固定 CSV；此处最多展示前 100 条建议。'})
+        return summary
     if document_type == 'QualityDisposition':
         import json
         original = json.loads(content['source_json'])

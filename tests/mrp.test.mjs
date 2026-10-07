@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createAppState } from '../src/renderer/src/store/state.ts'
 import { createMrpActions } from '../src/renderer/src/store/modules/mrp-actions.ts'
-import { mrpActions, mrpDraftError, mrpSourceStatus } from '../src/renderer/src/views/workspace/production/mrp-display.ts'
+import { mrpActions, mrpCanConvert, mrpDraftError, mrpSourceStatus } from '../src/renderer/src/views/workspace/production/mrp-display.ts'
 import { movementTypeLabel } from '../src/renderer/src/utils/formatters.ts'
 import { routeByKey, canVisitRoute } from '../src/renderer/src/router/workspace-routes.ts'
 import { callBackend } from '../src/main/backend.ts'
@@ -39,7 +39,8 @@ test('独立路由与曾提交人审核保护，有效原单阻止取消',()=>{
   assert.equal(canVisitRoute(routeByKey('materialPlanning'),['production.view','finance.view']),false)
   const item={status:'submitted',author_ids:[1,2],conversions:[]}
   assert.deepEqual(mrpActions(item,['mrp.review'],2),[])
-  assert.deepEqual(mrpActions(item,['mrp.review'],3),['approve','reject'])
+  assert.deepEqual(mrpActions(item,['mrp.review'],3),[])
+  assert.deepEqual(mrpActions({...item,approval:{status:'submitted'}},['mrp.cancel'],3),[])
   assert.deepEqual(mrpActions({...item,status:'approved',conversions:[{target_status:'draft'}]},['mrp.cancel'],3),[])
 })
 test('IPC 只接受固定计划字段及动作，不能伪造建议数量和快照',async t=>{
@@ -99,4 +100,28 @@ test('查看者可读取结果和参数，但没有写入与转单能力',async 
   assert.equal(await actions.createMrpPlan(),false);assert.equal(await actions.saveMrpPolicy(1,{}),false)
   assert.equal(await actions.convertMrpSuggestion({id:1,version:1},'1:2030-01-01',null,'',''),false)
   assert.deepEqual(called,['mrpPlans','mrpOptions'])
+})
+
+// 分批转换只允许固定批准正文；旧原生批准、来源变化或重复建议必须阻止。
+test('计划转单核对独立批准、剩余建议及原单建单权限',()=>{
+  const item={status:'approved',conversions:[],approval:{status:'approved'}}
+  const row={key:'fixed',supply_mode:'buy'}, check={matched:true}, perms=['mrp.convert','purchase_request.create']
+  assert.equal(mrpCanConvert(item,check,row,perms),true)
+  assert.equal(mrpCanConvert({...item,approval:{status:'executed'}},check,row,perms),true)
+  for(const state of [undefined,{status:'submitted'},{status:'withdrawn'}])assert.equal(mrpCanConvert({...item,approval:state},check,row,perms),false)
+  assert.equal(mrpCanConvert(item,{matched:false},row,perms),false)
+  assert.equal(mrpCanConvert({...item,conversions:[{suggestion_key:'fixed'}]},check,row,perms),false)
+  assert.equal(mrpCanConvert(item,check,row,['mrp.convert']),false)
+})
+test('审批刷新保留编排草稿并恢复当前详情，换实例丢弃排队写入',async t=>{
+  const {state,actions}=fixture(t,async action=>action==='mrpPlans'?[]:action==='mrpOptions'?options:action==='mrpChanges'?[]:action==='mrpCheck'?{matched:true}:{id:9,version:2})
+  state.mrpForm.value=structuredClone(input);state.mrpDetail.value={id:9,version:1}
+  await actions.refreshMrpApproval(9)
+  assert.equal(state.mrpDetail.value.version,2);assert.equal(state.mrpForm.value.reference,'MRP-1')
+  const queued=deferred();let count=0
+  const next=fixture(t,async()=>{count++;return {id:1}},async run=>{await queued.promise;await run()})
+  next.state.mrpForm.value=structuredClone(input)
+  const saving=next.actions.createMrpPlan();next.state.server.value={id:'other',fingerprint:'new'}
+  next.state.mrpForm.value=structuredClone({...input,reference:'新实例草稿'});queued.resolve()
+  assert.equal(await saving,false);assert.equal(count,0);assert.equal(next.state.mrpForm.value.reference,'新实例草稿')
 })
