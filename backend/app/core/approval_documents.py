@@ -12,7 +12,7 @@ from app.core.models import (
     ReceiptWarehouse, Supplier, Warehouse, WarehouseInbound, WarehouseInboundLine,
     WarehouseInboundReversal, PurchaseReturn, PurchaseReturnLine, PurchaseReturnReversal,
     WarehouseOutbound, WarehouseOutboundLine, WarehouseOutboundReversal, MaintenanceJob, MaintenanceChange,
-    AfterSalesCase, AfterSalesChange, Transfer, TransferLine, TransferReversal,
+    AfterSalesCase, AfterSalesChange, AfterSalesAttachment, AfterSalesAttachmentReversal, Transfer, TransferLine, TransferReversal,
     Stocktake, StocktakeLine, StocktakeReversal, StockAdjustment, StockAdjustmentLine, StockAdjustmentReversal,
     CrmQuoteLine, CrmQuoteAttachment, CrmQuoteAttachmentReversal,
     SalesOrder, SalesOrderLine, Shipment, ShipmentLine, ShipmentReversal, SalesReturn, SalesReturnLine,
@@ -162,6 +162,8 @@ def outbound_snapshot(db: Session, identifier: int) -> dict:
     authors.update(db.scalars(select(AfterSalesChange.changed_by).where(
         AfterSalesChange.case_id.in_([row.id for row in cases]),
         AfterSalesChange.action.in_(('create', 'edit', 'submit')))))
+    for case in cases:
+        authors.update(after_sales_snapshot(db, case.id)['source_author_ids'])
     # 仓库查看权限不扩大为采购金额权限，固定来源 ID 及出库正文即可。
     return {'warehouse_id': source.warehouse_id, 'source_kind': source.source_kind,
             'purchase_return_id': source.purchase_return_id, 'reason': source.reason,
@@ -199,6 +201,39 @@ def adjustment_snapshot(db: Session, identifier: int) -> dict:
             'lines': [dict(row) for row in db.execute(select(
                 StockAdjustmentLine.id, StockAdjustmentLine.material_id, StockAdjustmentLine.quantity)
                 .where(StockAdjustmentLine.adjustment_id == identifier).order_by(StockAdjustmentLine.id)).mappings()]}
+
+
+def after_sales_snapshot(db: Session, identifier: int) -> dict:
+    import json
+    from app.core.models import DocumentApprovalAuthor
+    source = document_source(db, 'AfterSalesCase', identifier)
+    executed = db.scalar(select(DocumentApprovalCase).where(
+        DocumentApprovalCase.document_type == 'AfterSalesCase',
+        DocumentApprovalCase.document_id == identifier, DocumentApprovalCase.intent == 'execute',
+        DocumentApprovalCase.status == 'executed'))
+    fixed = json.loads(executed.snapshot_json) if executed else None
+    attachments = list(db.scalars(select(AfterSalesAttachment).where(
+        AfterSalesAttachment.case_id == identifier).order_by(AfterSalesAttachment.id)))
+    # 已执行方案只保留原审批附件；后续维修照片属于作业证据，不改写方案批准依据。
+    if fixed is not None:
+        ids = {row['id'] for row in fixed['attachments']}
+        attachments = [row for row in attachments if row.id in ids]
+    reversals = list(db.scalars(select(AfterSalesAttachmentReversal).where(
+        AfterSalesAttachmentReversal.attachment_id.in_([row.id for row in attachments]))))
+    authors = {source.created_by}
+    authors.update(db.scalars(select(AfterSalesChange.changed_by).where(
+        AfterSalesChange.case_id == identifier, AfterSalesChange.action.in_(('create', 'edit', 'submit')))))
+    authors.update(row.created_by for row in [*attachments, *reversals])
+    authors.update(db.scalars(select(DocumentApprovalAuthor.user_id).where(
+        DocumentApprovalAuthor.document_type == 'AfterSalesCase', DocumentApprovalAuthor.document_id == identifier)))
+    return {**{field: getattr(source, field) for field in (
+        'shipment_line_id', 'reference', 'kind', 'quantity', 'complaint', 'solution', 'charge_mode',
+        'fee_amount', 'customer_acceptance', 'warranty_days', 'warranty_basis', 'warehouse_id',
+        'replacement_material_id', 'replacement_quantity', 'replacement_unit_price', 'source_json', 'parts_json')},
+        'source_author_ids': fixed['source_author_ids'] if fixed is not None else sorted(authors),
+        'attachments': [{'id': row.id, 'file_name': row.file_name, 'sha256': row.sha256,
+            'reversal_id': next((item.id for item in reversals if item.attachment_id == row.id), None)}
+            for row in attachments]}
 
 
 def quote_snapshot(db: Session, identifier: int) -> dict:
@@ -242,6 +277,8 @@ def sales_source_authors(db: Session, order_id: int) -> list[int]:
         AfterSalesChange.action.in_(('create', 'edit', 'submit', 'process')))))
     for quote in quotes:
         authors.update(quote_snapshot(db, quote.id)['source_author_ids'])
+    for case in cases:
+        authors.update(after_sales_snapshot(db, case.id)['source_author_ids'])
     return sorted(authors)
 
 
@@ -293,6 +330,8 @@ def sales_return_snapshot(db: Session, identifier: int) -> dict:
     authors.update(db.scalars(select(AfterSalesChange.changed_by).where(
         AfterSalesChange.case_id.in_([row.id for row in cases]),
         AfterSalesChange.action.in_(('create', 'edit', 'submit', 'process')))))
+    for case in cases:
+        authors.update(after_sales_snapshot(db, case.id)['source_author_ids'])
     return {'shipment_id': source.shipment_id, 'sales_order_id': order.id,
             'customer_id': order.customer_id, 'warehouse_id': source.warehouse_id,
             'reason': source.reason, 'source_author_ids': sorted(authors),
@@ -375,18 +414,24 @@ def completion_snapshot(db: Session, identifier: int) -> dict:
 
 def native_review_evidence(db: Session, document_type: str, identifier: int) -> dict | None:
     # 首次接入前保存原流程信息，独立于新审批正文，不能冒充新模板中的批准。
-    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote'):
+    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase'):
         return None
     source = db.get(approval_type(document_type).model, identifier)
     if source.submitted_by is None and source.reviewed_by is None:
         return None
     result = {field: getattr(source, field) for field in (
         'status', 'submitted_by', 'submitted_at', 'reviewed_by', 'reviewed_at')}
-    # 报价原意见保存在追加审计中，不存在主单 review_reason 字段。
-    result['review_reason'] = (db.scalar(select(CrmChange.reason).where(
-        CrmChange.entity_kind == 'quote', CrmChange.entity_id == identifier,
-        CrmChange.action.in_(('approve', 'reject'))).order_by(CrmChange.id.desc()).limit(1)) or '') \
-        if document_type == 'CrmQuote' else source.review_reason
+    # 报价和售后意见保存在追加审计中，不存在主单 review_reason 字段。
+    if document_type == 'CrmQuote':
+        result['review_reason'] = db.scalar(select(CrmChange.reason).where(
+            CrmChange.entity_kind == 'quote', CrmChange.entity_id == identifier,
+            CrmChange.action.in_(('approve', 'reject'))).order_by(CrmChange.id.desc()).limit(1)) or ''
+    elif document_type == 'AfterSalesCase':
+        result['review_reason'] = db.scalar(select(AfterSalesChange.reason).where(
+            AfterSalesChange.case_id == identifier, AfterSalesChange.action.in_(('approve', 'reject')))
+            .order_by(AfterSalesChange.id.desc()).limit(1)) or ''
+    else:
+        result['review_reason'] = source.review_reason
     return result
 
 
@@ -407,7 +452,7 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+_SNAPSHOTS = {'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
@@ -448,6 +493,10 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
             or source.source_kind == 'purchase_return' and source.purchase_return_id is None):
         raise HTTPException(409, '出库单缺少有效业务来源，不能审批')
     if intent == 'reverse':
+        if document_type == 'AfterSalesCase':
+            if source.status != 'closed':
+                raise HTTPException(409, '售后仅可对已结案单另行申请更正')
+            return source
         if document_type == 'WarehouseOutbound' and source.source_kind != 'other':
             raise HTTPException(422, '采购退货出库请从原退货单另行申请冲销')
         reversal = _REVERSE.get(document_type)
@@ -457,7 +506,7 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         if source.status != 'posted' or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
     elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
-                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote') else
+                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase') else
                                ('inspected',) if document_type == 'ProductionCompletion' else ('draft',)):
         # 历史已执行记录不补造审批；只限制仍待执行的草稿。
         raise HTTPException(409, '此单据已处理，不能继续审批')
@@ -490,12 +539,34 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
 
 def submit_permission(document_type: str, intent: str) -> str | None:
     # 冲销送审/撤回沿用冲销权限，不能因为有建单权限而获得冲销权限。
+    if intent == 'reverse' and document_type == 'AfterSalesCase':
+        return 'after_sales.reverse'
     if intent == 'reverse' and document_type in _REVERSE:
         return _REVERSE[document_type][2]
     return None
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'AfterSalesCase':
+        import json
+        original = json.loads(content['source_json'])
+        summary = [{'label': label, 'value': str(value) if value is not None else '—'} for label, value in [
+            ('客户', original['customer_name']), ('原出库明细', content['shipment_line_id']),
+            ('售后依据', content['reference']), ('处理方式', {'return': '退货', 'exchange': '换货', 'repair': '维修'}[content['kind']]),
+            ('物品及数量', f"{original['sku']} · {original['material_name']} × {content['quantity']} {original['unit']}"),
+            ('客户诉求', content['complaint']), ('办理方案', content['solution']),
+            ('客户同意依据', content['customer_acceptance']),
+            ('维修收费', f"{ {'none': '不涉及维修费', 'free': '免费维修', 'charge': '收费维修'}[content['charge_mode']] } · ¥{content['fee_amount']}"),
+            ('保修依据', content['warranty_basis'] or '未确认保修条款')]]
+        if 'replacement' in original:
+            line = original['replacement']
+            summary.append({'label': '换货计划', 'value': f"{line['sku']} · {line['material_name']} × {line['quantity']} {line['unit']}；单价 ¥{line['unit_price']}"})
+        summary.extend({'label': '维修耗材', 'value': f"{line['sku']} · {line['material_name']} × {line['quantity']} {line['unit']}"}
+            for line in json.loads(content['parts_json']))
+        summary.extend({'label': '方案附件', 'value': row['file_name'] +
+            ('（已撤销）' if row['reversal_id'] else '') + ' · SHA256 ' + row['sha256']}
+            for row in content['attachments'])
+        return summary
     # 报价使用固定的名称和联系方式；资料改名不能改写送审显示的依据。
     if document_type == 'CrmQuote':
         import json

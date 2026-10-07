@@ -216,7 +216,10 @@ def warranty_data(warranty_days, created_at, frozen_source):
 
 
 def case_data(db, row):
+    from app.core.document_approval import case_data as approval_data, find_case
     result = model_data(row)
+    result['approval'] = approval_data(find_case(db, 'AfterSalesCase', row.id))
+    result['reversal_approval'] = approval_data(find_case(db, 'AfterSalesCase', row.id, 'reverse'))
     result['frozen_source'] = json.loads(result.pop('source_json'))
     result.update(warranty_data(row.warranty_days, row.created_at, result['frozen_source']))
     result['parts'] = json.loads(result.pop('parts_json'))

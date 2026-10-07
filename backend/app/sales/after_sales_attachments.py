@@ -2,6 +2,8 @@
 
 from app.core.document_responses import NumberedRoute
 import hashlib
+import json
+from app.core.document_approval import find_case, record_author
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import Response
@@ -25,14 +27,17 @@ def visible_case(db: Session, case_id: int, user: dict) -> AfterSalesCase:
 
 
 def modifiable(case: AfterSalesCase) -> bool:
-    return case.status in ('draft', 'submitted', 'approved', 'rejected',
+    return case.status in ('draft', 'rejected',
         'processing', 'received', 'repaired')
 
 
 def attachment_data(db: Session, row: AfterSalesAttachment) -> dict:
     reversal = db.scalar(select(AfterSalesAttachmentReversal).where(
         AfterSalesAttachmentReversal.attachment_id == row.id))
-    return dict(id=row.id, case_id=row.case_id, file_name=row.file_name,
+    approved = find_case(db, 'AfterSalesCase', row.case_id)
+    frozen = approved is not None and approved.status == 'executed' and any(
+        item['id'] == row.id for item in json.loads(approved.snapshot_json)['attachments'])
+    return dict(can_reverse=not frozen, id=row.id, case_id=row.case_id, file_name=row.file_name,
         media_type=row.media_type, byte_count=row.byte_count, sha256=row.sha256,
         reason=row.reason, created_by=row.created_by, created_at=row.created_at,
         created_by_name=db.scalar(select(User.username).where(User.id == row.created_by)),
@@ -68,7 +73,7 @@ def add_attachment(data: AttachmentInput, case_id: int = Path(gt=0),
     with orm_session(write=True) as db:
         case = visible_case(db, case_id, user)
         if not modifiable(case):
-            raise HTTPException(409, '售后单已结案、取消或更正，不能添加附件')
+            raise HTTPException(409, '审批期间请先撤回；已结案、取消或更正的售后单不能添加附件')
         active = select(AfterSalesAttachment.id).where(
             AfterSalesAttachment.case_id == case_id,
             ~select(AfterSalesAttachmentReversal.id).where(
@@ -77,6 +82,8 @@ def add_attachment(data: AttachmentInput, case_id: int = Path(gt=0),
             raise HTTPException(409, '单张售后单最多保留 10 个有效附件')
         if db.scalar(active.where(AfterSalesAttachment.sha256 == digest).limit(1)) is not None:
             raise HTTPException(409, '此售后单已有相同内容的有效附件')
+        if case.status in ('draft', 'rejected'):
+            record_author(db, 'AfterSalesCase', case.id, user['id'])
         row = add_model(db, AfterSalesAttachment(case_id=case_id,
             file_name=data.file_name, media_type=media_type, byte_count=len(content),
             sha256=digest, content=content, reason=data.reason, created_by=user['id']))
@@ -108,7 +115,13 @@ def reverse_attachment(data: ReversalInput, case_id: int = Path(gt=0),
             case = visible_case(db, case_id, user)
             row = get_attachment(db, case_id, attachment_id)
             if not modifiable(case):
-                raise HTTPException(409, '售后单已结案、取消或更正，不能撤销附件')
+                raise HTTPException(409, '审批期间请先撤回；已结案、取消或更正的售后单不能撤销附件')
+            approved = find_case(db, 'AfterSalesCase', case_id)
+            if approved is not None and approved.status == 'executed' and any(
+                    item['id'] == row.id for item in json.loads(approved.snapshot_json)['attachments']):
+                raise HTTPException(409, '已执行方案的批准附件须保留，请追加后续作业证据')
+            if case.status in ('draft', 'rejected'):
+                record_author(db, 'AfterSalesCase', case.id, user['id'])
             if db.scalar(select(AfterSalesAttachmentReversal.id).where(
                     AfterSalesAttachmentReversal.attachment_id == row.id)) is not None:
                 raise HTTPException(409, '附件已撤销')

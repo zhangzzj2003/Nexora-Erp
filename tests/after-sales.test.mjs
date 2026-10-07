@@ -35,9 +35,11 @@ test('售后入口、独立审核及关联单据权限均独立核对',()=>{
   assert.equal(canVisitRoute(routeByKey('afterSales'),['sales.view']),false)
   assert.equal(canVisitRoute(routeByKey('afterSales'),['after_sales.view']),true)
   assert.deepEqual(afterSalesActions(row,['after_sales.review'],1),[])
-  assert.deepEqual(afterSalesActions(row,['after_sales.review'],2),['approve','reject'])
+  assert.deepEqual(afterSalesActions(row,['after_sales.review'],2),[])
   assert.deepEqual(afterSalesActions({...row,status:'approved',kind:'exchange'},['after_sales.process'],2),[])
-  assert.deepEqual(afterSalesActions({...row,status:'approved',kind:'exchange'},permissions,2),['process','cancel'])
+  assert.deepEqual(afterSalesActions({...row,status:'approved',kind:'exchange'},permissions,2),['cancel'])
+  assert.deepEqual(afterSalesActions({...row,status:'approved',kind:'exchange',approval:{status:'approved'}},permissions,2),['process'])
+  assert.deepEqual(afterSalesActions({...row,status:'submitted',approval:{status:'submitted'}},permissions,2),[])
   assert.equal(financialSource({source_type:'after_sales_repair',source_id:3}),'售后维修服务费 #3')
 })
 test('IPC 只发送编制字段及固定动作，拒绝编号、检验结果和路径注入',async t=>{
@@ -254,4 +256,49 @@ test('从原出库建立售后草稿时带入订单保修条款',async t=>{
   assert.equal(actions.startAfterSalesCase(4),true)
   assert.equal(state.afterSalesForm.value.warranty_days,null)
   assert.equal(state.afterSalesForm.value.warranty_basis,'')
+})
+
+// 审批刷新保持本实例草稿，详情关闭或切换实例时不恢复旧单据。
+test('售后审批刷新更新阶段但不重置草稿或重新打开关闭的详情',async t=>{
+  let pending
+  const {state,actions}=fixture(t,async operation=>operation==='afterSalesOverview' && pending ? pending.promise : operation==='afterSalesOverview'?overview:row)
+  state.afterSalesForm.value.reference='未保存的客户诉求'
+  state.afterSalesDetail.value=row
+  await actions.refreshAfterSalesApproval(1)
+  assert.equal(state.afterSalesDetail.value.id,1)
+  assert.equal(state.afterSalesForm.value.reference,'未保存的客户诉求')
+  pending=deferred();const waiting=actions.refreshAfterSalesApproval(1)
+  actions.clearAfterSalesDetail();pending.resolve(overview);await waiting
+  assert.equal(state.afterSalesDetail.value,null)
+  pending=deferred();const old=actions.loadAfterSales()
+  state.server.value={id:'other',fingerprint:'new-instance'}
+  pending.resolve(overview);assert.equal(await old,false)
+  assert.equal(state.afterSalesOverview.value,null)
+})
+
+function correctionApproval(){
+  const time='2026-10-07 00:00:00'
+  return {document_type:'AfterSalesCase',document_id:1,intent:'reverse',document_no:'SHD-20261007-000001',
+    business_status:'closed',reversal_reason:'原已批准的结案更正原因',summary:[],content_matches:true,
+    version:2,status:'approved',generation:1,current_step:1,steps:[{name:'批准',role:null}],policy_version:1,
+    submitted_by:1,submitted_at:time,executed_by:null,executed_at:null,
+    can_submit:false,can_review:false,can_withdraw:true,
+    events:[{id:1,version:1,generation:1,action:'submit',step:0,step_name:null,actor_id:1,actor_name:'申请人',reason:'更正原因',created_at:time},
+      {id:2,version:2,generation:1,action:'approve',step:0,step_name:'批准',actor_id:2,actor_name:'审核人',reason:'核对',created_at:time}]}
+}
+// 原因取自服务端固定批准；异步读取期间切换实例不得发送任何更正。
+test('售后结案更正只使用固定批准原因，旧实例响应不能触发新实例写入',async t=>{
+  const calls=[];let pending
+  const {state,actions}=fixture(t,async(operation,data)=>{
+    calls.push([operation,data])
+    if(operation==='documentApproval')return pending?pending.promise:correctionApproval()
+    return operation==='afterSalesOverview'?overview:row
+  })
+  assert.equal(await actions.changeAfterSalesCase({...row,status:'closed'},'reverse','界面意见不能替代原原因',''),true)
+  assert.equal(calls.find(([operation])=>operation==='changeAfterSalesCase')[1].reason,'原已批准的结案更正原因')
+  calls.length=0;pending=deferred()
+  const old=actions.changeAfterSalesCase({...row,status:'closed'},'reverse','旧实例操作','')
+  state.server.value={id:'another',fingerprint:'different'}
+  pending.resolve(correctionApproval());assert.equal(await old,false)
+  assert.deepEqual(calls.map(([operation])=>operation),['documentApproval'])
 })

@@ -81,6 +81,9 @@ def document_access(db, document_type: str, identifier: int, user_id: int):
              'SalesReturn': require_visible_return}.get(document_type)
     if scope is not None:
         scope(db, identifier, user)
+    if document_type == 'AfterSalesCase':
+        from app.sales.customer_scope import require_visible_after_sales
+        require_visible_after_sales(db, source, user)
     if document_type == 'CrmQuote':
         from app.sales.crm_rules import get_record
         get_record(db, 'quote', identifier, user=user)
@@ -133,7 +136,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]
     summary = document_summary(db, document_type, frozen_content)
-    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote') and intent == 'execute':
+    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase') and intent == 'execute':
         # 升级前记录只作历史核对；首次送审后从不可改写的事件恢复。
         previous = native_review_evidence(db, document_type, identifier) if row is None else None
         if row:
@@ -183,23 +186,41 @@ def act_document_approval(document_type: str, identifier: int,
         native = native_review_evidence(db, document_type, identifier)
         prior = native if row is None and payload.intent == 'execute' else None
         before = None
-        if document_type == 'CrmQuote' and payload.intent == 'execute':
+        if document_type in ('CrmQuote', 'AfterSalesCase') and payload.intent == 'execute':
             # 使用外层业务事务准备固定正文，失败时原资料、原审计与审批事件全部回滚。
-            from app.sales.crm_quotes import prepare_approval_action
+            if document_type == 'CrmQuote':
+                from app.sales.crm_quotes import prepare_approval_action
+            else:
+                from app.sales.after_sales import prepare_approval_action
             workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else rule.submit_permission)
             workflow.check_version(row.version if row else 0, payload.version)
             document_pending(db, document_type, identifier, payload.intent)
             if action == 'submit':
-                # 送审人先进入固定作者范围，原报价审计追加后不会改变审批摘要。
+                # 送审人先进入固定作者范围，原领域审计追加后不会改变审批摘要。
                 for author_id in {user['id'], source.created_by, *([native['submitted_by']] if native and native['submitted_by'] else [])}:
                     workflow.record_author(db, document_type, identifier, author_id)
             before = prepare_approval_action(db, source, action, user, payload.reason)
+        if document_type == 'AfterSalesCase' and payload.intent == 'reverse' and action in ('submit', 'approve', 'reject') and (not payload.reason.strip() or len(payload.reason.strip()) > 200):
+            raise HTTPException(422, '售后更正审核依据必填，最多二百字')
+        extra_authors = []
+        if document_type == 'AfterSalesCase' and payload.intent == 'reverse' and action == 'submit':
+            from app.core.models import AfterSalesChange
+            workflow.actor(db, user['id'], 'after_sales.reverse')
+            workflow.check_version(row.version if row else 0, payload.version)
+            document_pending(db, document_type, identifier, payload.intent)
+            extra_authors = list(db.scalars(select(AfterSalesChange.changed_by).where(
+                AfterSalesChange.case_id == identifier,
+                AfterSalesChange.action.not_in(('approve', 'reject', 'withdraw')))))
+            # 原审核人员没有编制或办理时可继续独立核对；实际办理作者才进入排除范围。
+            # 旧已结案单没有执行快照，先登记更正申请人及原办理作者，再固定当前正文。
+            for author_id in {source.created_by, user['id'], *extra_authors}:
+                workflow.record_author(db, document_type, identifier, author_id)
         content = document_snapshot(db, document_type, identifier, payload.intent, reason)
         if action == 'submit':
             # 派生草稿同时排除原方案编制人员；作者范围取自服务端快照，客户端无法指定。
             original = content['document'] if payload.intent == 'reverse' else content
             result = workflow.submit(db, document_type, identifier, content, payload.version, user['id'],
-                            authors=[*original.get('source_author_ids', ()),
+                            authors=[*extra_authors, *original.get('source_author_ids', ()),
                                      *([native['submitted_by']] if native and native['submitted_by'] else [])],
                             prior_state=prior, reason=payload.reason,
                             intent=payload.intent, permission=submit_permission(document_type, payload.intent))
@@ -212,6 +233,9 @@ def act_document_approval(document_type: str, identifier: int,
         if payload.intent == 'execute':
             if document_type == 'CrmQuote':
                 from app.sales.crm_quotes import sync_approval_action
+                sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
+            elif document_type == 'AfterSalesCase':
+                from app.sales.after_sales import sync_approval_action
                 sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
             else:
                 sync_native_review(db, document_type, identifier, action, result, user['id'], payload.reason)

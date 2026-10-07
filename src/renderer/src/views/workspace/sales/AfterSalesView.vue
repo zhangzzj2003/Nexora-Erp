@@ -6,6 +6,7 @@ import {storeToRefs} from 'pinia'
 import {NModal} from 'naive-ui'
 import type {AfterSalesAction,AfterSalesEvidence,AfterSalesResponsibilityOutcome} from '../../../../../shared/after-sales-api'
 import {usePiniaAppStore} from '../../../store/app-store'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -17,7 +18,7 @@ import AfterSalesLaborCost from './AfterSalesLaborCost.vue'
 import AfterSalesRepairMargin from './AfterSalesRepairMargin.vue'
 import {afterSalesActions,afterSalesKind,afterSalesStatus,afterSalesCommand,afterSalesReversalHint} from './after-sales-display'
 const store=usePiniaAppStore()
-const {afterSalesOverview:overview,afterSalesDetail:detail,afterSalesLoading:loading,afterSalesError:failure,busy,user,connectionLost,error}=storeToRefs(store)
+const {afterSalesOverview:overview,afterSalesDetail:detail,afterSalesLoading:loading,afterSalesError:failure,busy,user,server,connectionLost,error}=storeToRefs(store)
 const mode=ref<'sources'|'records'>('sources'),editor=ref(false),query=ref(''),preparing=ref(false),reason=ref(''),evidence=ref(''),inspection=ref<'pass'|'fail'|''>('')
 const command=ref<{row:AfterSalesEvidence;action:AfterSalesAction}|null>(null)
 const laborCommand=ref<{row:AfterSalesEvidence;entryId:number|null}|null>(null),laborHours=ref('')
@@ -35,7 +36,16 @@ async function prepare(id:number,action:AfterSalesAction):Promise<void>{
   if(disabled.value)return;preparing.value=true;command.value=null;reason.value='';evidence.value='';inspection.value='';error.value=''
   try{if(await store.loadAfterSalesDetail(id)&&detail.value&&actions(detail.value).includes(action))command.value={row:detail.value,action}}finally{preparing.value=false}
 }
-async function execute():Promise<void>{if(command.value&&await store.changeAfterSalesCase(command.value.row,command.value.action,reason.value,evidence.value,inspection.value||undefined))command.value=null}
+async function execute():Promise<void>{
+  if(!command.value || disabled.value)return
+  const {row,action}=command.value
+  const current=overview.value?.cases.find(item=>item.id===row.id)
+  // 弹窗打开后若另一人撤回审批或单据版本变化，保留输入并提示重新核对。
+  if(!current || current.version!==row.version || !actions(current).includes(action)){
+    error.value='售后阶段或审批已变化，请重新读取证据后核对。';return
+  }
+  if(await store.changeAfterSalesCase(current,action,reason.value,evidence.value,inspection.value||undefined))command.value=null
+}
 async function prepareLabor(entryId:number|null):Promise<void>{
   if(disabled.value||!detail.value||!store.can('after_sales.labor'))return
   const id=detail.value.id;preparing.value=true;laborCommand.value=null;laborHours.value='';reason.value='';evidence.value='';error.value=''
@@ -75,7 +85,7 @@ async function executeResponsibility():Promise<void>{
     responsibilityBasis.value,reason.value))responsibilityCommand.value=null
 }
 function selectMode(value:'sources'|'records'):void{if(busy.value)return;mode.value=value;editor.value=false;query.value='';store.clearAfterSalesDetail()}
-watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{command.value=null;laborCommand.value=null;responsibilityCommand.value=null;editor.value=false;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
+watch(()=>`${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`,()=>{command.value=null;laborCommand.value=null;responsibilityCommand.value=null;editor.value=false;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
 watch(connectionLost,()=>{command.value=null;laborCommand.value=null;responsibilityCommand.value=null;if(!connectionLost.value&&store.can('after_sales.view'))void store.loadAfterSales()})
 onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSalesDetail())
 </script>
@@ -99,7 +109,7 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
         <template #cell-source="{row}"><strong>{{ documentLabel(row) }} · {{ row.reference }}</strong><span class="after-secondary">{{ row.frozen_source.customer_name }} · 出库 {{ relatedDocumentLabel(row, 'shipment', row.frozen_source) }}</span></template>
         <template #cell-plan="{row}">{{ afterSalesKind[row.kind as keyof typeof afterSalesKind] }} {{ row.quantity }} {{ row.frozen_source.unit }}<span v-if="row.kind==='repair'" class="after-secondary">{{ row.charge_mode==='free'?'明确免费维修':`整单服务费 ${row.fee_amount} 元` }}</span></template>
         <template #cell-stage="{row}">{{ afterSalesStatus[row.status as keyof typeof afterSalesStatus] }}<span class="after-secondary">v{{ row.version }} · {{ row.created_by_name }}</span></template>
-        <template #cell-actions="{row}"><div class="after-toolbar"><AppButton :disabled="disabled" @click="store.loadAfterSalesDetail(row.id)">查看证据</AppButton><AppButton v-if="store.can('after_sales.create')&&['draft','rejected'].includes(row.status)" :disabled="disabled" @click="editRecord(row.id)">修订</AppButton><AppButton v-for="action in actions(row)" :key="action" :disabled="disabled" @click="prepare(row.id,action)">{{ afterSalesCommand[action] }}</AppButton></div></template>
+        <template #cell-actions="{row}"><div class="after-toolbar"><AppButton :disabled="disabled" @click="store.loadAfterSalesDetail(row.id)">查看证据</AppButton><AppButton v-if="store.can('after_sales.create')&&['draft','rejected'].includes(row.status)" :disabled="disabled" @click="editRecord(row.id)">修订</AppButton><AppButton :disabled="disabled" @click="store.openDocumentApproval({document_type:'AfterSalesCase',document_id:row.id,intent:'execute'})">单据审批</AppButton><AppButton v-if="row.status==='closed'&&store.can('after_sales.reverse')" :disabled="disabled" @click="store.openDocumentApproval({document_type:'AfterSalesCase',document_id:row.id,intent:'reverse'})">结案更正审批</AppButton><AppButton v-for="action in actions(row)" :key="action" :disabled="disabled" @click="prepare(row.id,action)">{{ afterSalesCommand[action] }}</AppButton></div></template>
         <template #empty>尚无售后记录。选择原出库编制申请，提交后独立审核。</template>
       </WorkspaceTable>
       <AfterSalesEvidenceView v-if="detail" :row="detail" />
@@ -113,6 +123,7 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
           :key="entry.id" :disabled="disabled" @click="prepareLabor(entry.id)">更正工时 {{ documentLabel(entry) }}</AppButton>
       </div>
     </template>
+    <DocumentApprovalDialog title="售后方案审批" />
     <NModal :show="!!command" preset="card" :title="command?afterSalesCommand[command.action]:''" style="width:min(800px,calc(100vw - 48px));max-height:calc(100vh - 48px);overflow:auto" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value&&!busy)command=null}">
       <form v-if="command" class="after-operation" @submit.prevent="execute">
         <AfterSalesEvidenceView :row="command.row" compact />
@@ -122,10 +133,11 @@ onMounted(()=>{void store.loadAfterSales()});onUnmounted(()=>store.clearAfterSal
         <p v-if="command.action==='cancel'">已办理关联草稿须先取消；已收件维修须填写实际交还依据，已使用的公司耗材记录继续保留。</p>
         <p v-if="command.action==='reverse'">保留原结案及交接历史。{{ afterSalesReversalHint(command.row) }}</p>
         <label v-if="command.action==='inspect'">维修检验结果<WorkspaceSelect v-model="inspection" :options="[{label:'请选择检验结果',value:'',disabled:true},{label:'检验合格，可办理交还',value:'pass'},{label:'检验不合格，继续维修',value:'fail'}]" :disabled="busy" required /></label>
-        <label>操作原因<AppInput v-model.trim="reason" maxlength="200" required :disabled="busy" /></label>
+        <p v-if="command.action==='reverse'">更正原因采用已经批准的固定内容。</p>
+        <label v-else>操作原因<AppInput v-model.trim="reason" maxlength="200" required :disabled="busy" /></label>
         <label>实际交接、检验或客户确认依据<AppInput v-model.trim="evidence" maxlength="400" :required="['receive','inspect','close'].includes(command.action)||(['received','repaired'].includes(command.row.status)&&command.action==='cancel')" :disabled="busy" /></label>
         <p v-if="error" role="alert">{{ error }} 原因和依据已保留；请重新加载最新证据后核对。</p>
-        <div class="after-toolbar"><AppButton type="submit" variant="primary" :disabled="busy||connectionLost||!reason.trim()||(command.action==='inspect'&&!inspection)">{{ busy?'正在处理…':afterSalesCommand[command.action] }}</AppButton><AppButton :disabled="busy" @click="command=null">返回核对</AppButton></div>
+        <div class="after-toolbar"><AppButton type="submit" variant="primary" :disabled="busy||connectionLost||(command.action!=='reverse'&&!reason.trim())||(command.action==='inspect'&&!inspection)">{{ busy?'正在处理…':afterSalesCommand[command.action] }}</AppButton><AppButton :disabled="busy" @click="command=null">返回核对</AppButton></div>
       </form>
     </NModal>
     <NModal :show="!!responsibilityCommand" preset="card" :title="responsibilityCommand?.responsibility?'更正责任核定':'登记责任核定'" style="width:min(700px,calc(100vw - 48px))" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value&&!busy)responsibilityCommand=null}">

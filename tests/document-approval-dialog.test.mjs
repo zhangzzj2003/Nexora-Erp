@@ -111,4 +111,16 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   store.documentApprovalRecord.can_review=false;store.documentApprovalRecord.business_status='converted'
   assert.match(await render(), /已处理单据保留原业务记录/)
 
+  // 售后意见沿用原二百字约束，已收件的旧单据不补造新批准。
+  store.documentApprovalTarget={document_type:'AfterSalesCase',document_id:1,intent:'execute'}
+  store.documentApprovalRecord={...store.documentApprovalRecord,document_type:'AfterSalesCase',
+    business_status:'draft',version:0,can_submit:true,can_review:false}
+  html=await render()
+  assert.match(html,/售后操作依据（必填）/)
+  assert.match(html,/maxlength="200"/)
+  assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
+  store.documentApprovalRecord={...store.documentApprovalRecord,business_status:'received',can_submit:false}
+  html=await render()
+  assert.match(html,/已处理单据保留原业务记录/)
+
 })

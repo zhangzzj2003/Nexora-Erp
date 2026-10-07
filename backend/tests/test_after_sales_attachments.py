@@ -92,9 +92,11 @@ def test_permission_and_customer_scope(erp):
 
 def test_closed_case_keeps_attachment_read_only(erp):
     _, api, *_ = erp
-    case = approved(erp, payload(erp))
+    case = api('POST', ROOT, payload(erp), status=201)
     base = path(case['id'])
     item = api('POST', base, attachment(), status=201)
+    case = action(api, case, 'submit')
+    case = action(api, case, 'approve', actor='reviewer')
     case = action(api, case, 'receive')
     case = action(api, case, 'inspect', inspection_result='pass')
     action(api, case, 'close')

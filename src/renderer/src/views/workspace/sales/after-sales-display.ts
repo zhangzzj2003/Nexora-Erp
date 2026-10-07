@@ -17,19 +17,17 @@ export function afterSalesReversalHint(row:Pick<AfterSalesEvidence,'kind'|'charg
 export function afterSalesActions(row:AfterSalesEvidence,permissions:string[],userId:number):AfterSalesAction[]{
   const permitted=(action:AfterSalesAction)=>permissions.includes(['approve','reject'].includes(action)?'after_sales.review':`after_sales.${action}`)
   const choices:AfterSalesAction[]=[]
+  // 旧原生已批准状态不能代替统一步骤；实际交接继续按原售后阶段进行。
   if(row.current_source_valid){
-    if(row.status==='draft')choices.push('submit')
-    if(row.status==='submitted' && !row.author_ids.includes(userId))choices.push('approve')
-    if(row.status==='approved'){
+    if(row.status==='approved' && row.approval?.status==='approved'){
       if(row.kind==='repair')choices.push('receive')
       else if(permissions.includes('sales_return.create') && (row.kind!=='exchange' || permissions.includes('sales_order.create')))choices.push('process')
     }
     if(row.status==='received')choices.push('inspect')
     if(['processing','repaired'].includes(row.status))choices.push('close')
   }
-  if(row.status==='submitted' && !row.author_ids.includes(userId))choices.push('reject')
-  if(['draft','submitted','approved','rejected','processing','received','repaired'].includes(row.status))choices.push('cancel')
-  if(row.status==='closed')choices.push('reverse')
+  if(['draft','submitted','approved','rejected','processing','received','repaired'].includes(row.status) && !['submitted','approved'].includes(row.approval?.status??''))choices.push('cancel')
+  if(row.status==='closed' && row.reversal_approval?.status==='approved')choices.push('reverse')
   return choices.filter(permitted)
 }
 const labels:Record<string,string>={reference:'售后依据',shipment_line_id:'原出库明细',kind:'处理方式',quantity:'数量',

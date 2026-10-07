@@ -157,21 +157,20 @@ def test_customer_return_and_correction_keep_daily_net_and_effective_document_co
 
 def test_repair_fee_requires_actual_delivery_and_correction_preserves_original(erp):
     client,api,admin,_,_,_,_,_,_,shipment=erp
-    api('POST','users',{'username':'reviewer','password':'secure-pass-123','roles':['finance']},201)
-    reviewer=api('POST','auth/login',{'username':'reviewer','password':'secure-pass-123'})['token']
     row=api('POST','after-sales/cases',dict(shipment_line_id=shipment['lines'][0]['id'],reference='DASH-FEE',kind='repair',quantity='1',
         complaint='产品异常',solution='维修后交还',charge_mode='charge',fee_amount='5.50',customer_acceptance='客户同意收费',warehouse_id=None,
         replacement_material_id=None,replacement_quantity=None,replacement_unit_price=None,parts=[],reason='登记客户委托'),201)
     def change(action,**extra):
         nonlocal row
         row=api('POST',f'after-sales/cases/{row["id"]}/{action}',{'version':row['version'],'reason':'核对证据','evidence':'实际检验交接记录',**extra})
-    change('submit')
-    client.headers['Authorization']='Bearer '+reviewer;change('approve')
+    approve_document(client, {'Authorization':'Bearer '+admin}, 'AfterSalesCase', row['id'], reason='核对证据')
+    row=api('GET',f'after-sales/cases/{row["id"]}')
     client.headers['Authorization']='Bearer '+admin
     change('receive');change('inspect',inspection_result='pass')
     assert query(erp)['finance']['sales']['current']['amount']=='42.22'
     change('close')
     assert query(erp)['finance']['sales']['current']['amount']=='47.72'
+    approve_document(client, {'Authorization':'Bearer '+admin}, 'AfterSalesCase', row['id'], intent='reverse', reason='核对证据')
     change('reverse')
     result=query(erp)
     assert result['finance']['sales']['current']['amount']=='42.22'

@@ -1,3 +1,4 @@
+import type { DocumentApprovalState } from './document-approval-api'
 import type { NumberedDocument } from './document-numbering'
 import type { MaterialChoice } from './material-api'
 export type AfterSalesKind = 'return' | 'exchange' | 'repair'
@@ -9,6 +10,7 @@ export interface AfterSalesResponsibility {
   assessed_by:number; assessed_by_name:string; created_at:string
 }
 export interface AfterSalesAttachment {
+  can_reverse?:boolean
   id:number; case_id:number; file_name:string; media_type:'application/pdf'|'image/png'|'image/jpeg'
   byte_count:number; sha256:string; reason:string; created_by:number; created_by_name:string; created_at:string
   reversal:{id:number; reason:string; created_by:number; created_by_name:string; created_at:string}|null
@@ -49,6 +51,8 @@ export interface AfterSalesInput {
 }
 export interface AfterSalesDraft extends Omit<AfterSalesInput,'charge_mode'> {charge_mode:AfterSalesInput['charge_mode']|''}
 export interface AfterSalesEvidence extends Omit<AfterSalesInput,'parts'|'reason'> , NumberedDocument {
+  // 方案审批与结案更正分别保存状态，不能相互代替。
+  approval?:DocumentApprovalState; reversal_approval?:DocumentApprovalState
   id:number; status:AfterSalesStatus; version:number; created_by:number; created_by_name:string; created_at:string
   submitted_by:number|null; reviewed_by:number|null; closed_by:number|null; reversed_by:number|null
   submitted_at:string|null; reviewed_at:string|null; closed_at:string|null; reversed_at:string|null

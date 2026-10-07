@@ -1,3 +1,4 @@
+import { validateDocumentApprovalRecord } from '../../../../shared/document-approval-api.ts'
 import {watch} from 'vue'
 import type {AfterSalesAction,AfterSalesAttachment,AfterSalesAttachmentList,AfterSalesDraft,AfterSalesEvidence,AfterSalesInput,AfterSalesLaborCostSummary,AfterSalesRepairMargin,AfterSalesResponsibilityOutcome} from '../../../../shared/after-sales-api'
 import type {AppState} from '../state'
@@ -14,7 +15,7 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
   const available=()=>!!window.nexora && !state.connectionLost.value
   function clearAfterSalesDetail():void{details++;state.afterSalesDetail.value=null}
   function invalidate():void{reads++;clearAfterSalesDetail();state.afterSalesOverview.value=null;state.afterSalesLoading.value=false;state.afterSalesError.value=''}
-  watch(()=>`${state.user.value?.id}:${state.user.value?.permissions.join('|')}`,()=>{
+  watch(()=>`${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`,()=>{
     owner++;invalidate();state.afterSalesForm.value=emptyAfterSalesForm();state.afterSalesEdit.value=null
   },{flush:'sync'})
   // 同账号断线只失效旧证据，填写内容与修订版本继续保留。
@@ -38,6 +39,14 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
       state.afterSalesDetail.value=result;return true
     }catch(error){if(ticket===details && session===owner)state.afterSalesError.value=displayError(error);return false}
   }
+  async function refreshAfterSalesApproval(id:number):Promise<void>{
+    const session=owner,detail=state.afterSalesDetail.value,detailTicket=details
+    if(!await loadAfterSales())throw new Error('售后列表刷新失败，请重新读取审批记录。')
+    // 只恢复此前打开的详情，关闭或切换详情、切换实例后不重新打开旧资料。
+    if(session===owner && details===detailTicket+1 && detail?.id===id){
+      if(!await loadAfterSalesDetail(id))throw new Error('售后详情刷新失败，请重新读取。')
+    }
+  }
   function startAfterSalesCase(lineId:number):boolean{
     if(!can('after_sales.create') || !available() || state.busy.value)return false
     const original=state.afterSalesOverview.value?.sources.find(row=>row.shipment_line_id===lineId)
@@ -58,7 +67,7 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
       parts:row.parts.map(({material_id,quantity})=>({material_id,quantity})),reason:''}
     state.afterSalesEdit.value={id:row.id,version:row.version};state.error.value='';return true
   }
-  async function write(permission:string,run:()=>Promise<AfterSalesEvidence>,message:string):Promise<boolean>{
+  async function write(permission:string,run:()=>Promise<AfterSalesEvidence|null>,message:string):Promise<boolean>{
     if(!can(permission) || !available() || state.busy.value)return false
     const session=owner;let saved:AfterSalesEvidence|null=null
     await perform(async()=>{
@@ -143,7 +152,27 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
     await loadAfterSales();if(session===owner)await loadAfterSalesDetail(row.id)
     return session===owner && can('after_sales.cost') ? saved : null
   }
-  return {loadAfterSales,loadAfterSalesDetail,clearAfterSalesDetail,startAfterSalesCase,editAfterSalesCase,saveAfterSalesCase,
+  async function changeAfterSalesCase(row:AfterSalesEvidence,action:AfterSalesAction,reason:string,
+    evidence:string,inspection_result?:'pass'|'fail'):Promise<boolean>{
+    const session=owner
+    return write(['approve','reject'].includes(action)?'after_sales.review':`after_sales.${action}`,async()=>{
+      let fixedReason=reason
+      if(action==='reverse'){
+        const approved=await window.nexora!.callApi('documentApproval',{
+          document_type:'AfterSalesCase',document_id:row.id,intent:'reverse'})
+        // 执行只使用服务端已批准的原因；换实例或权限失效后不发送结案更正。
+        if(session!==owner || !available() || !can('after_sales.reverse') || !can('after_sales.view'))return null
+        validateDocumentApprovalRecord(approved)
+        if(approved.document_type!=='AfterSalesCase' || approved.document_id!==row.id || approved.intent!=='reverse' || approved.status!=='approved' || !approved.content_matches){
+          throw new Error('请先完成结案更正审批。')
+        }
+        fixedReason=approved.reversal_reason
+      }
+      return window.nexora!.callApi('changeAfterSalesCase',{
+        id:row.id,version:row.version,action,reason:fixedReason,evidence,inspection_result})
+    },action==='process'?'关联业务草稿已建立，库存与往来金额须由原单据确认。':'售后阶段及证据已更新，客户物品保管与原单据历史保留。')
+  }
+  return {loadAfterSales,loadAfterSalesDetail,refreshAfterSalesApproval,clearAfterSalesDetail,startAfterSalesCase,editAfterSalesCase,saveAfterSalesCase,
     loadAfterSalesAttachments,uploadAfterSalesAttachment,reverseAfterSalesAttachment,saveAfterSalesAttachment,
     loadAfterSalesLaborCost,valueAfterSalesLaborCost,loadAfterSalesRepairMargin,
     recordAfterSalesLabor:(row:AfterSalesEvidence,hours:string,reason:string,evidence:string)=>write('after_sales.labor',
@@ -152,10 +181,7 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
     reverseAfterSalesLabor:(row:AfterSalesEvidence,entryId:number,reason:string,evidence:string)=>write('after_sales.labor',
       ()=>window.nexora!.callApi('reverseAfterSalesLabor',{id:row.id,version:row.version,entry_id:entryId,reason,evidence}),
       '维修工时已追加反向更正，原始证据保留。'),
-    changeAfterSalesCase:(row:AfterSalesEvidence,action:AfterSalesAction,reason:string,evidence:string,inspection_result?:'pass'|'fail')=>write(
-      ['approve','reject'].includes(action)?'after_sales.review':`after_sales.${action}`,
-      ()=>window.nexora!.callApi('changeAfterSalesCase',{id:row.id,version:row.version,action,reason,evidence,inspection_result}),
-      action==='process'?'关联业务草稿已建立，库存与往来金额须由原单据确认。':'售后阶段及证据已更新，客户物品保管与原单据历史保留。'),
+    changeAfterSalesCase,
     assessAfterSalesResponsibility:(row:AfterSalesEvidence,outcome:AfterSalesResponsibilityOutcome,basis:string,reason:string)=>write(
       'after_sales.review',()=>window.nexora!.callApi('assessAfterSalesResponsibility',
         {id:row.id,version:row.version,outcome,basis,reason}),

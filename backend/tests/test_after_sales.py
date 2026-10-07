@@ -76,6 +76,12 @@ def payload(erp,kind='repair',reference='AFTER-1',quantity='2',**extra):
 
 
 def action(api,row,operation,actor='admin',status=200,**extra):
+    if operation in ('submit', 'approve', 'reject', 'withdraw') and 'version' not in extra:
+        # 原测试显式改走统一步骤，其他实际交接仍使用原业务版本接口。
+        state=api('GET',f'system/document-approvals/AfterSalesCase/{row["id"]}',actor=actor)
+        result=api('POST',f'system/document-approvals/AfterSalesCase/{row["id"]}/{operation}',
+            {'version':state['version'],'reason':extra.get('reason','核对售后依据')},actor=actor,status=status)
+        return api('GET',f'{ROOT}/{row["id"]}',actor=actor) if status==200 else result
     return api('POST',f'{ROOT}/{row["id"]}/{operation}',{'version':row['version'],'reason':'核对售后依据',
         'evidence':'交接检验记录 A-002',**extra},actor=actor,status=status)
 
@@ -481,6 +487,7 @@ def test_repair_margin_combines_recognized_fee_parts_and_labor_without_hiding_ga
     assert complete['movements'][0]['source_line_id'] and complete['movements'][0]['cost_source']=='moving_average'
     assert 'repair_margin' not in api('GET',f'{ROOT}/{row["id"]}',actor='warehouse')
     row=api('GET',f'{ROOT}/{row["id"]}')
+    approve_document(erp[0], erp[2]['admin'], 'AfterSalesCase', row['id'], intent='reverse', reason='核对售后依据')
     action(api,row,'reverse')
     reversed_margin=api('GET',margin_path,actor='reviewer')
     assert reversed_margin['complete'] and reversed_margin['revenue']=='0.00'
@@ -638,6 +645,7 @@ def test_paid_repair_keeps_customer_goods_out_of_stock_and_reconciles_original_o
         assert source['blockers']==[] and source['movements']==[]
     api('POST','finance/payment-records',{'kind':'receivable','order_id':order['id'],'action':'settlement',
         'amount':'105.50','reference':'服务收款'},status=201)
+    approve_document(erp[0], erp[2]['admin'], 'AfterSalesCase', row['id'], intent='reverse', reason='核对售后依据')
     row=action(api,row,'reverse')
     account=next(item for item in api('GET','finance/accounts') if item['kind']=='receivable' and item['order_id']==order['id'])
     assert account['business_amount']=='100.00' and account['outstanding_amount']=='-5.50'
@@ -674,6 +682,7 @@ def test_return_case_uses_existing_return_and_retains_audited_correction(erp):
     api('POST',f'shipments/{shipment["id"]}/reverse',{'reason':'已有售后'},status=409)
     approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'], intent='reverse', reason='退回数量更正')
     api('POST',f'sales-returns/{row["sales_return_id"]}/reverse',{'reason':'退回数量更正'},status=201)
+    approve_document(erp[0], erp[2]['admin'], 'AfterSalesCase', row['id'], intent='reverse', reason='核对售后依据')
     row=action(api,row,'reverse')
     assert row['status']=='reversed' and row['sales_return_id'] is not None
     assert api('GET','after-sales')['sources'][0]['remaining_quantity']=='10'
@@ -699,6 +708,7 @@ def test_exchange_cannot_ship_before_return_or_reverse_return_before_replacement
     approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'], intent='reverse', reason='退货更正')
     api('POST',f'sales-returns/{row["sales_return_id"]}/reverse',{'reason':'退货更正'},status=201)
     api('POST',f'sales-orders/{row["replacement_order_id"]}/cancel')
+    approve_document(erp[0], erp[2]['admin'], 'AfterSalesCase', row['id'], intent='reverse', reason='核对售后依据')
     assert action(api,row,'reverse')['status']=='reversed'
 
 
@@ -734,6 +744,7 @@ def test_pending_cases_and_plain_returns_share_quantity_and_source_guards(erp):
     returned=api('POST','sales-returns',{'shipment_id':shipment['id'],'warehouse_id':1,'reason':'普通退货',
         'lines':[{'shipment_line_id':shipment['lines'][0]['id'],'quantity':'3'}]},status=201)
     api('POST',f'sales-returns/{returned["id"]}/post',status=409)
+    row=action(api,row,'withdraw')
     action(api,row,'cancel')
     approve_document(erp[0], erp[2]['admin'], 'SalesReturn', returned['id'])
     api('POST',f'sales-returns/{returned["id"]}/post')
@@ -748,8 +759,8 @@ def test_concurrent_submission_and_process_never_double_allocate(erp):
     client,_,actors,_,_,_,_=erp
     def submit(row):
         barrier.wait(timeout=5)
-        return client.post(f'/api/v1/{ROOT}/{row["id"]}/submit',headers=actors['admin'],
-            json={'version':row['version'],'reason':'并发数量确认'}).status_code
+        return client.post(f'/api/v1/system/document-approvals/AfterSalesCase/{row["id"]}/submit',headers=actors['admin'],
+            json={'version':0,'reason':'并发数量确认'}).status_code
     with ThreadPoolExecutor(max_workers=2) as pool:
         assert sorted(pool.map(submit,[first,second]))==[200,409]
     row=approved(erp,payload(erp,kind='return',quantity='2',reference='AFTER-3'))
@@ -893,6 +904,7 @@ def test_repair_fee_and_correction_generate_independently_reviewed_balanced_jour
     assert original['total_debit']=='5.50'
     with orm_session() as db:
         assert business_sources(db)[f'after_sales_repair:{row["id"]}']['movements']==[]
+    approve_document(erp[0], erp[2]['admin'], 'AfterSalesCase', row['id'], intent='reverse', reason='核对售后依据')
     action(api,row,'reverse')
     correction=post_source(f'after_sales_repair_reversal:{row["id"]}','REPAIR-FEE-REV')
     assert correction['total_debit']=='5.50'

@@ -2,6 +2,8 @@
 
 from app.core.document_responses import NumberedRoute
 from app.core.document_approval import record_author
+from app.core import document_approval as approval
+from app.core.approval_documents import after_sales_snapshot
 import json
 from decimal import Decimal
 from typing import Literal
@@ -228,10 +230,44 @@ def edit(case_id: int,payload: CaseEdit,user: dict=Depends(require('after_sales.
         if row.status not in ('draft','rejected'):
             raise HTTPException(409,'只有草稿或驳回申请可修订')
         before=model_data(row)
+        record_author(db, 'AfterSalesCase', row.id, user['id'])
         apply_input(db,row,payload)
         row.status='draft'; row.version+=1
         audit(db,row,'edit',before,user['id'],payload.reason)
         return case_data(db,row)
+
+
+def prepare_approval_action(db, row, action, user, reason):
+    # 统一审批使用原领域约束和同一事务；售后原操作依据仍限定二百字。
+    if action in ('submit', 'approve', 'reject') and (not reason.strip() or len(reason.strip()) > 200):
+        raise HTTPException(422, '售后送审与审核依据必填，最多二百字')
+    before = model_data(row)
+    if action in ('submit', 'approve'):
+        check_quantity(db, row)
+    if action == 'submit':
+        original = source(db, row.shipment_line_id, writable=True)
+        if row.kind == 'exchange':
+            replacement = db.get(Material, row.replacement_material_id)
+            if replacement is None:
+                raise HTTPException(409, '换货物料已失效，请撤回后核对')
+            original['replacement'] = dict(material_id=replacement.id, sku=replacement.sku,
+                material_name=replacement.name, unit=replacement.unit,
+                quantity=row.replacement_quantity, unit_price=row.replacement_unit_price)
+        row.source_json = encoded(original)
+        db.flush()
+    return before
+
+
+def sync_approval_action(db, row, action, state, user_id, reason, before):
+    # 中间审核步骤仍占用数量；撤回释放预约量，原人员与每步意见留在追加审计。
+    row.status = 'draft' if action == 'withdraw' else state['status']
+    if action == 'submit':
+        row.submitted_by, row.submitted_at = state['submitted_by'], state['submitted_at']
+        row.reviewed_by = row.reviewed_at = None
+    elif action in ('approve', 'reject'):
+        row.reviewed_by, row.reviewed_at = user_id, now()
+    row.version += 1
+    audit(db, row, action, before, user_id, reason.strip() or '撤回售后方案审批')
 
 
 def permission(user, *codes):
@@ -256,23 +292,22 @@ def change(case_id: int, action: Literal['submit','approve','reject','process','
         if row.version != payload.version:
             raise HTTPException(409,'售后版本已变化，请刷新后核对；本次输入未生效')
         before=model_data(row)
-        if action=='submit' and row.status=='draft':
-            check_quantity(db,row)
-            original=source(db,row.shipment_line_id,writable=True)
-            if row.kind=='exchange':
-                replacement=db.get(Material,row.replacement_material_id)
-                original['replacement']=dict(material_id=replacement.id,sku=replacement.sku,material_name=replacement.name,
-                    unit=replacement.unit,quantity=row.replacement_quantity,unit_price=row.replacement_unit_price)
-            row.source_json=encoded(original)
-            row.status='submitted'; row.submitted_by=user['id']; row.submitted_at=now()
-        elif action in ('approve','reject') and row.status=='submitted':
-            if user['id'] in authors(db,row):
-                raise HTTPException(403,'编制、修订或提交过此申请的账号不能审核，管理员也须独立审核')
-            if action=='approve':
-                check_quantity(db,row)
-            row.status='approved' if action=='approve' else 'rejected'
-            row.reviewed_by=user['id']; row.reviewed_at=now()
-        elif action=='process' and row.status=='approved' and row.kind in ('return','exchange'):
+        # 旧客户端保留原领域权限及业务版本，但不得跳过当前实例的审批步骤。
+        if action in ('submit', 'approve', 'reject'):
+            raise HTTPException(409, '请从单据审批入口按当前审批版本操作')
+        approved = None
+        if action in ('process', 'receive') and row.status == 'approved':
+            approved = approval.require_approved(db, 'AfterSalesCase', row.id,
+                after_sales_snapshot(db, row.id), user['id'], permission='after_sales.' + action)
+        if action == 'reverse' and row.status == 'closed':
+            approved = approval.require_approved(db, 'AfterSalesCase', row.id,
+                {'document': after_sales_snapshot(db, row.id), 'reversal_reason': payload.reason.strip()},
+                user['id'], intent='reverse', permission='after_sales.reverse')
+        if action == 'cancel' and approval.find_case(db, 'AfterSalesCase', row.id) is not None:
+            pending = approval.find_case(db, 'AfterSalesCase', row.id)
+            if pending.status in ('submitted', 'approved'):
+                raise HTTPException(409, '请先撤回售后审批再取消方案')
+        if action=='process' and row.status=='approved' and row.kind in ('return','exchange'):
             permission(user,'sales_return.create')
             if row.kind=='exchange':
                 permission(user,'sales_order.create')
@@ -297,7 +332,7 @@ def change(case_id: int, action: Literal['submit','approve','reject','process','
                 db.add_all([WarehouseOutboundLine(outbound_id=outbound.id,material_id=part['material_id'],quantity=part['quantity']) for part in parts])
                 row.parts_outbound_id=outbound.id
                 # 耗材子单独立送审，原售后方案的建单、编辑和提交人员不能自审。
-                for author_id in authors(db, row):
+                for author_id in after_sales_snapshot(db, row.id)['source_author_ids']:
                     if author_id is not None:
                         record_author(db, 'WarehouseOutbound', outbound.id, author_id)
             db.add(AfterSalesCustody(case_id=row.id,action='receive',quantity=row.quantity,evidence=proof,created_by=user['id']))
@@ -351,6 +386,9 @@ def change(case_id: int, action: Literal['submit','approve','reject','process','
             row.status='reversed'; row.reversed_by=user['id']; row.reversed_at=now()
         else:
             raise HTTPException(409,'当前阶段不能执行该售后操作')
+        if approved is not None:
+            # 实际办理、关联草稿和审批执行事件一起提交，任何异常都整体回滚。
+            approval.mark_executed(db, approved, user['id'], permission='after_sales.' + action)
         row.version+=1
         audit(db,row,'inspect_'+payload.inspection_result if action=='inspect' else action,
             before,user['id'],payload.reason,payload.evidence.strip())

@@ -18,8 +18,8 @@ const disabled = computed(() => busy.value || loading.value || connectionLost.va
 const key = computed(() => target.value ? approvalTargetKey(target.value) : '')
 const labels = { draft: '未送审', submitted: '审批中', approved: '已批准，待执行', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
 const actions = { submit: '送审', approve: '批准', reject: '驳回', withdraw: '撤回', execute: '执行' }
-// 报价沿用原必填操作依据，送审及批准也须明确记录原因。
-const quoteReasonRequired = computed(() => target.value?.document_type === 'CrmQuote')
+// 报价与售后沿用原必填操作依据；售后原审核意见最多二百字。
+const quoteReasonRequired = computed(() => ['CrmQuote', 'AfterSalesCase'].includes(target.value?.document_type ?? ''))
 const reversalSubmit = computed(() => target.value?.intent === 'reverse' && record.value?.can_submit)
 </script>
 
@@ -41,7 +41,7 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
           <div v-for="(item, index) in record.summary" :key="index"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>
         </dl>
         <!-- 已下达或已完工的历史工单同样保留原流程，不能误显示为等待新审批。 -->
-        <p v-if="record.intent === 'execute' && record.version === 0 && ['posted', 'cancelled', 'confirmed', 'partially_shipped', 'shipped', 'closed', 'released', 'in_progress', 'completed', 'converted'].includes(record.business_status)">已处理单据保留原业务记录，不补造审批记录。</p>
+        <p v-if="record.intent === 'execute' && record.version === 0 && ['posted', 'cancelled', 'confirmed', 'partially_shipped', 'shipped', 'closed', 'released', 'in_progress', 'completed', 'converted', 'processing', 'received', 'repaired', 'reversed'].includes(record.business_status)">已处理单据保留原业务记录，不补造审批记录。</p>
         <!-- 旧申请全部转完后只保留原事实；剩余需求的新批准不能倒写成历史订单的批准。 -->
         <p v-else-if="record.document_type === 'PurchaseRequest' && record.version === 0 && record.business_status === 'approved' && !record.can_submit">申请已无待转数量，保留原转单记录，不补造审批。</p>
         <p v-else><strong>{{ labels[record.status] }}</strong> · 审批版本 {{ record.version }}</p>
@@ -56,8 +56,8 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
         </ol>
         <p v-if="record.reversal_reason">送审冲销原因：{{ record.reversal_reason }}</p>
         <label v-if="reversalSubmit || record.can_review || (quoteReasonRequired && record.can_submit)" class="approval-reason">
-          {{ reversalSubmit ? '冲销原因（必填）' : quoteReasonRequired ? '报价操作依据（必填）' : '审批意见（驳回时必填）' }}
-          <AppInput v-model="reasons[key]" :maxlength="reversalSubmit ? 200 : 500" :disabled="disabled" />
+          {{ reversalSubmit ? '冲销原因（必填）' : quoteReasonRequired ? `${record.document_type === 'AfterSalesCase' ? '售后' : '报价'}操作依据（必填）` : '审批意见（驳回时必填）' }}
+          <AppInput v-model="reasons[key]" :maxlength="reversalSubmit || record.document_type === 'AfterSalesCase' ? 200 : 500" :disabled="disabled" />
         </label>
         <h3>审批记录</h3>
         <p v-if="!record.events.length" class="approval-hint">尚无审批记录。</p>
