@@ -9,11 +9,12 @@ import { usePiniaAppStore } from '../../../store/app-store'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import QualityEditor from './QualityEditor.vue'
 import QualityEvidenceView from './QualityEvidence.vue'
 import { qualityActions,qualityStatus,qualityTreatment,qualityCommand } from './quality-display'
 const store=usePiniaAppStore()
-const {qualityOverview:overview,qualityDetail:detail,qualityLoading:loading,qualityError:failure,busy,user,connectionLost,error}=storeToRefs(store)
+const {qualityOverview:overview,qualityDetail:detail,qualityLoading:loading,qualityError:failure,busy,user,server,connectionLost,error}=storeToRefs(store)
 const mode=ref<'cases'|'records'>('cases'),editor=ref(false),query=ref(''),preparing=ref(false),reason=ref('')
 const command=ref<{row:QualityEvidence;action:QualityAction}|null>(null)
 const disabled=computed(()=>busy.value || loading.value || preparing.value || connectionLost.value)
@@ -28,9 +29,17 @@ async function prepare(id:number,action:QualityAction):Promise<void>{
   if(disabled.value)return;preparing.value=true;command.value=null;reason.value='';error.value=''
   try{if(await store.loadQualityDetail(id) && detail.value && actions(detail.value).includes(action))command.value={row:detail.value,action}}finally{preparing.value=false}
 }
-async function execute():Promise<void>{if(command.value && await store.changeQualityDisposition(command.value.row,command.value.action,reason.value))command.value=null}
+async function execute():Promise<void>{
+  const pending=command.value;if(!pending || disabled.value)return
+  // 审批刷新或撤回使已打开弹窗失效，失败保留本次操作原因。
+  const current=overview.value?.dispositions.find(row=>row.id===pending.row.id)
+  if(!current || current.version!==pending.row.version || !actions(current).includes(pending.action)){
+    error.value='处置或审批版本已变化，请刷新后核对。';return
+  }
+  if(await store.changeQualityDisposition(pending.row,pending.action,reason.value))command.value=null
+}
 function selectMode(value:'cases'|'records'):void{if(busy.value)return;mode.value=value;editor.value=false;query.value='';store.clearQualityDetail()}
-watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{command.value=null;editor.value=false;reason.value='';if(!connectionLost.value && store.can('quality.view'))void store.loadQuality()})
+watch(()=>`${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`,()=>{command.value=null;editor.value=false;reason.value='';if(!connectionLost.value && store.can('quality.view'))void store.loadQuality()})
 // 断线只关闭依赖旧证据的动作，保留正在填写的编辑器及修订版本。
 watch(connectionLost,()=>{command.value=null;reason.value='';if(!connectionLost.value && store.can('quality.view'))void store.loadQuality()})
 onMounted(()=>{void store.loadQuality()});onUnmounted(()=>store.clearQualityDetail())
@@ -55,21 +64,22 @@ onMounted(()=>{void store.loadQuality()});onUnmounted(()=>store.clearQualityDeta
         <template #cell-source="{row}"><strong>{{ documentLabel(row) }} · {{ row.reference }}</strong><span class="quality-secondary">完工 {{ relatedDocumentLabel(row, 'completion') }} · {{ row.frozen_source.product_name }} · {{ row.created_by_name }}</span></template>
         <template #cell-quantity="{row}">{{ row.kind==='scrap'?'报废':'返工' }} {{ row.quantity }} {{ row.frozen_source.product_unit }}<span class="quality-secondary">{{ qualityTreatment[row.loss_treatment as keyof typeof qualityTreatment] }}</span><span v-if="row.rework_order_id" class="quality-secondary">返工工单 {{ relatedDocumentLabel(row, 'rework_order') }}</span></template>
         <template #cell-status="{row}">{{ qualityStatus[row.status as keyof typeof qualityStatus] }} · v{{ row.version }}<span v-if="row.cost_allocation" class="quality-secondary">原工单成本已固定</span></template>
-        <template #cell-actions="{row}"><div class="quality-toolbar"><AppButton size="small" :disabled="disabled" @click="store.loadQualityDetail(row.id)">详情与证据</AppButton><AppButton v-if="store.can('quality.create') && ['draft','rejected'].includes(row.status)" size="small" :disabled="disabled" @click="editRecord(row.id)">修订</AppButton><AppButton v-for="action in actions(row)" :key="action" size="small" :disabled="disabled" @click="prepare(row.id,action)">{{ qualityCommand[action] }}</AppButton></div></template>
+        <template #cell-actions="{row}"><div class="quality-toolbar"><AppButton size="small" :disabled="disabled" @click="store.openDocumentApproval({document_type:'QualityDisposition',document_id:row.id,intent:'execute'})">单据审批</AppButton><AppButton v-if="row.status==='posted' && store.can('quality.reverse')" size="small" :disabled="disabled" @click="store.openDocumentApproval({document_type:'QualityDisposition',document_id:row.id,intent:'reverse'})">处置更正审批</AppButton><AppButton size="small" :disabled="disabled" @click="store.loadQualityDetail(row.id)">详情与证据</AppButton><AppButton v-if="store.can('quality.create') && ['draft','rejected'].includes(row.status)" size="small" :disabled="disabled" @click="editRecord(row.id)">修订</AppButton><AppButton v-for="action in actions(row)" :key="action" size="small" :disabled="disabled" @click="prepare(row.id,action)">{{ qualityCommand[action] }}</AppButton></div></template>
         <template #empty>{{ connectionLost?'连接恢复后重新读取处置记录。':failure?'读取失败，请刷新记录。':query?'没有匹配的处置记录。':'尚无处置单，请从待处置来源建立，或由有权限的人员编制。' }}</template>
       </WorkspaceTable>
       <QualityEvidenceView v-if="detail" :row="detail" />
     </template>
+    <DocumentApprovalDialog title="不合格品处置审批" />
     <NModal :show="!!command" preset="card" :title="command?qualityCommand[command.action]:''" :style="{width:'min(760px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)command=null}">
       <form v-if="command" class="quality-operation" @submit.prevent="execute">
         <QualityEvidenceView :row="command.row" compact />
         <p v-if="['approve','reject'].includes(command.action)">核对原检验结果、本次数量、成本处理及返工材料。编制、修订或提交人不得审核，包括管理员。</p>
         <p v-else-if="command.action==='post'">确认报废保留隔离来源；确认返工只建立关联工单草稿，不增加可用库存。成本须另行结算。</p>
-        <p v-else-if="command.action==='reverse'">更正前须冲销原结算；有关返工报工、领料及费用须先完整更正，关联历史工单仍保留。</p>
+        <p v-else-if="command.action==='reverse'">执行已独立批准的固定更正原因，更正前须冲销原结算；有关返工报工、领料及费用须先完整更正，关联历史工单仍保留。</p>
         <p v-else>本次动作、原因、旧版本和正文将保留为操作证据。</p>
-        <label>操作原因<AppInput v-model.trim="reason" maxlength="200" required :disabled="busy" /></label>
+        <label v-if="command.action!=='reverse'">操作原因<AppInput v-model.trim="reason" maxlength="200" required :disabled="busy" /></label>
         <p v-if="error" role="alert">{{ error }} 原因已保留；关闭后刷新证据，按最新版本复核后重试。</p>
-        <AppButton type="submit" variant="primary" :disabled="disabled || !reason.trim()">{{ busy?'正在处理…':qualityCommand[command.action] }}</AppButton>
+        <AppButton type="submit" variant="primary" :disabled="disabled || (command.action!=='reverse' && !reason.trim())">{{ busy?'正在处理…':qualityCommand[command.action] }}</AppButton>
       </form>
     </NModal>
   </section>

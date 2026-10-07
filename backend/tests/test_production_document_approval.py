@@ -228,6 +228,8 @@ def test_rework_source_correction_cannot_cancel_approved_child_without_withdrawa
     disposition = post_quality(api, actors, quality_payload(completion, kind='rework'))
     identifier = disposition['rework_order_id']
     approved = approve_document(client, admin, 'WorkOrder', identifier)
+    # 更正自身也先独立批准，再验证下游批准不能被上游静默取消。
+    approve_document(client, admin, 'QualityDisposition', disposition['id'], intent='reverse', reason='质量方案更正')
     # 先撤回子单自己的审批，才能通过上游更正取消尚未使用的返工工单。
     path = f'/api/v1/production-quality/dispositions/{disposition["id"]}/reverse'
     blocked = client.post(path, headers=admin, json={'version': disposition['version'], 'reason': '质量方案更正'})
@@ -235,6 +237,6 @@ def test_rework_source_correction_cannot_cancel_approved_child_without_withdrawa
     child_path = f'/api/v1/system/document-approvals/WorkOrder/{identifier}'
     assert client.get(child_path, headers=admin).json()['status'] == 'approved'
     assert client.post(child_path + '/withdraw', headers=admin, json={'version': approved['version']}).status_code == 200
-    assert quality_action(api, disposition, 'reverse')['status'] == 'reversed'
+    assert quality_action(api, disposition, 'reverse', reason='质量方案更正')['status'] == 'reversed'
     state = client.get(child_path, headers=admin).json()
     assert state['status'] == 'withdrawn' and state['business_status'] == 'cancelled'

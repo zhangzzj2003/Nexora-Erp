@@ -1,3 +1,4 @@
+import { validateDocumentApprovalRecord } from '../../../../shared/document-approval-api.ts'
 import { watch } from 'vue'
 import type { QualityAction, QualityDraft, QualityEvidence, QualityInput } from '../../../../shared/quality-api'
 import type { AppState } from '../state'
@@ -15,7 +16,7 @@ export function createQualityActions(state: AppState, perform: (run: () => Promi
   function invalidate():void {
     reads++;clearQualityDetail();state.qualityOverview.value=null;state.qualityError.value='';state.qualityLoading.value=false
   }
-  watch(()=>`${state.user.value?.id}:${state.user.value?.permissions.join('|')}`,()=>{
+  watch(()=>`${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`,()=>{
     owner++;invalidate();state.qualityForm.value=emptyQualityForm();state.qualityEdit.value=null
   },{flush:'sync'})
   // 断线清除旧证据，但同账号尚未保存的处置输入与旧版本仍保留。
@@ -39,6 +40,14 @@ export function createQualityActions(state: AppState, perform: (run: () => Promi
       state.qualityDetail.value=result;return true
     }catch(error){if(ticket===details && session===owner)state.qualityError.value=displayError(error);return false}
   }
+  async function refreshQualityApproval(id:number):Promise<void> {
+    const session=owner,detail=state.qualityDetail.value,detailTicket=details
+    if(!await loadQuality())throw new Error('处置列表刷新失败，请重新读取。')
+    // 已关闭、切换详情或实例后不恢复迟到证据，未保存表单继续保留。
+    if(session===owner && details===detailTicket+1 && detail?.id===id){
+      if(!await loadQualityDetail(id))throw new Error('处置详情刷新失败，请重新读取。')
+    }
+  }
   function startQualityDisposition(completionId:number):boolean {
     if(!can('quality.create') || !available())return false
     const source=state.qualityOverview.value?.cases.find(row=>row.id===completionId)
@@ -57,7 +66,7 @@ export function createQualityActions(state: AppState, perform: (run: () => Promi
       materials:row.materials.map(({material_id,quantity})=>({material_id,quantity})),reason:''}
     state.qualityEdit.value={id:row.id,version:row.version};state.error.value='';return true
   }
-  async function write(permission:string,run:()=>Promise<QualityEvidence>,message:string):Promise<boolean> {
+  async function write(permission:string,run:()=>Promise<QualityEvidence|null>,message:string):Promise<boolean> {
     if(!can(permission) || !available() || state.busy.value)return false
     const session=owner;let saved:QualityEvidence|null=null
     await perform(async()=>{
@@ -82,9 +91,23 @@ export function createQualityActions(state: AppState, perform: (run: () => Promi
     if(saved && session===owner){state.qualityForm.value=emptyQualityForm();state.qualityEdit.value=null}
     return saved
   }
-  return {loadQuality,loadQualityDetail,clearQualityDetail,startQualityDisposition,editQualityDisposition,saveQualityDisposition,
-    changeQualityDisposition:(row:QualityEvidence,action:QualityAction,reason:string)=>write(
-      ['approve','reject'].includes(action)?'quality.review':`quality.${action}`,
-      ()=>window.nexora!.callApi('changeQualityDisposition',{id:row.id,version:row.version,action,reason}),
-      action==='post'?'处置已确认；返工须下达工单、追加领料并重新检验，成本另行结算。':'处置阶段已更新，原单与更正证据保留。')}
+  async function changeQualityDisposition(row:QualityEvidence,action:QualityAction,reason:string):Promise<boolean>{
+    const session=owner
+    return write(['approve','reject'].includes(action)?'quality.review':`quality.${action}`,async()=>{
+      let fixedReason=reason
+      if(action==='reverse'){
+        const approved=await window.nexora!.callApi('documentApproval',{
+          document_type:'QualityDisposition',document_id:row.id,intent:'reverse'})
+        // 更正必须执行已批准的原因，换实例或撤权后不发出旧请求。
+        if(session!==owner || !available() || !can('quality.reverse') || !can('quality.view'))return null
+        validateDocumentApprovalRecord(approved)
+        if(approved.document_type!=='QualityDisposition' || approved.document_id!==row.id || approved.intent!=='reverse' || approved.status!=='approved' || !approved.content_matches){
+          throw new Error('请先完成处置更正审批。')
+        }
+        fixedReason=approved.reversal_reason
+      }
+      return window.nexora!.callApi('changeQualityDisposition',{id:row.id,version:row.version,action,reason:fixedReason})
+    },action==='post'?'处置已确认；返工工单须独立审批、追加领料并重新检验，成本另行结算。':'处置阶段已更新，原单与更正证据保留。')
+  }
+  return {loadQuality,loadQualityDetail,refreshQualityApproval,clearQualityDetail,startQualityDisposition,editQualityDisposition,saveQualityDisposition,changeQualityDisposition}
 }

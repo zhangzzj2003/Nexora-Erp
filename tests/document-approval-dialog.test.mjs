@@ -123,4 +123,10 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   html=await render()
   assert.match(html,/已处理单据保留原业务记录/)
 
+  // 处置仍要求原二百字原因，统一入口不能放宽审核依据。
+  store.documentApprovalTarget={document_type:'QualityDisposition',document_id:1,intent:'execute'}
+  store.documentApprovalRecord={...store.documentApprovalRecord,document_type:'QualityDisposition',business_status:'draft',can_submit:true}
+  html=await render();assert.match(html,/处置操作依据（必填）/);assert.match(html,/maxlength="200"/)
+  assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
+
 })

@@ -114,7 +114,10 @@ def disposition_data(db: Session, record: QualityDisposition, *, include_cost: b
             .where(QualityDispositionChange.disposition_id == record.id).order_by(QualityDispositionChange.id))]
     allocations = active_quality_allocations(db, disposition_id=record.id)
     current = source(db, record.completion_id)
-    result = dict(**model_data(record), materials=json.loads(record.materials_json),
+    from app.core.document_approval import find_case, case_data
+    result = dict(**model_data(record),
+        approval=case_data(find_case(db, 'QualityDisposition', record.id)),
+        reversal_approval=case_data(find_case(db, 'QualityDisposition', record.id, 'reverse')), materials=json.loads(record.materials_json),
         frozen_source=json.loads(record.source_json), current_source_valid=current['valid'],
         source_work_order_id=current['work_order_id'], source_work_order_status=current['work_order_status'],
         created_by_name=db.get(User, record.created_by).username,

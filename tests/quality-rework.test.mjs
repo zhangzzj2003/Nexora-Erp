@@ -21,9 +21,12 @@ test('处置入口独立授权，历史编制人不能审核，已结算不能�
   assert.equal(canVisitRoute(routeByKey('qualityDisposition'),['production.view']),false)
   assert.equal(canVisitRoute(routeByKey('qualityDisposition'),['quality.view']),true)
   assert.deepEqual(qualityActions(row,['quality.review'],1),[])
-  assert.deepEqual(qualityActions(row,['quality.review'],2),['approve','reject'])
-  assert.deepEqual(qualityActions({...row,current_source_valid:false},['quality.review'],2),['reject'])
-  assert.deepEqual(qualityActions({...row,status:'posted'},permissions,2),['reverse'])
+  assert.deepEqual(qualityActions(row,['quality.review'],2),[])
+  assert.deepEqual(qualityActions({...row,current_source_valid:false},['quality.review'],2),[])
+  assert.deepEqual(qualityActions({...row,status:'posted'},permissions,2),[])
+  assert.deepEqual(qualityActions({...row,status:'posted',reversal_approval:{status:'approved'}},permissions,2),['reverse'])
+  assert.deepEqual(qualityActions({...row,status:'approved',approval:{status:'approved'}},permissions,2),['post'])
+  assert.deepEqual(qualityActions({...row,status:'approved',approval:{status:'submitted'}},permissions,2),[])
   assert.deepEqual(qualityActions({...row,status:'posted',cost_allocation:{settlement_id:1}},permissions,2),[])
 })
 test('操作证据显示追加材料之前之后及冻结检验，不输出原始 JSON',()=>{
@@ -91,4 +94,45 @@ test('只读账号不能写入，新建受已结算与剩余数量限制',async 
   assert.equal(actions.startQualityDisposition(1),true);assert.equal(state.qualityForm.value.quantity,'2')
   state.qualityOverview.value.cases[0].settled=true;assert.equal(actions.startQualityDisposition(1),false)
   assert.deepEqual(calls,['qualityOverview'])
+})
+
+// 审批更新只恢复仍打开的详情，关闭与换实例后不恢复迟到响应。
+test('处置审批刷新保留草稿并隔离已关闭详情与服务实例',async t=>{
+  let pending
+  const {state,actions}=fixture(t,async operation=>operation==='qualityOverview' && pending?pending.promise:operation==='qualityOverview'?overview:row)
+  state.qualityForm.value.reference='尚未保存';state.qualityDetail.value=row
+  await actions.refreshQualityApproval(1)
+  assert.equal(state.qualityDetail.value.id,1);assert.equal(state.qualityForm.value.reference,'尚未保存')
+  pending=deferred();const refreshing=actions.refreshQualityApproval(1)
+  actions.clearQualityDetail();pending.resolve(overview);await refreshing
+  assert.equal(state.qualityDetail.value,null)
+  pending=deferred();const old=actions.loadQuality()
+  state.server.value={id:'other',fingerprint:'other'};pending.resolve(overview)
+  assert.equal(await old,false);assert.equal(state.qualityOverview.value,null)
+})
+function correctionApproval(){
+  const time='2026-10-07 00:00:00'
+  return {document_type:'QualityDisposition',document_id:1,intent:'reverse',document_no:'BHGCZ-20261007-000001',
+    business_status:'posted',reversal_reason:'原已批准的处置更正原因',summary:[],content_matches:true,
+    version:2,status:'approved',generation:1,current_step:1,steps:[{name:'批准',role:null}],policy_version:1,
+    submitted_by:1,submitted_at:time,executed_by:null,executed_at:null,
+    can_submit:false,can_review:false,can_withdraw:true,
+    events:[{id:1,version:1,generation:1,action:'submit',step:0,step_name:null,actor_id:1,actor_name:'申请人',reason:'更正原因',created_at:time},
+      {id:2,version:2,generation:1,action:'approve',step:0,step_name:'批准',actor_id:2,actor_name:'审核人',reason:'核对',created_at:time}]}
+}
+// 原因取自服务端固定批准；异步读取期间切换实例不得发送任何更正。
+test('处置更正只使用固定批准原因，旧实例响应不能触发新实例写入',async t=>{
+  const calls=[];let pending
+  const {state,actions}=fixture(t,async(operation,data)=>{
+    calls.push([operation,data])
+    if(operation==='documentApproval')return pending?pending.promise:correctionApproval()
+    return operation==='qualityOverview'?overview:row
+  })
+  assert.equal(await actions.changeQualityDisposition({...row,status:'posted'},'reverse','界面意见不能替代原原因'),true)
+  assert.equal(calls.find(([operation])=>operation==='changeQualityDisposition')[1].reason,'原已批准的处置更正原因')
+  calls.length=0;pending=deferred()
+  const old=actions.changeQualityDisposition({...row,status:'posted'},'reverse','旧实例操作')
+  state.server.value={id:'another',fingerprint:'different'}
+  pending.resolve(correctionApproval());assert.equal(await old,false)
+  assert.deepEqual(calls.map(([operation])=>operation),['documentApproval'])
 })

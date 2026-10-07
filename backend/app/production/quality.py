@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.access.security import require
 from app.core import document_approval as approval
+from app.core.approval_documents import quality_snapshot
 from app.catalog.material_rules import material_choice_data
 from app.core.models import (Material, MaterialIssue, MaterialReturn, ProductionCostEntry, ProductionCostReversal,
     ProductionCompletion, ProductionCompletionReversal, QualityDisposition, Warehouse, WorkOrder, WorkOrderLine)
@@ -156,37 +157,58 @@ def edit(data: DispositionEdit, identifier: int = Path(gt=0), user: dict = Depen
         if data.completion_id != record.completion_id:
             raise HTTPException(422, '原质检来源不能更换，请取消旧单后重新建立')
         before = model_data(record)
+        approval.record_author(db, 'QualityDisposition', record.id, user['id'])
         apply_input(db, record, data)
         record.status, record.version = 'draft', record.version + 1
         audit(db, record, before, 'edit', data.reason, user['id'])
         return disposition_data(db, record, include_cost=can_read_cost(user))
 
 
-def act(db, record, data, user, action):
+def prepare_approval_action(db, record, action, user, reason):
+    # 使用外层事务重核隔离数量，送审才刷新质检来源；原必填依据不放宽。
+    if action in ('submit', 'approve', 'reject') and (not reason.strip() or len(reason.strip()) > 200):
+        raise HTTPException(422, '处置送审与审核原因必填，最多二百字')
     before = model_data(record)
-    if action == 'submit':
-        if record.status not in ('draft','rejected'):
-            raise HTTPException(409, '只有草稿或驳回处置单可以提交')
+    if action in ('submit', 'approve'):
         current = check_quantity(db, record)
-        record.source_json = encoded(current)
         if record.kind == 'rework':
             require_warehouse(db, record.warehouse_id)
-        record.status, record.submitted_by, record.submitted_at = 'submitted', user['id'], now(db)
-    elif action in ('approve','reject'):
-        if record.status != 'submitted':
-            raise HTTPException(409, '只有提交后的处置单可以审核')
-        independent_reviewer(db, record, user['id'])
-        if action == 'approve':
-            check_quantity(db, record)
-        record.status = 'approved' if action == 'approve' else 'rejected'
-        record.reviewed_by, record.reviewed_at = user['id'], now(db)
-    elif action == 'cancel':
+        if action == 'submit':
+            record.source_json = encoded(current)
+            db.flush()
+    return before
+
+
+def sync_approval_action(db, record, action, state, user_id, reason, before):
+    # 中间步骤继续占用数量，撤回释放数量；原审计与独立业务版本逐步追加。
+    record.status = 'draft' if action == 'withdraw' else state['status']
+    if action == 'submit':
+        record.submitted_by, record.submitted_at = state['submitted_by'], state['submitted_at']
+        record.reviewed_by = record.reviewed_at = None
+    elif action in ('approve', 'reject'):
+        record.reviewed_by, record.reviewed_at = user_id, now(db)
+    record.version += 1
+    audit(db, record, before, action, reason.strip() or '撤回处置审批', user_id)
+
+
+def act(db, record, data, user, action):
+    before = model_data(record)
+    # 原接口仍检查领域权限和旧业务版本，旧客户端不能绕过分步审批。
+    if action in ('submit', 'approve', 'reject'):
+        raise HTTPException(409, '请从单据审批入口按当前审批版本操作')
+    approved = None
+    if action == 'cancel':
+        pending = approval.find_case(db, 'QualityDisposition', record.id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回处置审批再取消')
         if record.status not in ('draft','submitted','approved','rejected'):
             raise HTTPException(409, '已确认处置不能取消，须按原因更正')
         record.status = 'cancelled'
     elif action == 'post':
         if record.status != 'approved':
             raise HTTPException(409, '处置单须独立批准，且只能确认一次')
+        approved = approval.require_approved(db, 'QualityDisposition', record.id,
+            quality_snapshot(db, record.id), user['id'])
         current = check_quantity(db, record)
         if record.kind == 'rework':
             require_warehouse(db, record.warehouse_id)
@@ -200,6 +222,9 @@ def act(db, record, data, user, action):
     elif action == 'reverse':
         if record.status != 'posted':
             raise HTTPException(409, '只有已确认处置可以更正一次')
+        approved = approval.require_approved(db, 'QualityDisposition', record.id,
+            {'document': quality_snapshot(db, record.id), 'reversal_reason': data.reason},
+            user['id'], intent='reverse', permission='quality.reverse')
         current = source(db, record.completion_id)
         ensure_unsettled(db, current['work_order_id'])
         ensure_date_unlocked(db, record.posted_at)
@@ -228,6 +253,9 @@ def act(db, record, data, user, action):
                 raise HTTPException(409, '须先冲销返工工单的人工及制造费用')
             order.status, order.cancelled_by, order.cancelled_at = 'cancelled', user['id'], now(db)
         record.status, record.reversed_by, record.reversed_at = 'reversed', user['id'], now(db)
+    if approved is not None:
+        # 子单、数量占用、原审计及审批执行事件均由同一事务提交。
+        approval.mark_executed(db, approved, user['id'], permission='quality.' + action)
     record.version += 1
     audit(db, record, before, action, data.reason, user['id'])
     return disposition_data(db, record, include_cost=can_read_cost(user))

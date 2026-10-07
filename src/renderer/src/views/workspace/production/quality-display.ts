@@ -5,14 +5,10 @@ export const qualityTreatment:Record<QualityTreatment,string>={absorb:'由合格
 export const qualityCommand:Record<QualityAction,string>={submit:'提交处置',approve:'批准处置',reject:'驳回处置',post:'确认处置',cancel:'取消处置',reverse:'更正处置'}
 export function qualityActions(row:QualityEvidence,permissions:string[],userId:number):QualityAction[] {
   const can=(permission:string)=>permissions.includes(permission), result:QualityAction[]=[]
-  if(['draft','rejected'].includes(row.status) && row.current_source_valid && can('quality.submit'))result.push('submit')
-  if(row.status==='submitted' && !row.author_ids.includes(userId) && can('quality.review')){
-    if(row.current_source_valid)result.push('approve')
-    result.push('reject')
-  }
-  if(row.status==='approved' && row.current_source_valid && !row.cost_allocation && can('quality.post'))result.push('post')
-  if(['draft','submitted','approved','rejected'].includes(row.status) && can('quality.cancel'))result.push('cancel')
-  if(row.status==='posted' && !row.cost_allocation && can('quality.reverse'))result.push('reverse')
+  // 送审与分步审核由共用审批弹窗处理，普通确认不能使用旧原生批准。
+  if(row.status==='approved' && row.approval?.status==='approved' && row.current_source_valid && !row.cost_allocation && can('quality.post'))result.push('post')
+  if(['draft','submitted','approved','rejected'].includes(row.status) && !['submitted','approved'].includes(row.approval?.status??'') && can('quality.cancel'))result.push('cancel')
+  if(row.status==='posted' && row.reversal_approval?.status==='approved' && !row.cost_allocation && can('quality.reverse'))result.push('reverse')
   return result
 }
 const names:Record<string,string>={reference:'依据编号',quantity:'处置数量',kind:'处置方式',loss_treatment:'成本处理',

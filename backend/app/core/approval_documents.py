@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.models import (
-    DocumentApprovalCase, Material, PurchaseGoodsReceipt, PurchaseGoodsReceiptLine, PurchaseOrder, PurchaseOrderLine,
+    DocumentApprovalCase, DocumentApprovalAuthor, Material, PurchaseGoodsReceipt, PurchaseGoodsReceiptLine, PurchaseOrder, PurchaseOrderLine,
     PurchaseOrderRequestLink, Receipt, ReceiptLine, ReceiptOrderLink, ReceiptReversal,
     ReceiptWarehouse, Supplier, Warehouse, WarehouseInbound, WarehouseInboundLine,
     WarehouseInboundReversal, PurchaseReturn, PurchaseReturnLine, PurchaseReturnReversal,
@@ -343,6 +343,28 @@ def sales_return_snapshot(db: Session, identifier: int) -> dict:
                 .where(SalesReturnLine.sales_return_id == identifier).order_by(SalesReturnLine.id)).mappings()]}
 
 
+def quality_snapshot(db: Session, identifier: int) -> dict:
+    # 处置正文固定原质检与追加材料；成本分配是后续事实，不属于方案审批正文。
+    source = document_source(db, 'QualityDisposition', identifier)
+    executed = db.scalar(select(DocumentApprovalCase).where(
+        DocumentApprovalCase.document_type == 'QualityDisposition',
+        DocumentApprovalCase.document_id == identifier, DocumentApprovalCase.intent == 'execute',
+        DocumentApprovalCase.status == 'executed'))
+    authors = {source.created_by}
+    authors.update(db.scalars(select(QualityDispositionChange.changed_by).where(
+        QualityDispositionChange.disposition_id == identifier,
+        QualityDispositionChange.action.in_(('create', 'edit', 'submit')))))
+    authors.update(db.scalars(select(DocumentApprovalAuthor.user_id).where(
+        DocumentApprovalAuthor.document_type == 'QualityDisposition',
+        DocumentApprovalAuthor.document_id == identifier)))
+    if executed:
+        import json
+        authors = set(json.loads(executed.snapshot_json)['source_author_ids'])
+    return {**{field: getattr(source, field) for field in ('completion_id', 'reference', 'kind',
+        'quantity', 'loss_treatment', 'defect', 'action_note', 'warehouse_id', 'materials_json', 'source_json')},
+        'source_author_ids': sorted(authors)}
+
+
 def work_order_snapshot(db: Session, identifier: int) -> dict:
     source = document_source(db, 'WorkOrder', identifier)
     bom = db.get(Bom, source.bom_id)
@@ -414,7 +436,7 @@ def completion_snapshot(db: Session, identifier: int) -> dict:
 
 def native_review_evidence(db: Session, document_type: str, identifier: int) -> dict | None:
     # 首次接入前保存原流程信息，独立于新审批正文，不能冒充新模板中的批准。
-    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase'):
+    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition'):
         return None
     source = db.get(approval_type(document_type).model, identifier)
     if source.submitted_by is None and source.reviewed_by is None:
@@ -430,6 +452,11 @@ def native_review_evidence(db: Session, document_type: str, identifier: int) -> 
         result['review_reason'] = db.scalar(select(AfterSalesChange.reason).where(
             AfterSalesChange.case_id == identifier, AfterSalesChange.action.in_(('approve', 'reject')))
             .order_by(AfterSalesChange.id.desc()).limit(1)) or ''
+    elif document_type == 'QualityDisposition':
+        result['review_reason'] = db.scalar(select(QualityDispositionChange.reason).where(
+            QualityDispositionChange.disposition_id == identifier,
+            QualityDispositionChange.action.in_(('approve', 'reject')))
+            .order_by(QualityDispositionChange.id.desc()).limit(1)) or ''
     else:
         result['review_reason'] = source.review_reason
     return result
@@ -452,7 +479,7 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+_SNAPSHOTS = {'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
@@ -493,6 +520,10 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
             or source.source_kind == 'purchase_return' and source.purchase_return_id is None):
         raise HTTPException(409, '出库单缺少有效业务来源，不能审批')
     if intent == 'reverse':
+        if document_type == 'QualityDisposition':
+            if source.status != 'posted':
+                raise HTTPException(409, '仅已确认处置可以独立申请更正')
+            return source
         if document_type == 'AfterSalesCase':
             if source.status != 'closed':
                 raise HTTPException(409, '售后仅可对已结案单另行申请更正')
@@ -506,7 +537,7 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         if source.status != 'posted' or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
     elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
-                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase') else
+                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition') else
                                ('inspected',) if document_type == 'ProductionCompletion' else ('draft',)):
         # 历史已执行记录不补造审批；只限制仍待执行的草稿。
         raise HTTPException(409, '此单据已处理，不能继续审批')
@@ -539,6 +570,8 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
 
 def submit_permission(document_type: str, intent: str) -> str | None:
     # 冲销送审/撤回沿用冲销权限，不能因为有建单权限而获得冲销权限。
+    if intent == 'reverse' and document_type == 'QualityDisposition':
+        return 'quality.reverse'
     if intent == 'reverse' and document_type == 'AfterSalesCase':
         return 'after_sales.reverse'
     if intent == 'reverse' and document_type in _REVERSE:
@@ -547,6 +580,22 @@ def submit_permission(document_type: str, intent: str) -> str | None:
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'QualityDisposition':
+        import json
+        original = json.loads(content['source_json'])
+        summary = [{'label': label, 'value': str(value)} for label, value in [
+            ('原完工单', db.get(ProductionCompletion, content['completion_id']).document_no or f"#{content['completion_id']}"),
+            ('成品', f"{original['product_sku']} · {original['product_name']}"),
+            ('检验依据', original['qc_note']), ('处置依据', content['reference']),
+            ('处置方式及数量', f"{ {'scrap': '报废', 'rework': '返工'}[content['kind']] } · {content['quantity']} {original['product_unit']}"),
+            ('成本处理', {'absorb': '由合格品承担', 'expense': '独立报废损失', 'carry': '携带来源成本返工'}[content['loss_treatment']]),
+            ('缺陷记录', content['defect']), ('处置说明', content['action_note'])]]
+        if content['warehouse_id'] is not None:
+            warehouse = db.get(Warehouse, content['warehouse_id'])
+            summary.append({'label': '返工仓库', 'value': warehouse.name if warehouse else str(content['warehouse_id'])})
+        summary.extend({'label': '追加材料', 'value': f"{line['sku']} · {line['material_name']} × {line['quantity']} {line['unit']}"}
+            for line in json.loads(content['materials_json']))
+        return summary
     if document_type == 'AfterSalesCase':
         import json
         original = json.loads(content['source_json'])

@@ -77,6 +77,13 @@ def payload(completion, kind='scrap', quantity='1', treatment='expense', referen
 
 
 def action(api, row, command, actor=None, status=200, reason='复核质量依据'):
+    # 既有业务回归显式使用统一送审，原执行与依赖断言继续走真实接口。
+    if command in ('submit', 'approve', 'reject', 'withdraw'):
+        path = f'system/document-approvals/QualityDisposition/{row["id"]}'
+        state = api('GET', path, actor=actor)
+        result = api('POST', path + '/' + command,
+            {'version': state['version'], 'reason': reason}, status, actor)
+        return api('GET', f'{ROOT}/dispositions/{row["id"]}', actor=actor) if status == 200 else result
     return api('POST',f'{ROOT}/dispositions/{row["id"]}/{command}',
         {'version':row['version'],'reason':reason},status,actor)
 
@@ -206,6 +213,7 @@ def test_normal_loss_needs_accepted_output_and_explicit_correction(quality_erp):
     original,completion = order('1','0')
     normal = posted(api,actors,payload(completion,treatment='absorb'))
     settle(api,original['id'],status=409)
+    approve_document(quality_erp[0], quality_erp[1], 'QualityDisposition', normal['id'], intent='reverse', reason='复核质量依据')
     reversed_row = action(api,normal,'reverse')
     assert reversed_row['status'] == 'reversed'
     posted(api,actors,payload(completion,reference='ABNORMAL'))
@@ -269,10 +277,11 @@ def test_parallel_submit_and_post_prevent_overallocation_or_duplicate_rework(qua
     _,completion = order('1','0')
     rows = [api('POST',ROOT+'/dispositions',payload(completion,kind='rework',reference=f'R-{i}'),201) for i in range(2)]
     with ThreadPoolExecutor(max_workers=2) as pool:
-        responses = list(pool.map(lambda row: client.post('/api/v1/'+ROOT+f'/dispositions/{row["id"]}/submit',
-            headers=admin,json={'version':1,'reason':'并发质量处理'}),rows))
+        responses = list(pool.map(lambda row: client.post(f'/api/v1/system/document-approvals/QualityDisposition/{row["id"]}/submit',
+            headers=admin,json={'version':0,'reason':'并发质量处理'}),rows))
     assert sorted(response.status_code for response in responses) == [200,409]
-    submitted = next(response.json() for response in responses if response.status_code == 200)
+    approved_id = next(response.json()['document_id'] for response in responses if response.status_code == 200)
+    submitted = api('GET', f'{ROOT}/dispositions/{approved_id}')
     api('POST',f'production-completions/{completion["id"]}/reverse',{'reason':'修改来源'},409)
     approved = action(api,submitted,'approve',actors['reviewer'])
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -314,6 +323,7 @@ def test_rework_reverse_cancels_source_only_after_downstream_correction(quality_
     # 独立审批完成后，再验证原库存约束或失败回滚。
     approve_document(quality_erp[0], quality_erp[1], 'ProductionCompletion', child_completion['id'], intent='reverse', reason='返工数量复核')
     api('POST',f'production-completions/{child_completion["id"]}/reverse',{'reason':'返工数量复核'})
+    approve_document(quality_erp[0], quality_erp[1], 'QualityDisposition', row['id'], intent='reverse', reason='复核质量依据')
     reversed_row = action(api,row,'reverse')
     assert reversed_row['rework_order_id'] == row['rework_order_id']
     assert api('GET',ROOT)['cases'][0]['remaining_quantity'] == '1'

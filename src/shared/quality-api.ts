@@ -1,3 +1,4 @@
+import type { DocumentApprovalState } from './document-approval-api'
 import type { NumberedDocument } from './document-numbering'
 import type { MaterialChoice } from './material-api'
 export type QualityKind = 'scrap' | 'rework'
@@ -20,6 +21,8 @@ export interface QualityInput {
 }
 export interface QualityDraft extends Omit<QualityInput,'loss_treatment'> { loss_treatment: QualityTreatment | '' }
 export interface QualityEvidence extends Omit<QualityInput,'reason'> , NumberedDocument {
+  // 业务版本与审批版本分开保存，旧库批准不能替代统一批准。
+  approval?: DocumentApprovalState; reversal_approval?: DocumentApprovalState
   id: number; status: QualityStatus; version: number; created_by: number; created_by_name: string; created_at: string
   submitted_by: number | null; reviewed_by: number | null; posted_by: number | null; reversed_by: number | null
   submitted_at: string | null; reviewed_at: string | null; posted_at: string | null; reversed_at: string | null
