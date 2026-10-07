@@ -152,10 +152,11 @@ function focusPanel(): void { if (props.initial) panelHeading.value?.focus({ pre
 /* 单选组自带的分隔节点不占网格位置，内部标签也解除默认的单行高度。 */
 .numbering-settings--initial :deep(.n-radio-group__splitor) { display: none; }
 /* Naive UI 的连体按钮只绘制组外侧边框；独立卡片需补齐四边，并保留选中态主题色。 */
-.numbering-settings--initial :deep(.n-radio-button) { height: auto; min-height: 80px; min-width: 0; border: 1px solid var(--n-button-border-color); border-radius: 10px; }
+.numbering-settings--initial :deep(.n-radio-group .n-radio-button) { height: auto; min-height: 80px; min-width: 0; border: 1px solid var(--n-button-border-color); border-radius: 10px; }
 .numbering-settings--initial :deep(.n-radio-button.n-radio-button--checked) { border-color: var(--n-button-border-color-active); }
 .numbering-settings--initial :deep(.n-radio__label) { height: auto; width: 100%; padding: 12px 14px; line-height: normal; }
-.numbering-settings--initial :deep(.n-radio-button__state-border) { border-radius: 10px; }
+/* 提高优先级覆盖首尾按钮的默认圆角，让悬停和焦点高亮继承卡片的四个圆角。 */
+.numbering-settings--initial :deep(.n-radio-group .n-radio-button .n-radio-button__state-border) { border-radius: inherit; }
 .numbering-style-choice { display: grid; gap: 10px; padding: 5px 0; min-width: 0; }
 .numbering-style-choice strong { font-size: 14px; }
 .numbering-style-choice > span { font: 600 11px/1.6 'SFMono-Regular', Consolas, monospace; overflow-wrap: anywhere; white-space: normal; }

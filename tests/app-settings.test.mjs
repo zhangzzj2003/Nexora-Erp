@@ -30,7 +30,7 @@ before(async () => {
 })
 after(() => server?.close())
 
-test('首次编号风格卡片补齐连体单选按钮缺少的边框，选中态沿用主题色', () => {
+test('首次编号风格卡片补齐边框，卡片与焦点层圆角覆盖连体按钮端点规则', async () => {
   // 编译真实局部样式：独立卡片必须有完整边框，且不能改变常规设置的连体样式。
   const source = readFileSync(new URL('../src/renderer/src/components/workspace/DocumentNumberingSettings.vue', import.meta.url), 'utf8')
   const { descriptor } = parse(source)
@@ -44,6 +44,21 @@ test('首次编号风格卡片补齐连体单选按钮缺少的边框，选中�
   const checked = rules.find(([, selector]) => selector.includes('.n-radio-button.n-radio-button--checked'))
   assert.ok(checked)
   assert.match(checked[2], /border-color:\s*var\(--n-button-border-color-active\)/)
+  const focus = rules.find(([, selector]) => selector.includes('.n-radio-button__state-border'))
+  assert.ok(focus)
+  assert.match(borderRules[0][2], /border-radius:\s*10px/)
+  assert.match(focus[2], /border-radius:\s*inherit/)
+  // 使用实际依赖生成的首尾规则比较优先级，避免 Naive UI 后插入样式再次覆盖局部圆角。
+  const naiveStyle = (await import('../node_modules/naive-ui/es/radio/src/styles/radio-group.cssr.mjs')).default
+  const endpoints = [...naiveStyle.render({ bPrefix: '.n-' }).matchAll(/([^{}]+)\{([^{}]+)\}/g)]
+    .filter(([, selector, rule]) => /:(first|last)-child/.test(selector) && /border-.*-radius:/.test(rule))
+  assert.equal(endpoints.length, 4)
+  // 这些端点选择器只包含类、局部属性与首尾伪类，三者按同一权重计数。
+  const specificity = selector => (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?:first|last)-child/g) ?? []).length
+  for (const [, selector] of endpoints) {
+    const own = selector.includes('__state-border') ? focus[1] : borderRules[0][1]
+    assert.ok(specificity(own) > specificity(selector), `圆角覆盖必须优先于 ${selector.trim()}`)
+  }
 })
 
 test('Windows 设置面板避开原生标题栏，Mac、Linux 与浏览器保留原布局', async t => {
