@@ -7,7 +7,11 @@ export const partsStatus={draft:'待仓库确认',posted:'已确认领用',cance
 export function maintenanceActions(row:MaintenanceJobRecord,permissions:readonly string[]):MaintenanceAction[]{
   if(!permissions.includes('equipment.view'))return []
   const operations:Partial<Record<MaintenanceAction,string>>={approve:'review',reject:'review',start:'execute',report:'execute',rework:'accept'}
-  return row.allowed_actions.filter(action=>permissions.includes('equipment.'+(operations[action]??action))
+  // 旧响应的原批准动作不再开放；开始和更正必须有本单对应的统一批准。
+  return row.allowed_actions.filter(action=>!['submit','approve','reject'].includes(action)
+    && (action!=='start' || ['approved','executed'].includes(row.approval?.status??''))
+    && (action!=='reverse' || row.reversal_approval?.status==='approved')
+    && permissions.includes('equipment.'+(operations[action]??action))
     && (action!=='start' || !row.parts.length || permissions.includes('other_outbound.create')))
 }
 export function downtimeLabel(row:EquipmentDowntime):string{

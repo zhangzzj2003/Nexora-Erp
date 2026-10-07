@@ -2,6 +2,7 @@ import {watch} from 'vue'
 import type {AppState} from '../state'
 import type {EquipmentEntity,EquipmentForms,EquipmentDetail,EquipmentMeterInput,MaintenanceCommand,
   EquipmentAttachmentKind,EquipmentAttachment,EquipmentAttachmentList,MaintenancePurchaseInput} from '../../../../shared/equipment-api'
+import {validateDocumentApprovalRecord} from '../../../../shared/document-approval-api.ts'
 import {displayError} from '../../utils/formatters.ts'
 
 export function emptyEquipmentForms():EquipmentForms {
@@ -23,7 +24,7 @@ export function createEquipmentActions(state:AppState,perform:(run:()=>Promise<u
   }
   function clearEquipmentDetail():void{details++;state.equipmentDetail.value=null}
   function invalidate():void{reads++;clearEquipmentDetail();state.equipmentOverview.value=null;state.equipmentLoading.value=false;state.equipmentError.value=''}
-  watch(()=>`${state.user.value?.id}:${state.user.value?.permissions.join('|')}`,()=>{
+  watch(()=>`${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`,()=>{
     owner++;invalidate();state.equipmentForms.value=emptyEquipmentForms();state.equipmentEdit.value=null
   },{flush:'sync'})
   // 断线失效旧证据，保留同账号未保存正文和旧版本，恢复后由用户复核。
@@ -104,9 +105,36 @@ export function createEquipmentActions(state:AppState,perform:(run:()=>Promise<u
     if(saved && session===owner){resetForm(kind);state.equipmentEdit.value=null}
     return saved
   }
-  function changeMaintenanceJob(command:MaintenanceCommand):Promise<boolean>{
+  async function refreshEquipmentApproval(id:number):Promise<void>{
+    const selected=state.equipmentDetail.value,session=owner,ticket=details
+    const restore=selected?.kind==='job' && selected.row.id===id
+    await loadEquipment()
+    // 只恢复当前正在核对的维护单；刷新期间主动打开其他详情不能被旧请求覆盖。
+    if(restore && session===owner && available() && details===ticket+1)await loadEquipmentDetail('job',id)
+  }
+  async function maintenanceCorrectionEvidence(id:number):Promise<{reason:string;evidence:string}|null>{
+    if(!available() || !can('equipment.reverse') || state.busy.value)return null
+    const session=owner
+    try{
+      const record=await window.nexora!.callApi('documentApproval',{document_type:'MaintenanceJob',document_id:id,intent:'reverse'})
+      if(session!==owner || !available())return null
+      validateDocumentApprovalRecord(record)
+      if(record.document_type!=='MaintenanceJob' || record.document_id!==id || record.intent!=='reverse'
+        || record.status!=='approved' || !record.content_matches || !record.reversal_reason || !record.reversal_evidence)throw Error('请先完成本单验收更正独立审批。')
+      return {reason:record.reversal_reason,evidence:record.reversal_evidence}
+    }catch(cause){if(session===owner)state.error.value=displayError(cause);return null}
+  }
+  async function changeMaintenanceJob(command:MaintenanceCommand):Promise<boolean>{
     const permission=['approve','reject'].includes(command.action)?'review':['start','report'].includes(command.action)?'execute':command.action==='rework'?'accept':command.action
-    return write('job','equipment.'+permission,()=>window.nexora!.callApi('changeMaintenanceJob',command),
+    const session=owner
+    let input={...command}
+    if(command.action==='reverse'){
+      const record=await maintenanceCorrectionEvidence(command.id)
+      if(!record || session!==owner || !available())return false
+      // 执行前重新读取固定依据，打开弹窗后撤回审批也不能继续更正。
+      input={...command,reason:record.reason,evidence:record.evidence}
+    }
+    return write('job','equipment.'+permission,()=>window.nexora!.callApi('changeMaintenanceJob',input),
       '维护阶段与证据已更新；耗材实物及资金仍以原业务记录为准。')
   }
   function createMaintenancePurchaseRequest(input:MaintenancePurchaseInput):Promise<boolean>{
@@ -157,7 +185,7 @@ export function createEquipmentActions(state:AppState,perform:(run:()=>Promise<u
     if(session!==owner || !available())throw new Error('会话或权限已变化，请重新读取设备维护附件')
     return result
   }
-  return {loadEquipment,loadEquipmentDetail,clearEquipmentDetail,startEquipmentRecord,editEquipmentRecord,
-    saveEquipmentRecord,changeMaintenanceJob,createMaintenancePurchaseRequest,recordEquipmentMeter,
+  return {loadEquipment,refreshEquipmentApproval,loadEquipmentDetail,clearEquipmentDetail,startEquipmentRecord,editEquipmentRecord,
+    saveEquipmentRecord,maintenanceCorrectionEvidence,changeMaintenanceJob,createMaintenancePurchaseRequest,recordEquipmentMeter,
     loadEquipmentAttachments,uploadEquipmentAttachment,reverseEquipmentAttachment,saveEquipmentAttachment}
 }

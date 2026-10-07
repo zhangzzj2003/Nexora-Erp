@@ -11,7 +11,7 @@ import { displayError, localTime } from '../../../utils/formatters'
 const props = defineProps<{ kind: EquipmentAttachmentKind; recordId: number; recordVersion: number }>()
 const labels: Record<EquipmentAttachmentKind, string> = { asset: '设备', job: '维护工单' }
 const store = usePiniaAppStore()
-const { user, connectionLost } = storeToRefs(store)
+const { user, server, connectionLost } = storeToRefs(store)
 const rows = ref<EquipmentAttachment[]>([])
 const canModify = ref(false)
 const loading = ref(false)
@@ -22,7 +22,7 @@ const reason = ref('')
 const reverseId = ref<number | null>(null)
 const reverseReason = ref('')
 let ticket = 0
-const owner = (): string => `${user.value?.id}:${user.value?.permissions.join('|')}`
+const owner = (): string => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`
 const columns = [
   { key: 'file_name', title: '文件' },
   { key: 'byte_count', title: '大小', width: '95' },
@@ -114,7 +114,7 @@ async function download(item: EquipmentAttachment): Promise<void> {
 }
 
 async function reverse(): Promise<void> {
-  if (reverseId.value === null || busy.value || connectionLost.value || !canModify.value
+  if (reverseId.value === null || rows.value.find(item=>item.id===reverseId.value)?.can_reverse === false || busy.value || connectionLost.value || !canModify.value
     || !store.can('equipment.attachment') || !reverseReason.value.trim()) return
   busy.value = true
   error.value = ''
@@ -142,7 +142,7 @@ async function reverse(): Promise<void> {
     <div class="equipment-attachment-toolbar"><strong>{{ labels[kind] }}附件</strong>
       <AppButton type="button" variant="secondary" :disabled="loading || busy || connectionLost" @click="reload">刷新附件</AppButton>
     </div>
-    <p>支持 PDF、PNG、JPEG，单文件不超过 5 MiB，最多 10 个有效附件。设备报废或维护工单结束后只能查看与导出历史。</p>
+    <p>支持 PDF、PNG、JPEG，单文件不超过 5 MiB，最多 10 个有效附件。审批期间与终态只能查看和导出；开始办理后可补作业附件，原批准附件保留。</p>
     <div v-if="store.can('equipment.attachment') && canModify" class="equipment-attachment-toolbar">
       <label>上传依据<AppInput v-model.trim="reason" maxlength="200" placeholder="填写现场记录或维护依据" /></label>
       <AppButton type="button" :disabled="busy || loading || connectionLost || !reason.trim()" @click="upload">选择文件并上传</AppButton>
@@ -159,7 +159,7 @@ async function reverse(): Promise<void> {
       </template>
       <template #cell-actions="{ row }"><div class="equipment-attachment-toolbar">
         <AppButton type="button" :disabled="busy || connectionLost" @click="download(row)">保存</AppButton>
-        <AppButton v-if="!row.reversal && canModify && store.can('equipment.attachment')" type="button"
+        <AppButton v-if="!row.reversal && row.can_reverse !== false && canModify && store.can('equipment.attachment')" type="button"
           :disabled="busy || connectionLost" @click="reverseId = row.id; reverseReason = ''">撤销</AppButton>
       </div></template>
       <template #empty>{{ loading ? '正在读取附件…' : '暂无附件。' }}</template>

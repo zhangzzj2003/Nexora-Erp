@@ -119,6 +119,8 @@ export function createAppState() {
   const documentApprovalTarget = ref<DocumentApprovalTarget | null>(null)
   const documentApprovalRecord = ref<DocumentApprovalRecord | null>(null)
   const documentApprovalReasons = ref<Record<string, string>>({})
+  // 维护现场依据单独保存，失败或同实例断线时与意见草稿一起保留。
+  const documentApprovalEvidence = ref<Record<string, string>>({})
   const documentApprovalLoading = ref(false), documentApprovalError = ref('')
   const approvalPolicies = ref<DocumentApprovalPolicy[]>([])
   const approvalPolicyDrafts = ref<Partial<Record<DocumentApprovalType, DocumentApprovalPolicyInput>>>({})
@@ -550,7 +552,7 @@ export function createAppState() {
 
   return {
     documentNumbering,
-    documentApprovalTarget, documentApprovalRecord, documentApprovalReasons, documentApprovalLoading, documentApprovalError,
+    documentApprovalTarget, documentApprovalRecord, documentApprovalReasons, documentApprovalEvidence, documentApprovalLoading, documentApprovalError,
     approvalPolicies, approvalPolicyDrafts, approvalPolicyLoading, approvalPolicyError,
     lotOverview,lotHistory,lotUnallocated,lotLoading,lotError,lotWarehouseId,lotMaterialId,
     dashboardResult, dashboardPeriod, dashboardLoading, dashboardError,

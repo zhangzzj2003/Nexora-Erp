@@ -96,11 +96,11 @@ export interface DocumentApprovalState {
 }
 export interface DocumentApprovalEvent {
   id: number; version: number; generation: number; action: DocumentApprovalAction | 'execute'
-  step: number; step_name: string | null; actor_id: number; actor_name: string; reason: string; created_at: string
+  step: number; step_name: string | null; actor_id: number; actor_name: string; reason: string; evidence?: string; created_at: string
 }
 export interface DocumentApprovalRecord extends DocumentApprovalState {
   document_type: DocumentApprovalType; document_id: number; intent: DocumentApprovalIntent
-  document_no: string | null; business_status: string; reversal_reason: string
+  document_no: string | null; business_status: string; reversal_reason: string; reversal_evidence?: string
   summary: { label: string; value: string }[]; content_matches: boolean
   can_submit: boolean; can_review: boolean; can_withdraw: boolean; events: DocumentApprovalEvent[]
 }
@@ -108,7 +108,7 @@ export interface DocumentApprovalTarget {
   document_type: DocumentApprovalType; document_id: number; intent: DocumentApprovalIntent
 }
 export interface DocumentApprovalActionInput extends DocumentApprovalTarget {
-  action: DocumentApprovalAction; version: number; reason: string
+  action: DocumentApprovalAction; version: number; reason: string; evidence?: string
 }
 export interface DocumentApprovalOperations {
   documentApproval: { input: DocumentApprovalTarget; output: DocumentApprovalRecord }
@@ -123,14 +123,21 @@ export function documentApprovalTarget(value: unknown): DocumentApprovalTarget {
   return { document_type: type, document_id: row.document_id as number, intent: row.intent as DocumentApprovalIntent }
 }
 
-export function documentApprovalActionBody(value: unknown): { version: number; intent: DocumentApprovalIntent; reason: string } {
+export function documentApprovalActionBody(value: unknown): { version: number; intent: DocumentApprovalIntent; reason: string; evidence?: string } {
   const row = record(value), target = documentApprovalTarget(row)
-  if (Object.keys(row).some(key => !['document_type', 'document_id', 'intent', 'action', 'version', 'reason'].includes(key))
+  if (Object.keys(row).some(key => !['document_type', 'document_id', 'intent', 'action', 'version', 'reason', 'evidence'].includes(key))
       || !['submit', 'approve', 'reject', 'withdraw'].includes(String(row.action))
       || !Number.isSafeInteger(row.version) || Number(row.version) < 0
       || typeof row.reason !== 'string' || row.reason.trim().length > 500
       || row.action === 'reject' && !row.reason.trim()) throw Error('审批动作、版本或意见无效')
-  return { version: row.version as number, intent: target.intent, reason: row.reason.trim() }
+  // 仅维护保留独立现场依据；其他类型不能夹带此字段。
+  if (target.document_type === 'MaintenanceJob') {
+    if (row.reason.trim().length > 200 || row.action !== 'withdraw' && (!row.reason.trim()
+        || typeof row.evidence !== 'string' || !row.evidence.trim())
+        || row.evidence !== undefined && (typeof row.evidence !== 'string' || row.evidence.trim().length > 600)) throw Error('维护操作原因与现场依据无效')
+  } else if (row.evidence !== undefined) throw Error('此类单据不接受维护现场依据')
+  return { version: row.version as number, intent: target.intent, reason: row.reason.trim(),
+    ...(typeof row.evidence === 'string' ? { evidence: row.evidence.trim() } : {}) }
 }
 
 function positive(value: unknown): boolean { return Number.isSafeInteger(value) && Number(value) > 0 }
@@ -181,7 +188,9 @@ export function validateDocumentApprovalRecord(value: unknown): asserts value is
       || typeof row.reversal_reason !== 'string' || row.reversal_reason.length > 200
       || typeof row.can_submit !== 'boolean' || typeof row.can_review !== 'boolean'
       || typeof row.can_withdraw !== 'boolean' || !Array.isArray(row.events)) throw Error('服务端单据审批格式不匹配')
-  if (typeof row.content_matches !== 'boolean' || !Array.isArray(row.summary) || row.summary.length > (['CrmQuote', 'AfterSalesCase'].includes(String(row.document_type)) ? 128 : 110)) throw Error('服务端审批摘要格式不匹配')
+  if (row.reversal_evidence !== undefined && (row.document_type !== 'MaintenanceJob'
+      || typeof row.reversal_evidence !== 'string' || row.reversal_evidence.length > 600)) throw Error('服务端维护更正依据无效')
+  if (typeof row.content_matches !== 'boolean' || !Array.isArray(row.summary) || row.summary.length > (['CrmQuote', 'AfterSalesCase', 'MaintenanceJob'].includes(String(row.document_type)) ? 128 : 110)) throw Error('服务端审批摘要格式不匹配')
   for (const item of row.summary) {
     const entry = record(item)
     if (typeof entry.label !== 'string' || !entry.label.trim() || typeof entry.value !== 'string'
@@ -194,6 +203,8 @@ export function validateDocumentApprovalRecord(value: unknown): asserts value is
   let version = 0
   for (const item of row.events) {
     const event = record(item)
+    if (event.evidence !== undefined && (row.document_type !== 'MaintenanceJob'
+        || typeof event.evidence !== 'string' || event.evidence.length > 600)) throw Error('服务端维护审批现场依据无效')
     if (!positive(event.id) || !positive(event.generation) || Number(event.generation) > row.generation
         || event.version !== ++version || !Number.isSafeInteger(event.step) || Number(event.step) < 0
         || !['submit', 'approve', 'reject', 'withdraw', 'execute'].includes(String(event.action))

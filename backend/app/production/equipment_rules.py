@@ -11,6 +11,8 @@ from app.core.models import (EquipmentAsset, MaintenancePlan, MaintenanceHourPla
     MaintenanceDowntime, User, UserRole, RolePermission, Material, WorkOrder,
     WarehouseOutbound, WarehouseOutboundReversal)
 from app.core.orm import model_data
+from app.core import document_approval as approval
+from app.core.approval_documents import maintenance_snapshot
 from app.inventory.warehouse import require_warehouse
 
 TERMINAL = ('accepted','cancelled','reversed')
@@ -68,6 +70,7 @@ def authors(db, row):
     identifiers.update(db.scalars(select(MaintenanceChange.changed_by).where(
         MaintenanceChange.entity_type == 'job', MaintenanceChange.entity_id == row.id,
         MaintenanceChange.action.in_(('create','edit','submit')))))
+    identifiers.update(maintenance_snapshot(db, row.id)['source_author_ids'])
     return sorted(identifiers)
 
 
@@ -185,13 +188,18 @@ def downtime_data(db, row):
 
 
 def available_actions(db, row, user):
-    policy = {'draft': ('submit','cancel'), 'rejected': ('submit','cancel'),
-        'submitted': ('approve','reject','cancel'), 'approved': ('start','cancel'),
+    policy = {'draft': ('cancel',), 'rejected': ('cancel',),
+        'submitted': ('cancel',), 'approved': ('start','cancel'),
         'in_progress': ('report','cancel'), 'reported': ('accept','rework','cancel'), 'accepted': ('reverse',)}
     operation_permission = {'approve':'review','reject':'review','start':'execute','report':'execute','rework':'accept'}
     excluded = set(authors(db, row))
+    case = approval.find_case(db, 'MaintenanceJob', row.id)
+    reversal = approval.find_case(db, 'MaintenanceJob', row.id, 'reverse')
     return [action for action in policy.get(row.status, ())
-        if f'equipment.{operation_permission.get(action, action)}' in user['permissions']
+        if (action != 'start' or case is not None and case.status in ('approved', 'executed'))
+        and (action != 'reverse' or reversal is not None and reversal.status == 'approved')
+        and (action != 'cancel' or case is None or case.status not in ('submitted', 'approved'))
+        and f'equipment.{operation_permission.get(action, action)}' in user['permissions']
         and (action not in ('approve','reject','accept','rework') or user['id'] not in excluded)
         and (action not in ('accept','rework') or user['id'] not in (row.assigned_to, row.reported_by))
         and (action not in ('start','report') or user['id'] == row.assigned_to)]
@@ -216,6 +224,8 @@ def job_data(db, row, user, detail=True):
         result['purchase_requests'] = procurement_data(db, row.id)
     else:
         result['purchase_requests'] = []
+    result['approval'] = approval.case_data(approval.find_case(db, 'MaintenanceJob', row.id))
+    result['reversal_approval'] = approval.case_data(approval.find_case(db, 'MaintenanceJob', row.id, 'reverse'))
     result['allowed_actions'] = available_actions(db, row, user)
     result['can_edit'] = (row.status in ('draft','rejected') and 'equipment.create' in user['permissions']
                           and (row.work_order_id is None or 'production.view' in user['permissions']))

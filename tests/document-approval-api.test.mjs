@@ -106,3 +106,15 @@ test('合法报价完整摘要保留全部物料与附件且拒绝越界',()=>{
   assert.throws(()=>caseApi.validateDocumentApprovalRecord({...state,document_type:'WarehouseInbound'}))
   assert.throws(()=>caseApi.validateDocumentApprovalRecord({...state,summary:Array(129).fill({label:'越界',value:''})}))
 })
+
+// 维护现场依据独立跨 IPC 传递；其他单据不能使用维护字段绕过其原边界。
+test('维护审批保留二百字意见及六百字现场依据，拒绝空证据和跨类型字段',()=>{
+  const input={document_type:'MaintenanceJob',document_id:1,intent:'execute',action:'submit',version:0,
+    reason:' 检查维护方案 ',evidence:' 现场记录 W-001 '}
+  assert.deepEqual(caseApi.documentApprovalActionBody(input),{version:0,intent:'execute',reason:'检查维护方案',evidence:'现场记录 W-001'})
+  for(const bad of [{reason:''},{reason:'x'.repeat(201)},{evidence:''},{evidence:'x'.repeat(601)},
+    {evidence:1},{document_type:'WorkOrder'}])assert.throws(()=>caseApi.documentApprovalActionBody({...input,...bad}))
+  caseApi.documentApprovalActionBody({...input,action:'withdraw',reason:'',evidence:''})
+  caseApi.validateDocumentApprovalRecord({...draft(),document_type:'MaintenanceJob',reversal_evidence:'固定现场依据'})
+  assert.throws(()=>caseApi.validateDocumentApprovalRecord({...draft(),reversal_evidence:'非法跨类型依据'}))
+})

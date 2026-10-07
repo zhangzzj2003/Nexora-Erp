@@ -144,11 +144,14 @@ def case_data(row: DocumentApprovalCase | None) -> dict:
 
 
 def append_event(db: Session, row: DocumentApprovalCase, action: str,
-                 user_id: int, reason: str, step: int, *, prior_state: Mapping | None = None) -> None:
+                 user_id: int, reason: str, step: int, *, prior_state: Mapping | None = None, evidence: str = '') -> None:
     row.updated_at = now(db)
     # 事件保留全量快照；重新送审只改变当前状态，不覆盖历次批准的内容。
     state = {**case_data(row), 'snapshot': json.loads(row.snapshot_json),
              'authors': json.loads(row.authors_json), 'content_digest': row.content_digest}
+    if evidence:
+        # 维护领域的现场依据与审批意见独立存证，不改变其他单据的数据契约。
+        state['operation_evidence'] = evidence.strip()
     if prior_state is not None:
         # 升级前流程单独存证，后续投影更新不能覆盖原人员、时间或意见。
         state['prior_native_review'] = dict(prior_state)
@@ -160,7 +163,7 @@ def append_event(db: Session, row: DocumentApprovalCase, action: str,
 def submit(db: Session, document_type: str, document_id: int, snapshot: Mapping,
            version: int, user_id: int, *, authors: Sequence[int] = (),
            intent: str = 'execute', permission: str | None = None,
-           prior_state: Mapping | None = None, reason: str = '') -> dict:
+           prior_state: Mapping | None = None, reason: str = '', evidence: str = '') -> dict:
     write_transaction(db)
     rule = approval_type(document_type)
     actor(db, user_id, permission or rule.submit_permission)
@@ -199,7 +202,7 @@ def submit(db: Session, document_type: str, document_id: int, snapshot: Mapping,
         row.current_step, row.status = 0, 'submitted'
         row.submitted_by, row.submitted_at = user_id, submitted_at
     db.flush()
-    append_event(db, row, 'submit', user_id, reason.strip(), 0, prior_state=prior_state)
+    append_event(db, row, 'submit', user_id, reason.strip(), 0, prior_state=prior_state, evidence=evidence)
     return case_data(row)
 
 
@@ -216,7 +219,7 @@ def checked_case(db: Session, document_type: str, document_id: int,
 
 def review(db: Session, document_type: str, document_id: int, snapshot: Mapping,
            version: int, user_id: int, *, approve: bool, reason: str = '',
-           intent: str = 'execute') -> dict:
+           intent: str = 'execute', evidence: str = '') -> dict:
     write_transaction(db)
     user = actor(db, user_id, approval_type(document_type).review_permission)
     row = checked_case(db, document_type, document_id, version, snapshot, intent)
@@ -243,7 +246,7 @@ def review(db: Session, document_type: str, document_id: int, snapshot: Mapping,
             row.status = 'approved'
     else:
         row.status = 'rejected'
-    append_event(db, row, 'approve' if approve else 'reject', user_id, reason.strip(), current_step)
+    append_event(db, row, 'approve' if approve else 'reject', user_id, reason.strip(), current_step, evidence=evidence)
     return case_data(row)
 
 
@@ -301,4 +304,17 @@ def require_conversion_approved(db: Session, document_type: str, document_id: in
     if row.content_digest != digest(snapshot)[1]:
         raise HTTPException(409, '单据内容与批准内容不一致，请重新送审')
     # 实际可转数量仍由领域在同一写事务核对；后续拆单不追加虚假的重复批准或执行事件。
+    return row
+
+
+def require_maintenance_approved(db: Session, identifier: int, snapshot: Mapping,
+                                 user_id: int, permission: str) -> DocumentApprovalCase:
+    # 维护可先分批申请备件、再开始作业；只有本领域保留同一方案的后续办理授权。
+    write_transaction(db)
+    actor(db, user_id, permission)
+    row = find_case(db, 'MaintenanceJob', identifier)
+    if row is None or row.status not in ('approved', 'executed'):
+        raise HTTPException(409, '请先送审并完成维护工单独立审批')
+    if row.content_digest != digest(snapshot)[1]:
+        raise HTTPException(409, '维护方案与批准内容不一致，请重新送审')
     return row

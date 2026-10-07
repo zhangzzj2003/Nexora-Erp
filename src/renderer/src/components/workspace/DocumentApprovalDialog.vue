@@ -13,13 +13,15 @@ withDefaults(defineProps<{ title?: string }>(), { title: '单据审批' })
 const store = usePiniaAppStore()
 const { documentApprovalTarget: target, documentApprovalRecord: record,
   documentApprovalLoading: loading, documentApprovalError: error,
-  documentApprovalReasons: reasons, busy, connectionLost } = storeToRefs(store)
+  documentApprovalReasons: reasons, documentApprovalEvidence: evidence, busy, connectionLost } = storeToRefs(store)
 const disabled = computed(() => busy.value || loading.value || connectionLost.value)
 const key = computed(() => target.value ? approvalTargetKey(target.value) : '')
 const labels = { draft: '未送审', submitted: '审批中', approved: '已批准，待执行', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
 const actions = { submit: '送审', approve: '批准', reject: '驳回', withdraw: '撤回', execute: '执行' }
 // 报价、售后及处置保留原必填依据，售后与处置意见最多二百字。
-const quoteReasonRequired = computed(() => ['CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan'].includes(target.value?.document_type ?? ''))
+const quoteReasonRequired = computed(() => ['CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob'].includes(target.value?.document_type ?? ''))
+const maintenance = computed(() => target.value?.document_type === 'MaintenanceJob')
+const evidenceMissing = computed(() => maintenance.value && !evidence.value[key.value]?.trim())
 const reversalSubmit = computed(() => target.value?.intent === 'reverse' && record.value?.can_submit)
 </script>
 
@@ -41,7 +43,7 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
           <div v-for="(item, index) in record.summary" :key="index"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>
         </dl>
         <!-- 已下达或已完工的历史工单同样保留原流程，不能误显示为等待新审批。 -->
-        <p v-if="record.intent === 'execute' && record.version === 0 && ['posted', 'cancelled', 'confirmed', 'partially_shipped', 'shipped', 'closed', 'released', 'in_progress', 'completed', 'converted', 'processing', 'received', 'repaired', 'reversed'].includes(record.business_status)">已处理单据保留原业务记录，不补造审批记录。</p>
+        <p v-if="record.intent === 'execute' && record.version === 0 && ['posted', 'cancelled', 'confirmed', 'partially_shipped', 'shipped', 'closed', 'released', 'in_progress', 'completed', 'converted', 'processing', 'received', 'repaired', 'reversed', 'accepted', 'reported'].includes(record.business_status)">已处理单据保留原业务记录，不补造审批记录。</p>
         <!-- 旧申请全部转完后只保留原事实；剩余需求的新批准不能倒写成历史订单的批准。 -->
         <p v-else-if="record.document_type === 'PurchaseRequest' && record.version === 0 && record.business_status === 'approved' && !record.can_submit">申请已无待转数量，保留原转单记录，不补造审批。</p>
         <p v-else><strong>{{ labels[record.status] }}</strong> · 审批版本 {{ record.version }}</p>
@@ -54,10 +56,15 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
             <strong>{{ index + 1 }}. {{ step.name }}</strong><span>{{ step.role ? `指定角色：${accountRoleText([step.role], store.roles)}` : '由有审核权限的人员处理' }}</span>
           </li>
         </ol>
+        <p v-if="record.reversal_evidence">送审验收更正依据：{{ record.reversal_evidence }}</p>
         <p v-if="record.reversal_reason">送审冲销原因：{{ record.reversal_reason }}</p>
         <label v-if="reversalSubmit || record.can_review || (quoteReasonRequired && record.can_submit)" class="approval-reason">
-          {{ reversalSubmit ? '冲销原因（必填）' : quoteReasonRequired ? `${record.document_type === 'AfterSalesCase' ? '售后' : record.document_type === 'QualityDisposition' ? '处置' : record.document_type === 'MrpPlan' ? '计划' : '报价'}操作依据（必填）` : '审批意见（驳回时必填）' }}
-          <AppInput v-model="reasons[key]" :maxlength="reversalSubmit || ['AfterSalesCase', 'QualityDisposition'].includes(record.document_type) ? 200 : 500" :disabled="disabled" />
+          {{ reversalSubmit ? '冲销原因（必填）' : quoteReasonRequired ? `${record.document_type === 'AfterSalesCase' ? '售后' : record.document_type === 'QualityDisposition' ? '处置' : record.document_type === 'MrpPlan' ? '计划' : record.document_type === 'MaintenanceJob' ? '维护' : '报价'}操作依据（必填）` : '审批意见（驳回时必填）' }}
+          <AppInput v-model="reasons[key]" :maxlength="reversalSubmit || ['AfterSalesCase', 'QualityDisposition', 'MaintenanceJob'].includes(record.document_type) ? 200 : 500" :disabled="disabled" />
+        </label>
+        <!-- 现场依据保持原维护领域的独立字段，审核意见不覆盖更正执行依据。 -->
+        <label v-if="maintenance && (record.can_submit || record.can_review)" class="approval-reason">现场依据（必填）
+          <AppInput v-model="evidence[key]" maxlength="600" :disabled="disabled" />
         </label>
         <h3>审批记录</h3>
         <p v-if="!record.events.length" class="approval-hint">尚无审批记录。</p>
@@ -65,7 +72,7 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
           <li v-for="event in record.events" :key="event.id">
             <strong>{{ event.action === 'approve' ? event.step_name || '批准' : actions[event.action] }} · {{ event.actor_name }}</strong>
             <small>{{ store.localTime(event.created_at) }} · 第 {{ event.generation }} 次送审</small>
-            <p v-if="event.reason">{{ event.reason }}</p>
+            <p v-if="event.reason">{{ event.reason }}</p><p v-if="event.evidence">现场依据：{{ event.evidence }}</p>
           </li>
         </ol>
       </template>
@@ -75,11 +82,11 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
       <AppButton v-if="record?.can_withdraw" type="button" :disabled="disabled"
         @click="store.actDocumentApproval('withdraw')">撤回审批</AppButton>
       <AppButton v-if="record?.can_submit" type="button" variant="primary"
-        :disabled="disabled || ((reversalSubmit || quoteReasonRequired) && !reasons[key]?.trim())"
+        :disabled="disabled || evidenceMissing || ((reversalSubmit || quoteReasonRequired) && !reasons[key]?.trim())"
         @click="store.actDocumentApproval('submit')">提交审批</AppButton>
-      <AppButton v-if="record?.can_review" type="button" :disabled="disabled || !reasons[key]?.trim()"
+      <AppButton v-if="record?.can_review" type="button" :disabled="disabled || evidenceMissing || !reasons[key]?.trim()"
         @click="store.actDocumentApproval('reject')">驳回</AppButton>
-      <AppButton v-if="record?.can_review" type="button" variant="primary" :disabled="disabled || (quoteReasonRequired && !reasons[key]?.trim())"
+      <AppButton v-if="record?.can_review" type="button" variant="primary" :disabled="disabled || evidenceMissing || (quoteReasonRequired && !reasons[key]?.trim())"
         @click="store.actDocumentApproval('approve')">{{ record.steps[record.current_step]?.name || '批准' }}</AppButton>
     </footer>
   </NModal>

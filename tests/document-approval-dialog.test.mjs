@@ -12,7 +12,7 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
     export const calls=[];export const usePiniaAppStore=defineStore('approval-dialog-test',()=>({
       documentApprovalTarget:ref({document_type:'WarehouseInbound',document_id:1,intent:'execute'}),
       documentApprovalRecord:ref(null),documentApprovalLoading:ref(false),documentApprovalError:ref(''),
-      documentApprovalReasons:ref({}),busy:ref(false),connectionLost:ref(false),roles:ref([{code:'admin',label:'管理员'}]),
+      documentApprovalReasons:ref({}),documentApprovalEvidence:ref({}),busy:ref(false),connectionLost:ref(false),roles:ref([{code:'admin',label:'管理员'}]),
       localTime:value=>value,closeDocumentApproval(){calls.push('close')},loadDocumentApproval(){calls.push('refresh')},
       actDocumentApproval(action){calls.push(action)}
     }));`
@@ -134,5 +134,16 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   store.documentApprovalRecord={...store.documentApprovalRecord,document_type:'MrpPlan',business_status:'draft',can_submit:true}
   html=await render();assert.match(html,/计划操作依据（必填）/);assert.match(html,/maxlength="500"/)
   assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
+
+  // 维护两项原始依据分别必填，不能只有操作意见就送审。
+  store.documentApprovalTarget={document_type:'MaintenanceJob',document_id:1,intent:'execute'}
+  store.documentApprovalRecord={...store.documentApprovalRecord,document_type:'MaintenanceJob',business_status:'draft',can_submit:true}
+  store.documentApprovalReasons['MaintenanceJob:1:execute']='核对维护方案'
+  html=await render();assert.match(html,/现场依据（必填）/);assert.match(html,/maxlength="600"/)
+  assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
+  store.documentApprovalEvidence['MaintenanceJob:1:execute']='现场独立依据'
+  assert.doesNotMatch(await render(),/<button[^>]*disabled[^>]*>提交审批/)
+  store.documentApprovalRecord.events=[{id:1,action:'submit',actor_name:'编制人',generation:1,created_at:'2026-10-07',reason:'方案意见',evidence:'现场独立依据'}]
+  assert.match(await render(),/现场依据：现场独立依据/)
 
 })

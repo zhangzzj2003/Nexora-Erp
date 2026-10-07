@@ -1,9 +1,10 @@
+import type { DocumentApprovalState } from './document-approval-api'
 import type { NumberedDocument } from './document-numbering'
 import type { MaterialChoice } from './material-api'
 export type EquipmentStatus = 'active' | 'inactive' | 'retired'
 export type EquipmentAttachmentKind = 'asset' | 'job'
 export interface EquipmentAttachment {
-  id: number; entity_kind: EquipmentAttachmentKind; entity_id: number
+  id: number; can_reverse?: boolean; entity_kind: EquipmentAttachmentKind; entity_id: number
   file_name: string; media_type: 'application/pdf' | 'image/png' | 'image/jpeg'
   byte_count: number; sha256: string; reason: string
   created_by: number; created_by_name: string; created_at: string
@@ -78,6 +79,8 @@ export interface MaintenanceJobInput {
   warehouse_id: number | null; parts: MaintenancePart[]; reason: string
 }
 export interface MaintenanceJobRecord extends Omit<MaintenanceJobInput, 'reason'> , NumberedDocument {
+  // 维护批准与验收更正分别返回原单独立审批进度。
+  approval?: DocumentApprovalState; reversal_approval?: DocumentApprovalState
   id: number; version: number; status: MaintenanceStatus; plan_version: number | null; plan_due_date: string | null
   plan_due_hours: string | null; plan_meter_reading_id: number | null
   equipment_snapshot: Record<string, unknown>; work_order_snapshot: Record<string, unknown> | null

@@ -29,6 +29,8 @@ function validateItem(value: unknown, kind: EquipmentAttachmentKind, recordId: n
     || !validText(row.created_by_name, 120) || !validText(row.created_at, 40)) {
     throw new Error('设备维护附件响应格式无效')
   }
+  // 原批准附件由服务端单独标为不可撤销；出现标志时必须是严格布尔值。
+  if (row.can_reverse !== undefined && typeof row.can_reverse !== 'boolean') throw new Error('设备维护附件撤销标志无效')
   if (row.reversal !== null) {
     const reversal = object(row.reversal)
     if (!positive(reversal.id) || !validText(reversal.reason, 200) || !positive(reversal.created_by)

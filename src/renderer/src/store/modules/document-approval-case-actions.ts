@@ -14,7 +14,7 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
     // 单据意见只属于当前实例和人员；旧请求不得恢复退出前的弹窗。
     owner++; reads++
     state.documentApprovalTarget.value = null; state.documentApprovalRecord.value = null
-    state.documentApprovalReasons.value = {}; state.documentApprovalError.value = ''
+    state.documentApprovalReasons.value = {}; state.documentApprovalEvidence.value = {}; state.documentApprovalError.value = ''
     state.documentApprovalLoading.value = false
   }, { flush: 'sync' })
   watch(state.connectionLost, () => {
@@ -72,7 +72,8 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
     const session = owner, key = approvalTargetKey(target)
     state.busy.value = true; reads++; state.documentApprovalError.value = ''
     try {
-      const input = { ...target, action, version: record.version, reason: state.documentApprovalReasons.value[key] ?? '' }
+      const input = { ...target, action, version: record.version, reason: state.documentApprovalReasons.value[key] ?? '',
+        ...(target.document_type === 'MaintenanceJob' ? { evidence: state.documentApprovalEvidence.value[key] ?? '' } : {}) }
       documentApprovalActionBody(input)
       const result = await window.nexora!.callApi('actDocumentApproval', input)
       if (session !== owner || !available()) return false
@@ -82,6 +83,7 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
       if (session !== owner || !available()) return false
       // 刷新失败也保留原输入；执行使用服务端固定冲销原因，审核意见不覆盖它。
       delete state.documentApprovalReasons.value[key]
+      delete state.documentApprovalEvidence.value[key]
       state.notice.value = action === 'approve' ? '审批步骤已完成。' : action === 'reject' ? '单据已驳回。'
         : action === 'withdraw' ? '审批已撤回。' : '单据已提交独立审批。'
       return true

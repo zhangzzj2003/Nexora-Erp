@@ -1,3 +1,4 @@
+import {validateDocumentApprovalResponse} from './document-approval-api.ts'
 // 先校验服务端边界，再让页面把阶段、金额及可执行动作当作业务事实。
 type Check=(value:unknown)=>boolean
 const object=(value:unknown):value is Record<string,unknown>=>!!value && typeof value==='object' && !Array.isArray(value)
@@ -47,5 +48,8 @@ export function validateEquipmentResult(action:string,value:unknown):void{
     maintenanceHourPlanDetail:hourPlan,recordEquipmentMeter:reading,
     saveEquipment:asset,saveMaintenancePlan:plan,saveMaintenanceHourPlan:hourPlan,
     saveMaintenanceJob:job,changeMaintenanceJob:job,createMaintenancePurchaseRequest:job} as Record<string,Check>)[action]
+  // overview 内的每张维护单也需完整校验审批状态，残缺 approved 不能开放下一步。
+  if(action==='equipmentOverview' && object(value))validateDocumentApprovalResponse(value.jobs)
+  else validateDocumentApprovalResponse(value)
   if(check && !check(value))throw new Error('设备维护响应格式不匹配，请核对桌面端与服务端版本后重新读取。')
 }

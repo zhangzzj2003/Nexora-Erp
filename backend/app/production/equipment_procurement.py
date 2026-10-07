@@ -1,6 +1,8 @@
 """维护工单的备件采购来源与后续到货证据。"""
 
 from app.core.document_responses import NumberedRoute
+from app.core import document_approval as approval
+from app.core.approval_documents import maintenance_snapshot
 import json
 from decimal import Decimal
 
@@ -102,6 +104,11 @@ def create_maintenance_purchase(identifier: int, payload: MaintenancePurchaseInp
         version(job, payload.version)
         if job.status not in ('approved', 'in_progress'):
             raise HTTPException(409, '只能为已批准或执行中的维护工单申请备件采购')
+        case = approval.find_case(db, 'MaintenanceJob', job.id)
+        # 已在旧服务开始的作业保留原事实；未开始的旧批准不能绕过新独立审批。
+        if case is not None or job.status == 'approved':
+            case = approval.require_maintenance_approved(db, job.id, maintenance_snapshot(db, job.id),
+                user['id'], 'purchase_request.create')
         planned = {part['material_id']: Decimal(part['quantity']) for part in json.loads(job.parts_json)}
         requested = requested_quantity(db, job.id)
         for part in payload.parts:
@@ -120,4 +127,6 @@ def create_maintenance_purchase(identifier: int, payload: MaintenancePurchaseInp
             evidence=payload.evidence, created_by=user['id']))
         job.version += 1
         audit(db, 'job', job, 'procure', before, user, payload.reason, payload.evidence)
+        if case is not None and case.status == 'approved':
+            approval.mark_executed(db, case, user['id'], permission='purchase_request.create')
         return job_data(db, job, user)

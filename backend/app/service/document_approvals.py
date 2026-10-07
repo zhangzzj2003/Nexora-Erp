@@ -13,7 +13,7 @@ from app.core.document_approval import actor, policy, policy_data, save_policy
 from app.core import document_approval as workflow
 from app.core.approval_documents import (
     current_snapshot, document_pending, document_snapshot, document_source, document_summary, submit_permission,
-    native_review_evidence, sync_native_review,
+    native_review_evidence, sync_native_review, maintenance_execution_snapshot,
 )
 from app.core.models import DocumentApprovalAuthor, DocumentApprovalEvent, DocumentApprovalPolicy, User
 from app.core.orm import orm_session
@@ -68,6 +68,8 @@ class ApprovalActionInput(BaseModel):
     version: int = Field(ge=0, strict=True)
     intent: Literal['execute', 'reverse'] = 'execute'
     reason: str = Field(default='', max_length=500)
+    # 维护原接口分别保存操作原因和现场依据，不合并为一段不可辨别的审批意见。
+    evidence: str | None = Field(default=None, max_length=600)
 
 
 def document_access(db, document_type: str, identifier: int, user_id: int):
@@ -99,6 +101,8 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
     if intent == 'reverse' and row:
         frozen_content = frozen_content['document']
     content_matches = workflow.digest(current_content)[1] == workflow.digest(frozen_content)[1]
+    if intent == 'reverse' and document_type == 'MaintenanceJob' and row:
+        content_matches = content_matches and workflow.digest(maintenance_execution_snapshot(db, identifier))[1] == workflow.digest(json.loads(row.snapshot_json)['execution'])[1]
     if state['status'] in ('rejected', 'withdrawn'):
         # 重新送审前展示当前正文；上一轮固定内容仍完整保存在不可改写的事件中。
         frozen_content = current_content
@@ -131,12 +135,13 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                    'action': event.action, 'step': event.step, 'actor_id': event.actor_id,
                    'step_name': json.loads(event.state_json)['steps'][event.step]['name']
                        if event.action in ('approve', 'reject') else None,
-                   'actor_name': name, 'reason': event.reason, 'created_at': event.created_at}
+                   'actor_name': name, 'reason': event.reason, 'created_at': event.created_at,
+                   **({'evidence': json.loads(event.state_json).get('operation_evidence', '')} if document_type == 'MaintenanceJob' else {})}
                   for event, name in db.execute(select(DocumentApprovalEvent, User.username)
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]
     summary = document_summary(db, document_type, frozen_content)
-    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan') and intent == 'execute':
+    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob') and intent == 'execute':
         # 升级前记录只作历史核对；首次送审后从不可改写的事件恢复。
         previous = native_review_evidence(db, document_type, identifier) if row is None else None
         if row:
@@ -154,11 +159,17 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
             if previous['review_reason']:
                 parts.append(f"意见：{previous['review_reason']}")
             summary.append({'label': '升级前流程记录（仅供历史核对）', 'value': '；'.join(parts)})
+    if document_type == 'MaintenanceJob' and intent == 'reverse':
+        execution = json.loads(row.snapshot_json)['execution'] if row and state['status'] not in ('rejected', 'withdrawn') else maintenance_execution_snapshot(db, identifier)
+        summary.extend({'label': label, 'value': str(execution[field]) if execution[field] is not None else '—'}
+            for label, field in [('实际处理结果', 'solution'), ('实际工时', 'labor_hours'),
+                ('声明外委费用', 'service_amount'), ('原验收时间', 'accepted_at')])
     # 摘要数量来自送审快照；资料名称只用于识别，不会改变已批准的业务内容。
     return {**state, 'document_type': document_type, 'document_id': identifier, 'intent': intent,
             'document_no': source.document_no, 'business_status': source.status,
             'summary': summary, 'content_matches': content_matches,
             'reversal_reason': json.loads(row.snapshot_json).get('reversal_reason', '') if row else '',
+            **({'reversal_evidence': json.loads(row.snapshot_json).get('reversal_evidence', '') if row else ''} if document_type == 'MaintenanceJob' else {}),
             'can_submit': pending and permission in permissions and state['status'] in ('draft', 'withdrawn', 'rejected'),
             'can_review': can_review,
             'can_withdraw': pending and permission in permissions and state['status'] in ('submitted', 'approved')
@@ -180,13 +191,21 @@ def act_document_approval(document_type: str, identifier: int,
                           payload: ApprovalActionInput, user: dict = Depends(current_user)) -> dict:
     with orm_session(write=True) as db:
         rule, user, source = document_access(db, document_type, identifier, user['id'])
+        if document_type != 'MaintenanceJob' and payload.evidence is not None:
+            raise HTTPException(422, '此类单据不接受维护现场依据')
+        evidence = payload.evidence or ''
+        if document_type == 'MaintenanceJob' and action in ('submit', 'approve', 'reject') and (
+                not payload.reason.strip() or len(payload.reason.strip()) > 200 or not evidence.strip()):
+            raise HTTPException(422, '维护操作原因与现场依据必填')
         row = workflow.find_case(db, document_type, identifier, payload.intent)
+        fixed_evidence = evidence if action == 'submit' else (
+            json.loads(row.snapshot_json).get('reversal_evidence', '') if row else '')
         reason = payload.reason if action == 'submit' else (
             json.loads(row.snapshot_json).get('reversal_reason', '') if row else '')
         native = native_review_evidence(db, document_type, identifier)
         prior = native if row is None and payload.intent == 'execute' else None
         before = None
-        if document_type in ('CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan') and payload.intent == 'execute':
+        if document_type in ('CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob') and payload.intent == 'execute':
             # 使用外层业务事务准备固定正文，失败时原资料、原审计与审批事件全部回滚。
             if document_type == 'CrmQuote':
                 from app.sales.crm_quotes import prepare_approval_action
@@ -194,8 +213,10 @@ def act_document_approval(document_type: str, identifier: int,
                 from app.sales.after_sales import prepare_approval_action
             elif document_type == 'QualityDisposition':
                 from app.production.quality import prepare_approval_action
-            else:
+            elif document_type == 'MrpPlan':
                 from app.production.mrp import prepare_approval_action
+            else:
+                from app.production.equipment import prepare_approval_action
             workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else rule.submit_permission)
             workflow.check_version(row.version if row else 0, payload.version)
             document_pending(db, document_type, identifier, payload.intent)
@@ -203,7 +224,7 @@ def act_document_approval(document_type: str, identifier: int,
                 # 送审人先进入固定作者范围，原领域审计追加后不会改变审批摘要。
                 for author_id in {user['id'], source.created_by, *([native['submitted_by']] if native and native['submitted_by'] else [])}:
                     workflow.record_author(db, document_type, identifier, author_id)
-            before = prepare_approval_action(db, source, action, user, payload.reason)
+            before = prepare_approval_action(db, source, action, user, payload.reason, evidence) if document_type == 'MaintenanceJob' else prepare_approval_action(db, source, action, user, payload.reason)
         if document_type in ('AfterSalesCase', 'QualityDisposition') and payload.intent == 'reverse' and action in ('submit', 'approve', 'reject') and (not payload.reason.strip() or len(payload.reason.strip()) > 200):
             raise HTTPException(422, '更正审核依据必填，最多二百字')
         extra_authors = []
@@ -221,18 +242,32 @@ def act_document_approval(document_type: str, identifier: int,
             # 旧已执行单没有执行快照，先登记更正申请人及原办理作者，再固定当前正文。
             for author_id in {source.created_by, user['id'], *extra_authors}:
                 workflow.record_author(db, document_type, identifier, author_id)
-        content = document_snapshot(db, document_type, identifier, payload.intent, reason)
+        if document_type == 'MaintenanceJob' and payload.intent == 'reverse' and action == 'submit':
+            from app.core.models import MaintenanceChange, EquipmentAttachment, EquipmentAttachmentReversal
+            workflow.actor(db, user['id'], 'equipment.reverse')
+            workflow.check_version(row.version if row else 0, payload.version)
+            document_pending(db, document_type, identifier, payload.intent)
+            extra_authors = list(db.scalars(select(MaintenanceChange.changed_by).where(
+                MaintenanceChange.entity_type == 'job', MaintenanceChange.entity_id == identifier,
+                MaintenanceChange.action.not_in(('approve', 'reject', 'withdraw')))))
+            attachments = list(db.scalars(select(EquipmentAttachment).where(EquipmentAttachment.job_id == identifier)))
+            extra_authors.extend(item.created_by for item in attachments)
+            extra_authors.extend(db.scalars(select(EquipmentAttachmentReversal.created_by).where(
+                EquipmentAttachmentReversal.attachment_id.in_([item.id for item in attachments]))))
+            for author_id in {source.created_by, user['id'], *extra_authors}:
+                workflow.record_author(db, document_type, identifier, author_id)
+        content = document_snapshot(db, document_type, identifier, payload.intent, reason, fixed_evidence)
         if action == 'submit':
             # 派生草稿同时排除原方案编制人员；作者范围取自服务端快照，客户端无法指定。
             original = content['document'] if payload.intent == 'reverse' else content
             result = workflow.submit(db, document_type, identifier, content, payload.version, user['id'],
                             authors=[*extra_authors, *original.get('source_author_ids', ()),
                                      *([native['submitted_by']] if native and native['submitted_by'] else [])],
-                            prior_state=prior, reason=payload.reason,
+                            prior_state=prior, reason=payload.reason, evidence=evidence,
                             intent=payload.intent, permission=submit_permission(document_type, payload.intent))
         elif action in ('approve', 'reject'):
             result = workflow.review(db, document_type, identifier, content, payload.version, user['id'],
-                            approve=action == 'approve', reason=payload.reason, intent=payload.intent)
+                            approve=action == 'approve', reason=payload.reason, intent=payload.intent, evidence=evidence)
         else:
             result = workflow.withdraw(db, document_type, identifier, payload.version, user['id'],
                               intent=payload.intent, permission=submit_permission(document_type, payload.intent))
@@ -246,6 +281,9 @@ def act_document_approval(document_type: str, identifier: int,
             elif document_type == 'QualityDisposition':
                 from app.production.quality import sync_approval_action
                 sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
+            elif document_type == 'MaintenanceJob':
+                from app.production.equipment import sync_approval_action
+                sync_approval_action(db, source, action, result, user['id'], payload.reason, evidence, before)
             elif document_type == 'MrpPlan':
                 from app.production.mrp import sync_approval_action
                 sync_approval_action(db, source, action, result, user['id'], payload.reason, before)

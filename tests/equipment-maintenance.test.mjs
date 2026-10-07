@@ -52,7 +52,7 @@ test('独立维护入口及耗材开始权限，不由生产权限替代',()=>{
   assert.equal(canVisitRoute(routeByKey('equipmentMaintenance'),['production.view']),false)
   assert.equal(canVisitRoute(routeByKey('equipmentMaintenance'),['equipment.view']),true)
   assert.deepEqual(maintenanceActions({...row,parts:[{material_id:1,quantity:'1'}],allowed_actions:['start','cancel']},permissions),['cancel'])
-  assert.deepEqual(maintenanceActions({...row,parts:[{material_id:1,quantity:'1'}],allowed_actions:['start']},[...permissions,'other_outbound.create']),['start'])
+  assert.deepEqual(maintenanceActions({...row,parts:[{material_id:1,quantity:'1'}],approval:{status:'approved'},allowed_actions:['start']},[...permissions,'other_outbound.create']),['start'])
   assert.deepEqual(maintenanceActions(row,[]),[])
   assert.deepEqual(maintenanceActions(row,['equipment.view']),[])
 })
@@ -181,4 +181,52 @@ test('更正与取消显示真实库存和停机影响，审计中文差异不�
   const changes=equipmentChanges({before:{status:'draft',parts_json:'[]',service_amount:null},after:{status:'accepted',parts_json:'[{"material_id":2,"quantity":"0.125"}]',service_amount:'0.00'}})
   assert.match(JSON.stringify(changes),/草稿/);assert.match(JSON.stringify(changes),/物料 #2 × 0.125/)
   assert.equal(changes.find(row=>row.name==='声明外委费用（元）').before,'未登记')
+})
+
+// 共用审批刷新只恢复当前单据详情，不能覆盖其他资料或未保存正文。
+test('维护审批刷新保留表单与当前详情，切换实例拒绝排队写入',async t=>{
+  const calls=[]
+  const {state,actions}=fixture(t,async(action,input)=>{calls.push([action,input]);return action==='equipmentOverview'?overview:row})
+  state.equipmentDetail.value={kind:'job',row};state.equipmentForms.value.job.reference='未保存正文'
+  await actions.refreshEquipmentApproval(1)
+  assert.equal(state.equipmentDetail.value.row.id,1);assert.equal(state.equipmentForms.value.job.reference,'未保存正文')
+  const gate=deferred();let writes=0
+  const queued=fixture(t,async()=>{writes++;return row},async run=>{await gate.promise;await run()})
+  const pending=queued.actions.saveEquipmentRecord('job')
+  queued.state.server.value={id:'new-instance',fingerprint:'new-instance'}
+  queued.state.equipmentForms.value.job.reference='新实例草稿';gate.resolve()
+  assert.equal(await pending,false);assert.equal(writes,0);assert.equal(queued.state.equipmentForms.value.job.reference,'新实例草稿')
+})
+
+
+// 来源旧 approved 字样不等于新的本单独立批准。
+test('维护动作拒绝旧审核按钮与缺失审批，开始和更正各自核对批准',()=>{
+  assert.deepEqual(maintenanceActions({...row,allowed_actions:['submit','approve','reject']},permissions),[])
+  assert.deepEqual(maintenanceActions({...row,allowed_actions:['start']},permissions),[])
+  assert.deepEqual(maintenanceActions({...row,allowed_actions:['reverse'],approval:{status:'approved'}},permissions),[])
+  assert.deepEqual(maintenanceActions({...row,allowed_actions:['reverse'],reversal_approval:{status:'approved'}},permissions),['reverse'])
+})
+
+// 审核意见和前端传入依据都不能替换送审时固定的验收更正依据。
+test('验收更正读取服务端固定两项依据，撤回或切换实例后拒绝执行',async t=>{
+  const caseRow={document_type:'MaintenanceJob',document_id:1,intent:'reverse',document_no:null,business_status:'accepted',
+    reversal_reason:'固定更正原因',reversal_evidence:'固定现场依据',summary:[],content_matches:true,
+    version:2,status:'approved',generation:1,current_step:1,steps:[{name:'批准',role:null}],policy_version:1,
+    submitted_by:1,submitted_at:'2026-10-07 12:00:00',executed_by:null,executed_at:null,
+    can_submit:false,can_review:false,can_withdraw:true,events:[
+      {id:1,version:1,generation:1,action:'submit',step:0,step_name:null,actor_id:1,actor_name:'建单人',reason:'固定更正原因',evidence:'固定现场依据',created_at:'2026-10-07 12:00:00'},
+      {id:2,version:2,generation:1,action:'approve',step:0,step_name:'批准',actor_id:2,actor_name:'审核人',reason:'不同审核意见',evidence:'不同审核依据',created_at:'2026-10-07 12:00:00'}]}
+  let result=caseRow;const calls=[]
+  const {state,actions}=fixture(t,async(action,input)=>{
+    calls.push([action,input]);return action==='documentApproval'?result:action==='equipmentOverview'?overview:row
+  })
+  const command={id:1,version:3,action:'reverse',reason:'客户端原因',evidence:'客户端依据'}
+  assert.equal(await actions.changeMaintenanceJob(command),true)
+  assert.deepEqual(calls.find(([action])=>action==='changeMaintenanceJob')[1],{...command,reason:'固定更正原因',evidence:'固定现场依据'})
+  result={...caseRow,content_matches:false};calls.length=0
+  assert.equal(await actions.changeMaintenanceJob(command),false);assert.equal(calls.length,1)
+  const wait=deferred();globalThis.window.nexora.callApi=()=>wait.promise
+  const pending=actions.changeMaintenanceJob(command)
+  state.server.value={id:'another',fingerprint:'another'};wait.resolve(caseRow)
+  assert.equal(await pending,false)
 })

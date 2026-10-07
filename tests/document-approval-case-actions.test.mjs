@@ -141,3 +141,22 @@ test('审批领域刷新失败保留意见，实例切换阻止迟到领域读�
   assert.equal(await reading,false);assert.equal(domainReads,before)
   assert.deepEqual(state.documentApprovalReasons.value,{})
 })
+
+// 与审批意见使用相同的实例、人员和失败边界，不丢失原维护现场依据。
+test('维护依据单独提交且失败保留，同实例断线保留，换实例清除',async t=>{
+  const maintenance={...target,document_type:'MaintenanceJob'}
+  const requests=[]
+  const {state,actions}=environment(t,async(action,input)=>{
+    requests.push([action,input]);if(action==='actDocumentApproval')throw Error('现场依据需复核')
+    return {...draft(),...maintenance}
+  })
+  await actions.openDocumentApproval(maintenance)
+  const key=approvalTargetKey(maintenance)
+  state.documentApprovalReasons.value[key]='方案意见';state.documentApprovalEvidence.value[key]='现场记录'
+  assert.equal(await actions.actDocumentApproval('submit'),false)
+  assert.equal(requests.find(([action])=>action==='actDocumentApproval')[1].evidence,'现场记录')
+  assert.equal(state.documentApprovalEvidence.value[key],'现场记录')
+  state.connectionLost.value=true;assert.equal(state.documentApprovalEvidence.value[key],'现场记录')
+  state.server.value={id:'second',fingerprint:'second'}
+  assert.deepEqual(state.documentApprovalEvidence.value,{})
+})

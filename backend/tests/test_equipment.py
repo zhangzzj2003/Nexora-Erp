@@ -67,8 +67,25 @@ def plan_input(erp, **extra):
 
 
 def action(api, row, operation, actor='admin', status=200, **extra):
+    if operation in ('submit', 'approve', 'reject', 'withdraw'):
+        # 只把原送审/审核测试迁移到真实共用入口，不替业务执行隐式批准。
+        api('POST', f'system/document-approvals/MaintenanceJob/{row["id"]}/{operation}',
+            {'version': row['approval']['version'], 'reason': '按现场记录办理',
+             'evidence': '现场记录 W-001', **extra}, actor, status)
+        return api('GET', ROOT+f'/jobs/{row["id"]}') if status == 200 else None
     return api('POST', ROOT+f'/jobs/{row["id"]}/{operation}',
         {'version':row['version'], 'reason':'按现场记录办理', 'evidence':'现场记录 W-001', **extra}, actor, status)
+
+
+def approve_correction(api, row):
+    # 验收更正单独送审，固定原因和现场依据；原办理人员不能自审。
+    path = f'system/document-approvals/MaintenanceJob/{row["id"]}'
+    case = api('GET', path+'?intent=reverse')
+    case = api('POST', path+'/submit', {'intent':'reverse', 'version':case['version'],
+        'reason':'按现场记录办理', 'evidence':'现场记录 W-001'})
+    api('POST', path+'/approve', {'intent':'reverse', 'version':case['version'],
+        'reason':'独立复核验收更正', 'evidence':'核对原验收与现场记录'}, actor='third')
+    return api('GET', ROOT+f'/jobs/{row["id"]}')
 
 
 def approved(erp, **extra):
@@ -169,6 +186,7 @@ def test_periodic_maintenance_parts_acceptance_and_reversal(erp):
     approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'], intent='reverse', reason='实物已归库')
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/reverse',{'reason':'实物已归库'},status=409)
     downtime = row['downtime']
+    row = approve_correction(api, row)
     row = action(api,row,'reverse')
     assert row['downtime']==downtime and row['plan_roll']['reversal_effect']=='restored_due'
     assert api('GET',ROOT+f'/plans/{plan["id"]}')['next_due']==plan['next_due']
@@ -182,11 +200,11 @@ def test_admin_cannot_review_own_or_edited_request(erp):
     _, api, _, _, _, _ = erp
     row = api('POST',ROOT+'/jobs',job_input(erp),status=201)
     row = action(api,row,'submit')
-    action(api,row,'approve',status=409)
+    action(api,row,'approve',status=403)
     row = action(api,row,'reject',actor='reviewer')
     row = api('PUT',ROOT+f'/jobs/{row["id"]}',{**job_input(erp), 'version':row['version']},actor='reviewer')
     row = action(api,row,'submit')
-    action(api,row,'approve',actor='reviewer',status=409)
+    action(api,row,'approve',actor='reviewer',status=403)
     row = action(api,row,'approve',actor='third')
     assert row['author_ids']==[1,erp[3]['reviewer']]
 
@@ -248,6 +266,7 @@ def test_reversal_preserves_a_newer_explicit_schedule(erp):
     row = action(api,reported(erp,kind='preventive',plan_id=plan['id']),'accept',actor='reviewer')
     advanced = api('GET',ROOT+f'/plans/{plan["id"]}')
     newer = api('PUT',ROOT+f'/plans/{plan["id"]}',{**plan_input(erp,next_due='2028-01-01'),'version':advanced['version']})
+    row = approve_correction(api, row)
     row = action(api,row,'reverse')
     assert row['plan_roll']['reversal_effect']=='retained_newer_schedule'
     assert api('GET',ROOT+f'/plans/{plan["id"]}')==newer
@@ -491,6 +510,7 @@ def test_hour_plan_due_acceptance_and_audited_reversal(erp):
     assert advanced['next_due_hours'] == '120.00' and not advanced['due']
     assert row['plan_roll']['reading_id'] == reading['id']
     assert [change['action'] for change in advanced['changes']] == ['create', 'advance']
+    row = approve_correction(api, row)
     row = action(api, row, 'reverse')
     assert row['plan_roll']['reversal_effect'] == 'restored_due'
     restored = api('GET', ROOT+f'/hour-plans/{plan["id"]}')
