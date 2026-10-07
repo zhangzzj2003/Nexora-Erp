@@ -22,7 +22,7 @@ from app.core.models import (
     Bom, WorkOrder, WorkOrderLine, MaterialIssue, MaterialIssueLine, MaterialIssueReversal,
     MaterialReturn, MaterialReturnLine, MaterialReturnReversal, ProductionCompletion, ProductionCompletionReversal,
     QualityDisposition, QualityDispositionChange, MrpPlan, MrpPlanChange, MrpConversion,
-    Journal, JournalChange, JournalAttachment, JournalAttachmentReversal,
+    Journal, JournalChange, JournalAttachment, JournalAttachmentReversal, OpeningBalance, OpeningBalanceChange,
 )
 from app.core.approval_catalog import approval_type
 
@@ -496,6 +496,31 @@ def completion_snapshot(db: Session, identifier: int) -> dict:
                        'quantity': source.reported_quantity}]}
 
 
+def opening_snapshot(db: Session, identifier: int) -> dict:
+    from app.finance.opening_balances import snapshot
+    import json
+    source = document_source(db, 'OpeningBalance', identifier)
+    original = snapshot(db, source)
+    authors = {source.created_by}
+    authors.update(db.scalars(select(OpeningBalanceChange.changed_by).where(
+        OpeningBalanceChange.opening_balance_id == identifier,
+        OpeningBalanceChange.action.in_(('create', 'update', 'submit')))))
+    authors.update(db.scalars(select(DocumentApprovalAuthor.user_id).where(
+        DocumentApprovalAuthor.document_type == 'OpeningBalance', DocumentApprovalAuthor.document_id == identifier)))
+    executed = db.scalar(select(DocumentApprovalCase).where(
+        DocumentApprovalCase.document_type == 'OpeningBalance', DocumentApprovalCase.document_id == identifier,
+        DocumentApprovalCase.intent == 'execute', DocumentApprovalCase.status == 'executed'))
+    if executed:
+        # 撤销申请与确认人员不能改写原启用方案的作者快照。
+        authors = set(json.loads(executed.snapshot_json)['source_author_ids'])
+    return {field: original[field] for field in ('reference', 'effective_date', 'period_id', 'note', 'currency')} | {
+        'source_author_ids': sorted(authors),
+        'lines': [{field: line[field] for field in ('id', 'account_id', 'account_code', 'category',
+            'normal_balance', 'summary', 'debit', 'credit')} | {
+            'auxiliary': [{'kind': item['kind'], 'id': item['id']} for item in line['auxiliary']]}
+            for line in original['lines']]}
+
+
 def journal_snapshot(db: Session, identifier: int) -> dict:
     from app.finance.journals import snapshot
     import json
@@ -548,7 +573,7 @@ def native_review_evidence(db: Session, document_type: str, identifier: int) -> 
             'submitted_at': submitted.created_at if submitted else None, 'reviewed_by': source.reviewed_by,
             'reviewed_at': reviewed.created_at if reviewed else None,
             'review_reason': (reviewed.reason + '；现场依据：' + reviewed.evidence) if reviewed else ''}
-    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'Journal'):
+    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'Journal', 'OpeningBalance'):
         return None
     source = db.get(approval_type(document_type).model, identifier)
     if source.submitted_by is None and source.reviewed_by is None:
@@ -556,7 +581,11 @@ def native_review_evidence(db: Session, document_type: str, identifier: int) -> 
     result = {field: getattr(source, field) for field in (
         'status', 'submitted_by', 'submitted_at', 'reviewed_by', 'reviewed_at')}
     # 报价和售后意见保存在追加审计中，不存在主单 review_reason 字段。
-    if document_type == 'Journal':
+    if document_type == 'OpeningBalance':
+        result['review_reason'] = db.scalar(select(OpeningBalanceChange.reason).where(
+            OpeningBalanceChange.opening_balance_id == identifier, OpeningBalanceChange.action.in_(('approve', 'reject')))
+            .order_by(OpeningBalanceChange.id.desc()).limit(1)) or ''
+    elif document_type == 'Journal':
         result['review_reason'] = db.scalar(select(JournalChange.reason).where(
             JournalChange.journal_id == identifier, JournalChange.action.in_(('approve', 'reject')))
             .order_by(JournalChange.id.desc()).limit(1)) or ''
@@ -599,7 +628,7 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+_SNAPSHOTS = {'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
@@ -640,6 +669,10 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
             or source.source_kind == 'purchase_return' and source.purchase_return_id is None):
         raise HTTPException(409, '出库单缺少有效业务来源，不能审批')
     if intent == 'reverse':
+        if document_type == 'OpeningBalance':
+            if source.status != 'confirmed':
+                raise HTTPException(409, '仅已确认期初可以另行申请撤销')
+            return source
         if document_type == 'MaintenanceJob':
             if source.status != 'accepted':
                 raise HTTPException(409, '仅已验收维护工单可以独立申请更正')
@@ -661,7 +694,7 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         if source.status != 'posted' or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
     elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
-                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal') else
+                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance') else
                                ('inspected',) if document_type == 'ProductionCompletion' else ('draft',)):
         # 历史已执行记录不补造审批；只限制仍待执行的草稿。
         raise HTTPException(409, '此单据已处理，不能继续审批')
@@ -701,6 +734,9 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
         if not reason.strip() or len(reason.strip()) > 200:
             raise HTTPException(422, '冲销原因必填，最多二百字')
         result = {'document': content, 'reversal_reason': reason.strip()}
+        if document_type == 'OpeningBalance':
+            source = db.get(OpeningBalance, identifier)
+            result['confirmation'] = {'confirmed_by': source.confirmed_by, 'confirmed_at': source.confirmed_at}
         if document_type == 'MaintenanceJob':
             if not evidence.strip() or len(evidence.strip()) > 600:
                 raise HTTPException(422, '验收更正现场依据必填，最多六百字')
@@ -711,6 +747,8 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
 
 def submit_permission(document_type: str, intent: str) -> str | None:
     # 冲销送审/撤回沿用冲销权限，不能因为有建单权限而获得冲销权限。
+    if intent == 'reverse' and document_type == 'OpeningBalance':
+        return 'opening_balance.reverse'
     if intent == 'reverse' and document_type == 'MaintenanceJob':
         return 'equipment.reverse'
     if intent == 'reverse' and document_type == 'QualityDisposition':
@@ -723,6 +761,20 @@ def submit_permission(document_type: str, intent: str) -> str | None:
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'OpeningBalance':
+        from app.core.models import LedgerAccount, AccountingPeriod
+        from app.finance.auxiliary_rules import LABELS
+        period = db.get(AccountingPeriod, content['period_id'])
+        total = sum(Decimal(line['debit']) for line in content['lines'])
+        result = [{'label': label, 'value': str(value)} for label, value in [
+            ('启用日', content['effective_date']), ('会计期间', period.code if period else content['period_id']),
+            ('依据编号', content['reference']), ('备注', content['note']), ('借贷各', f'人民币 {total:.2f} 元')]]
+        for line in content['lines']:
+            account = db.get(LedgerAccount, line['account_id'])
+            auxiliary = '、'.join(f"{LABELS[item['kind']]} #{item['id']}" for item in line['auxiliary'])
+            result.append({'label': line['account_code'] + ' · ' + (account.name if account else '科目快照'),
+                'value': f"{line['summary']}；借 {line['debit']} / 贷 {line['credit']}；辅助 {auxiliary or '无'}"})
+        return result
     if document_type == 'Journal':
         from app.core.models import LedgerAccount, AccountingPeriod
         from app.finance.auxiliary_rules import LABELS

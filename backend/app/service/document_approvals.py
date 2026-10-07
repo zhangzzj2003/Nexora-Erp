@@ -101,6 +101,9 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
     if intent == 'reverse' and row:
         frozen_content = frozen_content['document']
     content_matches = workflow.digest(current_content)[1] == workflow.digest(frozen_content)[1]
+    if intent == 'reverse' and document_type == 'OpeningBalance' and row:
+        content_matches = content_matches and json.loads(row.snapshot_json)['confirmation'] == {
+            'confirmed_by': source.confirmed_by, 'confirmed_at': source.confirmed_at}
     if intent == 'reverse' and document_type == 'MaintenanceJob' and row:
         content_matches = content_matches and workflow.digest(maintenance_execution_snapshot(db, identifier))[1] == workflow.digest(json.loads(row.snapshot_json)['execution'])[1]
     if state['status'] in ('rejected', 'withdrawn'):
@@ -141,7 +144,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]
     summary = document_summary(db, document_type, frozen_content)
-    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal') and intent == 'execute':
+    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance') and intent == 'execute':
         # 升级前记录只作历史核对；首次送审后从不可改写的事件恢复。
         previous = native_review_evidence(db, document_type, identifier) if row is None else None
         if row:
@@ -150,7 +153,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
             previous = json.loads(first.state_json).get('prior_native_review') if first else None
         if previous:
             old_status = {'draft': '草稿', 'submitted': '待审批', 'approved': '已批准',
-                          'rejected': '已驳回', 'cancelled': '已取消', 'posted': '已确认'}
+                          'rejected': '已驳回', 'cancelled': '已取消', 'posted': '已确认', 'confirmed': '已确认', 'reversed': '已撤销'}
             parts = [f"原状态：{old_status.get(previous['status'], previous['status'])}"]
             for label, field in [('提交', 'submitted'), ('审核', 'reviewed')]:
                 person = db.get(User, previous[f'{field}_by']) if previous[f'{field}_by'] else None
@@ -159,6 +162,13 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
             if previous['review_reason']:
                 parts.append(f"意见：{previous['review_reason']}")
             summary.append({'label': '升级前流程记录（仅供历史核对）', 'value': '；'.join(parts)})
+    if document_type == 'OpeningBalance' and intent == 'reverse':
+        # 撤销核对原实际确认人员和时间，不能把原启用批准当作撤销授权。
+        confirmation = json.loads(row.snapshot_json)['confirmation'] if row and state['status'] not in ('rejected', 'withdrawn') else {
+            'confirmed_by': source.confirmed_by, 'confirmed_at': source.confirmed_at}
+        confirmer = db.get(User, confirmation['confirmed_by']) if confirmation['confirmed_by'] else None
+        summary.extend([{'label': '原确认人员', 'value': confirmer.username if confirmer else '—'},
+            {'label': '原确认时间', 'value': confirmation['confirmed_at'] or '—'}])
     if document_type == 'MaintenanceJob' and intent == 'reverse':
         execution = json.loads(row.snapshot_json)['execution'] if row and state['status'] not in ('rejected', 'withdrawn') else maintenance_execution_snapshot(db, identifier)
         summary.extend({'label': label, 'value': str(execution[field]) if execution[field] is not None else '—'}
@@ -205,7 +215,7 @@ def act_document_approval(document_type: str, identifier: int,
         native = native_review_evidence(db, document_type, identifier)
         prior = native if row is None and payload.intent == 'execute' else None
         before = None
-        if document_type in ('CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal') and payload.intent == 'execute':
+        if document_type in ('CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance') and payload.intent == 'execute':
             # 使用外层业务事务准备固定正文，失败时原资料、原审计与审批事件全部回滚。
             if document_type == 'CrmQuote':
                 from app.sales.crm_quotes import prepare_approval_action
@@ -215,6 +225,8 @@ def act_document_approval(document_type: str, identifier: int,
                 from app.production.quality import prepare_approval_action
             elif document_type == 'MrpPlan':
                 from app.production.mrp import prepare_approval_action
+            elif document_type == 'OpeningBalance':
+                from app.finance.opening_balances import prepare_approval_action
             elif document_type == 'Journal':
                 from app.finance.journals import prepare_approval_action
             else:
@@ -258,6 +270,17 @@ def act_document_approval(document_type: str, identifier: int,
                 EquipmentAttachmentReversal.attachment_id.in_([item.id for item in attachments]))))
             for author_id in {source.created_by, user['id'], *extra_authors}:
                 workflow.record_author(db, document_type, identifier, author_id)
+        if document_type == 'OpeningBalance' and payload.intent == 'reverse':
+            from app.finance.opening_balances import prepare_approval_action
+            workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else 'opening_balance.reverse')
+            workflow.check_version(row.version if row else 0, payload.version)
+            document_pending(db, document_type, identifier, payload.intent)
+            prepare_approval_action(db, source, action, user, payload.reason, payload.intent)
+            if action == 'submit':
+                # 实际确认人员和撤销申请人也属于撤销编制范围，不能自行批准撤销。
+                extra_authors = [source.confirmed_by] if source.confirmed_by is not None else []
+                for author_id in {source.created_by, user['id'], *extra_authors}:
+                    workflow.record_author(db, document_type, identifier, author_id)
         content = document_snapshot(db, document_type, identifier, payload.intent, reason, fixed_evidence)
         if action == 'submit':
             # 派生草稿同时排除原方案编制人员；作者范围取自服务端快照，客户端无法指定。
@@ -274,7 +297,10 @@ def act_document_approval(document_type: str, identifier: int,
             result = workflow.withdraw(db, document_type, identifier, payload.version, user['id'],
                               intent=payload.intent, permission=submit_permission(document_type, payload.intent))
         if payload.intent == 'execute':
-            if document_type == 'Journal':
+            if document_type == 'OpeningBalance':
+                from app.finance.opening_balances import sync_approval_action
+                sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
+            elif document_type == 'Journal':
                 from app.finance.journals import sync_approval_action
                 sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
             elif document_type == 'CrmQuote':

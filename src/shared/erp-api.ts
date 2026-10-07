@@ -253,10 +253,11 @@ export type OpeningBalanceAction = 'submit' | 'approve' | 'reject' | 'confirm' |
 export interface OpeningBalanceInput { reference: string; effective_date: string; note: string; reason: string; lines: JournalLineInput[] }
 export interface OpeningBalance extends Omit<Journal, 'journal_date' | 'status' | 'posted_by' | 'posted_at' | 'reversal_of_id' | 'reversal_journal_id' | 'lines'> {
   effective_date: string; status: OpeningBalanceStatus; active_key: number | null
+  reversal_approval?: DocumentApprovalState; reversal_reason?: string
   confirmed_by: number | null; confirmed_at: string | null; reversed_by: number | null; reversed_at: string | null
   lines: (Omit<JournalLine, 'journal_id'> & { opening_balance_id: number })[]
 }
-export interface OpeningBalanceChange extends FinanceMetadataChange<Omit<OpeningBalance, 'period_code' | 'created_by_name' | 'author_ids'>> { action: OpeningBalanceAction | 'create' | 'update' }
+export interface OpeningBalanceChange extends FinanceMetadataChange<Omit<OpeningBalance, 'period_code' | 'created_by_name' | 'author_ids'>> { action: OpeningBalanceAction | 'create' | 'update' | 'withdraw' }
 export type SubledgerKind = 'receivable' | 'payable'
 export interface SubledgerControl { kind: SubledgerKind; account_id: number }
 export interface SubledgerLineInput {

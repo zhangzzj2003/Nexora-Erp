@@ -41,9 +41,9 @@ def subledger(ledger):
         dict(account_id=1,summary='应收乙贷方',debit='0',credit='30',auxiliary=aux('customer',customers[1])),
         dict(account_id=2,summary='应付甲',debit='0',credit='80',auxiliary=aux('supplier',supplier)),
         dict(account_id=3,summary='权益',debit='0',credit='40')]),201)
+    from test_opening_balances import action as opening_action
     for action in ('submit','approve','confirm'):
-        opening = api('POST',f'finance/opening-balances/{opening["id"]}/{action}',
-            dict(version=opening['version'],reason='独立核对'),headers=reviewer if action == 'approve' else None)
+        opening = opening_action((client, reviewer), opening, action, action == 'approve')
     payload = dict(reference='SUB',opening_balance_id=opening['id'],opening_version=opening['version'],reason='历史欠款清单',
         control_accounts=[dict(kind='receivable',account_id=1),dict(kind='payable',account_id=2)],lines=[
             dict(kind='receivable',party_id=customers[0],account_id=1,document_reference='OLD-A',document_date='2025-12-01',debit='100',credit='0',auxiliary=[dict(kind='project',id=project)]),

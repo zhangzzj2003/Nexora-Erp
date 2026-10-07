@@ -19,6 +19,8 @@ from app.core.models import (
     User,
 )
 from app.core.orm import orm_session, model_data, add_model
+from app.core import document_approval as approval
+from app.core.approval_documents import opening_snapshot, document_snapshot
 from app.finance.journals import (
     ReasonInput,
     VersionInput,
@@ -114,6 +116,10 @@ def view(db: Session, record: OpeningBalance) -> dict:
             .distinct()
         )
     )
+    result['approval'] = approval.case_data(approval.find_case(db, 'OpeningBalance', record.id))
+    result['reversal_approval'] = approval.case_data(approval.find_case(db, 'OpeningBalance', record.id, 'reverse'))
+    reverse = approval.find_case(db, 'OpeningBalance', record.id, 'reverse')
+    result['reversal_reason'] = json.loads(reverse.snapshot_json).get('reversal_reason', '') if reverse else ''
     return result
 
 
@@ -317,48 +323,71 @@ def update(
         raise HTTPException(409, "期初依据编号已使用") from None
 
 
+def validate_reversal(db: Session, record: OpeningBalance) -> None:
+    # 撤销只在未过账、期间开放且无有效分户引用时允许，审批不能替代执行时复核。
+    from app.finance.subledger_rules import protect_opening
+    from app.core.period_lock import ensure_date_unlocked
+    protect_opening(db, record.id)
+    ensure_no_posted_journals(db)
+    ensure_date_unlocked(db, record.effective_date)
+
+
+def prepare_approval_action(db: Session, record: OpeningBalance, action: str,
+                            user: dict, reason: str, intent: str = 'execute') -> dict:
+    if action != 'withdraw' and (not reason.strip() or len(reason.strip()) > 200):
+        raise HTTPException(422, '期初审批依据必填，最多二百字')
+    before = snapshot(db, record)
+    if action in ('submit', 'approve'):
+        if intent == 'reverse':
+            validate_reversal(db, record)
+        else:
+            validate(db, record)
+    return before
+
+
+def sync_approval_action(db: Session, record: OpeningBalance, action: str, state: dict,
+                         user_id: int, reason: str, before: dict) -> None:
+    # 原业务版本和审计随每一步一起递增，中间核准不能提前启用期初。
+    record.status = 'draft' if action == 'withdraw' else state['status']
+    record.version += 1
+    if action == 'submit':
+        record.submitted_by, record.submitted_at = state['submitted_by'], state['submitted_at']
+        record.reviewed_by = record.reviewed_at = None
+    elif action in ('approve', 'reject'):
+        record.reviewed_by, record.reviewed_at = user_id, approval.now(db)
+    elif action == 'withdraw':
+        record.submitted_by = record.submitted_at = record.reviewed_by = record.reviewed_at = None
+    audit(db, record, before, action, reason, user_id)
+
+
 def transition(
     db: Session, record: OpeningBalance, data: VersionInput, user: dict, action: str
 ) -> dict:
-    states = {
-        "submit": ("draft", "rejected"),
-        "approve": ("submitted",),
-        "reject": ("submitted",),
-        "confirm": ("approved",),
-        "cancel": ("draft", "rejected", "submitted", "approved"),
-        "reverse": ("confirmed",),
-    }
-    targets = {
-        "submit": "submitted",
-        "approve": "approved",
-        "reject": "rejected",
-        "confirm": "confirmed",
-        "cancel": "cancelled",
-        "reverse": "reversed",
-    }
+    if action in ('submit', 'approve', 'reject'):
+        raise HTTPException(409, '请从带审批版本的统一单据入口送审或审核期初')
+    states = {'confirm': ('approved',), 'cancel': ('draft', 'rejected', 'submitted', 'approved'),
+              'reverse': ('confirmed',)}
+    targets = {'confirm': 'confirmed', 'cancel': 'cancelled', 'reverse': 'reversed'}
     if record.status not in states[action]:
-        raise HTTPException(409, "期初余额状态不允许此操作")
-    if action in ("approve", "reject") and user["id"] in view(db, record)["author_ids"]:
-        raise HTTPException(
-            409, "建单、编辑或提交过此期初方案的人不能审核，请由另一账号处理"
-        )
+        raise HTTPException(409, '期初余额状态不允许此操作')
+    case = approval.find_case(db, 'OpeningBalance', record.id)
+    if action == 'cancel' and case and case.status in ('submitted', 'approved'):
+        raise HTTPException(409, '请先撤回期初审批，再取消草稿')
     before = snapshot(db, record)
-    if action in ("submit", "approve", "confirm"):
+    if action == 'confirm':
+        case = approval.require_approved(db, 'OpeningBalance', record.id,
+            opening_snapshot(db, record.id), user['id'])
         validate(db, record)
-    if action == "reverse":
-        from app.finance.subledger_rules import protect_opening
-        protect_opening(db, record.id)
-        ensure_no_posted_journals(db)
-        from app.core.period_lock import ensure_date_unlocked
-        ensure_date_unlocked(db, record.effective_date)
+    elif action == 'reverse':
+        case = approval.require_approved(db, 'OpeningBalance', record.id,
+            document_snapshot(db, 'OpeningBalance', record.id, 'reverse', data.reason), user['id'],
+            intent='reverse', permission='opening_balance.reverse')
+        validate_reversal(db, record)
     record.status = targets[action]
     record.version += 1
     if action in ("cancel", "reverse"):
         record.active_key = None
     prefix = {
-        "submit": "submitted",
-        "approve": "reviewed",
-        "reject": "reviewed",
         "confirm": "confirmed",
         "cancel": "cancelled",
         "reverse": "reversed",
@@ -369,6 +398,9 @@ def transition(
     )
     db.flush()
     audit(db, record, before, action, data.reason, user["id"])
+    if action in ('confirm', 'reverse'):
+        approval.mark_executed(db, case, user['id'],
+            permission='opening_balance.reverse' if action == 'reverse' else None)
     return view(db, record)
 
 

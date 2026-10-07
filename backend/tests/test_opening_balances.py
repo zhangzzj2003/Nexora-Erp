@@ -1,5 +1,6 @@
 """首次启用、独立审核、精确期初、并发及审计回滚。"""
 
+from approval_test_helpers import approve_document
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 import csv
@@ -41,11 +42,15 @@ def create(journals, **changes):
 
 def action(journals, record, name, review=False):
     client, reviewer = journals
-    response = client.post(
-        f'{BASE}/{record["id"]}/{name}',
-        json=dict(version=record["version"], reason="期初核对"),
-        headers=reviewer if review else None,
-    )
+    if name in ('submit', 'approve', 'reject', 'withdraw'):
+        # 原有回归明确调用真实统一入口，成功后重新读取业务版本；不会自动批准。
+        response = client.post(f'/api/v1/system/document-approvals/OpeningBalance/{record["id"]}/{name}',
+            json=dict(version=record['approval']['version'], reason='期初核对'), headers=reviewer if review else None)
+        if response.status_code == 200:
+            return next(row for row in client.get(BASE).json() if row['id'] == record['id'])
+    else:
+        response = client.post(f'{BASE}/{record["id"]}/{name}',
+            json=dict(version=record['version'], reason='期初核对'), headers=reviewer if review else None)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -155,6 +160,8 @@ def test_cancel_reverse_replacement_and_zero_initialization(journals):
     cancelled = action(journals, create(journals), "cancel")
     assert cancelled["active_key"] is None
     original = confirmed(journals, reference="SECOND")
+    approve_document(client, None, 'OpeningBalance', original['id'], intent='reverse', reason='期初核对')
+    original = next(row for row in client.get(BASE).json() if row['id'] == original['id'])
     reversed_record = action(journals, original, "reverse")
     assert (
         reversed_record["status"] == "reversed"
@@ -248,6 +255,7 @@ def test_versions_authors_inactive_accounts_and_earlier_period(journals):
         ).status_code
         == 409
     )
+    record = action(journals, record, "withdraw")
     record = action(journals, record, "cancel")
     assert (
         client.put(

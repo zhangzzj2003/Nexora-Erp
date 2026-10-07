@@ -132,6 +132,8 @@ def test_opening_is_locked_even_without_posted_journal(journals):
     assert client.post(f'/api/v1/finance/opening-balances/{record["id"]}/reverse',
         json=dict(version=record['version'], reason='回改期初')).status_code == 409
     command(client, version=2, name='reopen')
+    from approval_test_helpers import approve_document
+    approve_document(client, None, 'OpeningBalance', record['id'], intent='reverse', reason='重新核对')
     assert client.post(f'/api/v1/finance/opening-balances/{record["id"]}/reverse',
         json=dict(version=record['version'], reason='重新核对')).status_code == 200
     assert not check(client)['can_close']

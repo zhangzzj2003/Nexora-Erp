@@ -127,3 +127,11 @@ test('凭证审批白名单保留必填依据和原长度约束',()=>{
   assert.deepEqual(caseApi.documentApprovalActionBody(input),{version:0,intent:'execute',reason:'凭据核对'})
   for(const bad of [{reason:' '},{reason:'字'.repeat(201)},{evidence:'维护字段'}])assert.throws(()=>caseApi.documentApprovalActionBody({...input,...bad}))
 })
+
+// 财务期初沿原二百字依据边界，客户端不能伪造批准字段或省略操作依据。
+test('期初审批依据必填且最多二百字，撤回保持独立版本',()=>{
+  const input={document_type:'OpeningBalance',document_id:1,intent:'execute',action:'submit',version:0,reason:'核对期初'}
+  assert.equal(caseApi.documentApprovalActionBody(input).reason,'核对期初')
+  for(const reason of [' ','字'.repeat(201)])assert.throws(()=>caseApi.documentApprovalActionBody({...input,reason}))
+  assert.equal(caseApi.documentApprovalActionBody({...input,action:'withdraw',version:2,reason:''}).version,2)
+})

@@ -10,7 +10,7 @@ import { NDatePicker, NCheckbox } from 'naive-ui'
 import { datePickerString, vDateField, dateOutsideRange } from '../../../utils/date-field'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal } from 'naive-ui'
 import type {
@@ -25,6 +25,7 @@ import OpeningHistory from './OpeningHistory.vue'
 import AuxiliarySelector from './AuxiliarySelector.vue'
 import { auxiliaryText } from './auxiliary-display'
 import { openingActionLabels, openingStatusLabels, openingTotals } from './opening-display'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import './ledger-metadata.css'
 import './journals.css'
 import './opening-balances.css'
@@ -37,10 +38,12 @@ const {
   busy,
   connectionLost,
   user,
+  server,
   error
 } = storeToRefs(store)
 const {
   can,
+  openDocumentApproval,
   editOpeningBalance,
   saveOpeningBalance,
   changeOpeningBalanceStatus,
@@ -100,21 +103,10 @@ function changeZero(): void {
 }
 function actions(record: OpeningBalance): OpeningBalanceAction[] {
   const result: OpeningBalanceAction[] = []
-  if (['draft', 'rejected'].includes(record.status) && can('opening_balance.submit'))
-    result.push('submit')
-  if (
-    record.status === 'submitted' &&
-    can('opening_balance.review') &&
-    !record.author_ids.includes(user.value?.id ?? 0)
-  )
-    result.push('approve', 'reject')
-  if (record.status === 'approved' && can('opening_balance.confirm')) result.push('confirm')
-  if (
-    ['draft', 'rejected', 'submitted', 'approved'].includes(record.status) &&
-    can('opening_balance.cancel')
-  )
-    result.push('cancel')
-  if (record.status === 'confirmed' && can('opening_balance.reverse')) result.push('reverse')
+  if (record.status === 'approved' && record.approval?.status === 'approved' && can('opening_balance.confirm')) result.push('confirm')
+  if (['draft', 'rejected', 'submitted', 'approved'].includes(record.status) && can('opening_balance.cancel')
+      && !['submitted', 'approved'].includes(record.approval?.status ?? '')) result.push('cancel')
+  if (record.status === 'confirmed' && record.reversal_approval?.status === 'approved' && can('opening_balance.reverse')) result.push('reverse')
   return result
 }
 async function edit(item?: OpeningBalance): Promise<void> {
@@ -143,17 +135,33 @@ async function save(): Promise<void> {
 }
 async function confirm(): Promise<void> {
   if (!command.value || busy.value || connectionLost.value) return
-  if (await changeOpeningBalanceStatus(command.value.record, command.value.action, reason.value))
+  const current = records.value.find(row => row.id === command.value?.record.id)
+  // 弹窗打开后重新核对业务版本和批准状态，避免撤回审批后继续执行旧操作。
+  if (!current || current.version !== command.value.record.version || !actions(current).includes(command.value.action)) {
+    error.value = '期初方案已变化，请关闭弹窗后重新核对。'
+    return
+  }
+  if (await changeOpeningBalanceStatus(current, command.value.action, reason.value))
     command.value = null
 }
 function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
+  if (!actions(record).includes(action)) return
   command.value = { record, action }
-  reason.value = ''
+  reason.value = action === 'reverse' ? record.reversal_reason ?? '' : ''
 }
+// 会话归属改变立即关闭原单据弹窗，不能把旧方案带入新的服务端实例。
+watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`, () => {
+  showForm.value = false
+  detailId.value = null
+  command.value = null
+})
+const approvalCaption = (record: OpeningBalance) => !record.approval?.version && ['confirmed', 'cancelled', 'reversed'].includes(record.status)
+  ? '保留历史流程' : ({draft: '未送审', submitted: '审批中', approved: '已批准待确认', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行'}[record.approval?.status ?? 'draft'])
 </script>
 
 <template>
   <section class="stack ledger-metadata-page opening-balances-page">
+    <DocumentApprovalDialog />
     <WorkspaceTable
       class="journal-list-table"
       title="期初余额"
@@ -197,9 +205,11 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
       >
       <template #cell-status="{ row }">{{
         openingStatusLabels[row.status as keyof typeof openingStatusLabels]
-      }}</template>
+      }}<small class="approval-caption">{{ approvalCaption(row) }}</small></template>
       <template #cell-actions="{ row }"
         ><div class="ledger-actions">
+          <AppButton :disabled="busy || connectionLost" @click="openDocumentApproval({ document_type: 'OpeningBalance', document_id: row.id, intent: 'execute' })" variant="text" type="button">单据审批</AppButton>
+          <AppButton v-if="['confirmed', 'reversed'].includes(row.status)" :disabled="busy || connectionLost" @click="openDocumentApproval({ document_type: 'OpeningBalance', document_id: row.id, intent: 'reverse' })" variant="text" type="button">撤销审批</AppButton>
           <AppButton @click="detailId = row.id" variant="text" type="button">详情</AppButton
           ><AppButton
             v-if="can('opening_balance.create') && ['draft', 'rejected'].includes(row.status)"
@@ -412,7 +422,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
         <p v-if="command.action === 'reverse'">
           仅在尚无过账凭证时允许撤销。原方案和明细保留，须另建并审核新方案；已有过账金额应使用更正凭证。
         </p>
-        <label>操作依据 / 原因<AppInput v-model.trim="reason" required maxlength="200" /></label>
+        <label>操作依据 / 原因<AppInput v-model.trim="reason" :readonly="command?.action === 'reverse'" required maxlength="200" /></label>
         <div class="form-actions">
           <AppButton :disabled="busy || connectionLost" variant="primary" type="submit">{{
             busy ? '正在处理…' : openingActionLabels[command.action]

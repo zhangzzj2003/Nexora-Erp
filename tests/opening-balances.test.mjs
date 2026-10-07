@@ -40,7 +40,7 @@ test('期初失败保留草稿，保存不传快照；状态携带原版本和�
   assert.equal(await actions.saveOpeningBalance(),false);assert.deepEqual(state.openingBalanceForm.value,before)
   assert.deepEqual(calls.at(-1),['updateOpeningBalance',{id:7,version:2,reference:'OPEN',effective_date:'2026-01-01',note:'备注',reason:'更正',lines:[{account_id:1,summary:'余额依据',debit:'1',credit:'0'}]}])
   fail=false;assert.equal(await actions.saveOpeningBalance(),true)
-  assert.equal(await actions.changeOpeningBalanceStatus(item,'confirm','核对'),true)
+  assert.equal(await actions.changeOpeningBalanceStatus({...item,approval:{status:'approved'}},'confirm','核对'),true)
   assert.deepEqual(calls.at(-1),['changeOpeningBalanceStatus',{id:7,version:2,action:'confirm',reason:'核对'}])
 })
 test('撤权清除期初数据和表单，晚到的选项不可恢复；其他模块失败前已清理',async t=>{
@@ -64,4 +64,19 @@ test('会话改变时旧保存不会清除新账号草稿，离线或撤权不�
   pending.resolve({});assert.equal(await saved,false);assert.equal(state.openingBalanceForm.value.reference,'新草稿')
   state.connectionLost.value=true;assert.equal(await actions.saveOpeningBalance(),false);assert.equal(calls,1)
   state.connectionLost.value=false;state.user.value={id:2,permissions:[]};assert.equal(await actions.changeOpeningBalanceStatus({id:1,version:1},'confirm','越权'),false);assert.equal(calls,1)
+})
+
+// 等待执行的回调必须属于原服务端，原审核动作不能走旧状态接口。
+test('期初旧审核与未批准确认被阻止，排队写入不能跨服务端',async t=>{
+  const state=setup(t),pending=deferred(),calls=[]
+  globalThis.window={nexora:{callApi:async(...input)=>{calls.push(input)}}}
+  state.server.value={id:'source',fingerprint:'source-ca'}
+  const actions=createOpeningBalanceActions(state,async fn=>{await pending.promise;try{await fn()}catch(e){state.error.value=e.message}})
+  const record={id:1,version:3}
+  assert.equal(await actions.changeOpeningBalanceStatus(record,'submit','旧审核'),false)
+  assert.equal(await actions.changeOpeningBalanceStatus(record,'confirm','旧批准'),false)
+  const changing=actions.changeOpeningBalanceStatus({...record,approval:{status:'approved'}},'confirm','核对')
+  state.server.value={id:'destination',fingerprint:'other-ca'};pending.resolve()
+  assert.equal(await changing,false);assert.equal(calls.length,0)
+  assert.match(state.error.value,/会话或连接已变化/)
 })
