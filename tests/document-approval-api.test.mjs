@@ -103,6 +103,8 @@ test('合法报价完整摘要保留全部物料与附件且拒绝越界',()=>{
     executed_by:null,executed_at:null,content_matches:true,can_submit:true,can_review:false,can_withdraw:false,events:[],
     summary:Array.from({length:117},(_,i)=>({label:'固定依据'+i,value:'物料或附件摘要'}))}
   caseApi.validateDocumentApprovalRecord(state)
+  // 凭证最多百行、十份附件及原流程记录，适配只扩大凭证摘要，不放宽其他领域。
+  caseApi.validateDocumentApprovalRecord({...state,document_type:'Journal'})
   assert.throws(()=>caseApi.validateDocumentApprovalRecord({...state,document_type:'WarehouseInbound'}))
   assert.throws(()=>caseApi.validateDocumentApprovalRecord({...state,summary:Array(129).fill({label:'越界',value:''})}))
 })
@@ -117,4 +119,11 @@ test('维护审批保留二百字意见及六百字现场依据，拒绝空证�
   caseApi.documentApprovalActionBody({...input,action:'withdraw',reason:'',evidence:''})
   caseApi.validateDocumentApprovalRecord({...draft(),document_type:'MaintenanceJob',reversal_evidence:'固定现场依据'})
   assert.throws(()=>caseApi.validateDocumentApprovalRecord({...draft(),reversal_evidence:'非法跨类型依据'}))
+})
+
+// 凭证仍使用原二百字依据；没有维护现场依据字段，防止客户端放宽原财务输入。
+test('凭证审批白名单保留必填依据和原长度约束',()=>{
+  const input={document_type:'Journal',document_id:1,intent:'execute',action:'submit',version:0,reason:' 凭据核对 '}
+  assert.deepEqual(caseApi.documentApprovalActionBody(input),{version:0,intent:'execute',reason:'凭据核对'})
+  for(const bad of [{reason:' '},{reason:'字'.repeat(201)},{evidence:'维护字段'}])assert.throws(()=>caseApi.documentApprovalActionBody({...input,...bad}))
 })

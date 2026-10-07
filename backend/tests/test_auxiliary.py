@@ -2,6 +2,7 @@
 
 import csv
 import sqlite3
+from approval_test_helpers import journal_approval_request
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 
@@ -89,8 +90,7 @@ def test_policy_changes_revalidate_review_and_cannot_rewrite_posted(journals):
     old = post(journals, journal(client, 'HISTORICAL'))
     draft = action(client, journal(client, 'PENDING'), 'submit')
     policy(client)
-    response = client.post(f'{PATH}/{draft["id"]}/approve', headers=reviewer,
-        json=dict(version=draft['version'], reason='复核'))
+    response = journal_approval_request(client, draft, 'approve', headers=reviewer, reason='复核')
     assert response.status_code == 409
     assert client.get(f'{PATH}/{draft["id"]}').json()['version'] == draft['version']
     assert client.get(f'{PATH}/{old["id"]}').json()['lines'][0]['auxiliary'] == []
@@ -110,7 +110,7 @@ def test_stopped_item_blocks_original_but_reversal_copies_posted_snapshot(journa
     response = client.put(f'{URL}/items/{department["id"]}', json=dict(version=1, name='已停用新名称',
         is_active=False, reason='组织变更'))
     assert response.status_code == 200
-    assert client.post(f'{PATH}/{draft["id"]}/submit', json=dict(version=1, reason='提交')).status_code == 409
+    assert journal_approval_request(client, draft, 'submit', reason='提交').status_code == 409
     reverse = client.post(f'{PATH}/{old["id"]}/reverse', json=dict(version=old['version'],
         reference='REV', journal_date='2026-01-20', reason='更正历史')).json()
     assert reverse['lines'][0]['auxiliary'] == old['lines'][0]['auxiliary']

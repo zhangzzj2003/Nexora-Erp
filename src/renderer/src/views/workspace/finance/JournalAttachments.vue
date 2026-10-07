@@ -10,7 +10,7 @@ import type { JournalAttachment } from '../../../../../shared/erp-api'
 
 const props = defineProps<{ journalId: number }>()
 const store = usePiniaAppStore()
-const { user, connectionLost } = storeToRefs(store)
+const { user, server, connectionLost } = storeToRefs(store)
 const { can, loadJournalAttachments, uploadJournalAttachment, reverseJournalAttachment,
   saveJournalAttachment } = store
 const rows = ref<JournalAttachment[]>([])
@@ -23,7 +23,7 @@ const reason = ref('')
 const reverseId = ref<number | null>(null)
 const reverseReason = ref('')
 let ticket = 0
-const owner = (): string => `${user.value?.id}:${user.value?.permissions.join('|')}`
+const owner = (): string => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`
 const columns = [
   { key: 'file_name', title: '文件' },
   { key: 'byte_count', title: '大小', width: '95' },
@@ -104,7 +104,8 @@ async function download(item: JournalAttachment): Promise<void> {
 
 async function reverse(): Promise<void> {
   if (reverseId.value === null || busy.value || connectionLost.value || !canModify.value
-    || !can('journal.attachment') || !reverseReason.value.trim()) return
+    || !can('journal.attachment') || !reverseReason.value.trim()
+    || rows.value.find(item => item.id === reverseId.value)?.can_reverse === false) return
   busy.value = true
   error.value = ''
   message.value = ''
@@ -128,7 +129,7 @@ async function reverse(): Promise<void> {
       <strong>凭证附件</strong>
       <AppButton variant="secondary" type="button" :disabled="loading || busy || connectionLost" @click="reload">刷新附件</AppButton>
     </div>
-    <p class="muted">支持 PDF、PNG、JPEG，单文件不超过 5 MiB，最多 10 个有效附件。撤销只追加记录；已取消凭证或已结账期间不能改动附件。</p>
+    <p class="muted">支持 PDF、PNG、JPEG，单文件不超过 5 MiB，最多 10 个有效附件。撤销只追加记录；审批期间、已取消凭证和已结账期间不能改动附件，原批准票据不能撤销。</p>
     <div v-if="can('journal.attachment') && canModify" class="ledger-actions">
       <label>上传依据<AppInput v-model.trim="reason" maxlength="200" placeholder="填写票据来源或补录原因" /></label>
       <AppButton variant="secondary" type="button" :disabled="busy || loading || connectionLost || !reason.trim()" @click="upload">选择文件并上传</AppButton>
@@ -147,7 +148,7 @@ async function reverse(): Promise<void> {
       <template #cell-actions="{ row }">
         <div class="ledger-actions">
           <AppButton variant="text" type="button" :disabled="busy || connectionLost" @click="download(row)">保存</AppButton>
-          <AppButton v-if="!row.reversal && canModify && can('journal.attachment')" variant="text" type="button"
+          <AppButton v-if="!row.reversal && row.can_reverse !== false && canModify && can('journal.attachment')" variant="text" type="button"
             :disabled="busy || connectionLost" @click="reverseId = row.id; reverseReason = ''">撤销</AppButton>
         </div>
       </template>

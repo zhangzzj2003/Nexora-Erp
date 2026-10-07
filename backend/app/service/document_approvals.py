@@ -141,7 +141,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]
     summary = document_summary(db, document_type, frozen_content)
-    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob') and intent == 'execute':
+    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal') and intent == 'execute':
         # 升级前记录只作历史核对；首次送审后从不可改写的事件恢复。
         previous = native_review_evidence(db, document_type, identifier) if row is None else None
         if row:
@@ -205,7 +205,7 @@ def act_document_approval(document_type: str, identifier: int,
         native = native_review_evidence(db, document_type, identifier)
         prior = native if row is None and payload.intent == 'execute' else None
         before = None
-        if document_type in ('CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob') and payload.intent == 'execute':
+        if document_type in ('CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal') and payload.intent == 'execute':
             # 使用外层业务事务准备固定正文，失败时原资料、原审计与审批事件全部回滚。
             if document_type == 'CrmQuote':
                 from app.sales.crm_quotes import prepare_approval_action
@@ -215,6 +215,8 @@ def act_document_approval(document_type: str, identifier: int,
                 from app.production.quality import prepare_approval_action
             elif document_type == 'MrpPlan':
                 from app.production.mrp import prepare_approval_action
+            elif document_type == 'Journal':
+                from app.finance.journals import prepare_approval_action
             else:
                 from app.production.equipment import prepare_approval_action
             workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else rule.submit_permission)
@@ -272,7 +274,10 @@ def act_document_approval(document_type: str, identifier: int,
             result = workflow.withdraw(db, document_type, identifier, payload.version, user['id'],
                               intent=payload.intent, permission=submit_permission(document_type, payload.intent))
         if payload.intent == 'execute':
-            if document_type == 'CrmQuote':
+            if document_type == 'Journal':
+                from app.finance.journals import sync_approval_action
+                sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
+            elif document_type == 'CrmQuote':
                 from app.sales.crm_quotes import sync_approval_action
                 sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
             elif document_type == 'AfterSalesCase':

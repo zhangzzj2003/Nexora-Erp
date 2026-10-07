@@ -4,7 +4,7 @@ import { watch } from 'vue'
 
 export function createJournalActions(state: AppState, perform: (action: () => Promise<unknown>, success: string) => Promise<void>) {
   let optionsTicket = 0
-  const owner = () => `${state.user.value?.id}:${state.user.value?.permissions.join('|')}`
+  const owner = () => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`
   watch(owner, () => {
     optionsTicket++
     state.journalOptions.value = { accounts: [], periods: [] }
@@ -44,19 +44,27 @@ export function createJournalActions(state: AppState, perform: (action: () => Pr
   }
   async function changeJournalStatus(item: Journal, action: JournalAction, reason: string): Promise<boolean> {
     if (!window.nexora) return false
+    // 审批动作只能走带独立审批版本的共用入口；旧调用不能产生看似成功的状态。
+    if (['submit', 'approve', 'reject'].includes(action)) return false
+    if (action === 'post' && item.approval?.status !== 'approved') return false
+    if (action === 'cancel' && ['submitted', 'approved'].includes(item.approval?.status ?? '')) return false
+    const identity = owner()
     let saved = false
     await perform(async () => {
+      if (identity !== owner() || state.connectionLost.value) throw new Error('会话或连接已变化，请重新打开凭证。')
       await window.nexora!.callApi('changeJournalStatus', { id: item.id, version: item.version, action, reason })
-      saved = true
+      if (identity === owner()) saved = true
     }, '凭证状态已更新。')
     return saved
   }
   async function reverseJournal(item: Journal, reference: string, journal_date: string, reason: string): Promise<boolean> {
     if (!window.nexora) return false
+    const identity = owner()
     let saved = false
     await perform(async () => {
+      if (identity !== owner() || state.connectionLost.value) throw new Error('会话或连接已变化，请重新打开凭证。')
       await window.nexora!.callApi('reverseJournal', { id: item.id, version: item.version, reference, journal_date, reason })
-      saved = true
+      if (identity === owner()) saved = true
     }, '冲销草稿已建立，审核并过账后才抵销原凭证。')
     return saved
   }

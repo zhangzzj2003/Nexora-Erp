@@ -2,6 +2,7 @@
 
 import csv
 from approval_test_helpers import approve_document
+from test_journals import action as journal_action
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -202,8 +203,7 @@ def test_business_journal_sources_keep_true_party_and_auxiliary(subledger):
         policy_version=1,reference='SUB-PAY',journal_date=source['source_date'],reason='回单凭证'),201)
     assert all({item['kind'] for item in line['auxiliary']} == {'customer','project'} for line in generated['lines'])
     for name in ('submit','approve','post'):
-        generated = api('POST',f'finance/journals/{generated["id"]}/{name}',dict(version=generated['version'],reason='独立凭证处理'),
-            headers=reviewer if name == 'approve' else None)
+        generated = journal_action(subledger[0], generated, name, reviewer if name == 'approve' else None)
     # 资金冲销为新增业务事件，原已过账来源保持不变。
     reversed_record = api('POST',f'finance/subledger-openings/payments/{paid["id"]}/reverse',dict(reason='回单登记更正'),201)
     keys = [item['key'] for item in api('GET','finance/business-journals')]
@@ -239,8 +239,7 @@ def test_pending_plan_blocks_post_and_locks_confirmed_basis(subledger):
     journal = api('POST','finance/journals',dict(reference='MANUAL',journal_date='2026-02-01',reason='凭证依据',lines=[
         dict(account_id=4,summary='资金',debit='1',credit='0'),dict(account_id=3,summary='权益',debit='0',credit='1')]),201)
     for name in ('submit','approve'):
-        journal = api('POST',f'finance/journals/{journal["id"]}/{name}',dict(version=journal['version'],reason='核对'),
-            headers=reviewer if name == 'approve' else None)
+        journal = journal_action(subledger[0], journal, name, reviewer if name == 'approve' else None)
     api('POST',f'finance/journals/{journal["id"]}/post',dict(version=journal['version'],reason='未启用'),409)
     for name in ('submit','approve','confirm'):
         record = action(subledger, record, name, name == 'approve')

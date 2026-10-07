@@ -146,4 +146,11 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   store.documentApprovalRecord.events=[{id:1,action:'submit',actor_name:'编制人',generation:1,created_at:'2026-10-07',reason:'方案意见',evidence:'现场独立依据'}]
   assert.match(await render(),/现场依据：现场独立依据/)
 
+  // 凭证保留原二百字必填依据，统一弹窗不能显示原五百字默认限制。
+  store.documentApprovalTarget={document_type:'Journal',document_id:1,intent:'execute'}
+  store.documentApprovalRecord={...store.documentApprovalRecord,document_type:'Journal',status:'draft',can_submit:true,can_review:false}
+  store.documentApprovalReasons={}
+  html=await render();assert.match(html,/凭证操作依据（必填）/);assert.match(html,/maxlength="200"/)
+  assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
+
 })

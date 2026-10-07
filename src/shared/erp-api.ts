@@ -145,6 +145,8 @@ export interface JournalLine extends JournalLineInput {
   category: LedgerCategory; normal_balance: 'debit' | 'credit'
 }
 export interface Journal extends NumberedDocument {
+  // 新服务返回本凭证独立审批；旧响应缺失时客户端不开放过账。
+  approval?: DocumentApprovalState
   id: number; reference: string; journal_date: string; period_id: number; period_code: string; note: string
   currency: 'CNY'; status: JournalStatus; version: number; reversal_of_id: number | null; reversal_journal_id: number | null
   created_by: number; created_by_name: string; created_at: string; author_ids: number[]
@@ -155,6 +157,7 @@ export interface Journal extends NumberedDocument {
   profit_transfer?: { period_id: number; evidence: ProfitTransferEvidence; policy: ProfitTransferPolicy } | null
 }
 export interface JournalAttachment {
+  can_reverse?: boolean
   id: number; journal_id: number; file_name: string; media_type: 'application/pdf' | 'image/png' | 'image/jpeg'
   byte_count: number; sha256: string; reason: string; created_by: number; created_by_name: string; created_at: string
   reversal: { id: number; reason: string; created_by: number; created_by_name: string; created_at: string } | null
@@ -244,7 +247,7 @@ export interface BusinessJournalCandidate extends BusinessJournalEvidence {
 }
 export interface BusinessJournalOptions extends Partial<AuxiliarySelectionOptions> { policy: BusinessJournalPolicy; roles: Record<BusinessJournalRole, string>; accounts: LedgerAccount[] }
 export interface BusinessJournalGenerateInput { source_key: string; fingerprint: string; policy_version: number; reference: string; journal_date: string; reason: string; auxiliary_by_role?: Partial<Record<BusinessJournalRole, AuxiliaryReference[]>> }
-export interface JournalChange extends FinanceMetadataChange<Omit<Journal, 'period_code' | 'created_by_name' | 'reversal_journal_id' | 'author_ids'>> { action: JournalAction | 'create' | 'update' }
+export interface JournalChange extends FinanceMetadataChange<Omit<Journal, 'period_code' | 'created_by_name' | 'reversal_journal_id' | 'author_ids'>> { action: JournalAction | 'create' | 'update' | 'withdraw' }
 export type OpeningBalanceStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'confirmed' | 'cancelled' | 'reversed'
 export type OpeningBalanceAction = 'submit' | 'approve' | 'reject' | 'confirm' | 'cancel' | 'reverse'
 export interface OpeningBalanceInput { reference: string; effective_date: string; note: string; reason: string; lines: JournalLineInput[] }

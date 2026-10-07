@@ -2,6 +2,7 @@
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
@@ -39,9 +40,10 @@ const {
   busy,
   connectionLost,
   user,
+  server,
   error
 } = storeToRefs(store)
-const { can, editJournal, saveJournal, changeJournalStatus, reverseJournal, loadJournalChanges } =
+const { openDocumentApproval, can, editJournal, saveJournal, changeJournalStatus, reverseJournal, loadJournalChanges } =
   store
 const query = ref('')
 const status = ref('')
@@ -55,7 +57,7 @@ const command = ref<{ record: Journal; action: JournalAction | 'reverse' } | nul
 const reason = ref('')
 const reverseReference = ref('')
 const reverseDate = ref('')
-watch(() => `${user.value?.id}:${user.value?.permissions.join('|')}`, () => {
+watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`, () => {
   showForm.value = false; detailId.value = null; command.value = null; showBusiness.value = false; showProfit.value = false
 }, { flush: 'sync' })
 const rows = computed(() =>
@@ -102,16 +104,10 @@ const relatedStatus = (id: number): string => {
 }
 const actionable = (item: Journal): JournalAction[] => {
   const actions: JournalAction[] = []
-  if (['draft', 'rejected'].includes(item.status) && can('journal.submit')) actions.push('submit')
-  if (
-    item.status === 'submitted' &&
-    can('journal.review') &&
-    !item.author_ids.includes(user.value?.id ?? 0)
-  )
-    actions.push('approve', 'reject')
-  if (item.status === 'approved' && can('journal.post')) actions.push('post')
-  if (item.status !== 'posted' && item.status !== 'cancelled' && can('journal.cancel'))
-    actions.push('cancel')
+  // 独立审批使用统一弹窗；原生按钮只保留执行与取消，不能按原批准状态绕过新门槛。
+  if (item.status === 'approved' && item.approval?.status === 'approved' && can('journal.post')) actions.push('post')
+  if (item.status !== 'posted' && item.status !== 'cancelled' && can('journal.cancel')
+    && !['submitted', 'approved'].includes(item.approval?.status ?? '')) actions.push('cancel')
   return actions
 }
 async function edit(item?: Journal): Promise<void> {
@@ -131,6 +127,7 @@ async function save(): Promise<void> {
   if (await saveJournal()) showForm.value = false
 }
 function ask(item: Journal, action: JournalAction | 'reverse'): void {
+  if (busy.value || connectionLost.value || (action !== 'reverse' && !actionable(item).includes(action))) return
   command.value = { record: item, action }
   reason.value = ''
   reverseReference.value = ''
@@ -139,6 +136,11 @@ function ask(item: Journal, action: JournalAction | 'reverse'): void {
 async function confirm(): Promise<void> {
   if (!command.value || busy.value || connectionLost.value) return
   const { record, action } = command.value
+  // 弹窗打开后审批可能被撤回，执行前按当前列表与业务版本重新核对。
+  const current = journals.value.find(item => item.id === record.id)
+  if (!current || current.version !== record.version || (action !== 'reverse' && !actionable(current).includes(action))) {
+    error.value = '凭证已变化，请刷新并重新打开操作。'; return
+  }
   const permission = ['approve', 'reject'].includes(action) ? 'journal.review' : `journal.${action}`
   if (!can(permission)) return
   const saved =
@@ -151,6 +153,7 @@ async function confirm(): Promise<void> {
 
 <template>
   <section class="stack ledger-metadata-page">
+    <DocumentApprovalDialog />
     <div v-if="(showBusiness && can('business_journal.view')) || (showProfit && can('profit_transfer.view'))" class="ledger-actions"><AppButton variant="secondary" @click="showBusiness = false; showProfit = false">返回总账凭证</AppButton></div>
     <BusinessJournalPanel v-if="showBusiness && can('business_journal.view')" @open-journal="id => { showBusiness = false; detailId = id }" />
     <ProfitTransferPanel v-else-if="showProfit && can('profit_transfer.view')" @open-journal="id => { showProfit = false; detailId = id }" />
@@ -190,7 +193,7 @@ async function confirm(): Promise<void> {
       <template #cell-total_debit="{ row }">¥{{ row.total_debit }}</template>
       <template #cell-status="{ row }">{{
         journalStatusLabels[row.status as keyof typeof journalStatusLabels]
-      }}</template>
+      }}<div class="muted">{{ (!row.approval?.version && ['posted', 'cancelled'].includes(row.status)) ? '保留历史流程' : ({ draft: '未送审', submitted: '审批中', approved: '已批准待过账', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' })[row.approval?.status ?? 'draft'] }}</div></template>
       <template #cell-source="{ row }"
         ><AppButton
           v-if="row.reversal_of_id"
@@ -209,6 +212,8 @@ async function confirm(): Promise<void> {
       >
       <template #cell-actions="{ row }"
         ><div class="ledger-actions">
+          <AppButton variant="text" type="button" :disabled="busy || connectionLost"
+            @click="openDocumentApproval({ document_type: 'Journal', document_id: row.id, intent: 'execute' })">单据审批</AppButton>
           <AppButton @click="detailId = row.id" variant="text" type="button">详情</AppButton>
           <AppButton
             v-if="

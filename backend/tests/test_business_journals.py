@@ -52,6 +52,14 @@ def generate(client, key, reference='AUTO-1', expected=201):
 
 
 def transition(client, row, action, reviewer=None, expected=200):
+    if action in ('submit', 'approve', 'reject', 'withdraw'):
+        # 显式源凭证审批继续核验旧来源条件；被拒绝也来自真实版本审批，不能靠旧接口冲突掩盖。
+        base = f'/api/v1/system/document-approvals/Journal/{row["id"]}'
+        current = client.get(base, headers=reviewer).json()
+        response = client.post(base + '/' + action, headers=reviewer,
+            json={'version': current['version'], 'reason': '来源与科目核对'})
+        assert response.status_code == expected, response.text
+        return client.get(f'{JOURNALS}/{row["id"]}').json() if expected == 200 else response.json()
     response = client.post(f'{JOURNALS}/{row["id"]}/{action}',
         json=dict(version=row['version'], reason='来源与科目核对'), headers=reviewer)
     assert response.status_code == expected, response.text
@@ -73,7 +81,7 @@ def test_purchase_sales_and_payments_use_real_sources(business):
     row = generate(client, key)
     assert row['business_source']['key'] == key and row['total_debit'] == '62.50'
     generate(client, key, 'DUPLICATE', 409)
-    transition(client, transition(client, row, 'submit'), 'approve', expected=409)
+    transition(client, transition(client, row, 'submit'), 'approve', expected=403)
     row = client.get(f'{JOURNALS}/{row["id"]}').json()
     row = transition(client, row, 'approve', reviewer)
     row = transition(client, row, 'post')

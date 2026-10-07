@@ -3,8 +3,8 @@ import type { JournalAction, JournalLineInput, JournalStatus } from '../../../..
 export const journalStatusLabels: Record<JournalStatus, string> = {
   draft: '草稿', submitted: '待审核', approved: '已批准', rejected: '已驳回', posted: '已过账', cancelled: '已取消'
 }
-export const journalActionLabels: Record<JournalAction | 'reverse' | 'create' | 'update', string> = {
-  create: '建立', update: '修改', submit: '提交', approve: '批准', reject: '驳回', post: '过账', cancel: '取消凭证', reverse: '建立冲销'
+export const journalActionLabels: Record<JournalAction | 'reverse' | 'create' | 'update' | 'withdraw', string> = {
+  withdraw: '撤回审批', create: '建立', update: '修改', submit: '提交', approve: '批准', reject: '驳回', post: '过账', cancel: '取消凭证', reverse: '建立冲销'
 }
 
 // 页面提示也按整数分相加，避免 0.1 + 0.2 的浮点误差阻止有效凭证。

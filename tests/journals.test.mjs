@@ -36,7 +36,9 @@ test('凭证编辑提交普通字段，冲突保留旧版本和草稿；状态�
   assert.equal(await actions.saveJournal(),false); assert.deepEqual(state.journalForm.value,before)
   assert.deepEqual(calls.at(-1),['updateJournal',{id:7,version:3,reference:'J001',journal_date:'2026-01-10',note:'备注',reason:'更正',lines:[{account_id:1,summary:'现金',debit:'0.30',credit:'0.00'}]}])
   fail=false; assert.equal(await actions.saveJournal(),true); assert.equal(state.journalForm.value.id,null)
-  await actions.changeJournalStatus(record,'submit','核对'); assert.deepEqual(calls.at(-1),['changeJournalStatus',{id:7,version:3,action:'submit',reason:'核对'}])
+  assert.equal(await actions.changeJournalStatus(record,'submit','核对'),false)
+  const approved={...record,approval:{status:'approved'}}
+  await actions.changeJournalStatus(approved,'post','核对'); assert.deepEqual(calls.at(-1),['changeJournalStatus',{id:7,version:3,action:'post',reason:'核对'}])
   await actions.reverseJournal(record,'REV','2026-01-20','纠错'); assert.deepEqual(calls.at(-1),['reverseJournal',{id:7,version:3,reference:'REV',journal_date:'2026-01-20',reason:'纠错'}])
 })
 
@@ -61,4 +63,17 @@ test('凭证 IPC 拒绝非法动作和路径，限制版本及冲销字段',asyn
   assert.deepEqual(JSON.parse(calls.at(-1).body),{version:4,reference:'REV',journal_date:'2026-01-20',reason:'更正'})
   await assert.rejects(callBackend('changeJournalStatus',{id:2,action:'../users'}),/不允许的凭证状态操作/)
   for(const action of ['changeJournalStatus','updateJournal','reverseJournal','journalChanges'])await assert.rejects(callBackend(action,{id:'../users'}),/记录编号无效/)
+})
+
+// 排队写入必须在实际发送时重新核对实例，不只比较请求后的返回。
+test('凭证写入拒绝旧审批动作、缺批准过账和换服务端后的排队请求', async t=>{
+  const old=globalThis.window;t.after(()=>{globalThis.window=old})
+  const state=createAppState();state.server.value={id:'A',fingerprint:'a'};state.user.value={id:1,roles:['admin'],permissions:['journal.post']}
+  const calls=[];globalThis.window={nexora:{callApi:async(...args)=>{calls.push(args)}}}
+  let queued;const actions=createJournalActions(state,async fn=>{queued=fn})
+  const row={id:1,version:3,status:'approved',approval:{status:'approved'}}
+  assert.equal(await actions.changeJournalStatus({...row,approval:undefined},'post','核对'),false)
+  assert.equal(await actions.changeJournalStatus(row,'approve','核对'),false);assert.equal(calls.length,0)
+  await actions.changeJournalStatus(row,'post','核对');state.server.value={id:'B',fingerprint:'b'}
+  await assert.rejects(queued(),/会话或连接已变化/);assert.equal(calls.length,0)
 })

@@ -38,3 +38,10 @@ def prepare_purchase_return(client, author_headers, identifier):
     row = converted.json()
     approve_document(client, author_headers, 'WarehouseOutbound', row['outbound_id'])
     return row
+
+
+def journal_approval_request(client, record, action, *, reason, headers=None):
+    # 失败路径也显式测试新版本审批，不能用旧接口固定返回的冲突掩盖来源和期间回归。
+    path = f'/api/v1/system/document-approvals/Journal/{record["id"]}'
+    return client.post(path + '/' + action, headers=headers,
+        json={'version': record['approval']['version'], 'reason': reason})

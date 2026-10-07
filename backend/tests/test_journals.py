@@ -63,6 +63,15 @@ def create(client, reference="J001"):
 
 
 def action(client, record, name, reviewer=None):
+    if name in ('submit', 'approve', 'reject', 'withdraw'):
+        # 原测试明确执行送审/审核；改走真实共用接口，不在建单或过账时隐式批准。
+        base = f'/api/v1/system/document-approvals/Journal/{record["id"]}'
+        state = client.get(base, headers=reviewer)
+        assert state.status_code == 200, state.text
+        response = client.post(base + '/' + name,
+            json={'version': state.json()['version'], 'reason': '核对依据'}, headers=reviewer)
+        assert response.status_code == 200, response.text
+        return client.get(f'{PATH}/{record["id"]}').json()
     response = client.post(
         f'{PATH}/{record["id"]}/{name}',
         json={"version": record["version"], "reason": "核对依据"},
@@ -99,7 +108,7 @@ def test_full_lifecycle_snapshot_and_history(journals):
     for name in ("post", "cancel", "submit"):
         assert (
             client.post(
-                f'{PATH}/{record["id"]}/{name}', json={"version": 4, "reason": "重复"}
+                f'{PATH}/{record["id"]}/{name}',json={"version": 4, "reason": "重复"}
             ).status_code
             == 409
         )
@@ -373,7 +382,7 @@ def test_permissions_options_and_migration(journals, remove_journal_schema):
             data.update(reference="REV", journal_date="2026-01-20")
         assert (
             client.post(
-                f'{PATH}/{record["id"]}/{name}', json=data, headers=headers
+                f'{PATH}/{record["id"]}/{name}',json=data, headers=headers
             ).status_code
             == 403
         )

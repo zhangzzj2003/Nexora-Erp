@@ -28,6 +28,7 @@ function validateItem(value: unknown, journalId: number): JournalAttachment {
     || !text(row.created_by_name, 120) || !text(row.created_at, 40)) {
     throw new Error('凭证附件响应格式无效')
   }
+  if (row.can_reverse !== undefined && typeof row.can_reverse !== 'boolean') throw new Error('凭证附件响应格式无效')
   if (row.reversal !== null) {
     const reversal = object(row.reversal)
     if (!positive(reversal.id) || !text(reversal.reason, 200) || !positive(reversal.created_by)

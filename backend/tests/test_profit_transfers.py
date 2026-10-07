@@ -1,5 +1,6 @@
 """损益清零、来源冻结、倒序更正与原子事务的真实风险。"""
 
+from approval_test_helpers import journal_approval_request
 from concurrent.futures import ThreadPoolExecutor
 import sqlite3
 
@@ -147,7 +148,7 @@ def test_stale_preview_and_draft_must_be_cancelled(profit):
     generate(client, status=409, changes={'fingerprint':old['fingerprint']})
     record = generate(client)
     post_record(profit, 'expense', -5, 'LATE-EXPENSE')
-    assert client.post(f'{PATH}/{record["id"]}/submit', json=dict(version=1, reason='旧来源')).status_code == 409
+    assert journal_approval_request(client, record, 'submit', reason='旧来源').status_code == 409
     action(client, record, 'cancel')
     replacement = generate(client, 'NEW')
     assert replacement['profit_transfer']['evidence']['net_profit'] == '65.00'
@@ -167,6 +168,7 @@ def test_posted_transfer_protects_late_source_and_rolls_back(profit):
     assert denied.status_code == 409 and '倒序冲销' in denied.text
     assert client.get(f'{PATH}/{late["id"]}').json()['status'] == 'approved'
     assert len(client.get(f'{PATH}/{late["id"]}/changes').json()) == 3
+    late = action(client, late, 'withdraw')
     action(client, late, 'cancel')
     reversal = reverse(profit, record)
     # 草稿冲销不解除来源保护或重复生成限制。
@@ -207,6 +209,7 @@ def test_later_transfer_requires_reverse_order(profit):
     approved = action(client, submitted, 'approve', reviewer)
     denied = client.post(f'{PATH}/{approved["id"]}/post', json=dict(version=3, reason='先改一月'))
     assert denied.status_code == 409 and '倒序' in denied.text
+    approved = action(client, approved, 'withdraw')
     action(client, approved, 'cancel')
     post(profit, reverse(profit, feb, 'FEB-REVERSE'))
     post(profit, reverse(profit, jan, 'JAN-REVERSE'))
@@ -232,7 +235,7 @@ def test_policy_boundaries_versions_and_atomic_audit(profit):
     post_record(profit, 'income', 50)
     draft = generate(client)
     assert client.put(URL + '/policy', json={**change, 'target_account_id':accounts['other_profit']}).status_code == 200
-    assert client.post(f'{PATH}/{draft["id"]}/submit', json=dict(version=1, reason='旧配置')).status_code == 409
+    assert journal_approval_request(client, draft, 'submit', reason='旧配置').status_code == 409
     history = client.get(URL + '/policy/changes').json()
     assert len(history) == 2 and history[0]['before']['target_account_id'] == accounts['profit']
 
@@ -307,7 +310,7 @@ def test_pending_journals_period_order_and_cutoff(profit, monkeypatch):
     another = client.post(PATH, json=dict(reference='LATE-DRAFT', journal_date='2026-01-20', note='', reason='未处理',
         lines=[dict(account_id=accounts['income'], summary='收入', debit='0', credit='1'),
             dict(account_id=1, summary='现金', debit='1', credit='0')])).json()
-    assert client.post(f'{PATH}/{draft["id"]}/submit', json=dict(version=1, reason='还有未处理')).status_code == 409
+    assert journal_approval_request(client, draft, 'submit', reason='还有未处理').status_code == 409
     action(client, another, 'cancel')
     post(profit, draft)
     period_action(client, 1, 'close')

@@ -14,20 +14,32 @@ from app.core.attachment_files import AttachmentInput, ReversalInput, decode_con
 from app.core.models import AccountingPeriod, Journal, JournalAttachment, JournalAttachmentReversal, User
 from app.core.orm import add_model, orm_session
 from app.finance.journals import get_journal
+from app.core import document_approval as approval
+import json
 
 router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/journals')
 
 
 def modifiable(db: Session, journal: Journal) -> bool:
     period = db.get(AccountingPeriod, journal.period_id)
+    case = approval.find_case(db, 'Journal', journal.id)
     return bool(journal.status != 'cancelled' and period and period.status == 'open'
+        and not (case and case.status in ('submitted', 'approved'))
         and period.start_date <= journal.journal_date <= period.end_date)
+
+
+def reversible(db: Session, row: JournalAttachment) -> bool:
+    case = approval.find_case(db, 'Journal', row.journal_id)
+    # 原审批票据必须继续可核对；后续补录附件仍遵守原追加式撤销规则。
+    return modifiable(db, get_journal(db, row.journal_id)) and not (
+        case and case.status == 'executed'
+        and row.id in {item['id'] for item in json.loads(case.snapshot_json)['attachments']})
 
 
 def attachment_data(db: Session, row: JournalAttachment) -> dict:
     reversal = db.scalar(select(JournalAttachmentReversal).where(
         JournalAttachmentReversal.attachment_id == row.id))
-    return dict(id=row.id, journal_id=row.journal_id, file_name=row.file_name,
+    return dict(id=row.id, journal_id=row.journal_id, file_name=row.file_name, can_reverse=reversible(db, row),
         media_type=row.media_type, byte_count=row.byte_count, sha256=row.sha256,
         reason=row.reason, created_by=row.created_by, created_at=row.created_at,
         created_by_name=db.scalar(select(User.username).where(User.id == row.created_by)),
@@ -64,7 +76,7 @@ def add_attachment(data: AttachmentInput, journal_id: int = Path(gt=0),
     with orm_session(write=True) as db:
         journal = get_journal(db, journal_id)
         if not modifiable(db, journal):
-            raise HTTPException(409, '凭证已取消或期间已结账，不能添加附件')
+            raise HTTPException(409, '凭证审批期间、已取消或期间已结账，不能添加附件')
         active = select(JournalAttachment.id).where(
             JournalAttachment.journal_id == journal_id,
             ~select(JournalAttachmentReversal.id).where(
@@ -76,6 +88,9 @@ def add_attachment(data: AttachmentInput, journal_id: int = Path(gt=0),
         row = add_model(db, JournalAttachment(journal_id=journal_id,
             file_name=data.file_name, media_type=media_type, byte_count=len(content),
             sha256=digest, content=content, reason=data.reason, created_by=user['id']))
+        case = approval.find_case(db, 'Journal', journal_id)
+        if not case or case.status != 'executed':
+            approval.record_author(db, 'Journal', journal_id, user['id'])
         return attachment_data(db, row)
 
 
@@ -102,13 +117,16 @@ def reverse_attachment(data: ReversalInput, journal_id: int = Path(gt=0),
         with orm_session(write=True) as db:
             journal = get_journal(db, journal_id)
             row = get_attachment(db, journal_id, attachment_id)
-            if not modifiable(db, journal):
-                raise HTTPException(409, '凭证已取消或期间已结账，不能撤销附件')
+            if not reversible(db, row):
+                raise HTTPException(409, '原批准附件、审批期间、已取消或已结账凭证不能撤销附件')
             if db.scalar(select(JournalAttachmentReversal.id).where(
                     JournalAttachmentReversal.attachment_id == row.id)) is not None:
                 raise HTTPException(409, '附件已撤销')
             add_model(db, JournalAttachmentReversal(attachment_id=row.id,
                 reason=data.reason, created_by=user['id']))
+            case = approval.find_case(db, 'Journal', journal_id)
+            if not case or case.status != 'executed':
+                approval.record_author(db, 'Journal', journal_id, user['id'])
             return attachment_data(db, row)
     except IntegrityError:
         raise HTTPException(409, '附件已撤销') from None

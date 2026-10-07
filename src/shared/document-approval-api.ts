@@ -131,6 +131,7 @@ export function documentApprovalActionBody(value: unknown): { version: number; i
       || typeof row.reason !== 'string' || row.reason.trim().length > 500
       || row.action === 'reject' && !row.reason.trim()) throw Error('审批动作、版本或意见无效')
   // 仅维护保留独立现场依据；其他类型不能夹带此字段。
+  if (target.document_type === 'Journal' && row.action !== 'withdraw' && (!row.reason.trim() || row.reason.trim().length > 200)) throw Error('凭证审批依据必填，最多二百字')
   if (target.document_type === 'MaintenanceJob') {
     if (row.reason.trim().length > 200 || row.action !== 'withdraw' && (!row.reason.trim()
         || typeof row.evidence !== 'string' || !row.evidence.trim())
@@ -190,7 +191,7 @@ export function validateDocumentApprovalRecord(value: unknown): asserts value is
       || typeof row.can_withdraw !== 'boolean' || !Array.isArray(row.events)) throw Error('服务端单据审批格式不匹配')
   if (row.reversal_evidence !== undefined && (row.document_type !== 'MaintenanceJob'
       || typeof row.reversal_evidence !== 'string' || row.reversal_evidence.length > 600)) throw Error('服务端维护更正依据无效')
-  if (typeof row.content_matches !== 'boolean' || !Array.isArray(row.summary) || row.summary.length > (['CrmQuote', 'AfterSalesCase', 'MaintenanceJob'].includes(String(row.document_type)) ? 128 : 110)) throw Error('服务端审批摘要格式不匹配')
+  if (typeof row.content_matches !== 'boolean' || !Array.isArray(row.summary) || row.summary.length > (['CrmQuote', 'AfterSalesCase', 'MaintenanceJob', 'Journal'].includes(String(row.document_type)) ? 128 : 110)) throw Error('服务端审批摘要格式不匹配')
   for (const item of row.summary) {
     const entry = record(item)
     if (typeof entry.label !== 'string' || !entry.label.trim() || typeof entry.value !== 'string'

@@ -28,6 +28,8 @@ from app.finance.ledger import PeriodInput
 from app.finance.opening_rules import check_journal_opening
 from app.finance.auxiliary_rules import (AuxiliaryReference, line_data, validate_references,
     validate_line, save_snapshots, snapshot_values, selection_options)
+from app.core import document_approval as approval
+from app.core.approval_documents import journal_snapshot
 
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1/finance/journals")
 
@@ -196,6 +198,7 @@ def view(db: Session, record: Journal) -> dict:
             .distinct()
         )
     )
+    result['approval'] = approval.case_data(approval.find_case(db, 'Journal', record.id))
     return result
 
 
@@ -376,40 +379,57 @@ def update_journal(
         raise HTTPException(409, "凭证依据编号已使用") from None
 
 
+def prepare_approval_action(db: Session, record: Journal, action: str, user: dict, reason: str) -> dict:
+    # 沿用原必填依据与来源校验；审批服务复用调用方事务，不另开一次写入。
+    if action != 'withdraw' and (not reason.strip() or len(reason.strip()) > 200):
+        raise HTTPException(422, '凭证审批依据必填，最多二百字')
+    before = snapshot(db, record)
+    if action in ('submit', 'approve'):
+        from app.finance.business_journals import validate_source
+        from app.finance.profit_transfers import validate_source as validate_transfer
+        validate_source(db, record)
+        validate_transfer(db, record)
+        validate_for_post(db, record)
+    return before
+
+
+def sync_approval_action(db: Session, record: Journal, action: str, state: dict,
+                         user_id: int, reason: str, before: dict) -> None:
+    record.status = 'draft' if action == 'withdraw' else state['status']
+    record.version += 1
+    if action == 'submit':
+        record.submitted_by, record.submitted_at = state['submitted_by'], state['submitted_at']
+        record.reviewed_by = record.reviewed_at = None
+    elif action in ('approve', 'reject'):
+        record.reviewed_by, record.reviewed_at = user_id, approval.now(db)
+    elif action == 'withdraw':
+        record.submitted_by = record.submitted_at = record.reviewed_by = record.reviewed_at = None
+    audit(db, record, before, action, reason, user_id)
+
+
 def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> dict:
     allowed = {
-        "submit": ("draft", "rejected"),
-        "approve": ("submitted",),
-        "reject": ("submitted",),
         "post": ("approved",),
         "cancel": ("draft", "rejected", "submitted", "approved"),
     }
     target = {
-        "submit": "submitted",
-        "approve": "approved",
-        "reject": "rejected",
         "post": "posted",
         "cancel": "cancelled",
     }
     with orm_session(write=True) as db:
         record = get_journal(db, journal_id, data.version)
+        if action in ('submit', 'approve', 'reject'):
+            raise HTTPException(409, '请从带审批版本的统一单据入口送审或审核凭证')
         if record.status not in allowed[action]:
             raise HTTPException(409, "凭证状态不允许此操作")
-        if action in ("approve", "reject"):
-            authors = db.scalars(
-                select(JournalChange.changed_by).where(
-                    JournalChange.journal_id == record.id,
-                    JournalChange.action.in_(("create", "update", "submit")),
-                )
-            ).all()
-            if user["id"] in authors:
-                raise HTTPException(
-                    409, "建单、编辑或提交过此凭证的人不能审核，请由另一账号处理"
-                )
+        case = approval.find_case(db, 'Journal', journal_id)
+        if action == 'cancel' and case and case.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回凭证审批，再取消草稿')
         before = snapshot(db, record)
         if action == "post":
+            case = approval.require_approved(db, 'Journal', journal_id, journal_snapshot(db, journal_id), user['id'])
             check_journal_opening(db, record.journal_date)
-        if action in ("submit", "approve", "post"):
+        if action == "post":
             from app.finance.business_journals import validate_source
             validate_source(db, record)
             from app.finance.profit_transfers import validate_source as validate_transfer
@@ -417,9 +437,6 @@ def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> 
             validate_for_post(db, record)
         record.status, record.version = target[action], record.version + 1
         prefix = {
-            "submit": "submitted",
-            "approve": "reviewed",
-            "reject": "reviewed",
             "post": "posted",
             "cancel": "cancelled",
         }[action]
@@ -435,6 +452,8 @@ def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> 
         from app.finance.profit_transfers import release_source as release_transfer
         release_transfer(db, record)
         audit(db, record, before, action, data.reason, user["id"])
+        if action == 'post':
+            approval.mark_executed(db, case, user['id'])
         return view(db, record)
 
 

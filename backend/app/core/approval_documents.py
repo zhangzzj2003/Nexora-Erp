@@ -22,6 +22,7 @@ from app.core.models import (
     Bom, WorkOrder, WorkOrderLine, MaterialIssue, MaterialIssueLine, MaterialIssueReversal,
     MaterialReturn, MaterialReturnLine, MaterialReturnReversal, ProductionCompletion, ProductionCompletionReversal,
     QualityDisposition, QualityDispositionChange, MrpPlan, MrpPlanChange, MrpConversion,
+    Journal, JournalChange, JournalAttachment, JournalAttachmentReversal,
 )
 from app.core.approval_catalog import approval_type
 
@@ -495,6 +496,42 @@ def completion_snapshot(db: Session, identifier: int) -> dict:
                        'quantity': source.reported_quantity}]}
 
 
+def journal_snapshot(db: Session, identifier: int) -> dict:
+    from app.finance.journals import snapshot
+    import json
+    source = document_source(db, 'Journal', identifier)
+    original = snapshot(db, source)
+    case = db.scalar(select(DocumentApprovalCase).where(
+        DocumentApprovalCase.document_type == 'Journal', DocumentApprovalCase.document_id == identifier,
+        DocumentApprovalCase.intent == 'execute', DocumentApprovalCase.status == 'executed'))
+    authors = {source.created_by}
+    authors.update(db.scalars(select(JournalChange.changed_by).where(
+        JournalChange.journal_id == identifier, JournalChange.action.in_(('create', 'update', 'submit')))))
+    attachments = list(db.scalars(select(JournalAttachment).where(
+        JournalAttachment.journal_id == identifier).order_by(JournalAttachment.id)))
+    authors.update(item.created_by for item in attachments)
+    authors.update(db.scalars(select(JournalAttachmentReversal.created_by).where(
+        JournalAttachmentReversal.attachment_id.in_([item.id for item in attachments]))))
+    authors.update(db.scalars(select(DocumentApprovalAuthor.user_id).where(
+        DocumentApprovalAuthor.document_type == 'Journal', DocumentApprovalAuthor.document_id == identifier)))
+    if case:
+        # 过账后可补录作业证据，但不能改写原审批附件和编制人员的固定范围。
+        frozen = json.loads(case.snapshot_json)
+        authors = set(frozen['source_author_ids'])
+        attachments = [item for item in attachments if item.id in {row['id'] for row in frozen['attachments']}]
+    return {field: original[field] for field in ('reference', 'journal_date', 'period_id', 'note',
+        'currency', 'reversal_of_id', 'business_source', 'profit_transfer')} | {
+        'source_author_ids': sorted(authors),
+        # 基础资料更名不改变科目和辅助组合的身份；执行仍重核启用状态与辅助要求。
+        'lines': [{field: line[field] for field in ('id', 'account_id', 'account_code', 'category',
+            'normal_balance', 'summary', 'debit', 'credit')} | {
+            'auxiliary': [{'kind': item['kind'], 'id': item['id']} for item in line['auxiliary']]}
+            for line in original['lines']],
+        'attachments': [{'id': item.id, 'file_name': item.file_name, 'sha256': item.sha256,
+            'reversal_id': db.scalar(select(JournalAttachmentReversal.id).where(
+                JournalAttachmentReversal.attachment_id == item.id))} for item in attachments]}
+
+
 def native_review_evidence(db: Session, document_type: str, identifier: int) -> dict | None:
     # 首次接入前保存原流程信息，独立于新审批正文，不能冒充新模板中的批准。
     if document_type == 'MaintenanceJob':
@@ -511,7 +548,7 @@ def native_review_evidence(db: Session, document_type: str, identifier: int) -> 
             'submitted_at': submitted.created_at if submitted else None, 'reviewed_by': source.reviewed_by,
             'reviewed_at': reviewed.created_at if reviewed else None,
             'review_reason': (reviewed.reason + '；现场依据：' + reviewed.evidence) if reviewed else ''}
-    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan'):
+    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'Journal'):
         return None
     source = db.get(approval_type(document_type).model, identifier)
     if source.submitted_by is None and source.reviewed_by is None:
@@ -519,7 +556,11 @@ def native_review_evidence(db: Session, document_type: str, identifier: int) -> 
     result = {field: getattr(source, field) for field in (
         'status', 'submitted_by', 'submitted_at', 'reviewed_by', 'reviewed_at')}
     # 报价和售后意见保存在追加审计中，不存在主单 review_reason 字段。
-    if document_type == 'CrmQuote':
+    if document_type == 'Journal':
+        result['review_reason'] = db.scalar(select(JournalChange.reason).where(
+            JournalChange.journal_id == identifier, JournalChange.action.in_(('approve', 'reject')))
+            .order_by(JournalChange.id.desc()).limit(1)) or ''
+    elif document_type == 'CrmQuote':
         result['review_reason'] = db.scalar(select(CrmChange.reason).where(
             CrmChange.entity_kind == 'quote', CrmChange.entity_id == identifier,
             CrmChange.action.in_(('approve', 'reject'))).order_by(CrmChange.id.desc()).limit(1)) or ''
@@ -558,7 +599,7 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+_SNAPSHOTS = {'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
@@ -620,7 +661,7 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         if source.status != 'posted' or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
     elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
-                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob') else
+                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal') else
                                ('inspected',) if document_type == 'ProductionCompletion' else ('draft',)):
         # 历史已执行记录不补造审批；只限制仍待执行的草稿。
         raise HTTPException(409, '此单据已处理，不能继续审批')
@@ -682,6 +723,25 @@ def submit_permission(document_type: str, intent: str) -> str | None:
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'Journal':
+        from app.core.models import LedgerAccount, AccountingPeriod
+        from app.finance.auxiliary_rules import LABELS
+        period = db.get(AccountingPeriod, content['period_id'])
+        total = sum(Decimal(line['debit']) for line in content['lines'])
+        result = [{'label': label, 'value': str(value)} for label, value in [
+            ('凭证日期', content['journal_date']), ('会计期间', period.code if period else content['period_id']),
+            ('依据编号', content['reference']), ('备注', content['note']), ('借贷各', f'人民币 {total:.2f} 元'),
+            ('来源', '独立冲销凭证' if content['reversal_of_id'] else '损益结转' if content['profit_transfer']
+                else '业务来源凭证' if content['business_source'] else '手工凭证')]]
+        for line in content['lines']:
+            account = db.get(LedgerAccount, line['account_id'])
+            auxiliary = '、'.join(f"{LABELS[item['kind']]} #{item['id']}" for item in line['auxiliary'])
+            result.append({'label': line['account_code'] + ' · ' + (account.name if account else '科目快照'),
+                'value': f"{line['summary']}；借 {line['debit']} / 贷 {line['credit']}；辅助 {auxiliary or '无'}"})
+        result.extend({'label': '固定附件', 'value': item['file_name'] + ' · SHA256 ' + item['sha256']
+            + ('（已撤销）' if item['reversal_id'] else '')} for item in content['attachments'][:10])
+        result.append({'label': '附件核对', 'value': f"共固定 {len(content['attachments'])} 份，完整指纹均参与校验；此处展示前十份。"})
+        return result
     if document_type == 'MaintenanceJob':
         import json
         equipment = json.loads(content['equipment_json'])
