@@ -296,6 +296,7 @@ def test_production_wip_and_charge_sources_are_priced_and_locked(business):
         kind='labor', amount='1.50', reference='LABOR'), 201)
     assert source(client, f'production_charge:{charge["id"]}')['roles'] == {'work_in_progress': '1.50', 'labor_accrual': '-1.50'}
     post(client, generate(client, f'production_charge:{charge["id"]}', 'LABOR-J'), reviewer)
+    approve_document(client, dict(client.headers), 'ProductionCompletion', finished['id'])
     request('POST', f'production-completions/{finished["id"]}/post')
     generate(client, f'production_completion:{finished["id"]}', 'COMPLETE', 409)
     settlement = request('POST', 'production-costs/settlements', dict(work_order_id=finished['work_order_id'], reference='COST'), 201)

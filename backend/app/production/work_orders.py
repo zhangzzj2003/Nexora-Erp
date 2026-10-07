@@ -1,5 +1,7 @@
 """生产工单以启用 BOM 创建需料快照，并汇总净领料数量。"""
 
+from app.core import document_approval as approval
+from app.core.approval_documents import work_order_snapshot
 from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session
@@ -192,6 +194,7 @@ def work_order_data(db: Session, order_id: int) -> dict:
     rework = db.scalar(select(QualityDisposition).where(QualityDisposition.rework_order_id == order_id))
     return {
         **dict(row),
+        "approval": approval.case_data(approval.find_case(db, "WorkOrder", order_id)),
         "lines": details,
         "reported_quantity": str(reported),
         "accepted_quantity": str(accepted),
@@ -292,6 +295,8 @@ def release_work_order(order_id: int, user: dict = Depends(require("work_order.r
         if rework is None and row["bom_status"] != "active":
             raise HTTPException(409, "BOM 已停用，请取消草稿并使用新版本建单")
         # 无追加材料的返工仍需下达，随后可登记人工并报工；不虚构组件出库。
+        # 独立批准不替代原数量/质检校验，执行记录与业务流水必须共同提交或回滚。
+        approved = approval.require_approved(db, 'WorkOrder', order_id, work_order_snapshot(db, order_id), user['id'])
         status = 'in_progress' if rework is not None and db.scalar(select(WorkOrderLine.id).where(
             WorkOrderLine.work_order_id == order_id).limit(1)) is None else 'released'
         db.execute(
@@ -299,12 +304,16 @@ def release_work_order(order_id: int, user: dict = Depends(require("work_order.r
             .where((WorkOrder.id == order_id))
             .values(status=status, released_by=user["id"], released_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return work_order_data(db, order_id)
 
 
 @router.post("/work-orders/{order_id}/cancel")
 def cancel_work_order(order_id: int, user: dict = Depends(require("work_order.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        pending = approval.find_case(db, 'WorkOrder', order_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批再取消单据')
         row = (
             db.execute(select(WorkOrder.status).select_from(WorkOrder).where((WorkOrder.id == order_id)))
             .mappings()

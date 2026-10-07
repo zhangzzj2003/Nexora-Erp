@@ -33,7 +33,7 @@ export const state = {
   receivablesPayables:ref({receivable_amount:'100',payable_amount:'0',unpriced_count:0,entries:[]}),
   paymentRecords:ref([{id:1,action:'settlement',party_name:'客户A',amount:'100'},{id:2,action:'settlement',party_name:'客户B',amount:'20'},{id:3,action:'reversal',reverses_id:2,amount:'-20'}]),
   workOrders:ref([]), completionForm:ref({}), selectedCompletionOrder:ref(null), completionReversalReasons:ref({}),
-  productionCompletions:ref(['draft','inspected','posted','reversed','cancelled'].map((status,i)=>({id:i+1,status,product_name:'测试成品',reported_quantity:'5',accepted_quantity:status==='draft'?null:'4',rejected_quantity:status==='draft'?null:'1'}))),
+  productionCompletions:ref(['draft','inspected','posted','reversed','cancelled'].map((status,i)=>({id:i+1,status,product_name:'测试成品',reported_quantity:'5',accepted_quantity:status==='draft'?null:'4',rejected_quantity:status==='draft'?null:'1',physical_lots:[],approval:{status:status==='inspected'?'approved':'draft'},reversal_approval:{status:status==='posted'?'approved':'draft'}}))),
   inspectionDrafts:ref({1:{accepted_quantity:'4',qc_note:'测试质检'}}),
   productionCostReport:ref({orders:[{work_order_id:1,product_name:'待核价成品',work_order_status:'released',known_material_amount:'0',labor_amount:'0',overhead_amount:'0',total_amount:null,unpriced_issue_count:1}],entries:[{id:1,kind:'labor',status:'active',current_amount:'20'},{id:2,kind:'material',status:'reversed',current_amount:null,reversal_id:3,reversal_reason:'重复核价',material_name:'铝材'}],unpriced_lines:[]}),
   materialValuationForm:ref({}), productionChargeForm:ref({}), costReversalReasons:ref({}),
@@ -56,12 +56,15 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
     resolveId(id,importer) {
       // 批次表的公共封装也引用 WorkspaceTable，继续展开同一份表格绘制替身。
       if(id.endsWith('/WorkspaceTable.vue')) return '\0record-view-table'
+      // 本夹具检查页面状态和权限；共用审批弹窗已有真实 Pinia 与接口专项测试。
+      if(id.endsWith('/DocumentApprovalDialog.vue')) return '\0record-view-approval'
       if(!importer?.includes('/views/workspace/')) return
       if(id.endsWith('/store/app-store')) return '\0record-view-store'
     },
     load(id) {
       if(id==='\0record-view-store') return storeModule
       if(id==='\0record-view-table') return tableModule
+      if(id==='\0record-view-approval') return 'export default {render:()=>null}'
     }
   },vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false},appType:'custom'})
   t.after(()=>server.close())
@@ -101,22 +104,23 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
   assert.equal(buttons(await render(finance)).filter(b=>b.label==='冲销此记录').length,0)
 
   const completions='production/ProductionCompletionsView.vue'
-  assert.doesNotMatch(await render(completions),/记录质检结果|登记批次并确认|冲销已确认完工/)
+  assert.doesNotMatch(await render(completions),/记录质检结果|确认完工|执行已批准冲销/)
   for(const p of ['inspect','post','cancel','reverse']) permissions.add('production_completion.'+p)
   const completionHtml=await render(completions)
-  for(const label of ['记录质检结果','登记批次并确认','冲销已确认完工']) {
+  for(const label of ['记录质检结果','确认完工','指定实物批次（可选）','执行已批准冲销']) {
     assert.equal(buttons(completionHtml).filter(b=>b.label===label).length,1,label)
   }
-  assert.equal(buttons(completionHtml).filter(b=>b.label==='取消').length,2)
+  assert.equal(buttons(completionHtml).filter(b=>b.label==='取消').length,1)
   assert.match(completionHtml,/max="5"/)
   assert.match(completionHtml,/required maxlength="200"/)
   state.productionCompletions.value[1].accepted_quantity='0'
-  assert.equal(buttons(await render(completions)).filter(b=>b.label==='确认整批不合格').length,1)
+  assert.equal(buttons(await render(completions)).filter(b=>b.label==='确认完工').length,1)
+  assert.equal(buttons(await render(completions)).filter(b=>b.label==='指定实物批次（可选）').length,0)
   state.productionCompletions.value[1].accepted_quantity='4'
   state.productionCompletions.value[2].physical_lots=[{id:9,code:'P3-P1',quantity:'4'}]
   assert.match(await render(completions),/P3-P1（4）/)
   state.productionCompletions.value[2].physical_lots=[]
-  assert.match(await render(completions),/未登记实物批次，数量在批次核对页显示为差额/)
+  assert.match(await render(completions),/普通确认未指定实物批次/)
 
   const costs='production/ProductionCostsView.vue'
   permissions.add('production_cost.reverse')

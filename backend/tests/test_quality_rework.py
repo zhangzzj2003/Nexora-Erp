@@ -53,15 +53,18 @@ def quality_erp(monkeypatch, tmp_path):
         api('POST',f'boms/{bom["id"]}/activate')
         def order(quantity='10', accepted='4'):
             work = api('POST','work-orders',{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':quantity},201)
+            approve_document(client, admin, 'WorkOrder', work['id'])
             api('POST',f'work-orders/{work["id"]}/release')
             issue = api('POST','material-issues',{'work_order_id':work['id'],'warehouse_id':1,
                 'lines':[{'work_order_line_id':work['lines'][0]['id'],'quantity':quantity}]},201)
+            approve_document(client, admin, 'MaterialIssue', issue['id'])
             api('POST',f'material-issues/{issue["id"]}/post')
             completion = complete(work['id'], quantity, accepted)
             return work, completion
         def complete(order_id, reported, accepted):
             completion = api('POST','production-completions',{'work_order_id':order_id,'reported_quantity':reported},201)
             api('POST',f'production-completions/{completion["id"]}/inspect',{'accepted_quantity':accepted,'qc_note':'尺寸超差，隔离处理'})
+            approve_document(client, admin, 'ProductionCompletion', completion['id'])
             return api('POST',f'production-completions/{completion["id"]}/post')
         yield client, admin, actors, api, raw, product, order, complete
 
@@ -99,9 +102,11 @@ def test_mixed_loss_rework_costs_stock_and_dependency_chain(quality_erp):
     child = next(row for row in api('GET','work-orders') if row['id'] == rework['rework_order_id'])
     assert child['rework_completion_id'] == completion['id'] and child['lines'][0]['required_quantity'] == '1'
     assert api('GET',ROOT)['cases'][0]['remaining_quantity'] == '0'
+    approve_document(quality_erp[0], quality_erp[1], 'WorkOrder', child['id'])
     api('POST',f'work-orders/{child["id"]}/release')
     issue = api('POST','material-issues',{'work_order_id':child['id'],'warehouse_id':1,
         'lines':[{'work_order_line_id':child['lines'][0]['id'],'quantity':'1'}]},201)
+    approve_document(quality_erp[0], quality_erp[1], 'MaterialIssue', issue['id'])
     api('POST',f'material-issues/{issue["id"]}/post')
     complete(child['id'],'3','3')
     api('POST','production-costs/charges',{'work_order_id':child['id'],'kind':'labor','amount':'3','reference':'REPAIR-LABOR'},201)
@@ -212,6 +217,7 @@ def test_labor_only_rework_reinspection_and_recursive_rejection(quality_erp):
     original,completion = order('1','0')
     rework = posted(api,actors,payload(completion,kind='rework'))
     child_id = rework['rework_order_id']
+    approve_document(quality_erp[0], quality_erp[1], 'WorkOrder', child_id)
     child = api('POST',f'work-orders/{child_id}/release')
     assert child['status'] == 'in_progress' and child['lines'] == []
     child_completion = complete(child_id,'1','0')
@@ -301,9 +307,12 @@ def test_rework_reverse_cancels_source_only_after_downstream_correction(quality_
     _,completion = order('1','0')
     row = posted(api,actors,payload(completion,kind='rework'))
     api('POST',f'work-orders/{row["rework_order_id"]}/cancel',status=409)
+    approve_document(quality_erp[0], quality_erp[1], 'WorkOrder', row['rework_order_id'])
     api('POST',f'work-orders/{row["rework_order_id"]}/release')
     child_completion = complete(row['rework_order_id'],'1','1')
     action(api,row,'reverse',status=409)
+    # 独立审批完成后，再验证原库存约束或失败回滚。
+    approve_document(quality_erp[0], quality_erp[1], 'ProductionCompletion', child_completion['id'], intent='reverse', reason='返工数量复核')
     api('POST',f'production-completions/{child_completion["id"]}/reverse',{'reason':'返工数量复核'})
     reversed_row = action(api,row,'reverse')
     assert reversed_row['rework_order_id'] == row['rework_order_id']

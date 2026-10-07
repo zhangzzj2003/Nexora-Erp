@@ -75,11 +75,13 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
         work_order = create("/work-orders", planner, {"bom_id": bom,
                                                        "warehouse_id": production_warehouse,
                                                        "target_quantity": "2"})
+        approve_document(client, admin, 'WorkOrder', work_order['id'])
         confirm(f"/work-orders/{work_order['id']}/release", planner)
         issue = create("/material-issues", planner, {"work_order_id": work_order["id"],
                                                         "warehouse_id": production_warehouse,
                                                         "lines": [{"work_order_line_id": work_order["lines"][0]["id"],
                                                                    "quantity": "4"}]})
+        approve_document(client, admin, 'MaterialIssue', issue['id'])
         confirm(f"/material-issues/{issue['id']}/post", warehouse)
         # 领料成本自动沿用采购入库形成的库存平均成本，不再重复人工核价。
         assert client.get(f"{base}/production-costs", headers=finance).json()["orders"][0]["known_material_amount"] == "12.00"
@@ -108,6 +110,7 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
         inspected = client.post(f"{base}/production-completions/{completion}/inspect",
                                 headers=warehouse, json={"accepted_quantity": "2", "qc_note": "全数合格"})
         assert inspected.status_code == 200, inspected.text
+        approve_document(client, admin, 'ProductionCompletion', completion)
         confirm(f"/production-completions/{completion}/post", warehouse)
         settlement = create('/production-costs/settlements', finance, {
             'work_order_id': work_order['id'], 'reference': 'SETTLE-CYCLE'})

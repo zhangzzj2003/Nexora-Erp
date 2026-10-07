@@ -20,10 +20,12 @@ test('生产领料显示批次证据、旧单差额和选批确认入口',async 
     resolveId(id,importer){
       if(importer?.includes('/views/workspace/production/MaterialIssuesView')
           && id.endsWith('/store/app-store'))return '\0issue-view-store'
+      if(id.endsWith('/DocumentApprovalDialog.vue'))return '\0approval-dialog-stub'
       if(id.endsWith('/WorkspaceTable.vue'))return '\0issue-view-table'
       if(id.endsWith('/WorkspaceSelect.vue'))return '\0issue-view-select'
     },load(id){
       if(id==='\0issue-view-store')return storeModule
+      if (id === '\0approval-dialog-stub') return `export default {render:()=>null}`
       if(id==='\0issue-view-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:{data:Array},setup(props,{slots}){return ()=>h('section',[
         ...(props.data??[]).flatMap(row=>Object.entries(slots).filter(([key])=>key.startsWith('cell-')).map(([,slot])=>slot?.({row})))])}})`
       if(id==='\0issue-view-select')return `import {defineComponent,h} from 'vue';export default defineComponent({setup(){return ()=>h('span')}})`
@@ -40,15 +42,15 @@ test('生产领料显示批次证据、旧单差额和选批确认入口',async 
       {...line,physical_lots:[{id:8,code:'LEGACY-W1-M3',quantity:'1.000',source_kind:'legacy'}]}]}
   store.materialIssues=[issue,{...issue,id:3,lines:[{...line,physical_lots:[]}]},
     {...issue,id:5,status:'reversed',reversal_reason:'错误确认',reversed_at:'2026-10-03'},
-    {...issue,id:4,status:'draft',lines:[{...line,physical_lots:[]}]}]
+    {...issue,id:4,status:'draft',approval:{status:'approved'},lines:[{...line,physical_lots:[]}]}]
   const {default:Component}=await server.ssrLoadModule(
     '/src/renderer/src/views/workspace/production/MaterialIssuesView.vue')
   const html=await renderToString(createSSRApp({render:()=>h(Component)}).use(pinia))
   assert.match(html,/LEGACY-W1-M3/)
   assert.match(html,/历史未识别/)
-  assert.match(html,/原确认未指定实物批次/)
+  assert.match(html,/普通确认未指定实物批次/)
   assert.match(html,/已冲销/)
   assert.match(html,/冲销原因：错误确认/)
-  assert.match(html,/指定批次并确认/)
-  assert.equal((html.match(/原确认未指定实物批次/g)??[]).length,1)
+  assert.match(html,/指定实物批次（可选）/)
+  assert.equal((html.match(/普通确认未指定实物批次/g)??[]).length,1)
 })

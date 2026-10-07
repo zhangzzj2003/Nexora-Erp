@@ -74,4 +74,19 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   html = await render()
   assert.match(html, /冲销原因（必填）/)
   assert.match(html, /<button[^>]*disabled[^>]*>提交审批/)
+  // 已处理的旧生产工单保留原流程；未质检完工明确提示业务前置。
+  store.documentApprovalTarget = { document_type: 'WorkOrder', document_id: 1, intent: 'execute' }
+  store.documentApprovalRecord = { ...store.documentApprovalRecord, document_type: 'WorkOrder',
+    intent: 'execute', version: 0, can_submit: false, can_review: false, can_withdraw: false }
+  for (const business_status of ['released', 'in_progress', 'completed']) {
+    store.documentApprovalRecord.business_status = business_status
+    html = await render()
+    assert.match(html, /已处理单据保留原业务记录/)
+    assert.doesNotMatch(html, /未送审|>提交审批</)
+  }
+  store.documentApprovalRecord.document_type = 'ProductionCompletion'
+  store.documentApprovalRecord.business_status = 'draft'
+  html = await render()
+  assert.match(html, /请先记录质检结果/)
+  assert.doesNotMatch(html, />提交审批</)
 })

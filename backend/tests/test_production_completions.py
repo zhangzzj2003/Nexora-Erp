@@ -49,10 +49,12 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
             "work_order_id": order_id, "reported_quantity": "1"}).status_code == 403
         assert client.post(f"{base}/production-completions", headers=planner, json={
             "work_order_id": order_id, "reported_quantity": "1"}).status_code == 409
+        approve_document(client, admin, 'WorkOrder', order_id)
         client.post(f"{base}/work-orders/{order_id}/release", headers=planner)
         first_issue = client.post(f"{base}/material-issues", headers=planner, json={
             "work_order_id": order_id, "warehouse_id": 1,
             "lines": [{"work_order_line_id": line_id, "quantity": "1"}]}).json()
+        approve_document(client, admin, 'MaterialIssue', first_issue['id'])
         client.post(f"{base}/material-issues/{first_issue['id']}/post", headers=warehouse)
         for invalid in ("0", "0.0001", "NaN", "3"):
             expected = 409 if invalid == "3" else 422
@@ -85,12 +87,14 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
         second_issue = client.post(f"{base}/material-issues", headers=planner, json={
             "work_order_id": order_id, "warehouse_id": 1,
             "lines": [{"work_order_line_id": line_id, "quantity": "1"}]}).json()
+        approve_document(client, admin, 'MaterialIssue', second_issue['id'])
         client.post(f"{base}/material-issues/{second_issue['id']}/post", headers=warehouse)
         # 报工确认前允许退料草稿，确认后若会低于已消耗需料则须拒绝过期草稿。
         stale_return = client.post(f"{base}/material-returns", headers=planner, json={
             "material_issue_id": first_issue["id"], "reason": "拟退回",
             "lines": [{"material_issue_line_id": first_issue["lines"][0]["id"],
                        "quantity": "0.1"}]}).json()["id"]
+        approve_document(client, admin, 'ProductionCompletion', first_id)
         assert client.post(f"{base}/production-completions/{first_id}/post", headers=warehouse).status_code == 200
         assert client.post(f"{base}/production-completions/{first_id}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/material-returns/{stale_return}/post", headers=warehouse).status_code == 409
@@ -117,10 +121,12 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
         third_issue = client.post(f"{base}/material-issues", headers=planner, json={
             "work_order_id": order_id, "warehouse_id": 1,
             "lines": [{"work_order_line_id": line_id, "quantity": "2"}]}).json()
+        approve_document(client, admin, 'MaterialIssue', third_issue['id'])
         client.post(f"{base}/material-issues/{third_issue['id']}/post", headers=warehouse)
         final = client.post(f"{base}/production-completions", headers=planner, json=payload).json()["id"]
         client.post(f"{base}/production-completions/{final}/inspect", headers=warehouse,
                     json={"accepted_quantity": "1", "qc_note": "全数合格"})
+        approve_document(client, admin, 'ProductionCompletion', final)
         assert client.post(f"{base}/production-completions/{final}/post", headers=warehouse).status_code == 200
         current = client.get(f"{base}/work-orders", headers=planner).json()[0]
         assert current["status"] == "completed"
@@ -134,6 +140,8 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
         assert next(item for item in stock if item["id"] == product)["quantity"] == "1.5"
 
         # 已确认完工须用独立冲销单更正；库存被调走时不得把原仓扣成负数。
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, admin, 'ProductionCompletion', final, intent='reverse', reason='质检数量录错')
         reverse_url = f"{base}/production-completions/{final}/reverse"
         assert client.post(reverse_url, headers=planner, json={"reason": "误报"}).status_code == 403
         assert client.post(reverse_url, headers=warehouse, json={"reason": "误报"}).status_code == 403
@@ -171,18 +179,24 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
                                   json=payload).json()["id"]
         client.post(f"{base}/production-completions/{replacement}/inspect", headers=warehouse,
                     json={"accepted_quantity": "1", "qc_note": "重新质检合格"})
+        approve_document(client, admin, 'ProductionCompletion', replacement)
         assert client.post(f"{base}/production-completions/{replacement}/post",
                            headers=warehouse).status_code == 200
         assert client.get(f"{base}/work-orders", headers=planner).json()[0]["status"] == "completed"
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, admin, 'ProductionCompletion', replacement, intent='reverse', reason='重新核验')
         assert client.post(f"{base}/production-completions/{replacement}/reverse", headers=admin,
                            json={"reason": "重新核验"}).status_code == 200
         rejected = client.post(f"{base}/production-completions", headers=planner,
                                json=payload).json()["id"]
         client.post(f"{base}/production-completions/{rejected}/inspect", headers=warehouse,
                     json={"accepted_quantity": "0", "qc_note": "整批不合格"})
+        approve_document(client, admin, 'ProductionCompletion', rejected)
         assert client.post(f"{base}/production-completions/{rejected}/post",
                            headers=warehouse).status_code == 200
         before_zero_reversal = len(client.get(f"{base}/movements", headers=admin).json())
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, admin, 'ProductionCompletion', rejected, intent='reverse', reason='报工批次录错')
         assert client.post(f"{base}/production-completions/{rejected}/reverse", headers=admin,
                            json={"reason": "报工批次录错"}).status_code == 200
         assert len(client.get(f"{base}/movements", headers=admin).json()) == before_zero_reversal

@@ -22,7 +22,7 @@ export function documentLotFixture([file, state, lineKey]) {
     reason:'gift',source_kind:'other',reference:'DEMO',note:'仅用于界面验证',created_by:1,created_by_name:'示例管理员',created_at:'2026-10-07T02:00:00Z',
     version:1,author_ids:[2],lines:[line],product_name:'示例 · 智能控制板',product_sku:'EL-PC-000005',product_unit:'块',
     accepted_quantity:'100',reported_quantity:'100',rejected_quantity:'0',remaining_output_quantity:'100',target_quantity:'100',bom_version:1,
-    approval: ['shipments','salesReturns'].includes(state) ? {status:'approved'} : undefined,
+    approval: ['shipments','salesReturns','materialIssues','materialReturns','productionCompletions'].includes(state) ? {status:'approved'} : undefined,
     posted_at:null,reversal_id:null,reversal_reason:null,attachments:[]}
   const options={warehouse_id:1,from_warehouse_id:1,to_warehouse_id:2,shipment_id:1,material_issue_id:1,
     lines:[{...line,[lineKey]:7,lots:[{lot_id:8,code:'SOURCE-01',source_kind:'receipt',quantity:'100',supplier_lot:'SUP-01',manufactured_on:null,expires_on:null}]}]}

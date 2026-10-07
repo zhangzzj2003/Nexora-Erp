@@ -41,6 +41,7 @@ def test_material_issue_uses_selected_lots_atomically(monkeypatch, tmp_path):
         assert client.post(f'{base}/boms/{bom}/activate', headers=auth).status_code == 200
         order = client.post(f'{base}/work-orders', headers=auth, json={
             'bom_id': bom, 'warehouse_id': 1, 'target_quantity': '1'}).json()
+        approve_document(client, auth, 'WorkOrder', order['id'])
         assert client.post(f'{base}/work-orders/{order["id"]}/release', headers=auth).status_code == 200
         issue = client.post(f'{base}/material-issues', headers=auth, json={
             'work_order_id': order['id'], 'warehouse_id': 1,
@@ -52,6 +53,8 @@ def test_material_issue_uses_selected_lots_atomically(monkeypatch, tmp_path):
         assert options.status_code == 200
         assert [(lot['lot_id'], lot['quantity']) for lot in options.json()['lines'][0]['lots']] == [
             (lot_a, '1.000'), (lot_b, '2.000')]
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'MaterialIssue', issue_id)
         post_url = f'{base}/material-issues/{issue_id}/post'
         allocation = {'lines': [{'material_issue_line_id': line_id, 'lots': [
             {'lot_id': lot_a, 'quantity': '0.500'},

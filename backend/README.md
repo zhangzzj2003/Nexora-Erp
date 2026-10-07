@@ -66,7 +66,9 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 销售订单 `SalesOrder`、销售出库 `Shipment` 与销售退货 `SalesReturn` 已分别接入统一审批，沿用 `sales.view` 及原客户归属检查，审核使用各自独立权限。订单固定价格、保修与合同正文/附件指纹；草稿审批期间修改合同依据返回 409，已确认订单仍保留原追加合同证据能力。报价转单和售后派生退货/换货草稿送审时从原审计恢复编制人员，禁止原方案作者审核下游。出库、退货保留原剩余数量、售后占用、库存与实物分配检查，执行和冲销与审批事件原子提交；两者均支持批准后的普通确认和可选实物批次，冲销另行批准固定原因。
 
-**当前处于需求分支开发阶段，已接入十二类，不能据此认为 29 类接口已全部实施新审批门槛。** 财务草稿状态、其他自动转单门槛、生产关联查询和其他单据的可选批次仍待实施，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
+**当前处于需求分支开发阶段，已接入十六类，不能据此认为 29 类接口已全部实施新审批门槛。** 财务草稿状态、其余九类原审批兼容和生产关联查询仍待实施，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
+
+工单 `WorkOrder`、领料 `MaterialIssue`、退料 `MaterialReturn` 和完工 `ProductionCompletion` 已接入统一审批。工单批准后才下达；领退料批准后在原事务内重核净领料、余额和可选批次。完工必须先质检，再独立批准；质检人不能审核自己填写的结果，确认时仍重核目标产量与净领料。MRP 和返工生成的工单独立送审，从原计划/处置审计恢复编制、提交和转换人员，不能因换人转单而洗掉作者身份。领退料及完工冲销另行批准固定原因；普通操作不要求批次，选择批次时仍沿原分配校验、执行或回滚。当前共十六类业务接入，仍有九类原审批兼容和四类即时生效记录待接入，生产关联查询也未完成。
 
 ## 基础资料与供货关系
 
@@ -124,7 +126,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 生产工单
 
-`POST /api/v1/work-orders` 使用启用的 BOM、目标报工数量及目标仓库创建草稿。服务端在写事务内固定 BOM 版本引用，并按目标数量与 BOM 基准产量计算每个组件的需求，向上取整到库存的三位精度。`GET /api/v1/work-orders` 返回工单、需料快照、净领料与剩余数量，以及已报工、合格、不合格和待报工数量；`POST /api/v1/work-orders/{id}/release` 下达草稿，BOM 已停用时拒绝下达，须取消草稿并按新版本建单；`/cancel` 可取消未发料的草稿或已下达工单。旧工单在 BOM 换版后仍保留原组件和数量。查看要求 `production.view`，创建、下达、取消分别要求 `work_order.create`、`work_order.release`、`work_order.cancel`；管理员与生产计划员默认拥有，仓库员可查看。工单创建和下达不锁定库存；目标仓库用于合格成品入库。
+`POST /api/v1/work-orders` 使用启用的 BOM、目标报工数量及目标仓库创建草稿。服务端在写事务内固定 BOM 版本引用，并按目标数量与 BOM 基准产量计算每个组件的需求，向上取整到库存的三位精度。`GET /api/v1/work-orders` 返回工单、需料快照、净领料与剩余数量，以及已报工、合格、不合格和待报工数量；`POST /api/v1/work-orders/{id}/release` 须本单独立批准后下达草稿，BOM 已停用时拒绝下达，须取消草稿并按新版本建单；`/cancel` 可取消未发料的草稿或已下达工单。旧工单在 BOM 换版后仍保留原组件和数量。查看要求 `production.view`，创建、下达、取消分别要求 `work_order.create`、`work_order.release`、`work_order.cancel`；管理员与生产计划员默认拥有，仓库员可查看。工单创建和下达不锁定库存；目标仓库用于合格成品入库。
 
 ## 生产领料
 
@@ -132,11 +134,11 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 生产退料更正
 
-`POST /api/v1/material-returns` 指定生产中工单的已确认领料单、退料原因及原领料明细数量建立草稿；`GET /api/v1/material-returns` 查看记录。`GET /api/v1/material-returns/{id}/available-lots` 以确认权限返回原领料行已分配批次及扣除既往已确认退料的剩余可退量；`POST /api/v1/material-returns/{id}/post` 可逐行提交 `lines: [{return_line_id, lots: [{lot_id, quantity, supplier_lot, manufactured_on, expires_on}]}]`。选择原批次时核对归属与可退量；实物无法对应原批次时可登记独立标记的“退料新批次”，不伪造原来源。写事务重新核对累计可退数量和工单状态，向原领料仓库写入正向库存流水和批次分配。旧客户端省略请求体仍可确认，但留下可见差额。工单“已领”和“剩余”按已确认领料减已确认退料计算，退回后可重新领用；已用于确认报工的最低组件数量不能退回。多张草稿可以并存，但后确认的草稿若超量会返回 409，整单不入库。`/cancel` 仅取消草稿，已确认退料保留记录；已确认退料可通过 `POST /api/v1/material-returns/{id}/reverse` 提交必填原因整单冲销：仅生产中、未结算且无有效报工的工单允许；原退料及批次证据保留，追加原仓负向库存流水，原批次或现场补证批次足额且工单不因后续补领而超领时生效。原单与冲销流水的补证随后锁定。查看要求 `production.view`；创建、确认、取消、冲销分别要求 `material_return.create`、`material_return.post`、`material_return.cancel`、`material_return.reverse`；冲销默认仅管理员可用。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。退料由操作员按实际退回事实登记，当前不含生产现场实物核验。
+`POST /api/v1/material-returns` 指定生产中工单的已确认领料单、退料原因及原领料明细数量建立草稿；`GET /api/v1/material-returns` 查看记录。`GET /api/v1/material-returns/{id}/available-lots` 以确认权限返回原领料行已分配批次及扣除既往已确认退料的剩余可退量；`POST /api/v1/material-returns/{id}/post` 可逐行提交 `lines: [{return_line_id, lots: [{lot_id, quantity, supplier_lot, manufactured_on, expires_on}]}]`。选择原批次时核对归属与可退量；实物无法对应原批次时可登记独立标记的“退料新批次”，不伪造原来源。写事务重新核对累计可退数量和工单状态，向原领料仓库写入正向库存流水和批次分配。本单独立批准后，客户端可省略请求体普通确认，留下可见差额。工单“已领”和“剩余”按已确认领料减已确认退料计算，退回后可重新领用；已用于确认报工的最低组件数量不能退回。多张草稿可以并存，但后确认的草稿若超量会返回 409，整单不入库。`/cancel` 仅取消草稿，已确认退料保留记录；已确认退料可通过 `POST /api/v1/material-returns/{id}/reverse` 提交必填原因整单冲销：仅生产中、未结算且无有效报工的工单允许；原退料及批次证据保留，追加原仓负向库存流水，原批次或现场补证批次足额且工单不因后续补领而超领时生效。原单与冲销流水的补证随后锁定。查看要求 `production.view`；创建、确认、取消、冲销分别要求 `material_return.create`、`material_return.post`、`material_return.cancel`、`material_return.reverse`；冲销默认仅管理员可用。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。退料由操作员按实际退回事实登记，当前不含生产现场实物核验。
 
 ## 完工报工与基础质检
 
-`POST /api/v1/production-completions` 为生产中的工单建立分批报工草稿，保存本批报工数量及可选参考号；`GET /api/v1/production-completions` 查看记录。`POST /api/v1/production-completions/{id}/inspect` 由有质检权限的操作员填写合格数量及质检说明，不合格数量由报工数减合格数计算。`/post` 仅确认已质检单据，在同一写事务中核对累计已确认报工不超过工单目标，并按累计报工数量核对每个组件的净领料是否达到 BOM 快照比例；仅合格品生成进入工单目标仓库的正向库存流水，可选提交 `lots: [{quantity, manufactured_on, expires_on}]` 固定合格品实物批次，数量之和须等于合格数量。整批不合格不产生库存流水或实物批次；旧客户端省略批次请求体仍按原行为确认，差额在批次核对页可见。全部目标报工确认后工单变为“已完工”。两个草稿可并存，但后确认的草稿若超出目标会返回 409。`/cancel` 可取消草稿或已质检但未入库的单据，已确认入库不能直接取消。查看要求 `production.view`；创建、质检、确认、取消分别要求 `production_completion.create`、`production_completion.inspect`、`production_completion.post`、`production_completion.cancel`。管理员有全部权限；计划员可创建和取消，仓库员可质检与确认。目标为报工总数，包含质检不合格数；不合格品不进入可用库存，不合格品处置与返工的基础规则见 [不合格品规则](../docs/quality-rework.md)；完工成本结算仍按工单来源和金额分配，与实物批次区分。这是记录数量与说明的基础质检，没有批次检验标准或现场实物核验。
+`POST /api/v1/production-completions` 为生产中的工单建立分批报工草稿，保存本批报工数量及可选参考号；`GET /api/v1/production-completions` 查看记录。`POST /api/v1/production-completions/{id}/inspect` 由有质检权限的操作员填写合格数量及质检说明，不合格数量由报工数减合格数计算。`/post` 仅确认已质检且完成本单独立批准的单据，在同一写事务中核对累计已确认报工不超过工单目标，并按累计报工数量核对每个组件的净领料是否达到 BOM 快照比例；仅合格品生成进入工单目标仓库的正向库存流水，可选提交 `lots: [{quantity, manufactured_on, expires_on}]` 固定合格品实物批次，数量之和须等于合格数量。整批不合格不产生库存流水或实物批次；本单批准后省略批次请求体可普通确认，差额在批次核对页可见。全部目标报工确认后工单变为“已完工”。两个草稿可并存，但后确认的草稿若超出目标会返回 409。`/cancel` 可取消草稿或已质检但未入库的单据，已确认入库不能直接取消。查看要求 `production.view`；创建、质检、确认、取消分别要求 `production_completion.create`、`production_completion.inspect`、`production_completion.post`、`production_completion.cancel`。管理员有全部权限；计划员可创建和取消，仓库员可质检与确认。目标为报工总数，包含质检不合格数；不合格品不进入可用库存，不合格品处置与返工的基础规则见 [不合格品规则](../docs/quality-rework.md)；完工成本结算仍按工单来源和金额分配，与实物批次区分。这是记录数量与说明的基础质检，没有批次检验标准或现场实物核验。
 
 `POST /api/v1/production-completions/{id}/reverse` 仅管理员可按原因冲销已确认完工单。服务端在一个写事务内检查目标仓库仍有足量合格成品，新增独立冲销记录；合格数量大于零时追加负向库存流水，已登记实物批次按原分配反向扣回，批次已被耗用则返回 409 并整单回滚；原报工、质检和入库流水不被改写。冲销后的报工、合格和不合格数量不再计入工单当前累计；若工单原已完工，则恢复“生产中”并允许重新报工。库存不足或重复冲销返回 409。原单查询会展示冲销原因、操作人和时间；当前不支持部分冲销；工单成本可在独立归集页面查询。
 

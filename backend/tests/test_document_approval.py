@@ -512,7 +512,9 @@ def test_inbound_approval_api_strict_boundary_and_permission_revocation(context)
                   {'snapshot': {}}, {'intent': 'anything'}]:
         assert approval_api(client, auth, identifier, 'submit', **{'version': 0, **extra}).status_code == 422
     assert approval_api(client, auth, identifier, 'execute', version=0).status_code == 422
-    assert client.get('/api/v1/system/document-approvals/WorkOrder/1', headers=auth).status_code == 409
+    # 工单已接入审批；不存在的单据应返回 404，非法类型仍由白名单返回 422。
+    assert client.get('/api/v1/system/document-approvals/WorkOrder/1', headers=auth).status_code == 404
+    assert client.get('/api/v1/system/document-approvals/Unknown/1', headers=auth).status_code == 422
     assert approval_api(client, auth, identifier, 'submit', version=0).status_code == 200
     reviewer = reviewer_auth(client)
     with orm_session(write=True) as db:

@@ -41,12 +41,14 @@ def test_material_return_lots_follow_original_issue(monkeypatch, tmp_path):
         client.post(f'{base}/boms/{bom}/activate', headers=auth)
         order = client.post(f'{base}/work-orders', headers=auth, json={
             'bom_id': bom, 'warehouse_id': 1, 'target_quantity': '1'}).json()
+        approve_document(client, auth, 'WorkOrder', order['id'])
         client.post(f'{base}/work-orders/{order["id"]}/release', headers=auth)
         issue = client.post(f'{base}/material-issues', headers=auth, json={
             'work_order_id': order['id'], 'warehouse_id': 1,
             'lines': [{'work_order_line_id': order['lines'][0]['id'],
                        'quantity': '2.000'}]}).json()
         issue_line = issue['lines'][0]['id']
+        approve_document(client, auth, 'MaterialIssue', issue['id'])
         assert client.post(f'{base}/material-issues/{issue["id"]}/post', headers=auth,
             json={'lines': [{'material_issue_line_id': issue_line, 'lots': [
                 {'lot_id': lot_a, 'quantity': '1.000'},
@@ -62,6 +64,8 @@ def test_material_return_lots_follow_original_issue(monkeypatch, tmp_path):
         assert [(lot['lot_id'], lot['quantity']) for lot in client.get(
             options_url, headers=auth).json()['lines'][0]['lots']] == [
                 (lot_a, '1.000'), (lot_b, '1.000')]
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'MaterialReturn', first_id)
         post_url = f'{base}/material-returns/{first_id}/post'
         for invalid, status in [
             ({'lines': []}, 422),
@@ -88,6 +92,8 @@ def test_material_return_lots_follow_original_issue(monkeypatch, tmp_path):
                              headers=auth).json()['lines'][0]['lots']
         assert [(lot['lot_id'], lot['quantity']) for lot in options] == [
             (lot_a, '0.250'), (lot_b, '1.000')]
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'MaterialReturn', second_id)
         assert client.post(f'{base}/material-returns/{second_id}/post', headers=auth,
             json={'lines': [{'return_line_id': second_line, 'lots': [
                 {'lot_id': lot_a, 'quantity': '0.500'}]}]}).status_code == 409

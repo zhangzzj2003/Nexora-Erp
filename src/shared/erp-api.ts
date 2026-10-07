@@ -768,6 +768,8 @@ export interface WorkOrderLine {
 }
 // 工单组件需求在建单时固定，旧 BOM 停用也不会改变已下达工单。
 export interface WorkOrder extends NumberedDocument {
+  // 本单独立审批；旧响应缺失时界面不允许执行。
+  approval?: DocumentApprovalState
   id: number
   bom_id: number
   bom_version: number
@@ -813,6 +815,9 @@ export interface MaterialIssueLine {
 }
 // 确认后的领料单生成独立负向库存流水；原单据保留供追溯。
 export interface MaterialIssue extends NumberedDocument {
+  // 本单独立审批；旧响应缺失时界面不允许执行。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   work_order_id: number
   warehouse_id: number
@@ -845,6 +850,9 @@ export interface MaterialReturnLine {
 }
 // 退料引用原领料明细并回到原仓库，确认后生成独立正向流水。
 export interface MaterialReturn extends NumberedDocument {
+  // 本单独立审批；旧响应缺失时界面不允许执行。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   material_issue_id: number
   work_order_id: number
@@ -867,6 +875,9 @@ export interface MaterialReturn extends NumberedDocument {
 }
 // 完工单记录报工与质检结果；确认时只有合格数量进入成品仓库。
 export interface ProductionCompletion extends NumberedDocument {
+  // 本单独立审批；旧响应缺失时界面不允许执行。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   work_order_id: number
   warehouse_id: number

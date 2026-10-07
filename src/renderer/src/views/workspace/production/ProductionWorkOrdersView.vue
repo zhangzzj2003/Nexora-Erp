@@ -8,30 +8,18 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
 import { NModal } from 'naive-ui'
-import { useAppStore } from '../../../store/app-store'
+import { storeToRefs } from 'pinia'
+import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
-const {
-  error,
-  notice,
-  version,
-  busy,
-  boms,
-  workOrders,
-  warehouses,
-  workOrderForm,
-  can,
-  localTime,
-  createWorkOrder,
-  releaseWorkOrder,
-  cancelWorkOrder,
-  selectIssueOrder,
-  selectCompletionOrder
-} = useAppStore()
+const store = usePiniaAppStore()
+const { error, notice, version, busy, connectionLost, boms, workOrders, warehouses, workOrderForm } = storeToRefs(store)
+const { can, localTime, createWorkOrder, releaseWorkOrder, cancelWorkOrder, selectIssueOrder, selectCompletionOrder } = store
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
@@ -52,10 +40,13 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 审批状态独立于下达、质检和库存执行状态，避免上游批准被误认为本单批准。
+const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '已批准，待确认', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
 </script>
 
 <template>
   <section class="stack">
+    <DocumentApprovalDialog />
     <NModal title="新建生产工单"
       v-if="can('work_order.create')"
       v-model:show="createOpen"
@@ -169,7 +160,7 @@ const filteredRecords = computed(() =>
         <span class="pill" :class="item.status">
           {{
             {
-              draft: '草稿',
+              draft: approvalLabels[item.approval?.status ?? 'draft'],
               released: '已下达',
               in_progress: '生产中',
               completed: '已完工',
@@ -194,8 +185,10 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
+          <AppButton type="button" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'WorkOrder', document_id: item.id, intent: 'execute' })">单据审批</AppButton>
           <AppButton
-            v-if="item.status === 'draft' && can('work_order.release')"
+            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('work_order.release')"
             type="button"
             :disabled="busy"
             @click="releaseWorkOrder(item.id)"
@@ -234,7 +227,7 @@ const filteredRecords = computed(() =>
           </AppButton>
           <AppButton
             v-if="
-              (item.status === 'draft' || item.status === 'released') && !item.rework_disposition_id && can('work_order.cancel')
+              (item.status === 'draft' || item.status === 'released') && !['submitted', 'approved'].includes(item.approval?.status ?? '') && !item.rework_disposition_id && can('work_order.cancel')
             "
             type="button"
             :disabled="busy"

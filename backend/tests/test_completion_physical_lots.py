@@ -39,16 +39,20 @@ def test_completion_lots_follow_accepted_quantity_and_original_reversal(monkeypa
         assert client.post(f'{base}/boms/{bom}/activate', headers=auth).status_code == 200
         order = client.post(f'{base}/work-orders', headers=auth, json={
             'bom_id': bom, 'warehouse_id': 1, 'target_quantity': '2'}).json()
+        approve_document(client, auth, 'WorkOrder', order['id'])
         assert client.post(f'{base}/work-orders/{order["id"]}/release', headers=auth).status_code == 200
         issue = client.post(f'{base}/material-issues', headers=auth, json={
             'work_order_id': order['id'], 'warehouse_id': 1,
             'lines': [{'work_order_line_id': order['lines'][0]['id'], 'quantity': '4'}]}).json()['id']
+        approve_document(client, auth, 'MaterialIssue', issue)
         assert client.post(f'{base}/material-issues/{issue}/post', headers=auth).status_code == 200
 
         first = client.post(f'{base}/production-completions', headers=auth, json={
             'work_order_id': order['id'], 'reported_quantity': '1'}).json()['id']
         assert client.post(f'{base}/production-completions/{first}/inspect', headers=auth, json={
             'accepted_quantity': '1', 'qc_note': '合格'}).status_code == 200
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'ProductionCompletion', first)
         post_url = f'{base}/production-completions/{first}/post'
         for invalid in [
             {'lots': []},
@@ -75,6 +79,8 @@ def test_completion_lots_follow_accepted_quantity_and_original_reversal(monkeypa
             'work_order_id': order['id'], 'reported_quantity': '1'}).json()['id']
         assert client.post(f'{base}/production-completions/{second}/inspect', headers=auth, json={
             'accepted_quantity': '0', 'qc_note': '整批不合格'}).status_code == 200
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'ProductionCompletion', second)
         second_url = f'{base}/production-completions/{second}/post'
         assert client.post(second_url, headers=auth, json={
             'lots': [{'quantity': '1'}]}).status_code == 422
@@ -88,6 +94,8 @@ def test_completion_lots_follow_accepted_quantity_and_original_reversal(monkeypa
                 source_type='lot_test_outbound', source_id=1, source_line_id=1,
                 created_by=1), [LotPart(lots[0]['id'], Decimal('-0.125'))])
             spent_id = spent.id
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'ProductionCompletion', first, intent='reverse', reason='误报')
         reverse_url = f'{base}/production-completions/{first}/reverse'
         assert client.post(reverse_url, headers=auth, json={'reason': '误报'}).status_code == 409
         assert client.get(f'{base}/production-completions', headers=auth).json()[1]['reversal_id'] is None

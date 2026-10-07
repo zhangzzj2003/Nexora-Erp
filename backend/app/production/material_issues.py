@@ -1,5 +1,7 @@
 """生产领料单与库存流水；确认时核对工单剩余需料和源仓库存。"""
 
+from app.core import document_approval as approval
+from app.core.approval_documents import material_issue_snapshot
 from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func
 from sqlalchemy.orm import Session
@@ -165,7 +167,7 @@ def material_issue_data(db: Session, issue_id: int) -> dict:
                 "physical_lots": lots_by_line.get(line['id'], []),
             }
         )
-    return {**dict(row), "status": "reversed" if reversal else row["status"],
+    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'MaterialIssue', issue_id)), 'reversal_approval': approval.case_data(approval.find_case(db, 'MaterialIssue', issue_id, 'reverse')), "status": "reversed" if reversal else row["status"],
             "reversal_id": reversal.id if reversal else None,
             "reversal_reason": reversal.reason if reversal else None,
             "reversed_by": reversal.created_by if reversal else None,
@@ -349,6 +351,8 @@ def post_material_issue(issue_id: int, payload: MaterialIssuePostInput | None = 
                 line["quantity"]
             ):
                 raise HTTPException(409, f"组件 #{order_line['component_material_id']} 在源仓库的库存不足")
+        # 独立批准不替代原数量/质检校验，执行记录与业务流水必须共同提交或回滚。
+        approved = approval.require_approved(db, 'MaterialIssue', issue_id, material_issue_snapshot(db, issue_id), user['id'])
         for line, order_line in zip(lines, checked):
             movement = StockMovement(
                     warehouse_id=issue["warehouse_id"],
@@ -378,12 +382,16 @@ def post_material_issue(issue_id: int, payload: MaterialIssuePostInput | None = 
             .where(WorkOrder.id == issue["work_order_id"], WorkOrder.status == "released")
             .values(status="in_progress")
         )
+        approval.mark_executed(db, approved, user['id'])
         return material_issue_data(db, issue_id)
 
 
 @router.post("/material-issues/{issue_id}/cancel")
 def cancel_material_issue(issue_id: int, user: dict = Depends(require("material_issue.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        pending = approval.find_case(db, 'MaterialIssue', issue_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批再取消单据')
         row = (
             db.execute(
                 select(MaterialIssue.status).select_from(MaterialIssue).where((MaterialIssue.id == issue_id))
@@ -449,6 +457,10 @@ def reverse_material_issue(issue_id: int, payload: MaterialIssueReversalInput,
             raise HTTPException(409, '原领料库存流水不完整，无法安全冲销')
         for movement in originals:
             ensure_movement_unlocked(db, movement.id)
+        # 冲销另行审批固定原因，不复用本单原批准。
+        approved = approval.require_approved(db, 'MaterialIssue', issue_id,
+            {'document': material_issue_snapshot(db, issue_id), 'reversal_reason': payload.reason.strip()},
+            user['id'], intent='reverse', permission='material_issue.reverse')
         reversal = add_model(db, MaterialIssueReversal(
             material_issue_id=issue_id, reason=payload.reason, created_by=user['id']))
         for line in lines:
@@ -485,4 +497,5 @@ def reverse_material_issue(issue_id: int, payload: MaterialIssueReversalInput,
         if not any(issued_quantity(db, line.id) > 0 for line in db.scalars(
                 select(WorkOrderLine).where(WorkOrderLine.work_order_id == order.id))):
             order.status = 'released'
+        approval.mark_executed(db, approved, user['id'])
         return material_issue_data(db, issue_id)

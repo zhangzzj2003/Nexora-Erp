@@ -1,5 +1,7 @@
 """生产报工经质检确认后，将合格成品入目标仓库。"""
 
+from app.core import document_approval as approval
+from app.core.approval_documents import completion_snapshot
 from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
@@ -158,7 +160,7 @@ def completion_data(db: Session, completion_id: int) -> dict:
     )
     if not row:
         raise HTTPException(404, "生产完工单不存在")
-    result = dict(row)
+    result = {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'ProductionCompletion', completion_id)), 'reversal_approval': approval.case_data(approval.find_case(db, 'ProductionCompletion', completion_id, 'reverse'))}
     if result["reversal_id"] is not None:
         result["status"] = "reversed"
     result['physical_lots'] = [{
@@ -252,6 +254,8 @@ def inspect_completion(
         if payload.accepted_quantity > reported:
             raise HTTPException(422, "合格数量不能超过报工数量")
         rejected = reported - payload.accepted_quantity
+        # 质检人员参与编制本单依据，不能在之后独立批准自己填写的结果。
+        approval.record_author(db, 'ProductionCompletion', completion_id, user['id'])
         db.execute(
             update(ProductionCompletion)
             .where((ProductionCompletion.id == completion_id))
@@ -351,6 +355,8 @@ def post_completion(completion_id: int, payload: CompletionPostInput | None = No
         if parts is not None and (accepted == 0 or not parts or
                                   sum((part.quantity for part in parts), Decimal(0)) != accepted):
             raise HTTPException(422, '完工实物批次数量之和须等于合格入库数量')
+        # 独立批准不替代原数量/质检校验，执行记录与业务流水必须共同提交或回滚。
+        approved = approval.require_approved(db, 'ProductionCompletion', completion_id, completion_snapshot(db, completion_id), user['id'])
         if accepted > 0:
             movement = StockMovement(
                 warehouse_id=order['warehouse_id'], material_id=order['product_material_id'],
@@ -380,6 +386,7 @@ def post_completion(completion_id: int, payload: CompletionPostInput | None = No
                 .where((WorkOrder.id == order["id"]))
                 .values(status="completed", completed_by=user["id"], completed_at=func.current_timestamp())
             )
+        approval.mark_executed(db, approved, user['id'])
         return completion_data(db, completion_id)
 
 
@@ -388,6 +395,9 @@ def cancel_completion(
     completion_id: int, user: dict = Depends(require("production_completion.cancel"))
 ) -> dict:
     with orm_session(write=True) as db:
+        pending = approval.find_case(db, 'ProductionCompletion', completion_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批再取消单据')
         row = (
             db.execute(
                 select(ProductionCompletion.status)
@@ -465,6 +475,10 @@ def reverse_completion(
         accepted = Decimal(row["accepted_quantity"])
         if accepted > 0 and balance(db, row["warehouse_id"], row["product_material_id"]) < accepted:
             raise HTTPException(409, "目标仓库合格成品库存不足，无法冲销；请先处理后续出库或调拨")
+        # 冲销另行审批固定原因，不复用本单原批准。
+        approved = approval.require_approved(db, 'ProductionCompletion', completion_id,
+            {'document': completion_snapshot(db, completion_id), 'reversal_reason': payload.reason.strip()},
+            user['id'], intent='reverse', permission='production_completion.reverse')
         cursor = add_model(
             db,
             ProductionCompletionReversal(
@@ -496,4 +510,5 @@ def reverse_completion(
                 .where((WorkOrder.id == row["work_order_id"]))
                 .values(status="in_progress", completed_by=None, completed_at=None)
             )
+        approval.mark_executed(db, approved, user['id'])
         return completion_data(db, completion_id)

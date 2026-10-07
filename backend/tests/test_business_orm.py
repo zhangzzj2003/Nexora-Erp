@@ -72,7 +72,7 @@ def receipt(erp, quantity="10.000"):
 
 
 def completion(erp):
-    _, request, _, _, materials, _, _ = erp
+    client, request, _, _, materials, _, _ = erp
     bom = request(
         "POST",
         "boms",
@@ -86,6 +86,7 @@ def completion(erp):
     order = request(
         "POST", "work-orders", {"bom_id": bom["id"], "warehouse_id": 1, "target_quantity": "2.000"}, 201
     )
+    approve_document(client, dict(client.headers), 'WorkOrder', order['id'])
     request("POST", f'work-orders/{order["id"]}/release')
     issue = request(
         "POST",
@@ -97,6 +98,7 @@ def completion(erp):
         },
         201,
     )
+    approve_document(client, dict(client.headers), 'MaterialIssue', issue['id'])
     request("POST", f'material-issues/{issue["id"]}/post')
     row = request(
         "POST", "production-completions", {"work_order_id": order["id"], "reported_quantity": "2.000"}, 201
@@ -219,7 +221,9 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
         approve_document(client, dict(client.headers), 'Shipment', source['id'])
         path = f'shipments/{source["id"]}/post'
     else:
+        # 独立审批完成后，再验证原库存约束或失败回滚。
         source = completion(erp)
+        approve_document(client, dict(client.headers), 'ProductionCompletion', source['id'])
         if case.endswith("reverse"):
             request("POST", f'production-completions/{source["id"]}/post')
         path = f'production-completions/{source["id"]}/' + ("reverse" if case.endswith("reverse") else "post")
@@ -230,6 +234,9 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
         approve_document(client, dict(client.headers), 'Transfer', source['id'], intent='reverse', reason='更正原单')
     if case == 'receipt_reverse':
         approve_document(client, dict(client.headers), 'Receipt', source['id'], intent='reverse', reason='更正原单')
+    # 独立审批完成后，再验证原库存约束或失败回滚。
+    if case == 'completion_reverse':
+        approve_document(client, dict(client.headers), 'ProductionCompletion', source['id'], intent='reverse', reason='更正原单')
     before = snapshots(request)
     before_flush, after_flush = fail_after_model_flush(StockMovement)
     event.listen(Session, "before_flush", before_flush)

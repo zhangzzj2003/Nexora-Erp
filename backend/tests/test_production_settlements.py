@@ -50,9 +50,11 @@ def erp(monkeypatch, tmp_path):
             request('POST', f'boms/{bom["id"]}/activate')
             order = request('POST', 'work-orders', {'bom_id': bom['id'], 'warehouse_id': 1,
                 'target_quantity': quantity}, 201)
+            approve_document(client, headers, 'WorkOrder', order['id'])
             request('POST', f'work-orders/{order["id"]}/release')
             issue = request('POST', 'material-issues', {'work_order_id': order['id'], 'warehouse_id': 1,
                 'lines': [{'work_order_line_id': order['lines'][0]['id'], 'quantity': quantity}]}, 201)
+            approve_document(client, headers, 'MaterialIssue', issue['id'])
             request('POST', f'material-issues/{issue["id"]}/post')
             return order, issue
 
@@ -61,6 +63,7 @@ def erp(monkeypatch, tmp_path):
                 'work_order_id': order['id'], 'reported_quantity': reported}, 201)
             request('POST', f'production-completions/{row["id"]}/inspect', {
                 'accepted_quantity': accepted, 'qc_note': '检验记录'})
+            approve_document(client, headers, 'ProductionCompletion', row['id'])
             request('POST', f'production-completions/{row["id"]}/post')
             return row['id']
 
@@ -80,10 +83,12 @@ def test_inventory_costs_returns_allocations_and_sales_cost(erp):
         'unit_cost': '99', 'reference': 'OVERRIDE'}, 409)
     returned = api('POST', 'material-returns', {'material_issue_id': issue['id'], 'reason': '退回多领',
         'lines': [{'material_issue_line_id': issue['lines'][0]['id'], 'quantity': '1'}]}, 201)
+    approve_document(erp[0], erp[1], 'MaterialReturn', returned['id'])
     api('POST', f'material-returns/{returned["id"]}/post')
     assert api('GET', 'production-costs')['orders'][0]['total_amount'] == '5.11'
     second_issue = api('POST', 'material-issues', {'work_order_id': order['id'], 'warehouse_id': 1,
         'lines': [{'work_order_line_id': order['lines'][0]['id'], 'quantity': '1'}]}, 201)
+    approve_document(erp[0], erp[1], 'MaterialIssue', second_issue['id'])
     api('POST', f'material-issues/{second_issue["id"]}/post')
     for kind, amount in (('labor', '0.01'), ('overhead', '0.02')):
         api('POST', 'production-costs/charges', {'work_order_id': order['id'], 'kind': kind,
@@ -175,6 +180,8 @@ def test_manual_fallback_and_settlement_preconditions(erp):
     api('POST', 'inventory/valuation/inputs', {'movement_id': settled['allocations'][0]['movement_id'],
         'unit_cost': '99', 'reference': 'OVERRIDE', 'reason': '修改'}, 409)
     api('POST', f'production-costs/settlements/{settled["id"]}/reverse', {'reason': '完工重报'})
+    # 独立审批完成后，再验证原库存约束或失败回滚。
+    approve_document(erp[0], erp[1], 'ProductionCompletion', completion_id, intent='reverse', reason='完工重报')
     api('POST', f'production-completions/{completion_id}/reverse', {'reason': '完工重报'})
     assert api('GET', 'production-costs/settlements')[0]['allocations'][0]['amount'] == '1.50'
 

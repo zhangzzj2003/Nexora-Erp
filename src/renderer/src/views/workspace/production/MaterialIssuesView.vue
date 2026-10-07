@@ -11,6 +11,7 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { documentRows } from '../../../utils/document-rows'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
 import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
@@ -56,10 +57,9 @@ const lotOptions = ref<MaterialIssueLotOptions | null>(null)
 const lotDrafts = ref<MaterialIssueLotLineInput[]>([])
 const lotLoading = ref(false)
 const lotLoadError = ref('')
-const reversalReasons = ref<Record<number, string>>({})
 let loadTicket = 0
 const activeIssue = computed(() => materialIssues.value.find(item =>
-  item.id === activeIssueId.value && item.status === 'draft') ?? null)
+  item.id === activeIssueId.value && item.status === 'draft' && item.approval?.status === 'approved') ?? null)
 
 function closeLotPost(): void {
   loadTicket++
@@ -134,13 +134,6 @@ async function confirmLotPost(): Promise<void> {
   if (!materialIssues.value.some(item => item.id === issue.id && item.status === 'draft')) closeLotPost()
 }
 
-async function submitReverse(issue: MaterialIssue): Promise<void> {
-  const reason = reversalReasons.value[issue.id]?.trim() ?? ''
-  if (!reason || busy.value || connectionLost.value || issue.status !== 'posted') return
-  await reverseMaterialIssue(issue.id, reason)
-  if (materialIssues.value.some(item => item.id === issue.id && item.status === 'reversed'))
-    delete reversalReasons.value[issue.id]
-}
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
@@ -167,10 +160,21 @@ const materialIssueFormColumns = [
   { key: 'quantity', title: '本次领料数量', width: '160' },
   { key: 'actions', title: '操作', width: '100' },
 ]
+// 执行时重读服务端批准内容，禁止临时原因替换固定冲销依据。
+async function reverseApproved(identifier: number): Promise<void> {
+  if (!await store.openDocumentApproval({ document_type: 'MaterialIssue', document_id: identifier, intent: 'reverse' })) return
+  const record = store.documentApprovalRecord
+  if (record?.status !== 'approved' || !record.reversal_reason) return
+  store.closeDocumentApproval()
+  await reverseMaterialIssue(identifier, record.reversal_reason)
+}
+// 审批状态独立于下达、质检和库存执行状态，避免上游批准被误认为本单批准。
+const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '已批准，待确认', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
 </script>
 
 <template>
   <section class="stack">
+    <DocumentApprovalDialog />
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
         <WorkspaceDocumentDialog
           v-if="can('material_issue.create')"
@@ -306,7 +310,7 @@ const materialIssueFormColumns = [
       </template>
       <template #cell-status="{ row: item }">
         <span class="pill" :class="item.status">
-          {{ { draft: '草稿', posted: '已确认', cancelled: '已取消', reversed: '已冲销' }[item.status] }}
+          {{ { draft: approvalLabels[item.approval?.status ?? 'draft'], posted: '已确认', cancelled: '已取消', reversed: '已冲销' }[item.status] }}
         </span>
         <small v-if="item.reversal_reason" class="muted">
           {{ item.reversed_at ? localTime(item.reversed_at) : '' }} · 冲销原因：{{ item.reversal_reason }}
@@ -315,29 +319,37 @@ const materialIssueFormColumns = [
       <template #cell-details="{ row: item }">
         <div class="workspace-record-lines">
           <span v-for="line in item.lines" :key="line.id">
-            {{ line.material_name }} · 已领 {{ line.quantity }} · 已退
-            {{ line.returned_quantity }} · 可退 {{ line.returnable_quantity }} {{ line.unit }}
+            <!-- 草稿只描述申请数量；实际退料与可退量仅属于已确认领料。 -->
+            {{ line.material_name }} · 领料数量 {{ line.quantity }} {{ line.unit }}
+            <template v-if="['posted', 'reversed'].includes(item.status)">
+              · 已退 {{ line.returned_quantity }} · 可退 {{ line.returnable_quantity }} {{ line.unit }}
+            </template>
             <small v-if="['posted', 'reversed'].includes(item.status) && line.physical_lots.length" class="issue-lot-proof">
               实物批次：{{ line.physical_lots.map(lot => `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`).join('、') }}
             </small>
-            <small v-else-if="['posted', 'reversed'].includes(item.status)" class="issue-lot-proof">原确认未指定实物批次，查看批次核对页确认差额。</small>
+            <small v-else-if="['posted', 'reversed'].includes(item.status)" class="issue-lot-proof">普通确认未指定实物批次，查看批次核对页确认差额。</small>
           </span>
         </div>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
+          <AppButton type="button" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'MaterialIssue', document_id: item.id, intent: 'execute' })">单据审批</AppButton>
+          <!-- 冲销另行送审；完成后保留查询入口而不允许再次执行。 -->
+          <AppButton v-if="item.status === 'reversed'" type="button" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'MaterialIssue', document_id: item.id, intent: 'reverse' })">冲销审批记录</AppButton>
+          <template v-if="item.status === 'posted' && can('material_issue.reverse')">
+            <AppButton type="button" size="small" :disabled="busy || connectionLost"
+              @click="store.openDocumentApproval({ document_type: 'MaterialIssue', document_id: item.id, intent: 'reverse' })">冲销审批</AppButton>
+            <AppButton v-if="item.reversal_approval?.status === 'approved'" type="button" size="small" :disabled="busy || connectionLost"
+              @click="reverseApproved(item.id)">执行已批准冲销</AppButton>
+          </template>
+          <template v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('material_issue.post')">
+            <AppButton type="button" variant="primary" size="small" :disabled="busy || connectionLost" @click="postMaterialIssue(item.id)">确认领料</AppButton>
+            <AppButton type="button" size="small" :disabled="busy || connectionLost" @click="startLotPost(item)">指定实物批次（可选）</AppButton>
+          </template>
           <AppButton
-            v-if="item.status === 'draft' && can('material_issue.post')"
-            type="button"
-            :disabled="busy"
-            @click="startLotPost(item)"
-            variant="primary"
-            size="small"
-          >
-            指定批次并确认
-          </AppButton>
-          <AppButton
-            v-if="item.status === 'draft' && can('material_issue.cancel')"
+            v-if="item.status === 'draft' && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('material_issue.cancel')"
             type="button"
             :disabled="busy"
             @click="cancelMaterialIssue(item.id)"
@@ -360,14 +372,7 @@ const materialIssueFormColumns = [
           >
             创建退料单
           </AppButton>
-          <template v-if="item.status === 'posted' && can('material_issue.reverse')">
-            <label>冲销原因
-              <AppInput v-model.trim="reversalReasons[item.id]" maxlength="200" placeholder="填写错误确认依据" />
-            </label>
-            <AppButton type="button" variant="secondary" size="small"
-              :disabled="busy || connectionLost || !reversalReasons[item.id]?.trim()"
-              @click="submitReverse(item)">冲销已确认领料</AppButton>
-          </template>
+
         </div>
       </template>
       <template #empty>

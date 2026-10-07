@@ -44,6 +44,7 @@ def test_production_cost_collection_and_reversal(monkeypatch, tmp_path):
         assert client.post(f"{base}/production-costs/charges", headers=finance, json={
             "work_order_id": order_id, "kind": "labor", "amount": "1",
             "reference": "LAB-DRAFT"}).status_code == 409
+        approve_document(client, admin, 'WorkOrder', order_id)
         client.post(f"{base}/work-orders/{order_id}/release", headers=planner)
         issue = client.post(f"{base}/material-issues", headers=planner, json={
             "work_order_id": order_id, "warehouse_id": 1,
@@ -52,6 +53,7 @@ def test_production_cost_collection_and_reversal(monkeypatch, tmp_path):
         valuation_url = f"{base}/production-costs/material-valuations"
         payload = {"material_issue_line_id": issue_line_id, "unit_cost": "2.5000", "reference": "INVOICE-1"}
         assert client.post(valuation_url, headers=finance, json=payload).status_code == 409
+        approve_document(client, admin, 'MaterialIssue', issue['id'])
         client.post(f"{base}/material-issues/{issue['id']}/post", headers=warehouse)
 
         assert client.get(f"{base}/production-costs", headers=warehouse).status_code == 403
@@ -91,6 +93,7 @@ def test_production_cost_collection_and_reversal(monkeypatch, tmp_path):
         returned = client.post(f"{base}/material-returns", headers=planner, json={
             "material_issue_id": issue["id"], "reason": "多领退回",
             "lines": [{"material_issue_line_id": issue_line_id, "quantity": "0.5"}]}).json()["id"]
+        approve_document(client, admin, 'MaterialReturn', returned)
         assert client.post(f"{base}/material-returns/{returned}/post", headers=warehouse).status_code == 200
         report = client.get(f"{base}/production-costs", headers=finance).json()
         assert report["orders"][0]["known_material_amount"] == "3.75"

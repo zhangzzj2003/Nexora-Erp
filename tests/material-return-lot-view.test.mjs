@@ -21,10 +21,12 @@ test('生产退料显示回仓批次证据与旧单据差额', async t => {
     resolveId(id, importer) {
       if (importer?.includes('/views/workspace/production/MaterialReturnsView')
           && id.endsWith('/store/app-store')) return '\0return-view-store'
+      if (id.endsWith('/DocumentApprovalDialog.vue')) return '\0approval-dialog-stub'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0return-view-table'
       if (id.endsWith('/WorkspaceSelect.vue')) return '\0return-view-select'
     }, load(id) {
       if (id === '\0return-view-store') return storeModule
+      if (id === '\0approval-dialog-stub') return `export default {render:()=>null}`
       if (id === '\0return-view-table') return `import {defineComponent,h} from 'vue';export default defineComponent({props:{data:Array},setup(props,{slots}){return ()=>h('section',[
         ...(props.data??[]).flatMap(row=>Object.entries(slots).filter(([key])=>key.startsWith('cell-')).map(([,slot])=>slot?.({row})))])}})`
       if (id === '\0return-view-select') return `import {defineComponent,h} from 'vue';export default defineComponent({setup(){return ()=>h('span')}})`
@@ -43,16 +45,16 @@ test('生产退料显示回仓批次证据与旧单据差额', async t => {
         source_kind: 'material_return'}]}]}
   store.materialReturns = [record, {...record, id: 3, status: 'reversed', reversal_reason: '退料录错',
     reversed_at: '2026-10-03', lines: [{...line, physical_lots: []}]},
-    {...record, id: 4, status: 'draft', lines: [{...line, physical_lots: []}]}]
+    {...record, id: 4, status: 'draft', approval: {status: 'approved'}, lines: [{...line, physical_lots: []}]}]
   const {default: Component} = await server.ssrLoadModule(
     '/src/renderer/src/views/workspace/production/MaterialReturnsView.vue')
   const html = await renderToString(createSSRApp({render: () => h(Component)}).use(pinia))
   assert.match(html, /MR2-L7-P1/)
   assert.match(html, /退料新批次/)
-  assert.match(html, /旧确认未指定实物批次/)
-  assert.match(html, /核对批次并确认退料/)
-  assert.match(html, /冲销已确认退料/)
+  assert.match(html, /普通确认未指定实物批次/)
+  assert.match(html, /指定实物批次（可选）/)
+  assert.match(html, /冲销审批/)
   assert.match(html, /退料录错/)
   assert.match(html, /已冲销/)
-  assert.equal((html.match(/旧确认未指定实物批次/g) ?? []).length, 1)
+  assert.equal((html.match(/普通确认未指定实物批次/g) ?? []).length, 1)
 })

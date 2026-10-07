@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import select
 
 from app.access.security import require
+from app.core import document_approval as approval
 from app.catalog.material_rules import material_choice_data
 from app.core.models import (Material, MaterialIssue, MaterialReturn, ProductionCostEntry, ProductionCostReversal,
     ProductionCompletion, ProductionCompletionReversal, QualityDisposition, Warehouse, WorkOrder, WorkOrderLine)
@@ -204,6 +205,10 @@ def act(db, record, data, user, action):
         ensure_date_unlocked(db, record.posted_at)
         if record.rework_order_id is not None:
             order = db.get(WorkOrder, record.rework_order_id)
+            # 上游更正不能静默取消正在审批的派生工单，否则会遗留无法撤回的批准记录。
+            pending = approval.find_case(db, 'WorkOrder', order.id)
+            if pending and pending.status in ('submitted', 'approved'):
+                raise HTTPException(409, '请先撤回返工工单审批再更正处置来源')
             ensure_unsettled(db, order.id)
             if db.scalar(select(ProductionCompletion.id).where(ProductionCompletion.work_order_id == order.id,
                 ProductionCompletion.status != 'cancelled', ~select(ProductionCompletionReversal.id).where(

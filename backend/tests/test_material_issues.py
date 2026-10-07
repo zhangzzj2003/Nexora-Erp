@@ -52,6 +52,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         assert client.get(f"{base}/material-issues", headers=viewer).status_code == 403
         assert client.post(f"{base}/material-issues", headers=viewer, json=payload).status_code == 403
         assert client.post(f"{base}/material-issues", headers=planner, json=payload).status_code == 409
+        approve_document(client, admin, 'WorkOrder', order_id)
         client.post(f"{base}/work-orders/{order_id}/release", headers=planner)
         for invalid in ("0", "0.0001", "NaN"):
             assert client.post(f"{base}/material-issues", headers=planner, json={
@@ -69,6 +70,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         issue_id = draft.json()["id"]
         assert client.get(f"{base}/work-orders", headers=planner).json()[0]["lines"][0]["remaining_quantity"] == "2.000"
         assert client.post(f"{base}/material-issues/{issue_id}/post", headers=planner).status_code == 403
+        approve_document(client, admin, 'MaterialIssue', issue_id)
         assert client.post(f"{base}/material-issues/{issue_id}/post", headers=warehouse).status_code == 200
         assert client.post(f"{base}/material-issues/{issue_id}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/material-issues/{issue_id}/cancel", headers=warehouse).status_code == 409
@@ -107,6 +109,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         remaining = {**payload, "lines": [{"work_order_line_id": line_ids[0], "quantity": "1"}]}
         first = client.post(f"{base}/material-issues", headers=warehouse, json=remaining).json()["id"]
         stale = client.post(f"{base}/material-issues", headers=warehouse, json=remaining).json()["id"]
+        approve_document(client, admin, 'MaterialIssue', first)
         assert client.post(f"{base}/material-issues/{first}/post", headers=warehouse).status_code == 200
         assert client.post(f"{base}/material-issues/{stale}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/material-issues/{stale}/cancel", headers=warehouse).status_code == 200

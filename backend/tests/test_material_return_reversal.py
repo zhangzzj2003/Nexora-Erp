@@ -49,10 +49,12 @@ def scenario(client, *, legacy_return=False):
     assert client.post(f'{base}/boms/{bom}/activate', headers=auth).status_code == 200
     order = client.post(f'{base}/work-orders', headers=auth, json={
         'bom_id': bom, 'warehouse_id': 1, 'target_quantity': '1'}).json()
+    approve_document(client, auth, 'WorkOrder', order['id'])
     assert client.post(f'{base}/work-orders/{order["id"]}/release', headers=auth).status_code == 200
     issue = client.post(f'{base}/material-issues', headers=auth, json={
         'work_order_id': order['id'], 'warehouse_id': 1,
         'lines': [{'work_order_line_id': order['lines'][0]['id'], 'quantity': '2'}]}).json()
+    approve_document(client, auth, 'MaterialIssue', issue['id'])
     assert client.post(f'{base}/material-issues/{issue["id"]}/post', headers=auth, json={
         'lines': [{'material_issue_line_id': issue['lines'][0]['id'],
                    'lots': [{'lot_id': lot_id, 'quantity': '2'}]}]}).status_code == 200
@@ -62,6 +64,7 @@ def scenario(client, *, legacy_return=False):
     post_body = None if legacy_return else {'lines': [{
         'return_line_id': returned['lines'][0]['id'],
         'lots': [{'lot_id': lot_id, 'quantity': '1'}]}]}
+    approve_document(client, auth, 'MaterialReturn', returned['id'])
     assert client.post(f'{base}/material-returns/{returned["id"]}/post', headers=auth,
                        json=post_body).status_code == 200
     return auth, planner, material, lot_id, order, issue, returned
@@ -87,6 +90,8 @@ def test_return_reversal_restores_net_issue_and_pairs_cost(monkeypatch, tmp_path
         before = client.get(f'{base}/movements', headers=auth).json()
         assert client.post(url, headers=planner, json={'reason': '退料录错'}).status_code == 403
         assert client.post(url, headers=auth, json={'reason': '  '}).status_code == 422
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'MaterialReturn', returned['id'], intent='reverse', reason='退料录错')
         response = client.post(url, headers=auth, json={'reason': '  退料录错  '})
         assert response.status_code == 201, response.text
         record = response.json()
@@ -126,6 +131,8 @@ def test_return_reversal_restores_net_issue_and_pairs_cost(monkeypatch, tmp_path
             assert client.post(f'{base}/inventory/physical-lots/movements/{movement["id"]}/evidence',
                 headers=auth, json={'lot_id': lot_id, 'quantity': '1',
                                     'evidence': '冲销后禁止改写原批次证据'}).status_code == 409
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'MaterialIssue', issue['id'], intent='reverse', reason='原领料也录错')
         assert client.post(f'{base}/material-issues/{issue["id"]}/reverse',
             headers=auth, json={'reason': '原领料也录错'}).status_code == 201
 
@@ -139,12 +146,15 @@ def test_return_reversal_rejects_reissue_and_consumed_lot(monkeypatch, tmp_path)
         reissue = client.post(f'{base}/material-issues', headers=auth, json={
             'work_order_id': order['id'], 'warehouse_id': 1,
             'lines': [{'work_order_line_id': order['lines'][0]['id'], 'quantity': '1'}]}).json()
+        approve_document(client, auth, 'MaterialIssue', reissue['id'])
         assert client.post(f'{base}/material-issues/{reissue["id"]}/post', headers=auth, json={
             'lines': [{'material_issue_line_id': reissue['lines'][0]['id'],
                        'lots': [{'lot_id': lot_id, 'quantity': '1'}]}]}).status_code == 200
         count = len(client.get(f'{base}/movements', headers=auth).json())
         assert client.post(url, headers=auth, json={'reason': '退料有误'}).status_code == 409
         assert len(client.get(f'{base}/movements', headers=auth).json()) == count
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'MaterialIssue', reissue['id'], intent='reverse', reason='取消补领')
         assert client.post(f'{base}/material-issues/{reissue["id"]}/reverse',
             headers=auth, json={'reason': '取消补领'}).status_code == 201
         completion = client.post(f'{base}/production-completions', headers=auth, json={
@@ -170,6 +180,8 @@ def test_return_reversal_rejects_reissue_and_consumed_lot(monkeypatch, tmp_path)
         # 总库存足够时仍必须核对原退料所归的批次。
         assert Decimal(next(row for row in client.get(f'{base}/stock?warehouse_id=1',
                             headers=auth).json() if row['id'] == material)['quantity']) == 1
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'MaterialReturn', returned['id'], intent='reverse', reason='原退料批次不足')
         assert client.post(url, headers=auth, json={'reason': '原退料批次不足'}).status_code == 409
         with orm_session() as db:
             assert db.scalar(select(MaterialReturnReversal.id).where(
@@ -187,6 +199,8 @@ def test_legacy_return_reversal_preserves_evidence_lot(monkeypatch, tmp_path):
         assert client.post(f'{base}/inventory/physical-lots/movements/{original["id"]}/evidence',
             headers=auth, json={'lot_id': lot_id, 'quantity': '1',
                                 'evidence': '现场确认历史退料归属批次'}).status_code == 201
+        # 独立审批完成后，再验证原库存约束或失败回滚。
+        approve_document(client, auth, 'MaterialReturn', returned['id'], intent='reverse', reason='旧退料登记错误')
         response = client.post(f'{base}/material-returns/{returned["id"]}/reverse',
             headers=auth, json={'reason': '旧退料登记错误'})
         assert response.status_code == 201, response.text

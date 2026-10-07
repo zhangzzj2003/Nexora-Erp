@@ -42,10 +42,12 @@ def test_material_return_partial_reissue_and_permissions(monkeypatch, tmp_path):
             "code": "PROD", "name": "成品仓"}).json()["id"]
         order = client.post(f"{base}/work-orders", headers=planner, json={
             "bom_id": bom, "warehouse_id": target_warehouse, "target_quantity": "1"}).json()
+        approve_document(client, admin, 'WorkOrder', order['id'])
         client.post(f"{base}/work-orders/{order['id']}/release", headers=planner)
         issue = client.post(f"{base}/material-issues", headers=planner, json={
             "work_order_id": order["id"], "warehouse_id": 1,
             "lines": [{"work_order_line_id": order["lines"][0]["id"], "quantity": "2"}]}).json()
+        approve_document(client, admin, 'MaterialIssue', issue['id'])
         assert client.post(f"{base}/material-issues/{issue['id']}/post", headers=warehouse).status_code == 200
         issue_line_id = issue["lines"][0]["id"]
         payload = {"material_issue_id": issue["id"], "reason": "未使用，退回原仓",
@@ -70,6 +72,7 @@ def test_material_return_partial_reissue_and_permissions(monkeypatch, tmp_path):
         stale = client.post(f"{base}/material-returns", headers=planner, json={
             **payload, "lines": [{"material_issue_line_id": issue_line_id, "quantity": "2"}]}).json()["id"]
         assert client.post(f"{base}/material-returns/{return_id}/post", headers=planner).status_code == 403
+        approve_document(client, admin, 'MaterialReturn', return_id)
         assert client.post(f"{base}/material-returns/{return_id}/post", headers=warehouse).status_code == 200
         assert client.post(f"{base}/material-returns/{return_id}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/material-returns/{return_id}/cancel", headers=warehouse).status_code == 409
@@ -97,6 +100,7 @@ def test_material_return_partial_reissue_and_permissions(monkeypatch, tmp_path):
         reissue = client.post(f"{base}/material-issues", headers=planner, json={
             "work_order_id": order["id"], "warehouse_id": 1,
             "lines": [{"work_order_line_id": order["lines"][0]["id"], "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'MaterialIssue', reissue)
         assert client.post(f"{base}/material-issues/{reissue}/post", headers=warehouse).status_code == 200
         assert client.get(f"{base}/work-orders", headers=planner).json()[0]["lines"][0]["remaining_quantity"] == "0.000"
         assert client.get(f"{base}/stock?warehouse_id=1", headers=admin).json()[1]["quantity"] == "2"

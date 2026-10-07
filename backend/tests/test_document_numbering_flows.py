@@ -17,6 +17,7 @@ def test_numbered_purchase_production_sales_sources_and_exports(erp):
     assert received['document_no'].startswith('PIN-')
     request('POST', f'receipts/{received["id"]}/post')
     produced = completion(erp)
+    approve_document(client, dict(client.headers), 'ProductionCompletion', produced['id'])
     request('POST', f'production-completions/{produced["id"]}/post')
     assert produced['document_no'].startswith('CMP-')
     assert produced['work_order_document_no'].startswith('WO-')

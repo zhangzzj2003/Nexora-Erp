@@ -1,5 +1,7 @@
 """验证工单从启用 BOM 固定需料快照、状态流转和权限边界。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -59,6 +61,7 @@ def test_work_order_snapshot_permissions_and_lifecycle(monkeypatch, tmp_path):
         assert draft.json()["lines"][0]["required_quantity"] == "0.334"
         assert draft.json()["reference"] == "WO-001"
         assert client.post(f"{base}/work-orders/{order_id}/release", headers=warehouse).status_code == 403
+        approve_document(client, admin, 'WorkOrder', order_id)
         assert client.post(f"{base}/work-orders/{order_id}/release", headers=planner).json()["status"] == "released"
         assert client.post(f"{base}/work-orders/{order_id}/release", headers=planner).status_code == 409
         assert client.post(f"{base}/work-orders/{order_id}/cancel", headers=planner).json()["status"] == "cancelled"
@@ -66,6 +69,7 @@ def test_work_order_snapshot_permissions_and_lifecycle(monkeypatch, tmp_path):
 
         # 停用旧 BOM 后，已下达工单保留原需料；未下达草稿须按新版重建。
         released = client.post(f"{base}/work-orders", headers=planner, json=payload).json()
+        approve_document(client, admin, 'WorkOrder', released['id'])
         assert client.post(f"{base}/work-orders/{released['id']}/release", headers=planner).status_code == 200
         pending = client.post(f"{base}/work-orders", headers=planner, json=payload).json()
         assert client.post(f"{base}/boms/{first_bom}/retire", headers=planner).status_code == 200

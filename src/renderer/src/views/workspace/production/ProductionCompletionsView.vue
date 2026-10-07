@@ -8,46 +8,31 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
 import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
 import { NModal } from 'naive-ui'
-import { useAppStore } from '../../../store/app-store'
+import { storeToRefs } from 'pinia'
+import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import {completionLotDate,completionLotMilli} from '../../../../../shared/completion-lot-api.ts'
 import type {CompletionLotPartInput} from '../../../../../shared/completion-lot-api'
 import type {ProductionCompletion} from '../../../../../shared/erp-api'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
-const {
-  error,
-  notice,
-  busy,
-  connectionLost,
-  workOrders,
-  productionCompletions,
-  completionForm,
-  inspectionDrafts,
-  completionReversalReasons,
-  can,
-  selectedCompletionOrder,
-  localTime,
-  selectCompletionOrder,
-  createProductionCompletion,
-  inspectProductionCompletion,
-  postProductionCompletion,
-  cancelProductionCompletion,
-  reverseProductionCompletion
-} = useAppStore()
+const store = usePiniaAppStore()
+const { error, notice, busy, connectionLost, workOrders, productionCompletions, completionForm, inspectionDrafts, completionReversalReasons, selectedCompletionOrder } = storeToRefs(store)
+const { can, localTime, selectCompletionOrder, createProductionCompletion, inspectProductionCompletion, postProductionCompletion, cancelProductionCompletion, reverseProductionCompletion } = store
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
 const activeCompletionId = ref(0)
 const lotDrafts = ref<CompletionLotPartInput[]>([])
 const activeCompletion = computed(() => productionCompletions.value.find(item =>
-  item.id === activeCompletionId.value && item.status === 'inspected') ?? null)
+  item.id === activeCompletionId.value && item.status === 'inspected' && item.approval?.status === 'approved') ?? null)
 function startLotPost(item: ProductionCompletion): void {
   if (Number(item.accepted_quantity) === 0) {
     void postProductionCompletion(item.id)
@@ -96,10 +81,22 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 执行时重读服务端批准内容，禁止临时原因替换固定冲销依据。
+async function reverseApproved(identifier: number): Promise<void> {
+  if (!await store.openDocumentApproval({ document_type: 'ProductionCompletion', document_id: identifier, intent: 'reverse' })) return
+  const record = store.documentApprovalRecord
+  if (record?.status !== 'approved' || !record.reversal_reason) return
+  completionReversalReasons.value[identifier] = record.reversal_reason
+  store.closeDocumentApproval()
+  await reverseProductionCompletion(identifier)
+}
+// 审批状态独立于下达、质检和库存执行状态，避免上游批准被误认为本单批准。
+const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '已批准，待确认', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
 </script>
 
 <template>
   <section class="stack">
+    <DocumentApprovalDialog />
     <NModal title="新建完工报工单"
       v-if="can('production_completion.create')"
       v-model:show="createOpen"
@@ -209,7 +206,7 @@ const filteredRecords = computed(() =>
           {{
             {
               draft: '待质检',
-              inspected: '已质检',
+              inspected: approvalLabels[item.approval?.status ?? 'draft'],
               posted: '已入库',
               reversed: '已冲销',
               cancelled: '已取消'
@@ -232,7 +229,7 @@ const filteredRecords = computed(() =>
             {{ item.status === 'reversed' ? '原实物批次' : '实物批次' }}：{{ item.physical_lots.map(lot => `${lot.code}（${lot.quantity}）`).join('、') }}
           </span>
           <span v-else-if="item.status === 'posted' && Number(item.accepted_quantity) > 0">
-            未登记实物批次，数量在批次核对页显示为差额。
+            普通确认未指定实物批次，不据此推断采购来源。
           </span>
           <span v-if="item.reversal_id">
             冲销 #{{ item.reversal_id }} · {{ item.reversal_reason }} ·
@@ -244,19 +241,24 @@ const filteredRecords = computed(() =>
       <template #cell-actions="{ row: item }">
         <RouterLink v-if="item.status === 'posted' && !item.reversal_id && Number(item.rejected_quantity) > 0 && can('quality.view')" to="/workspace/production-quality">处理不合格品</RouterLink>
         <div class="form-actions">
-          <AppButton
-            v-if="item.status === 'inspected' && can('production_completion.post')"
-            type="button"
-            :disabled="busy"
-            @click="startLotPost(item)"
-            variant="primary"
-            size="small"
-          >
-            {{ Number(item.accepted_quantity) > 0 ? '登记批次并确认' : '确认整批不合格' }}
-          </AppButton>
+          <AppButton type="button" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'ProductionCompletion', document_id: item.id, intent: 'execute' })">单据审批</AppButton>
+          <!-- 冲销另行送审；完成后保留查询入口而不允许再次执行。 -->
+          <AppButton v-if="item.status === 'reversed'" type="button" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'ProductionCompletion', document_id: item.id, intent: 'reverse' })">冲销审批记录</AppButton>
+          <template v-if="item.status === 'posted' && can('production_completion.reverse')">
+            <AppButton type="button" size="small" :disabled="busy || connectionLost"
+              @click="store.openDocumentApproval({ document_type: 'ProductionCompletion', document_id: item.id, intent: 'reverse' })">冲销审批</AppButton>
+            <AppButton v-if="item.reversal_approval?.status === 'approved'" type="button" size="small" :disabled="busy || connectionLost"
+              @click="reverseApproved(item.id)">执行已批准冲销</AppButton>
+          </template>
+          <template v-if="item.status === 'inspected' && item.approval?.status === 'approved' && can('production_completion.post')">
+            <AppButton type="button" variant="primary" size="small" :disabled="busy || connectionLost" @click="postProductionCompletion(item.id)">确认完工</AppButton>
+            <AppButton v-if="Number(item.accepted_quantity) > 0" type="button" size="small" :disabled="busy || connectionLost" @click="startLotPost(item)">指定实物批次（可选）</AppButton>
+          </template>
           <AppButton
             v-if="
-              (item.status === 'draft' || item.status === 'inspected') &&
+              (item.status === 'draft' || item.status === 'inspected') && !['submitted', 'approved'].includes(item.approval?.status ?? '') &&
               can('production_completion.cancel')
             "
             type="button"
@@ -296,24 +298,7 @@ const filteredRecords = computed(() =>
             >记录质检结果</AppButton
           >
         </form>
-        <form
-          v-if="item.status === 'posted' && can('production_completion.reverse')"
-          class="inline-form"
-          @submit.prevent="reverseProductionCompletion(item.id)"
-        >
-          <label>
-            冲销原因
-            <AppInput
-              v-model.trim="completionReversalReasons[item.id]"
-              required
-              maxlength="200"
-              placeholder="说明报工或质检记录错误"
-            />
-          </label>
-          <AppButton type="submit" :disabled="busy" variant="secondary" size="small"
-            >冲销已确认完工</AppButton
-          >
-        </form>
+
       </template>
       <template #empty>
         <strong>{{ recordQuery ? '没有匹配的记录' : '暂无完工与质检记录' }}</strong>

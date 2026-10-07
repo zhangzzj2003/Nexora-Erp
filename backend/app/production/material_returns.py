@@ -1,5 +1,7 @@
 """生产退料更正：沿原领料明细和仓库追加正向库存流水。"""
 
+from app.core import document_approval as approval
+from app.core.approval_documents import material_return_snapshot
 from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func
 from sqlalchemy.orm import Session
@@ -270,7 +272,7 @@ def material_return_data(db: Session, return_id: int) -> dict:
                             StockMovement.source_line_id == line['id']).order_by(
                                 PhysicalLotAllocation.id))]
         result_lines.append({**dict(line), 'physical_lots': lots})
-    return {**dict(row), 'status': 'reversed' if reversal else row['status'],
+    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'MaterialReturn', return_id)), 'reversal_approval': approval.case_data(approval.find_case(db, 'MaterialReturn', return_id, 'reverse')), 'status': 'reversed' if reversal else row['status'],
             'reversal_id': reversal.id if reversal else None,
             'reversal_reason': reversal.reason if reversal else None,
             'reversed_by': reversal.created_by if reversal else None,
@@ -419,6 +421,8 @@ def post_material_return(return_id: int, payload: MaterialReturnPostInput | None
         if lot_lines is not None and (len(lot_lines) != len(payload.lines)
                                       or set(lot_lines) != {line['id'] for line in lines}):
             raise HTTPException(422, '批次明细必须与生产退料明细逐行对应')
+        # 独立批准不替代原数量/质检校验，执行记录与业务流水必须共同提交或回滚。
+        approved = approval.require_approved(db, 'MaterialReturn', return_id, material_return_snapshot(db, return_id), user['id'])
         for line in lines:
             movement = StockMovement(
                     warehouse_id=warehouse_id,
@@ -467,12 +471,16 @@ def post_material_return(return_id: int, payload: MaterialReturnPostInput | None
             .where((MaterialReturn.id == return_id))
             .values(status="posted", posted_by=user["id"], posted_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return material_return_data(db, return_id)
 
 
 @router.post("/material-returns/{return_id}/cancel")
 def cancel_material_return(return_id: int, user: dict = Depends(require("material_return.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        pending = approval.find_case(db, 'MaterialReturn', return_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批再取消单据')
         row = (
             db.execute(
                 select(MaterialReturn.status)
@@ -572,6 +580,10 @@ def reverse_material_return(return_id: int, payload: MaterialReturnReverseInput,
         for material_id, quantity in unassigned_needed.items():
             if unassigned_stock_quantity(db, issue.warehouse_id, material_id) < quantity:
                 raise HTTPException(409, f'原退料未分配物料 #{material_id} 的批次差额不足，无法冲销')
+        # 冲销另行审批固定原因，不复用本单原批准。
+        approved = approval.require_approved(db, 'MaterialReturn', return_id,
+            {'document': material_return_snapshot(db, return_id), 'reversal_reason': payload.reason.strip()},
+            user['id'], intent='reverse', permission='material_return.reverse')
         reversal = add_model(db, MaterialReturnReversal(
             material_return_id=return_id, reason=payload.reason, created_by=user['id']))
         for line, original, parts in movement_parts:
@@ -583,4 +595,5 @@ def reverse_material_return(return_id: int, payload: MaterialReturnReverseInput,
                 post_lot_movement(db, movement, parts)
             else:
                 db.add(movement)
+        approval.mark_executed(db, approved, user['id'])
         return material_return_data(db, return_id)

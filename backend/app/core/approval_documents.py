@@ -17,6 +17,9 @@ from app.core.models import (
     SalesOrder, SalesOrderLine, Shipment, ShipmentLine, ShipmentReversal, SalesReturn, SalesReturnLine,
     SalesReturnReversal, Customer, CrmQuote, CrmChange, SalesOrderContractRevision,
     SalesOrderContractAttachment, SalesOrderContractAttachmentReversal,
+    Bom, WorkOrder, WorkOrderLine, MaterialIssue, MaterialIssueLine, MaterialIssueReversal,
+    MaterialReturn, MaterialReturnLine, MaterialReturnReversal, ProductionCompletion, ProductionCompletionReversal,
+    QualityDisposition, QualityDispositionChange, MrpPlan, MrpPlanChange, MrpConversion,
 )
 from app.core.approval_catalog import approval_type
 
@@ -229,6 +232,75 @@ def sales_return_snapshot(db: Session, identifier: int) -> dict:
                 .where(SalesReturnLine.sales_return_id == identifier).order_by(SalesReturnLine.id)).mappings()]}
 
 
+def work_order_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'WorkOrder', identifier)
+    bom = db.get(Bom, source.bom_id)
+    conversions = list(db.scalars(select(MrpConversion).where(MrpConversion.work_order_id == identifier)
+                                 .order_by(MrpConversion.id)))
+    plans = list(db.scalars(select(MrpPlan).where(MrpPlan.id.in_([row.plan_id for row in conversions]))
+                           .order_by(MrpPlan.id)))
+    dispositions = list(db.scalars(select(QualityDisposition).where(QualityDisposition.rework_order_id == identifier)
+                                  .order_by(QualityDisposition.id)))
+    # 派生草稿恢复原编制审计；审批人不因批准上游而自动获得下游批准结果。
+    authors = {row.created_by for row in [*plans, *dispositions, *conversions]}
+    authors.update(row.submitted_by for row in [*plans, *dispositions] if row.submitted_by is not None)
+    authors.update(db.scalars(select(MrpPlanChange.changed_by).where(
+        MrpPlanChange.plan_id.in_([row.id for row in plans]),
+        # 本工单的转换人来自上面的关联记录；同计划其他建议的转单不能改写本单批准正文。
+        MrpPlanChange.action.in_(('create', 'edit', 'submit')))))
+    authors.update(db.scalars(select(QualityDispositionChange.changed_by).where(
+        QualityDispositionChange.disposition_id.in_([row.id for row in dispositions]),
+        QualityDispositionChange.action.in_(('create', 'edit', 'submit', 'post')))))
+    return {'bom_id': bom.id, 'bom_version': bom.version, 'bom_base_quantity': bom.base_quantity,
+            'product_material_id': bom.product_material_id, 'warehouse_id': source.warehouse_id,
+            'target_quantity': source.target_quantity, 'reference': source.reference, 'note': source.note,
+            'source_author_ids': sorted(authors),
+            'mrp_conversion_ids': [row.id for row in conversions],
+            'rework_disposition_ids': [row.id for row in dispositions],
+            'lines': [dict(row) for row in db.execute(select(WorkOrderLine.id,
+                WorkOrderLine.component_material_id.label('material_id'),
+                WorkOrderLine.required_quantity.label('quantity'))
+                .where(WorkOrderLine.work_order_id == identifier).order_by(WorkOrderLine.id)).mappings()]}
+
+
+def material_issue_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'MaterialIssue', identifier)
+    # 剩余需料和库存是执行时动态核对值，固定正文只包含本单的工单来源、仓库和数量。
+    return {'work_order_id': source.work_order_id, 'warehouse_id': source.warehouse_id,
+            'reference': source.reference,
+            'lines': [dict(row) for row in db.execute(select(MaterialIssueLine.id,
+                MaterialIssueLine.work_order_line_id, WorkOrderLine.component_material_id.label('material_id'),
+                MaterialIssueLine.quantity).join(WorkOrderLine, WorkOrderLine.id == MaterialIssueLine.work_order_line_id)
+                .where(MaterialIssueLine.material_issue_id == identifier).order_by(MaterialIssueLine.id)).mappings()]}
+
+
+def material_return_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'MaterialReturn', identifier)
+    issue = db.get(MaterialIssue, source.material_issue_id)
+    return {'material_issue_id': issue.id, 'work_order_id': issue.work_order_id,
+            'warehouse_id': issue.warehouse_id, 'reason': source.reason,
+            'lines': [dict(row) for row in db.execute(select(MaterialReturnLine.id,
+                MaterialReturnLine.material_issue_line_id, MaterialIssueLine.work_order_line_id,
+                WorkOrderLine.component_material_id.label('material_id'), MaterialReturnLine.quantity)
+                .join(MaterialIssueLine, MaterialIssueLine.id == MaterialReturnLine.material_issue_line_id)
+                .join(WorkOrderLine, WorkOrderLine.id == MaterialIssueLine.work_order_line_id)
+                .where(MaterialReturnLine.material_return_id == identifier).order_by(MaterialReturnLine.id)).mappings()]}
+
+
+def completion_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'ProductionCompletion', identifier)
+    order = db.get(WorkOrder, source.work_order_id)
+    bom = db.get(Bom, order.bom_id)
+    # 质检是独立业务前置，质检结果固定后才可送审；质检填写人属于本单编制人员。
+    return {'work_order_id': order.id, 'warehouse_id': order.warehouse_id, 'bom_id': bom.id,
+            'bom_version': bom.version, 'reported_quantity': source.reported_quantity,
+            'accepted_quantity': source.accepted_quantity, 'rejected_quantity': source.rejected_quantity,
+            'qc_note': source.qc_note, 'reference': source.reference,
+            'source_author_ids': [source.inspected_by] if source.inspected_by is not None else [],
+            'lines': [{'id': source.id, 'material_id': bom.product_material_id,
+                       'quantity': source.reported_quantity}]}
+
+
 def native_review_evidence(db: Session, document_type: str, identifier: int) -> dict | None:
     # 首次接入前保存原流程信息，独立于新审批正文，不能冒充新模板中的批准。
     if document_type != 'StockAdjustment':
@@ -261,8 +333,13 @@ _SNAPSHOTS = {'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_or
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
-              'SalesOrder': sales_order_snapshot, 'Shipment': shipment_snapshot, 'SalesReturn': sales_return_snapshot}
-_REVERSE = {'Shipment': (ShipmentReversal, 'shipment_id', 'shipment.reverse'),
+              'SalesOrder': sales_order_snapshot, 'Shipment': shipment_snapshot, 'SalesReturn': sales_return_snapshot,
+              'WorkOrder': work_order_snapshot, 'MaterialIssue': material_issue_snapshot,
+              'MaterialReturn': material_return_snapshot, 'ProductionCompletion': completion_snapshot}
+_REVERSE = {'MaterialIssue': (MaterialIssueReversal, 'material_issue_id', 'material_issue.reverse'),
+            'MaterialReturn': (MaterialReturnReversal, 'material_return_id', 'material_return.reverse'),
+            'ProductionCompletion': (ProductionCompletionReversal, 'production_completion_id', 'production_completion.reverse'),
+            'Shipment': (ShipmentReversal, 'shipment_id', 'shipment.reverse'),
             'SalesReturn': (SalesReturnReversal, 'sales_return_id', 'sales_return.reverse'),
             'Transfer': (TransferReversal, 'transfer_id', 'transfer.reverse'),
             'Stocktake': (StocktakeReversal, 'stocktake_id', 'stocktake.reverse'),
@@ -302,7 +379,8 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         if source.status != 'posted' or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
     elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
-                               if document_type == 'StockAdjustment' else ('draft',)):
+                               if document_type == 'StockAdjustment' else
+                               ('inspected',) if document_type == 'ProductionCompletion' else ('draft',)):
         # 历史已执行记录不补造审批；只限制仍待执行的草稿。
         raise HTTPException(409, '此单据已处理，不能继续审批')
     elif document_type == 'PurchaseReturn' and db.scalar(select(DocumentApprovalCase.id).where(
@@ -346,6 +424,28 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
     if 'sales_order_id' in content:
         order = db.get(SalesOrder, content['sales_order_id'])
         summary.append({'label': '销售订单', 'value': order.document_no or f'#{order.id}'})
+    if 'work_order_id' in content:
+        order = db.get(WorkOrder, content['work_order_id'])
+        summary.append({'label': '生产工单', 'value': order.document_no or f'#{order.id}'})
+    if document_type == 'WorkOrder':
+        product = db.get(Material, content['product_material_id'])
+        summary.extend([{'label': '成品目标', 'value': f"{product.sku} · {product.name} × {content['target_quantity']} {product.unit}"},
+                        {'label': 'BOM 版本', 'value': str(content['bom_version'])},
+                        {'label': '工单说明', 'value': content['note']}])
+        for conversion_id in content['mrp_conversion_ids']:
+            conversion = db.get(MrpConversion, conversion_id)
+            plan = db.get(MrpPlan, conversion.plan_id)
+            summary.append({'label': '物料需求计划', 'value': plan.document_no or f'#{plan.id}'})
+        for identifier in content['rework_disposition_ids']:
+            row = db.get(QualityDisposition, identifier)
+            summary.append({'label': '返工来源', 'value': row.document_no or f'#{row.id}'})
+    if document_type == 'MaterialReturn':
+        issue = db.get(MaterialIssue, content['material_issue_id'])
+        summary.extend([{'label': '原领料单', 'value': issue.document_no or f'#{issue.id}'},
+                        {'label': '退料原因', 'value': content['reason']}])
+    if document_type == 'ProductionCompletion':
+        summary.extend([{'label': '质检结果', 'value': f"报工 {content['reported_quantity']}；合格 {content['accepted_quantity']}；不合格 {content['rejected_quantity']}"},
+                        {'label': '质检说明', 'value': content['qc_note'] or '—'}])
     if document_type == 'SalesReturn':
         source = db.get(Shipment, content['shipment_id'])
         summary.extend([{'label': '原出库单', 'value': source.document_no or f'#{source.id}'},

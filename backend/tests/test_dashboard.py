@@ -185,15 +185,18 @@ def test_production_released_in_progress_inspection_and_posting_counts(erp):
     api('POST',f'boms/{bom["id"]}/activate')
     order=api('POST','work-orders',{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1'},201)
     assert query(erp)['production']['draft']==1
+    approve_document(erp[0], dict(erp[0].headers), 'WorkOrder', order['id'])
     api('POST',f'work-orders/{order["id"]}/release')
     assert query(erp)['production']['released']==1
     issue=api('POST','material-issues',{'work_order_id':order['id'],'warehouse_id':1,'lines':[{'work_order_line_id':order['lines'][0]['id'],'quantity':'1'}]},201)
+    approve_document(erp[0], dict(erp[0].headers), 'MaterialIssue', issue['id'])
     api('POST',f'material-issues/{issue["id"]}/post')
     assert query(erp)['production']['released']==1
     completion=api('POST','production-completions',{'work_order_id':order['id'],'reported_quantity':'1'},201)
     assert query(erp)['production']['awaiting_inspection']==1
     api('POST',f'production-completions/{completion["id"]}/inspect',{'accepted_quantity':'1','qc_note':'核对合格'})
     assert query(erp)['production']['awaiting_post']==1
+    approve_document(erp[0], dict(erp[0].headers), 'ProductionCompletion', completion['id'])
     api('POST',f'production-completions/{completion["id"]}/post')
     result=query(erp)
     assert result['production']=={'draft':0,'released':0,'awaiting_inspection':0,'awaiting_post':0}
