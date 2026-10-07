@@ -66,7 +66,7 @@ Candidate sequencing and entry conditions are in the [expansion assessment (Chin
 
 ### Document numbering
 
-The server assigns stable business numbers to 29 core document and independent payment types. Administrators choose pinyin initials or English prefixes and a server, UTC or specified IANA time zone on first login, including after an existing database upgrade. Historical backfill and the initial policy lock commit atomically, while references, physical lots and frozen evidence remain intact. See [document numbering rules](docs/document-numbering.md). The complete lot traceability page remains planned.
+The server assigns stable business numbers to 29 core document and independent payment types. A centered three-step guide lets administrators choose pinyin initials or English prefixes, select a server, UTC or specified IANA time zone, and review the policy on first login, including after an existing database upgrade. Historical backfill and the initial policy lock commit atomically, while references, physical lots and frozen evidence remain intact. See [document numbering rules](docs/document-numbering.md). The complete lot traceability page remains planned.
 
 ## Development entry points
 

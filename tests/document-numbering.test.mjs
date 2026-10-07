@@ -93,9 +93,9 @@ test('真实设置页展示双风格示例、中英文、锁定只读和断网�
   }
   const chinese = await render()
   assert.match(chinese, /QTRK-20261007-000001/); assert.match(chinese, /OIN-20261007-000001/)
-  assert.match(chinese, /保存编号规则/); assert.match(chinese, /切换服务端/)
+  assert.match(chinese, /下一步/); assert.doesNotMatch(chinese, /保存编号规则/); assert.match(chinese, /切换服务端/)
   settings.setLocale('en-US')
-  assert.match(await render(), /Save numbering policy/)
+  assert.match(await render(), /Next/); assert.doesNotMatch(await render(), /Save numbering policy/)
   store.connectionLost = true
   assert.match(await render(), /type="submit"[^>]*disabled/)
   store.documentNumbering = { ...config, configured: true, style: 'english', locked: true, version: 1 }

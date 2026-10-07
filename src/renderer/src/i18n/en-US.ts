@@ -1,5 +1,11 @@
 // 公共界面的英文文案按中文原文索引；业务数据和服务端错误不作为翻译键处理。
 export const englishCopy: Readonly<Record<string, string>> = {
+  // 首次编号设置的步骤和确认文案，与同一套语言偏好即时联动。
+  '日期时区': 'Date timezone', '确认规则': 'Review rules', '设置进度': 'Setup progress',
+  '选择编号风格': 'Choose a numbering style', '设置编号日期时区': 'Set the numbering timezone',
+  '确认编号规则': 'Review numbering rules', '其他入库单号示例': 'Other receipt number example',
+  '上一步': 'Back', '下一步': 'Next',
+
   // 首次编号设置与规则查看共用文案，编号前缀本身不随语言转换。
   "由管理员选择实例的编号风格和业务时区。": "An administrator selects the numbering style and business time zone for this server.",
   "设置单据编号规则": "Set up document numbering",

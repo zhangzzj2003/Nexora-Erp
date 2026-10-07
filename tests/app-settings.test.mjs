@@ -179,3 +179,36 @@ test('颜色切换同步根变量，保留语言和抽屉状态，重启恢复�
   theme.setThemeColor('rose'); await nextTick()
   assert.equal(styles.get('--app-button-primary'), '#be185d')
 })
+
+test('首次编号设置真实组件显示三步进度和下一步，锁定查看仍显示完整规则', async t => {
+  const previous = globalThis.window
+  globalThis.window = { nexora: { platform: 'linux' } }
+  t.after(() => { globalThis.window = previous })
+  const { default: Numbering } = await server.ssrLoadModule('/src/renderer/src/components/workspace/DocumentNumberingSettings.vue')
+  const { usePiniaAppStore } = await server.ssrLoadModule('/src/renderer/src/store/app-store.ts')
+  const pinia = createPinia(), store = usePiniaAppStore(pinia), settings = useSettingsStore(pinia)
+  // 使用真实 Pinia 和 Naive UI 表单，确认首次页与系统查看页没有混用提交入口。
+  store.user = { id: 1, username: 'admin', roles: ['admin'], permissions: [] }
+  store.documentNumbering = { configured: false, style: null, timezone_mode: 'server', timezone: null,
+    version: 0, locked: false, configured_by: null, configured_at: null,
+    server_time: '2026-10-07T00:01:00+08:00', business_time: '2026-10-07T00:01:00+08:00',
+    business_date: '20261007', timezones: ['UTC', 'Asia/Shanghai', 'America/New_York'], backfilled_count: 0, undated_count: 0 }
+  async function render(initial) {
+    const app = createSSRApp({ render: () => h(Numbering, { initial }) }).use(pinia)
+    setupSsrStyles(app)
+    return renderToString(app)
+  }
+  const chinese = await render(true)
+  assert.match(chinese, /aria-label="设置进度"/); assert.match(chinese, /aria-current="step"/)
+  assert.match(chinese, /选择编号风格/); assert.match(chinese, /下一步/)
+  assert.doesNotMatch(chinese, /保存编号规则/); assert.match(chinese, /切换服务端/)
+  assert.match(chinese, /QTRK-20261007-000001/); assert.match(chinese, /OIN-20261007-000001/)
+  settings.setLocale('en-US')
+  const english = await render(true)
+  assert.match(english, /Choose a numbering style/); assert.match(english, /Setup progress/)
+  assert.match(english, /Next/); assert.doesNotMatch(english, /选择编号风格/)
+  store.documentNumbering = { ...store.documentNumbering, configured: true, style: 'english', locked: true, version: 1 }
+  const locked = await render(false)
+  assert.doesNotMatch(locked, /class="app-stepper"/); assert.match(locked, /2026-10-07 00:01:00\+08:00/)
+  assert.match(locked, /locked/); assert.doesNotMatch(locked, />Save numbering rules</)
+})
