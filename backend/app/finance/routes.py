@@ -227,9 +227,9 @@ def account_data(db: Session, kind: str, order_id: int,
     settled = sum((Decimal(value) for value in db.scalars(select(PaymentRecord.amount)
         .where(PaymentRecord.kind == kind, PaymentRecord.order_id == order_id, PaymentRecord.status == 'executed'))), Decimal(0))
     credit_used = sum((Decimal(value) for value in db.scalars(select(OrderSettlementTransfer.amount)
-        .where(OrderSettlementTransfer.kind == kind, OrderSettlementTransfer.from_order_id == order_id))), Decimal(0))
+        .where(OrderSettlementTransfer.kind == kind, OrderSettlementTransfer.from_order_id == order_id, OrderSettlementTransfer.status == 'executed'))), Decimal(0))
     debt_covered = sum((Decimal(value) for value in db.scalars(select(OrderSettlementTransfer.amount)
-        .where(OrderSettlementTransfer.kind == kind, OrderSettlementTransfer.to_order_id == order_id))), Decimal(0))
+        .where(OrderSettlementTransfer.kind == kind, OrderSettlementTransfer.to_order_id == order_id, OrderSettlementTransfer.status == 'executed'))), Decimal(0))
     return {"kind": kind, "order_id": order_id, **dict(row), "currency": "CNY",
             "business_amount": money(billed), "settled_amount": money(settled),
             "credit_used_amount": money(credit_used), "debt_covered_amount": money(debt_covered),
@@ -260,7 +260,8 @@ def transfer_data(db: Session, transfer_id: int) -> dict:
         raise HTTPException(404, '订单核销记录不存在')
     party = party_data(db, record.kind, record.from_order_id)
     return {**model_data(record), 'created_by_name': db.get(User, record.created_by).username,
-            'party_name': party['party_name'], 'currency': 'CNY'}
+            'party_name': party['party_name'], 'currency': 'CNY',
+            'approval': approval.case_data(approval.find_case(db, 'OrderSettlementTransfer', record.id))}
 
 
 @router.get("/finance/payment-records")

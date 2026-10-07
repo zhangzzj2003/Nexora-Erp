@@ -5,7 +5,7 @@ import sqlite3
 
 
 def migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_records') -> None:
-    if table not in ('payment_records', 'subledger_payments'):
+    if table not in ('payment_records', 'subledger_payments', 'order_settlement_transfers'):
         raise ValueError('不支持的资金迁移表')
     original = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
     if original is None:
@@ -34,7 +34,7 @@ def migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_record
     # 迁移保留旧登记时间与人员作为执行事实，不补造审批、流水或业务凭证。
     db.execute(f'UPDATE {table} SET executed_by=created_by, executed_at=created_at')
     for statement in indexes:
-        if 'payment_records_reference' in statement:
+        if any(name in statement for name in ('payment_records_reference', 'order_settlement_reference')):
             statement += " AND status <> 'cancelled'"
         db.execute(statement)
     db.execute(f"CREATE UNIQUE INDEX {table}_active_reversal ON {table}(reverses_id) WHERE status <> 'cancelled'")

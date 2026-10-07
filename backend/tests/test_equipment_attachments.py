@@ -93,7 +93,7 @@ def test_v76_upgrade_retains_existing_records(erp):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 91
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 92
         assert db.execute('SELECT name FROM equipment_assets WHERE id=?',
             (asset['id'],)).fetchone()[0] == asset['name']
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='equipment.attachment'").fetchone()[0] == 3

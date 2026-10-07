@@ -23,7 +23,7 @@ test('资金页面保护独立批准执行、草稿取消与原记录反向入�
       if(id==='\0payment-button')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`
       if(id==='\0payment-store')return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';export const calls=[];
         export const usePiniaAppStore=defineStore('payment-view',()=>{const s=createAppState();return {...s,can:p=>s.user.value?.permissions.includes(p),localTime:v=>v,
-        paymentActionLabel:row=>row.action,openDocumentApproval:async()=>{},createPaymentRecord:async()=>{},reversePaymentRecord:async()=>{},createOrderSettlement:async()=>{},reverseOrderSettlement:async()=>{},changePaymentRecordStatus:async(...input)=>{calls.push(input)}}})`
+        paymentActionLabel:row=>row.action,openDocumentApproval:async()=>{},createPaymentRecord:async()=>{},reversePaymentRecord:async()=>{},createOrderSettlement:async()=>{},reverseOrderSettlement:async()=>{},changePaymentRecordStatus:async(...input)=>{calls.push(input)},changeOrderSettlementStatus:async(...input)=>{calls.push(['offset',...input])}}})`
     }},vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false},appType:'custom'})
   t.after(()=>server.close())
   const {usePiniaAppStore,calls}=await server.ssrLoadModule('\0payment-store')
@@ -47,7 +47,23 @@ test('资金页面保护独立批准执行、草稿取消与原记录反向入�
   store.paymentRecords=[{...row,approval:{status:'approved'}}];await render()
   bindings.ask(store.paymentRecords[0],'post');bindings.commandReason.value='核对执行'
   await bindings.confirmCommand();assert.equal(calls.length,1);assert.equal(calls[0][1],'post')
+  // 同业务版本撤回并重新批准后，旧弹窗必须因审批版本变化失效。
+  store.paymentRecords=[{...row,approval:{status:'approved',version:4}}];await render()
+  bindings.ask(store.paymentRecords[0],'post');bindings.commandReason.value='核对执行'
+  store.paymentRecords=[{...row,approval:{status:'approved',version:8}}]
+  await bindings.confirmCommand();assert.equal(calls.length,1)
   store.paymentRecords=[{...row,status:'executed'}];html=await render();assert.match(html,/历史执行记录/);assert.match(html,/建立反向草稿/)
   store.paymentRecords.push({...row,id:2,reverses_id:1,status:'draft'});html=await render();assert.doesNotMatch(html,/建立反向草稿/)
   store.paymentRecords[1].status='cancelled';assert.match(await render(),/建立反向草稿/)
+  const transfer={id:8,version:1,status:'draft',reverses_id:null,amount:'6.00',reference:'OFFSET',party_name:'验收客户'}
+  store.orderSettlements=[transfer];html=await render();assert.match(html,/核销审批/);assert.doesNotMatch(html,/>确认核销<|建立撤销草稿/)
+  store.orderSettlements=[{...transfer,approval:{status:'approved',version:3}}];html=await render();assert.match(html,/>确认核销</)
+  bindings.ask(store.orderSettlements[0],'post','OrderSettlementTransfer');bindings.commandReason.value='核对执行'
+  store.orderSettlements=[{...transfer,approval:{status:'approved',version:7}}]
+  await bindings.confirmCommand();assert.equal(calls.length,1)
+  await render();store.error='';bindings.ask(store.orderSettlements[0],'post','OrderSettlementTransfer');bindings.commandReason.value='核对执行'
+  await bindings.confirmCommand();assert.equal(calls.length,2);assert.equal(calls[1][0],'offset')
+  store.orderSettlements=[{...transfer,status:'executed'}];assert.match(await render(),/建立撤销草稿/)
+  store.orderSettlements.push({...transfer,id:9,reverses_id:8,status:'draft'});assert.doesNotMatch(await render(),/建立撤销草稿/)
+  store.orderSettlements[1].status='cancelled';assert.match(await render(),/建立撤销草稿/)
 })

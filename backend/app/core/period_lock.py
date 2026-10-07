@@ -43,9 +43,9 @@ def validate_appended_dates(db: Session, boundary: str | None, heads: dict) -> N
         return
     # 所有这些业务接口用服务端 UTC 时间追加记录；时钟回退也不能写入锁期。
     for model, head in heads.items():
-        timestamp = func.coalesce(model.executed_at, model.created_at) if model in (PaymentRecord, SubledgerPayment) else model.created_at
+        timestamp = func.coalesce(model.executed_at, model.created_at) if model in (PaymentRecord, SubledgerPayment, OrderSettlementTransfer) else model.created_at
         query = select(model.id).where(model.id > head, timestamp < boundary + ' 24:00:00')
-        if model in (PaymentRecord, SubledgerPayment):
+        if model in (PaymentRecord, SubledgerPayment, OrderSettlementTransfer):
             # 待审草稿不属于资金事实；执行已有草稿的日期另在执行事务内核对。
             query = query.where(model.status == 'executed')
         if db.scalar(query.limit(1)) is not None:

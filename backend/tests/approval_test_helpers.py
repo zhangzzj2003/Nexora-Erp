@@ -63,3 +63,12 @@ def execute_subledger_payment(client, author_headers, record):
         json={'version': record['version'], 'reason': '核对后执行分户资金'})
     assert result.status_code == 200, result.text
     return result.json()
+
+
+def execute_order_settlement(client, author_headers, record, *, account_headers=None):
+    # 核销夹具显式独立批准再执行，不能把建单响应当成已改变余额的经济事实。
+    approve_document(client, author_headers, 'OrderSettlementTransfer', record['id'], reason='核对同一往来双方订单', account_headers=account_headers)
+    result = client.post(f'/api/v1/finance/order-settlements/{record["id"]}/post', headers=author_headers,
+        json={'version': record['version'], 'reason': '核对后执行核销'})
+    assert result.status_code == 200, result.text
+    return result.json()

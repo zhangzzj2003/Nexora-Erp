@@ -606,7 +606,7 @@ def test_v62_hour_migration_preserves_calendar_business_and_is_idempotent(erp):
         remove_hour_schema(db)
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 91
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 92
         assert db.execute('SELECT id,status,plan_id FROM maintenance_jobs ORDER BY id').fetchall() == old_jobs
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code='equipment.meter'").fetchone()[0] == 1

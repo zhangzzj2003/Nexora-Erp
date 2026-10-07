@@ -1684,12 +1684,22 @@ class OrderSettlementTransfer(Base):
     amount: Mapped[str] = mapped_column(Text, nullable=False)
     reference: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
-    reverses_id: Mapped[int | None] = mapped_column(ForeignKey('order_settlement_transfers.id'), unique=True)
+    reverses_id: Mapped[int | None] = mapped_column(ForeignKey('order_settlement_transfers.id'))
     created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    # 旧登记保留执行事实；新建草稿必须显式指定，批准本身不改变双方余额。
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'executed'"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    executed_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    executed_at: Mapped[str | None] = mapped_column(Text)
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    cancelled_at: Mapped[str | None] = mapped_column(Text)
+    cancellation_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     __table_args__ = (Index('order_settlement_reference', 'kind', 'from_order_id',
                             'to_order_id', 'reference', unique=True,
-                            sqlite_where=reverses_id.is_(None)),)
+                            sqlite_where=reverses_id.is_(None) & (status != 'cancelled')),
+                      Index('order_settlement_transfers_active_reversal', 'reverses_id', unique=True,
+                            sqlite_where=status != 'cancelled'))
 
 
 class BankAccount(Base):

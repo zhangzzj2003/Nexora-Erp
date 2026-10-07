@@ -7,7 +7,8 @@ import {callBackend} from '../src/main/backend.ts'
 test('资金响应拒绝未知状态、无效版本和草稿伪造执行时间',()=>{
   const row={id:1,kind:'receivable',order_id:1,action:'settlement',status:'draft',version:1,
     executed_at:null,executed_by:null,cancelled_at:null,cancelled_by:null,cancellation_reason:''}
-  validatePaymentRecordResponse({payments:[row,{...row,order_id:undefined,opening_line_id:1}]})
+  validatePaymentRecordResponse({payments:[row,{...row,order_id:undefined,opening_line_id:1}], transfers:[{...row,action:undefined,from_order_id:1,to_order_id:2}]})
+  assert.throws(()=>validatePaymentRecordResponse({...row,action:undefined,from_order_id:1,to_order_id:2,version:0}))
   for(const change of [{status:'approved'},{version:true},{version:0},{executed_at:'2026-01-01'},{executed_by:-1}]) {
     assert.throws(()=>validatePaymentRecordResponse({...row,...change}))
   }
@@ -39,4 +40,17 @@ test('分户资金 IPC 固定执行地址并校验真实版本及依据',async t
     await assert.rejects(callBackend('changeSubledgerPaymentStatus',{id:7,version:3,action:'post',reason:'核对',...change}))
   }
   assert.equal(calls.length,1)
+})
+
+// 核销执行使用固定白名单入口；客户端不能塞入自己的批准、编号或业务状态。
+test('核销 IPC 保留业务正文，执行版本及意见在发送前校验',async t=>{
+  const old=globalThis.fetch;t.after(()=>{globalThis.fetch=old});const calls=[]
+  globalThis.fetch=async(url,config)=>{calls.push([new URL(url).pathname,JSON.parse(config.body)]);return new Response(JSON.stringify(new URL(url).pathname.endsWith('/login')?{token:'test',user:{id:1}}:{}),{status:200,headers:{'Content-Type':'application/json'}})}
+  await callBackend('login',{});calls.length=0
+  const draft={kind:'receivable',from_order_id:1,to_order_id:2,amount:'6.00',reference:'REF',reason:'核对'}
+  await callBackend('createOrderSettlement',{...draft,status:'executed',document_no:'FAKE',approved_by:1})
+  await callBackend('changeOrderSettlementStatus',{id:7,version:3,action:'post',reason:' 原核销核对 ',approved_by:1})
+  assert.deepEqual(calls,[['/api/v1/finance/order-settlements',draft],['/api/v1/finance/order-settlements/7/post',{version:3,reason:'原核销核对'}]])
+  for(const change of [{id:'../users'},{version:true},{version:0},{action:'reverse'},{reason:' '},{reason:'字'.repeat(201)}])await assert.rejects(callBackend('changeOrderSettlementStatus',{id:7,version:3,action:'post',reason:'核对',...change}))
+  assert.equal(calls.length,2)
 })

@@ -41,9 +41,9 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 91:
+        if version > 92:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
-        if version < 91:
+        if version < 92:
             # 资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
             db.execute('PRAGMA foreign_keys = OFF')
         if version == 0:
@@ -2759,3 +2759,13 @@ def migrate() -> None:
             if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
                 raise RuntimeError('分户资金审批迁移发现无效关联，本次升级已回滚')
             db.execute('PRAGMA user_version = 91')
+
+        if version < 92:
+            from app.core.payment_migration import migrate_payment_records
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            # 只增加核销执行状态，保留原双方订单、金额、时间、编号及撤销引用。
+            migrate_payment_records(db, 'order_settlement_transfers')
+            if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
+                raise RuntimeError('订单核销审批迁移发现无效关联，本次升级已回滚')
+            db.execute('PRAGMA user_version = 92')

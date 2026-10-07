@@ -212,9 +212,11 @@ def act_document_approval(document_type: str, identifier: int,
             json.loads(row.snapshot_json).get('reversal_evidence', '') if row else '')
         reason = payload.reason if action == 'submit' else (
             json.loads(row.snapshot_json).get('reversal_reason', '') if row else '')
-        if document_type in ('PaymentRecord', 'SubledgerPayment'):
+        if document_type in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer'):
             if document_type == 'PaymentRecord':
                 from app.finance.routes import validate_payment
+            elif document_type == 'OrderSettlementTransfer':
+                from app.finance.order_settlements import validate_transfer as validate_payment
             else:
                 from app.finance.subledger_openings import validate_payment
             permission = submit_permission(document_type, payload.intent, source) or rule.submit_permission

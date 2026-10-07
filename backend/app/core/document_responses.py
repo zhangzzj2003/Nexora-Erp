@@ -131,6 +131,9 @@ def enrich_numbers(db, value, primary: str | None, path: str):
                 # 固定证据原样返回，补号不能改变快照内容或其哈希语义。
                 if key not in ('snapshot', 'before', 'after', 'evidence', 'frozen_source'):
                     child = COLLECTION_TYPES.get(key)
+                    # 财务 overview 的 transfers 是订单核销，不能按同名仓库调拨覆盖主单号。
+                    if key == 'transfers' and path == '/api/v1/finance/overview':
+                        child = 'OrderSettlementTransfer'
                     if key == 'payments' and path.startswith('/api/v1/finance/subledger-openings'):
                         child = 'SubledgerPayment'
                     if key == 'cases' and path.startswith('/api/v1/production-quality'):

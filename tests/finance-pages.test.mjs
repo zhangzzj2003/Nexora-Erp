@@ -83,7 +83,7 @@ test('订单间核销失败保留依据，成功清空金额及凭据，撤销�
     if (fail) throw new Error('核销余额已变化')
   } } }
   const state = { busy: ref(false), error: ref(''), notice: ref('') }
-  const actions = createFinanceActions({ ...createAppState(), orderSettlementForm, orderSettlementReversalReasons },
+  const actions = createFinanceActions({ ...createAppState(), user: ref({id:1,roles:['finance'],permissions:['finance.record','finance.reverse']}), orderSettlementForm, orderSettlementReversalReasons },
     async (action, success) => {
       state.error.value = ''
       try { await action(); state.notice.value = success }
@@ -125,4 +125,20 @@ test('资金确认保护批准状态与排队会话，失败不清除新账号�
   const run=actions.changePaymentRecordStatus({...row,approval:{status:'approved'}},'post','核对执行')
   state.server.value={id:'destination',fingerprint:'destination-ca'};resume();await run
   assert.equal(calls.length,0);assert.match(state.error.value,/会话或连接已变化/)
+})
+
+// 三种资金动作均在排队后校验实例身份；核销草稿不能因切服发送到另一数据库。
+test('核销保存、撤销及执行均拒绝排队后失效的会话',async t=>{
+  const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
+  for(const name of ['createOrderSettlement','reverseOrderSettlement','changeOrderSettlementStatus']) {
+    const state=createAppState();state.user.value={id:1,roles:['finance'],permissions:['finance.record','finance.reverse']}
+    state.server.value={id:'one',fingerprint:'one-ca'}
+    let resume;const pending=new Promise(r=>{resume=r}),calls=[]
+    globalThis.window={nexora:{callApi:async(...args)=>{calls.push(args)}}}
+    const actions=createFinanceActions(state,async fn=>{await pending;try{await fn()}catch(e){state.error.value=e.message}})
+    const row={id:1,version:1,status:'draft',reverses_id:null,approval:{status:'approved'}}
+    const run=name==='createOrderSettlement'?actions[name]():name==='reverseOrderSettlement'?actions[name](1):actions[name](row,'post','核对')
+    state.server.value={id:'two',fingerprint:'two-ca'};resume();await run
+    assert.equal(calls.length,0);assert.match(state.error.value,/会话或连接已变化/)
+  }
 })

@@ -96,7 +96,7 @@ def test_v61_upgrade_preserves_master_data_without_inventing_history(client, rem
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 91
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 92
         assert db.execute('SELECT version FROM suppliers WHERE id=?', (supplier,)).fetchone()[0] == 1
         assert db.execute('SELECT version FROM warehouses WHERE id=?', (warehouse,)).fetchone()[0] == 1
         assert db.execute('SELECT COUNT(*) FROM supplier_changes').fetchone()[0] == 0

@@ -1,6 +1,6 @@
 import type { AppState } from '../state'
 import { watch } from 'vue'
-import type { PaymentRecord } from '../../../../shared/erp-api'
+import type { PaymentRecord, OrderSettlementTransfer } from '../../../../shared/erp-api'
 
 // 收付款操作独立维护；写入后由统一入口刷新服务端快照。
 export function createFinanceActions(
@@ -58,24 +58,40 @@ export function createFinanceActions(
   }
 
   async function createOrderSettlement(): Promise<void> {
-    if (!window.nexora) return
+    if (!connected() || !can('finance.record')) return
+    const session = owner; const input = { ...orderSettlementForm.value }
     await perform(async () => {
-      await window.nexora!.callApi('createOrderSettlement', { ...orderSettlementForm.value })
+      guard(session, 'finance.record')
+      await window.nexora!.callApi('createOrderSettlement', input)
+      if (session !== owner) return
       orderSettlementForm.value.amount = ''
       orderSettlementForm.value.reference = ''
       orderSettlementForm.value.reason = ''
-    }, '订单间核销已登记，双方未结余额已更新。')
+    }, '核销草稿已保存，独立批准执行后才更新双方余额。')
   }
 
   async function reverseOrderSettlement(transferId: number): Promise<void> {
-    if (!window.nexora) return
+    if (!connected() || !can('finance.reverse')) return
+    const session = owner; const reason = orderSettlementReversalReasons.value[transferId] ?? ''
     await perform(async () => {
-      await window.nexora!.callApi('reverseOrderSettlement', {
-        transferId, reason: orderSettlementReversalReasons.value[transferId] ?? ''
-      })
+      guard(session, 'finance.reverse')
+      await window.nexora!.callApi('reverseOrderSettlement', { transferId, reason })
+      if (session !== owner) return
       delete orderSettlementReversalReasons.value[transferId]
-    }, `订单核销 #${transferId} 已撤销，原记录已保留。`)
+    }, '撤销核销草稿已建立，独立批准执行后才恢复双方余额。')
   }
 
-  return { createPaymentRecord, reversePaymentRecord, changePaymentRecordStatus, createOrderSettlement, reverseOrderSettlement }
+  async function changeOrderSettlementStatus(item: OrderSettlementTransfer, action: 'post' | 'cancel', reason: string): Promise<void> {
+    const permission = item.reverses_id ? 'finance.reverse' : 'finance.record'
+    if (!connected() || !can(permission) || item.status !== 'draft'
+      || action === 'post' && item.approval?.status !== 'approved'
+      || action === 'cancel' && ['submitted', 'approved'].includes(item.approval?.status ?? '')) return
+    const session = owner
+    await perform(async () => {
+      guard(session, permission)
+      await window.nexora!.callApi('changeOrderSettlementStatus', { id: item.id, version: item.version, action, reason })
+    }, action === 'post' ? '核销已批准执行，双方余额已更新。' : '核销草稿已取消，未改变双方余额。')
+  }
+
+  return { createPaymentRecord, reversePaymentRecord, changePaymentRecordStatus, createOrderSettlement, reverseOrderSettlement, changeOrderSettlementStatus }
 }

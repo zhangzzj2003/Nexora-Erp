@@ -1,6 +1,6 @@
 """订单间贷方核销的金额、归属、权限和追加式撤销。"""
 
-from approval_test_helpers import approve_document, prepare_purchase_return, execute_payment
+from approval_test_helpers import approve_document, prepare_purchase_return, execute_payment, execute_order_settlement
 
 from datetime import datetime, timezone
 
@@ -95,6 +95,7 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
             return {item['order_id']: item for item in client.get(
                 f'{base}/finance/accounts', headers=finance).json() if item['kind'] == 'receivable'}
 
+        execute_order_settlement(client,finance,transfer,account_headers=admin)
         assert balances()[source]['outstanding_amount'] == '-4.00'
         assert balances()[target]['outstanding_amount'] == '14.00'
         assert balances()[source]['settled_amount'] == '20.00'
@@ -116,6 +117,7 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
         assert client.post(reverse, headers=finance, json={'reason': '重复'}).status_code == 409
         assert client.post(f'{path}/{undone.json()["id"]}/reverse', headers=finance,
             json={'reason': '重复'}).status_code == 409
+        execute_order_settlement(client,finance,undone.json(),account_headers=admin)
         assert balances()[source]['outstanding_amount'] == '-10.00'
         assert balances()[target]['outstanding_amount'] == '20.00'
         assert client.post(path, headers=finance, json={**draft,
@@ -148,6 +150,7 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
             'kind': 'payable', 'from_order_id': purchase, 'to_order_id': purchase_target,
             'amount': '4.00', 'reference': 'SUP-OFFSET', 'reason': '供应商退货抵扣新订单'})
         assert payable_transfer.status_code == 201
+        execute_order_settlement(client,finance,payable_transfer.json(),account_headers=admin)
         payable_accounts = {item['order_id']: item for item in client.get(
             f'{base}/finance/accounts', headers=finance).json() if item['kind'] == 'payable'}
         assert payable_accounts[purchase]['outstanding_amount'] == '0.00'
@@ -164,4 +167,4 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
             headers=finance, json={'reason': '锁期撤销'})
         assert locked_reverse.status_code == 409 and '锁定' in locked_reverse.json()['detail']
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 91
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 92

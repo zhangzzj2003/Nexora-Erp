@@ -131,7 +131,7 @@ def test_v86_upgrade_preserves_legacy_units_and_is_idempotent(client):
     migrate()
     assert units(client) == first
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 91
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 92
         assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
     with orm_session() as db:

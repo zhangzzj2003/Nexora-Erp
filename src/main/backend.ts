@@ -1336,7 +1336,18 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       method: 'POST', path: `/api/v1/finance/payment-records/${positiveId(payload, 'paymentId')}/reverse`,
       body: { reason: (payload as { reason: unknown }).reason }
     }
-    case 'createOrderSettlement': return { method: 'POST', path: '/api/v1/finance/order-settlements', body: payload }
+    case 'createOrderSettlement': {
+      // 创建只发送业务正文；编号、批准和执行字段必须由服务端产生。
+      const { kind, from_order_id, to_order_id, amount, reference, reason } = payload as ErpOperations['createOrderSettlement']['input']
+      return { method: 'POST', path: '/api/v1/finance/order-settlements', body: { kind, from_order_id, to_order_id, amount, reference, reason } }
+    }
+    case 'changeOrderSettlementStatus': {
+      const row = payload as ErpOperations['changeOrderSettlementStatus']['input']
+      if (!['post', 'cancel'].includes(row.action) || !Number.isSafeInteger(row.version) || row.version < 1
+        || typeof row.reason !== 'string' || !row.reason.trim() || row.reason.trim().length > 200) throw Error('核销操作参数无效')
+      return { method: 'POST', path: `/api/v1/finance/order-settlements/${positiveId(payload, 'id')}/${row.action}`,
+        body: { version: row.version, reason: row.reason.trim() } }
+    }
     case 'reverseOrderSettlement': return {
       method: 'POST', path: `/api/v1/finance/order-settlements/${positiveId(payload, 'transferId')}/reverse`,
       body: { reason: (payload as { reason: unknown }).reason }

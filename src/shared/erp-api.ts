@@ -676,6 +676,15 @@ export interface PaymentRecord extends NumberedDocument {
   currency: 'CNY'
 }
 export interface OrderSettlementTransfer extends NumberedDocument {
+  // 核销与撤销均先保存独立草稿，批准后执行才改变双方余额。
+  status: 'draft' | 'executed' | 'cancelled'
+  version: number
+  approval?: DocumentApprovalState
+  executed_by: number | null
+  executed_at: string | null
+  cancelled_by: number | null
+  cancelled_at: string | null
+  cancellation_reason: string
   id: number
   kind: 'receivable' | 'payable'
   party_id: number
@@ -1462,6 +1471,7 @@ export interface ErpOperations extends DocumentApprovalOperations, DocumentNumbe
   reversePaymentRecord: { input: { paymentId: number; reason: string }; output: PaymentRecord }
   changePaymentRecordStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: PaymentRecord }
   createOrderSettlement: { input: { kind: 'receivable' | 'payable'; from_order_id: number; to_order_id: number; amount: string; reference: string; reason: string }; output: OrderSettlementTransfer }
+  changeOrderSettlementStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: OrderSettlementTransfer }
   reverseOrderSettlement: { input: { transferId: number; reason: string }; output: OrderSettlementTransfer }
   boms: { input: undefined; output: Bom[] }
   createBom: { input: { product_material_id: number; base_quantity: string; note: string; lines: { component_material_id: number; quantity: string }[] }; output: Bom }
