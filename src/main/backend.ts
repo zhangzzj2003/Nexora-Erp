@@ -1247,6 +1247,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: `/api/v1/finance/subledger-openings/lines/${positiveId(payload, 'line_id')}/payments`,
         body: { action: command, amount, reference, reason } }
     }
+    case 'changeSubledgerPaymentStatus': {
+      const row = payload as ErpOperations['changeSubledgerPaymentStatus']['input']
+      // 固定资金动作及版本，只传业务依据，拒绝越过统一审批伪造执行结果。
+      if (!['post','cancel'].includes(row.action) || !Number.isSafeInteger(row.version) || row.version < 1
+          || typeof row.reason !== 'string' || !row.reason.trim() || row.reason.trim().length > 200) throw Error('分户资金执行参数无效')
+      return { method: 'POST', path: `/api/v1/finance/subledger-openings/payments/${positiveId(payload, 'id')}/${row.action}`,
+        body: { version: row.version, reason: row.reason.trim() } }
+    }
     case 'reverseSubledgerPayment': return { method: 'POST', path: `/api/v1/finance/subledger-openings/payments/${positiveId(payload, 'id')}/reverse`,
       body: { reason: (payload as ErpOperations['reverseSubledgerPayment']['input']).reason } }
     case 'openingBalanceOptions': return { method: 'GET', path: '/api/v1/finance/opening-balances/options' }

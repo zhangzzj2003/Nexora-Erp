@@ -27,7 +27,7 @@ const { subledgerOpenings: records, subledgerPayments: payments, subledgerQuery:
   subledgerReport: report, subledgerCheck: check, subledgerChanges: changes, subledgerLoading: loading,
   subledgerError: error, error: operationError, busy, connectionLost, user, server } = storeToRefs(store)
 const { can, openDocumentApproval, loadSubledger, querySubledger, exportSubledger, editSubledger, loadSubledgerDetail,
-  clearSubledgerDetail, changeSubledgerStatus, createSubledgerPayment, reverseSubledgerPayment } = store
+  clearSubledgerDetail, changeSubledgerStatus, createSubledgerPayment, reverseSubledgerPayment, changeSubledgerPaymentStatus } = store
 const mode = ref<'balances' | 'plans' | 'payments'>('balances')
 const editing = ref(false)
 const preparing = ref(false)
@@ -37,6 +37,9 @@ let detailTicket = 0
 const source = ref<SubledgerBalanceRow | null>(null)
 const command = ref<{ record: SubledgerOpening; action: OpeningBalanceAction } | null>(null)
 const reversal = ref<SubledgerPayment | null>(null)
+// 资金执行与方案确认分别保留原版本，打开弹窗后不能跟随后台刷新静默执行。
+const fundCommand = ref<{ record: SubledgerPayment; action: 'post' | 'cancel' } | null>(null)
+const fundReason = ref('')
 const reason = ref('')
 const payment = ref<SubledgerBalanceRow | null>(null)
 const paymentForm = ref<SubledgerPaymentInput>({ line_id: 0, action: 'settlement', amount: '', reference: '', reason: '' })
@@ -64,7 +67,7 @@ const plans = [{ key: 'id', title: '方案' }, { key: 'effective_date', title: '
 const funds = [{ key: 'id', title: '记录' }, { key: 'kind', title: '类别' }, { key: 'party_name', title: '往来快照', width: '180' },
   { key: 'document_reference', title: '原单编号' }, { key: 'action', title: '资金操作' }, { key: 'amount', title: '净额（元）' },
   { key: 'reference', title: '参考号' }, { key: 'created_at', title: '登记时间', width: '190' },
-  { key: 'created_by_name', title: '操作者' }, { key: 'actions', title: '操作' }]
+  { key: 'created_by_name', title: '操作者' }, { key: 'status', title: '审批与执行', width: '200' }, { key: 'actions', title: '操作', width: '330' }]
 const paymentLabels = { settlement: '收款 / 付款', refund: '退款 / 收退', reversal: '冲销登记' }
 function paymentLabel(row: SubledgerPayment | SubledgerPaymentInput): string {
   const kind = 'kind' in row ? row.kind : payment.value?.kind
@@ -75,13 +78,13 @@ function actions(item: SubledgerOpening): OpeningBalanceAction[] {
   return subledgerActions(item, user.value?.permissions ?? [], user.value?.id ?? 0)
 }
 function alreadyReversed(row: SubledgerPayment): boolean {
-  return row.action === 'reversal' || payments.value.some(item => item.reverses_id === row.id)
+  return row.status !== 'executed' || row.action === 'reversal' || payments.value.some(item => item.reverses_id === row.id && item.status !== 'cancelled')
 }
 watch(() => filters.value.kind, () => { filters.value.party_id = null })
 watch(filters, () => { source.value = null }, { deep: true, flush: 'sync' })
 function closeDetail(): void { detailTicket++; detailLoading.value = false; detail.value = null; clearSubledgerDetail() }
 watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`, () => {
-  editing.value = false; command.value = null; reversal.value = null; payment.value = null; source.value = null; closeDetail()
+  fundCommand.value = null; editing.value = false; command.value = null; reversal.value = null; payment.value = null; source.value = null; closeDetail()
 }, { flush: 'sync' })
 watch(connectionLost, () => { source.value = null; closeDetail() }, { flush: 'sync' })
 onMounted(async () => {
@@ -107,6 +110,7 @@ function ask(item: SubledgerOpening, action: OpeningBalanceAction): void {
   command.value = { record: item, action }; reversal.value = null; reason.value = action === 'reverse' ? item.reversal_reason ?? '' : ''; operationError.value = ''
 }
 function askReverse(item: SubledgerPayment): void {
+  if (disabled.value || !can('finance.reverse') || alreadyReversed(item)) return
   reversal.value = item; command.value = null; reason.value = ''; operationError.value = ''
 }
 async function confirm(): Promise<void> {
@@ -118,7 +122,8 @@ async function confirm(): Promise<void> {
     return
   }
   const saved = command.value && current ? await changeSubledgerStatus(current, command.value.action, reason.value)
-    : reversal.value ? await reverseSubledgerPayment(reversal.value.id, reason.value) : false
+    : reversal.value && payments.value.some(row => row.id === reversal.value?.id && row.version === reversal.value.version && !alreadyReversed(row))
+      ? await reverseSubledgerPayment(reversal.value.id, reason.value) : false
   if (saved) { command.value = null; reversal.value = null; closeDetail() }
 }
 function register(row: SubledgerBalanceRow): void {
@@ -127,8 +132,32 @@ function register(row: SubledgerBalanceRow): void {
 }
 async function savePayment(): Promise<void> {
   if (disabled.value || !payment.value) return
-  if (await createSubledgerPayment({ ...paymentForm.value })) { payment.value = null; source.value = null; await querySubledger() }
+  if (await createSubledgerPayment({ ...paymentForm.value })) { payment.value = null; source.value = null; mode.value = 'payments'; await querySubledger() }
 }
+const fundCaption = (item: SubledgerPayment) => item.status === 'cancelled' ? '已取消草稿'
+  : item.status === 'executed' ? item.approval?.version ? '已执行' : '历史已执行（保留原事实）'
+  : ({draft:'未送审草稿',submitted:'审批中',approved:'已批准待执行',rejected:'已驳回',withdrawn:'已撤回',executed:'已执行'}[item.approval?.status ?? 'draft'])
+function fundActions(item: SubledgerPayment): ('post' | 'cancel')[] {
+  if (item.status !== 'draft' || !can(item.reverses_id ? 'finance.reverse' : 'finance.record')) return []
+  return item.approval?.status === 'approved' ? ['post'] : item.approval?.status === 'submitted' ? [] : ['cancel']
+}
+function askFund(item: SubledgerPayment, action: 'post' | 'cancel'): void {
+  if (disabled.value || !fundActions(item).includes(action)) return
+  fundCommand.value = { record: item, action }; fundReason.value = ''; operationError.value = ''
+}
+async function confirmFund(): Promise<void> {
+  const pending = fundCommand.value
+  if (!pending || disabled.value || !fundReason.value.trim() || fundReason.value.trim().length > 200) return
+  const current = payments.value.find(row => row.id === pending.record.id)
+  if (!current || current.version !== pending.record.version || current.approval?.version !== pending.record.approval?.version
+      || !fundActions(current).includes(pending.action)) {
+    operationError.value = '分户资金或审批已变化，请关闭弹窗重新核对。'; return
+  }
+  if (await changeSubledgerPaymentStatus(current, pending.action, fundReason.value)) {
+    fundCommand.value = null; source.value = null; await querySubledger()
+  }
+}
+
 const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && ['confirmed','reversed','cancelled'].includes(item.status) ? '保留历史流程' : ({draft:'未送审',submitted:'审批中',approved:'已批准待确认',rejected:'已驳回',withdrawn:'已撤回',executed:'已执行'}[item.approval?.status ?? 'draft'])
 </script>
 
@@ -144,7 +173,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
     <label v-if="mode !== 'balances'">搜索单据<AppInput v-model.trim="documentQuery" placeholder="单号、参考号或原 ID" /></label>
     <p v-if="connectionLost" role="status">连接已断开，查询和写入暂停；未保存的输入保留，恢复连接后请重新读取。</p>
     <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="operationError && !editing && !command && !reversal && !payment" role="alert">{{ operationError }}</p>
+    <p v-if="operationError && !editing && !command && !reversal && !payment && !fundCommand" role="alert">{{ operationError }}</p>
     <template v-if="mode === 'balances'">
       <form class="ledger-editor" @submit.prevent="querySubledger">
         <div class="form-grid">
@@ -157,7 +186,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
           <AppButton type="button" :disabled="!report || disabled" @click="exportSubledger">导出 CSV</AppButton>
         </div>
       </form>
-      <p>仅核对导入的历史未结单据；现有订单余额请在“应收应付”查看。正数为待收 / 待付，负数为可退 / 可收退。收付款登记不代替凭证审核过账。</p>
+      <p>仅核对导入的历史未结单据；现有订单余额请在“应收应付”查看。正数为待收 / 待付，负数为可退 / 可收退。资金草稿需独立审批后执行才更新余额，资金执行后凭证仍须审核过账。</p>
       <template v-if="report">
         <p>{{ report.opening ? `${report.opening.reference} · 启用日 ${report.opening.effective_date}` : '尚无已启用分户期初' }} · 截止 {{ report.to_date }}（UTC）· 生成于 {{ localTime(report.generated_at) }} · 人民币</p>
         <p v-for="kind in (['receivable', 'payable'] as const)" :key="kind" class="subledger-totals">{{ subledgerKindLabels[kind] }}：期初 {{ report.totals[kind].opening_amount }}；资金净额 {{ report.totals[kind].settled_amount }}；未结 {{ report.totals[kind].outstanding_amount }} 元</p>
@@ -190,14 +219,19 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
       </WorkspaceTable>
     </template>
     <template v-else>
-      <p>历史单据的资金登记与冲销全部保留，时间显示为本地时间。金额符号用于未结余额计算；退款为负，冲销追加相反金额。</p>
+      <p>历史资金草稿与反向记录全部保留；独立批准后执行才更新未结余额，时间显示为本地时间。退款为负，反向草稿关联原资金。</p>
       <AppButton v-if="can('journal.view') && can('business_journal.view')" :disabled="disabled" @click="store.navigateToRoute('journals')">到凭证管理生成业务凭证</AppButton>
       <WorkspaceTable class="journal-list-table" title="分户资金记录" :columns="funds" :data="filteredFunds" :min-table-width="1350" :loading="loading">
         <template #cell-kind="{ row }">{{ subledgerKindLabels[row.kind] }}</template>
         <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
         <template #cell-action="{ row }">{{ paymentLabel(row) }}{{ row.reverses_id ? ` · 原记录 ${relatedDocumentLabel(row, 'reverses')}` : '' }}</template>
         <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
-        <template #cell-actions="{ row }"><AppButton v-if="can('finance.reverse') && !alreadyReversed(row)" variant="text" :disabled="disabled" @click="askReverse(row)">冲销</AppButton><span v-else>{{ alreadyReversed(row) ? '已保留冲销关系' : '只读' }}</span></template>
+        <template #cell-status="{ row }">{{ fundCaption(row) }} · v{{ row.version }}<small v-if="row.executed_at">执行于 {{ localTime(row.executed_at) }}</small></template>
+        <template #cell-actions="{ row }"><div class="row-actions">
+          <AppButton variant="text" :disabled="disabled" @click="openDocumentApproval({document_type:'SubledgerPayment',document_id:row.id,intent:'execute'})">资金审批</AppButton>
+          <AppButton v-for="action in fundActions(row)" :key="action" variant="text" :disabled="disabled" @click="askFund(row,action)">{{ action === 'post' ? '确认资金' : '取消草稿' }}</AppButton>
+          <AppButton v-if="can('finance.reverse') && !alreadyReversed(row)" variant="text" :disabled="disabled" @click="askReverse(row)">建立反向草稿</AppButton>
+        </div></template>
         <template #empty>暂无历史单据的资金登记。在未结余额中选择单据登记收付款。</template>
       </WorkspaceTable>
     </template>
@@ -224,25 +258,33 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
         <p v-for="row in source.payments" :key="row.id">资金 {{ documentLabel(row) }} · 依据：{{ row.note }} · {{ auxiliaryText(row.auxiliary) }}</p>
       </div>
     </NModal>
-    <NModal :show="!!command || !!reversal" preset="card" :title="command ? openingActionLabels[command.action] : '冲销分户资金'" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) { command = null; reversal = null } }">
+    <NModal :show="!!command || !!reversal" preset="card" :title="command ? openingActionLabels[command.action] : '建立反向分户草稿'" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) { command = null; reversal = null } }">
       <form class="ledger-editor" @submit.prevent="confirm">
         <p v-if="command">方案 {{ command.record.reference }} · 版本 {{ command.record.version }}。提交、审核与确认均须逐组合一致；建单、编辑或提交人员不能审核。</p>
-        <p v-if="command?.action === 'reverse'">仅未过账且从未登记分户资金的期初可撤销，即使资金已冲销也不能重设历史。</p>
-        <p v-if="reversal">原记录 {{ documentLabel(reversal) }} · {{ reversal.party_name }} · {{ reversal.document_reference }} · {{ reversal.amount }} 元。追加等额反向记录，保留原始记录；相应凭证更正仍须在凭证管理处理。</p>
+        <p v-if="command?.action === 'reverse'">仅未过账且从未执行分户资金的期初可撤销，即使资金已冲销也不能重设历史。</p>
+        <p v-if="reversal">原记录 {{ documentLabel(reversal) }} · {{ reversal.party_name }} · {{ reversal.document_reference }} · {{ reversal.amount }} 元。保存等额反向草稿，须重新独立批准后执行；原记录和凭证保留。</p>
         <label>依据 / 原因<AppInput v-model.trim="reason" :readonly="command?.action === 'reverse'" required maxlength="200" :disabled="disabled" /></label>
         <p v-if="operationError" role="alert">{{ operationError }}</p>
-        <AppButton type="submit" variant="primary" :disabled="disabled || !reason">{{ busy ? '正在处理…' : command ? openingActionLabels[command.action] : '追加冲销记录' }}</AppButton>
+        <AppButton type="submit" variant="primary" :disabled="disabled || !reason">{{ busy ? '正在处理…' : command ? openingActionLabels[command.action] : '保存反向草稿' }}</AppButton>
+      </form>
+    </NModal>
+    <NModal :show="!!fundCommand" preset="card" :title="fundCommand?.action === 'post' ? '确认分户资金' : '取消资金草稿'" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) fundCommand = null }">
+      <form class="ledger-editor" @submit.prevent="confirmFund">
+        <p v-if="fundCommand">{{ documentLabel(fundCommand.record) }} · {{ fundCommand.record.document_reference }} · {{ fundCommand.record.amount }} 元。执行会重新核对当前余额、原方案和期间。</p>
+        <label>资金操作依据<AppInput v-model.trim="fundReason" required maxlength="200" :disabled="disabled" /></label>
+        <p v-if="operationError" role="alert">{{ operationError }}</p>
+        <AppButton type="submit" variant="primary" :disabled="disabled || !fundReason">确认操作</AppButton>
       </form>
     </NModal>
     <NModal :show="!!payment" preset="card" title="登记历史单据资金" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) payment = null }">
       <form v-if="payment" class="ledger-editor" @submit.prevent="savePayment">
-        <p>{{ payment.party_name }} · 原单 {{ payment.document_reference }}。所查截止日未结 {{ payment.outstanding_amount }} 元；服务端按登记时最新余额校验，历史查询金额仅供参考。</p>
-        <p>{{ paymentLabel(paymentForm) }}；登记时间由服务端记录（UTC），不能倒签。金额填正数；超出可收付或可退金额时会拒绝。</p>
+        <p>{{ payment.party_name }} · 原单 {{ payment.document_reference }}。所查截止日未结 {{ payment.outstanding_amount }} 元；服务端按保存及执行时最新余额校验，草稿与批准不更新余额。</p>
+        <p>{{ paymentLabel(paymentForm) }}；保存与实际执行时间由服务端分别记录（UTC），不能倒签。金额填正数；超出可收付或可退金额时会拒绝。</p>
         <label>金额（人民币）<AppInput v-model="paymentForm.amount" required inputmode="decimal" pattern="[0-9]{1,12}(\.[0-9]{1,2})?" :disabled="disabled" /></label>
         <label>资金参考号<AppInput v-model.trim="paymentForm.reference" required maxlength="80" :disabled="disabled" /></label>
         <label>登记依据<AppInput v-model.trim="paymentForm.reason" required maxlength="200" :disabled="disabled" /></label>
         <p v-if="operationError" role="alert">{{ operationError }}</p>
-        <AppButton type="submit" variant="primary" :disabled="disabled || !paymentForm.amount || !paymentForm.reference || !paymentForm.reason">{{ busy ? '正在登记…' : paymentLabel(paymentForm) }}</AppButton>
+        <AppButton type="submit" variant="primary" :disabled="disabled || !paymentForm.amount || !paymentForm.reference || !paymentForm.reason">{{ busy ? '正在保存…' : '保存资金草稿' }}</AppButton>
       </form>
     </NModal>
   </section>

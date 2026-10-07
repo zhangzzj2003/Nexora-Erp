@@ -140,3 +140,26 @@ test('分户旧审核及未批准启用被阻止，排队执行不能跨服务�
   assert.equal(await run,false);assert.equal(calls.length,0)
   assert.match(state.error.value,/会话或连接已变化/)
 })
+
+// 资金草稿执行继续在真正发送前复核实例与权限，不能沿用旧服务端批准。
+test('分户资金批准门槛与排队切换服务端使执行失效',async t=>{
+  const pending=deferred(),calls=[]
+  const {state,actions}=fixture(t,async(...args)=>{calls.push(args)},async fn=>{await pending.promise;try{await fn()}catch(e){state.error.value=e.message}})
+  state.server.value={id:'original',fingerprint:'original-ca'}
+  const row={id:1,version:1,status:'draft',reverses_id:null}
+  assert.equal(await actions.changeSubledgerPaymentStatus(row,'post','提前执行'),false)
+  assert.equal(await actions.changeSubledgerPaymentStatus({...row,approval:{status:'approved'}},'cancel','绕过撤回'),false)
+  const run=actions.changeSubledgerPaymentStatus({...row,approval:{status:'approved'}},'post','核对执行')
+  state.server.value={id:'next',fingerprint:'next-ca'};pending.resolve()
+  assert.equal(await run,false);assert.equal(calls.length,0);assert.match(state.error.value,/会话或连接已变化/)
+})
+
+// 在另一客户端审批后，通用刷新同步资金列表和原截止日余额，不能保留旧可执行状态。
+test('分户审批刷新同步资金列表并恢复同截止日核对',async t=>{
+  const calls=[]
+  const {state,actions}=fixture(t,async action=>{calls.push(action);if(action==='subledgerPayments')return [{id:1,status:'draft',approval:{status:'approved'}}];if(action==='querySubledger')return {to_date:'2026-10-01',csv:'当前快照'};return []})
+  state.subledgerReport.value={to_date:'2026-10-01',csv:'旧快照'}
+  await actions.refreshSubledgerApproval()
+  assert.deepEqual(calls,['subledgerOpenings','subledgerPayments','subledgerOptions','querySubledger'])
+  assert.equal(state.subledgerPayments.value[0].approval.status,'approved');assert.equal(state.subledgerReport.value.csv,'当前快照')
+})

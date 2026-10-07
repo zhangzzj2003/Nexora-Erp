@@ -8,7 +8,7 @@ from app.core.orm import orm_session
 from test_ledger_foundation import ledger
 from test_subledger_openings import subledger, create, action, confirmed, payment, BASE
 from test_journal_document_approval import reviewer
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, execute_subledger_payment
 
 PATH='/api/v1/system/document-approvals/SubledgerOpening'
 
@@ -58,7 +58,7 @@ def test_reverse_independent_and_later_funds_block_execution(subledger):
     approved=approve_document(client,None,'SubledgerOpening',row['id'],intent='reverse',reason='更正历史欠款')
     assert any(item['label']=='原确认时间' and item['value']==row['confirmed_at'] for item in approved['summary'])
     assert current(client,row['id'])['status']=='confirmed'
-    payment(subledger,row['lines'][0])
+    execute_subledger_payment(client,None,payment(subledger,row['lines'][0]))
     # 独立批准后发生的资金事实仍须阻止撤销，不能抹去原分户金额。
     assert client.post(f'{BASE}/{row["id"]}/reverse',json={'version':row['version'],'reason':'更正历史欠款'}).status_code==409
     assert state(client,row['id'],'reverse')['status']=='approved'

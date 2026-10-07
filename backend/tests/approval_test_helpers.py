@@ -54,3 +54,12 @@ def execute_payment(client, author_headers, record, *, account_headers=None):
         json={'version': record['version'], 'reason': '核对后执行资金'})
     assert result.status_code == 200, result.text
     return result.json()
+
+
+def execute_subledger_payment(client, author_headers, record):
+    # 分户草稿明确走独立审批与真实执行，余额回归不能用建单代替资金事实。
+    approve_document(client, author_headers, 'SubledgerPayment', record['id'], reason='核对历史原单及银行回单')
+    result = client.post(f'/api/v1/finance/subledger-openings/payments/{record["id"]}/post', headers=author_headers,
+        json={'version': record['version'], 'reason': '核对后执行分户资金'})
+    assert result.status_code == 200, result.text
+    return result.json()

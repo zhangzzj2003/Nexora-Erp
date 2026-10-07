@@ -1,7 +1,7 @@
 """分户期初勾稽、独立审核、资金来源、并发和故障回滚。"""
 
 import csv
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, execute_subledger_payment
 from test_journals import action as journal_action
 
 from concurrent.futures import ThreadPoolExecutor
@@ -181,10 +181,17 @@ def test_parallel_payments_credit_refund_reversal_and_as_of_date(subledger):
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(lambda reference: client.post(f'{BASE}/lines/{positive["id"]}/payments',
             json=dict(action='settlement',amount='70',reference=reference,reason='资金回单')),('BANK-A','BANK-B')))
-    assert sorted(row.status_code for row in responses) == [201,409]
-    paid = next(row.json() for row in responses if row.status_code == 201)
-    refund = payment(subledger,credit,action='refund',amount='20',reference='REFUND')
-    payment(subledger,payable,amount='80',reference='PAYABLE')
+    assert [row.status_code for row in responses] == [201,201]
+    drafts=[row.json() for row in responses]
+    for draft in drafts:
+        approve_document(client,None,'SubledgerPayment',draft['id'],reason='核对分户银行回单')
+    # 草稿不占余额，执行在同一写锁重新核对，两个七十元草稿仅一笔可生效。
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses=list(pool.map(lambda row: client.post(f'{BASE}/payments/{row["id"]}/post',json={'version':row['version'],'reason':'执行资金'}),drafts))
+    assert sorted(row.status_code for row in responses)==[200,409]
+    paid=next(row.json() for row in responses if row.status_code==200)
+    refund = execute_subledger_payment(client,None,payment(subledger,credit,action='refund',amount='20',reference='REFUND'))
+    execute_subledger_payment(client,None,payment(subledger,payable,amount='80',reference='PAYABLE'))
     api('POST',f'finance/subledger-openings/lines/{credit["id"]}/payments',dict(action='settlement',amount='1',reference='BAD',reason='错误'),409)
     report = query(subledger)
     assert report['totals']['receivable']['outstanding_amount'] == '70.00'
@@ -192,6 +199,7 @@ def test_parallel_payments_credit_refund_reversal_and_as_of_date(subledger):
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(lambda _: client.post(f'{BASE}/payments/{paid["id"]}/reverse',json=dict(reason='误登记')),range(2)))
     assert sorted(row.status_code for row in responses) == [201,409]
+    execute_subledger_payment(client,None,next(row.json() for row in responses if row.status_code==201))
     assert query(subledger)['totals']['receivable']['outstanding_amount'] == '140.00'
     before = query(subledger,to_date='2026-01-01')
     assert before['totals']['receivable']['settled_amount'] == '0.00'
@@ -202,7 +210,7 @@ def test_parallel_payments_credit_refund_reversal_and_as_of_date(subledger):
 def test_business_journal_sources_keep_true_party_and_auxiliary(subledger):
     _, api, reviewer, *_ = subledger
     record = confirmed(subledger)
-    paid = payment(subledger,record['lines'][0])
+    paid = execute_subledger_payment(subledger[0],None,payment(subledger,record['lines'][0]))
     api('PUT','finance/business-journals/policy',dict(version=0,start_date='2026-01-01',mapping={'receivable':1,'payable':2,'cash':4},reason='来源科目'))
     api('PUT','finance/business-journals/policy',dict(version=1,start_date='2026-01-01',mapping={'receivable':4,'cash':4},reason='错误改科目'),409)
     source = next(item for item in api('GET','finance/business-journals') if item['key'] == f'subledger_payment:{paid["id"]}')
@@ -215,6 +223,7 @@ def test_business_journal_sources_keep_true_party_and_auxiliary(subledger):
         generated = journal_action(subledger[0], generated, name, reviewer if name == 'approve' else None)
     # 资金冲销为新增业务事件，原已过账来源保持不变。
     reversed_record = api('POST',f'finance/subledger-openings/payments/{paid["id"]}/reverse',dict(reason='回单登记更正'),201)
+    execute_subledger_payment(subledger[0],None,reversed_record)
     keys = [item['key'] for item in api('GET','finance/business-journals')]
     assert f'subledger_payment:{reversed_record["id"]}' in keys
     assert query(subledger)['totals']['receivable']['outstanding_amount'] == '120.00'
@@ -292,7 +301,7 @@ def test_existing_business_is_not_silently_added_to_imported_debt(subledger):
 def test_closed_period_evidence_keeps_names_and_locks_new_payment_timestamp(subledger, monkeypatch):
     _, api, *_ = subledger
     record = confirmed(subledger)
-    payment(subledger,record['lines'][0])
+    execute_subledger_payment(subledger[0],None,payment(subledger,record['lines'][0]))
     # 结账使用实际服务端日期；模拟已结束期间，核对快照与时钟回退锁期。
     from app.finance import period_closing
     monkeypatch.setattr(period_closing,'utc_today',lambda:'2027-01-01')
@@ -352,7 +361,7 @@ def test_v47_upgrade_is_atomic_and_keeps_old_amounts(subledger, remove_subledger
     monkeypatch.setattr(database,'connection',original_connection)
     migrate(); migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 90
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 91
         assert [tuple(row) for row in db.execute('SELECT * FROM opening_balance_lines ORDER BY id')] == original
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
     assert api('GET','finance/subledger-openings') == []

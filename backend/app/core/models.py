@@ -642,9 +642,18 @@ class SubledgerPayment(Base):
     amount: Mapped[str] = mapped_column(Text, nullable=False)
     reference: Mapped[str] = mapped_column(Text, nullable=False)
     note: Mapped[str] = mapped_column(Text, nullable=False)
-    reverses_id: Mapped[int | None] = mapped_column(ForeignKey('subledger_payments.id'), unique=True)
+    reverses_id: Mapped[int | None] = mapped_column(ForeignKey('subledger_payments.id'))
     created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+    # 旧库保留已执行事实；所有新接口显式建草稿，余额仅在独立批准后执行时更新。
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'executed'"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    executed_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    executed_at: Mapped[str | None] = mapped_column(Text)
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    cancelled_at: Mapped[str | None] = mapped_column(Text)
+    cancellation_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
 
 
 class User(Base):

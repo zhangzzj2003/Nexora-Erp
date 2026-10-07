@@ -9,7 +9,7 @@ from io import StringIO
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.access.security import current_user, require
@@ -26,7 +26,7 @@ from app.finance.subledger_rules import active_subledger, check_control_mapping,
 from app.reports.routes import csv_value
 
 from app.core import document_approval as approval
-from app.core.approval_documents import subledger_snapshot, document_snapshot
+from app.core.approval_documents import subledger_snapshot, subledger_payment_snapshot, document_snapshot
 
 router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/subledger-openings')
 ZERO = Decimal(0)
@@ -341,7 +341,7 @@ def validate_reversal(db: Session, record: SubledgerOpening) -> None:
     ensure_no_posted_journals(db)
     ensure_date_unlocked(db, record.effective_date)
     if db.scalar(select(SubledgerPayment.id).join(SubledgerOpeningLine,
-            SubledgerOpeningLine.id == SubledgerPayment.opening_line_id)
+            SubledgerOpeningLine.id == SubledgerPayment.opening_line_id).where(SubledgerPayment.status == 'executed')
             .where(SubledgerOpeningLine.opening_id == record.id).limit(1)) is not None:
         raise HTTPException(409, '期初已有收付款记录，即使已冲销也不能重设历史期初')
 
@@ -422,13 +422,14 @@ def payment_data(db: Session, record: SubledgerPayment) -> dict:
     return dict(**model_data(record), kind=line.kind, account_id=line.account_id,
         party_id=line.customer_id or line.supplier_id, party_name=line_data(line)['party_name'],
         document_reference=line.document_reference, auxiliary=json.loads(line.auxiliary_json),
-        currency='CNY', created_by_name=db.get(User, record.created_by).username)
+        currency='CNY', created_by_name=db.get(User, record.created_by).username,
+        approval=approval.case_data(approval.find_case(db, 'SubledgerPayment', record.id)))
 
 
 def balance(db: Session, line: SubledgerOpeningLine, to_date: str | None = None) -> dict:
-    statement = select(SubledgerPayment).where(SubledgerPayment.opening_line_id == line.id).order_by(SubledgerPayment.id)
+    statement = select(SubledgerPayment).where(SubledgerPayment.opening_line_id == line.id, SubledgerPayment.status == 'executed').order_by(SubledgerPayment.id)
     if to_date:
-        statement = statement.where(SubledgerPayment.created_at < to_date + ' 24:00:00')
+        statement = statement.where(func.coalesce(SubledgerPayment.executed_at, SubledgerPayment.created_at) < to_date + ' 24:00:00')
     payments = [payment_data(db, row) for row in db.scalars(statement)]
     settled = sum((Decimal(row['amount']) for row in payments), ZERO)
     result = line_data(line)
@@ -458,10 +459,10 @@ def create_payment(data: PaymentInput, line_id: int = Path(gt=0),
             limit = outstanding if data.action == 'settlement' else -outstanding
             if amount > limit:
                 raise HTTPException(409, '收付款超过未结金额或贷方可退余额')
-            record = add_model(db, SubledgerPayment(opening_line_id=line.id, action=data.action,
+            record = add_model(db, SubledgerPayment(status='draft', opening_line_id=line.id, action=data.action,
                 amount=f'{amount if data.action == "settlement" else -amount:.2f}',
                 reference=data.reference, note=data.reason, created_by=user['id']))
-            check_subledger(db, record.created_at)
+            validate_payment(db, record)
             return payment_data(db, record)
     except IntegrityError:
         raise HTTPException(409, '此历史单据的收付款参考号已使用') from None
@@ -475,15 +476,72 @@ def reverse_payment(data: ReasonInput, payment_id: int = Path(gt=0),
         original = db.get(SubledgerPayment, payment_id)
         if original is None:
             raise HTTPException(404, '分户收付款不存在')
-        if original.action == 'reversal' or db.scalar(select(SubledgerPayment.id).where(
-                SubledgerPayment.reverses_id == original.id).limit(1)) is not None:
+        if original.action == 'reversal' or original.status != 'executed' or db.scalar(select(SubledgerPayment.id).where(
+                SubledgerPayment.reverses_id == original.id, SubledgerPayment.status != 'cancelled').limit(1)) is not None:
             raise HTTPException(409, '此登记已冲销或本身为冲销记录')
-        record = add_model(db, SubledgerPayment(opening_line_id=original.opening_line_id, action='reversal',
+        record = add_model(db, SubledgerPayment(status='draft', opening_line_id=original.opening_line_id, action='reversal',
             amount=f'{-Decimal(original.amount):.2f}', reference=f'冲销 #{original.id}', note=data.reason,
             reverses_id=original.id, created_by=user['id']))
-        check_subledger(db, record.created_at)
+        validate_payment(db, record)
         return payment_data(db, record)
 
+
+
+def validate_payment(db: Session, record: SubledgerPayment) -> None:
+    today = datetime.now(timezone.utc).date().isoformat()
+    check_subledger(db, today)
+    ensure_date_unlocked(db, today)
+    line = db.get(SubledgerOpeningLine, record.opening_line_id)
+    opening = db.get(SubledgerOpening, line.opening_id) if line else None
+    if opening is None or opening.status != 'confirmed' or opening.active_key != 1:
+        raise HTTPException(409, '分户原方案已失效，不能执行资金')
+    if record.reverses_id is not None:
+        original = db.get(SubledgerPayment, record.reverses_id)
+        if original is None or original.status != 'executed' or original.action == 'reversal':
+            raise HTTPException(409, '原分户资金未执行或本身是反向资金')
+        if (original.opening_line_id, -Decimal(original.amount)) != (record.opening_line_id, Decimal(record.amount)):
+            raise HTTPException(409, '反向资金与原分户单据不一致')
+        ensure_date_unlocked(db, original.executed_at or original.created_at)
+        if db.scalar(select(SubledgerPayment.id).where(SubledgerPayment.reverses_id == original.id,
+                SubledgerPayment.status != 'cancelled', SubledgerPayment.id != record.id).limit(1)) is not None:
+            raise HTTPException(409, '原分户资金已有有效反向草稿或记录')
+    else:
+        outstanding = Decimal(balance(db, line)['outstanding_amount'])
+        limit = outstanding if record.action == 'settlement' else -outstanding
+        if abs(Decimal(record.amount)) > limit:
+            raise HTTPException(409, '收付款超过最新未结金额或贷方可退余额')
+
+
+@router.post('/payments/{payment_id}/{action}')
+def execute_payment_record(action: Literal['post', 'cancel'], data: VersionInput, payment_id: int = Path(gt=0),
+                           user: dict = Depends(current_user)) -> dict:
+    with orm_session(write=True) as db:
+        record = db.get(SubledgerPayment, payment_id)
+        if record is None:
+            raise HTTPException(404, '分户资金记录不存在')
+        permission = 'finance.reverse' if record.reverses_id is not None else 'finance.record'
+        approval.actor(db, user['id'], permission)
+        if record.version != data.version or record.status != 'draft':
+            raise HTTPException(409, '分户资金已变化或已处理，请重新读取')
+        case = approval.find_case(db, 'SubledgerPayment', payment_id)
+        if action == 'cancel':
+            if case and case.status in ('submitted', 'approved'):
+                raise HTTPException(409, '请先撤回审批，再取消草稿')
+            record.status = 'cancelled'
+            record.cancelled_by, record.cancelled_at = user['id'], approval.now(db)
+            record.cancellation_reason = data.reason
+        else:
+            case = approval.require_approved(db, 'SubledgerPayment', payment_id,
+                subledger_payment_snapshot(db, payment_id), user['id'], permission=permission)
+            validate_payment(db, record)
+            record.status = 'executed'
+            record.executed_by, record.executed_at = user['id'], approval.now(db)
+            ensure_date_unlocked(db, record.executed_at)
+            check_subledger(db, record.executed_at)
+            approval.mark_executed(db, case, user['id'], permission=permission, reason=data.reason)
+        record.version += 1
+        db.flush()
+        return payment_data(db, record)
 
 @router.post('/query')
 def query(data: BalanceQuery, _: dict = Depends(require('subledger_opening.view'))) -> dict:

@@ -78,10 +78,12 @@ def business_sources(db: Session) -> dict[str, dict]:
         # 审批元数据不进入旧资金的经济指纹，升级不能使已过账来源凭证失效。
         item['records'].append({key: value for key, value in model_data(record).items() if key not in (
             'status', 'version', 'executed_by', 'executed_at', 'cancelled_by', 'cancelled_at', 'cancellation_reason')})
-    for record in db.scalars(select(SubledgerPayment).order_by(SubledgerPayment.id)):
+    for record in db.scalars(select(SubledgerPayment).where(SubledgerPayment.status == 'executed').order_by(SubledgerPayment.id)):
         line = db.get(SubledgerOpeningLine, record.opening_line_id)
-        item = group('subledger_payment', record.id, record.created_at)
-        item['records'].append(dict(**model_data(record), kind=line.kind,
+        item = group('subledger_payment', record.id, record.executed_at or record.created_at)
+        # 审批状态不改变迁移前经济指纹，旧凭证继续对应同一资金事实。
+        item['records'].append(dict(**{key: value for key, value in model_data(record).items() if key not in (
+            'status', 'version', 'executed_by', 'executed_at', 'cancelled_by', 'cancelled_at', 'cancellation_reason')}, kind=line.kind,
             party_id=line.customer_id or line.supplier_id, account_id=line.account_id,
             document_reference=line.document_reference, auxiliary=json.loads(line.auxiliary_json)))
     charges = {record.id: record for record in db.scalars(select(ProductionCostEntry)

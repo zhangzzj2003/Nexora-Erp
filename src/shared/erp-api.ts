@@ -292,6 +292,9 @@ export interface SubledgerChange extends FinanceMetadataChange<Omit<SubledgerOpe
 }
 export interface SubledgerPaymentInput { line_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; reason: string }
 export interface SubledgerPayment extends NumberedDocument {
+  // 草稿及审批不产生资金事实；执行时间用于未结余额与来源凭证。
+  status: 'draft' | 'executed' | 'cancelled'; version: number; approval?: DocumentApprovalState
+  executed_by: number | null; executed_at: string | null; cancelled_by: number | null; cancelled_at: string | null; cancellation_reason: string
   id: number; opening_line_id: number; action: 'settlement' | 'refund' | 'reversal'; amount: string; reference: string; note: string
   reverses_id: number | null; created_by: number; created_by_name: string; created_at: string; currency: 'CNY'
   kind: SubledgerKind; account_id: number; party_id: number; party_name: string; document_reference: string; auxiliary: AuxiliarySnapshot[]
@@ -1408,6 +1411,7 @@ export interface ErpOperations extends DocumentApprovalOperations, DocumentNumbe
   querySubledger: { input: SubledgerQuery; output: SubledgerReport }
   subledgerPayments: { input: undefined; output: SubledgerPayment[] }
   createSubledgerPayment: { input: SubledgerPaymentInput; output: SubledgerPayment }
+  changeSubledgerPaymentStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: SubledgerPayment }
   reverseSubledgerPayment: { input: { id: number; reason: string }; output: SubledgerPayment }
   openingBalanceOptions: { input: undefined; output: { accounts: LedgerAccount[]; period: AccountingPeriod | null } & Partial<AuxiliarySelectionOptions> }
   createOpeningBalance: { input: OpeningBalanceInput; output: OpeningBalance }

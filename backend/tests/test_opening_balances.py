@@ -346,7 +346,7 @@ def test_permissions_and_v41_migration(journals, remove_closing_schema):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 90
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 91
         assert db.execute("SELECT COUNT(*) FROM ledger_accounts").fetchone()[0] == 2
         assert (
             db.execute(

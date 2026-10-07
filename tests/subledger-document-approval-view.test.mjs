@@ -27,7 +27,7 @@ test('分户方案统一审批与独立撤销保护启用入口及失效确认�
       if(id==='\0journal-store')return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';export const calls=[];
         export const usePiniaAppStore=defineStore('opening-view-test',()=>{const state=createAppState();return {...state,
         can:code=>state.user.value?.permissions.includes(code),openDocumentApproval:async()=>{},editJournal:async()=>{},saveJournal:async()=>false,
-        loadSubledger:async()=>true,querySubledger:async()=>true,exportSubledger:async()=>{},editSubledger:async()=>true,loadSubledgerDetail:async()=>true,clearSubledgerDetail:()=>{},createSubledgerPayment:async()=>true,reverseSubledgerPayment:async()=>true,changeSubledgerStatus:async(...input)=>{calls.push(input);return true}}})`
+        loadSubledger:async()=>true,querySubledger:async()=>true,exportSubledger:async()=>{},editSubledger:async()=>true,loadSubledgerDetail:async()=>true,clearSubledgerDetail:()=>{},createSubledgerPayment:async()=>true,reverseSubledgerPayment:async()=>true,changeSubledgerPaymentStatus:async(...input)=>{calls.push(input);return true},changeSubledgerStatus:async(...input)=>{calls.push(input);return true}}})`
     }
   },vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false},appType:'custom'})
   t.after(()=>server.close())
@@ -37,8 +37,8 @@ test('分户方案统一审批与独立撤销保护启用入口及失效确认�
   store.user={id:1,roles:['admin'],permissions:['subledger_opening.view','subledger_opening.submit','subledger_opening.review','subledger_opening.confirm','subledger_opening.cancel','subledger_opening.reverse']}
   const row={id:1,version:3,reference:'凭据1',effective_date:'2026-01-01',note:'',status:'approved',author_ids:[1],total_debit:'10.00',lines:[]}
   store.subledgerOpenings=[row]
-  let bindings
-  const RealView={...View,setup(p,ctx){bindings=View.setup(p,ctx);bindings.mode.value='plans';return bindings}}
+  let bindings,mode='plans'
+  const RealView={...View,setup(p,ctx){bindings=View.setup(p,ctx);bindings.mode.value=mode;return bindings}}
   const render=()=>renderToString(createSSRApp({render:()=>h(RealView)}).use(pinia))
   let html=await render();assert.match(html,/单据审批/);assert.doesNotMatch(html,/>确认期初<|>批准<|>提交</)
   store.subledgerOpenings=[{...row,approval:{status:'approved'}}]
@@ -60,4 +60,19 @@ test('分户方案统一审批与独立撤销保护启用入口及失效确认�
   store.subledgerOpenings=[{...row,status:'confirmed',approval:{status:'executed'}}];store.user.permissions=['subledger_opening.view']
   assert.match(await render(),/单据审批/)
   store.subledgerOpenings=[{...row,status:'confirmed'}];html=await render();assert.match(html,/保留历史流程/);assert.doesNotMatch(html,/未送审/)
+  // 真实资金页面同样保护批准版本、取消及原资金的独立反向入口。
+  mode='payments';store.user.permissions=['subledger_opening.view','finance.record','finance.reverse']
+  const fund={id:1,version:1,status:'draft',action:'settlement',reverses_id:null,amount:'10.00',created_at:'2026-10-07'}
+  store.subledgerPayments=[fund];html=await render();assert.match(html,/资金审批|取消草稿/);assert.doesNotMatch(html,/>确认资金<|建立反向草稿/)
+  store.subledgerPayments=[{...fund,approval:{version:3,status:'approved'}}];html=await render();assert.match(html,/>确认资金</);assert.doesNotMatch(html,/>取消草稿</)
+  bindings.askFund(store.subledgerPayments[0],'post');bindings.fundReason.value='核对执行'
+  store.subledgerPayments=[{...fund,approval:{version:4,status:'approved'}}]
+  await bindings.confirmFund();assert.equal(calls.length,1);assert.match(store.error,/资金或审批已变化/)
+  store.subledgerPayments=[{...fund,version:2,approval:{version:3,status:'approved'}}]
+  await bindings.confirmFund();assert.equal(calls.length,1)
+  store.subledgerPayments=[{...fund,approval:{version:3,status:'approved'}}]
+  await bindings.confirmFund();assert.equal(calls.length,2);assert.equal(calls[1][1],'post')
+  store.subledgerPayments=[{...fund,status:'executed'}];html=await render();assert.match(html,/历史已执行/);assert.match(html,/建立反向草稿/)
+  store.subledgerPayments.push({...fund,id:2,reverses_id:1,status:'draft'});html=await render();assert.doesNotMatch(html,/建立反向草稿/)
+  store.subledgerPayments[1].status='cancelled';assert.match(await render(),/建立反向草稿/)
 })
