@@ -1,5 +1,6 @@
 """报价附件留存；原件与撤销证据分别追加保存。"""
 
+from app.core.document_responses import NumberedRoute
 import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -14,7 +15,7 @@ from app.core.models import CrmQuote, CrmQuoteAttachment, CrmQuoteAttachmentReve
 from app.core.orm import add_model, orm_session
 from app.sales.crm_rules import get_record
 
-router = APIRouter(prefix='/api/v1/crm/quotes')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/crm/quotes')
 
 
 def visible_quote(db: Session, quote_id: int, user: dict) -> CrmQuote:

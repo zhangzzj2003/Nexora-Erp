@@ -1,5 +1,6 @@
 """物料计划参数、固定计算快照、独立审核与可追溯转单。"""
 
+from app.core.document_responses import NumberedRoute
 import csv
 import json
 import re
@@ -25,7 +26,7 @@ from app.production.work_orders import WorkOrderInput, create_work_order_in_sess
 from app.purchase.requests import PurchaseRequestInput, create_purchase_request_in_session
 from app.reports.routes import csv_value
 
-router = APIRouter(prefix='/api/v1/production/mrp')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/production/mrp')
 
 
 def today() -> str:
@@ -155,10 +156,10 @@ def metadata(db: Session, record: MrpPlan) -> dict:
 def report_csv(record: MrpPlan) -> str:
     stream = StringIO(newline='')
     writer = csv.writer(stream, lineterminator='\r\n')
-    writer.writerow(['计划', '指纹', '物料编码', '物料名称', '单位', '需求日', '低层码', '供给方式',
+    writer.writerow(['业务单号', '计划参考号', '指纹', '物料编码', '物料名称', '单位', '需求日', '低层码', '供给方式',
         '期初数量', '毛需求', '已安排供给', '安全库存', '净缺口', '建议供给', '期末预计数量', '建议编号'])
     for row in json.loads(record.snapshot_json)['rows']:
-        writer.writerow([csv_value(record.reference), record.fingerprint, *[csv_value(str(row[key]) if row[key] is not None else '') for key in (
+        writer.writerow([csv_value(record.document_no or str(record.id)), csv_value(record.reference), record.fingerprint, *[csv_value(str(row[key]) if row[key] is not None else '') for key in (
             'sku','name','unit','date','level','supply_mode','opening_quantity','gross_quantity','scheduled_quantity',
             'safety_stock','net_quantity','planned_quantity','closing_quantity','suggestion_key')]])
     return '\ufeff' + stream.getvalue()

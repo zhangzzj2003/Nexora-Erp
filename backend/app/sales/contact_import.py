@@ -1,5 +1,6 @@
 """联系人批量导入；预检与提交共享客户可见范围和重复提示。"""
 
+from app.core.document_responses import NumberedRoute
 from hashlib import sha256
 import json
 
@@ -16,7 +17,7 @@ from app.sales.customer_names import comparable_customer_name
 from app.sales.customer_scope import require_visible_customer
 
 
-router = APIRouter(prefix='/api/v1/crm/contacts')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/crm/contacts')
 
 
 class ContactImportRow(StrictInput):

@@ -1,5 +1,6 @@
 """多仓库库存与调拨；已确认流水只追加，不直接修改余额。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 
 from sqlalchemy import select, update, delete, func, literal
@@ -20,7 +21,7 @@ UserU = aliased(User)
 WarehouseDst = aliased(Warehouse)
 WarehouseSrc = aliased(Warehouse)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class WarehouseInput(BaseModel):

@@ -1,5 +1,6 @@
 """库存台账：同一筛选范围内按流水顺序计算期初、逐笔余额与期末。"""
 
+from app.core.document_responses import NumberedRoute
 from datetime import date
 from decimal import Decimal
 
@@ -11,7 +12,7 @@ from app.access.security import require
 from app.core.models import Warehouse, Material, StockMovement, User
 from app.core.orm import orm_session
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class LedgerQuery(BaseModel):

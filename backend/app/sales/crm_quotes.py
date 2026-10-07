@@ -1,5 +1,6 @@
 """报价冻结、独立审批及同事务转销售草稿，原报价保留。"""
 
+from app.core.document_responses import NumberedRoute
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,7 +15,7 @@ from app.purchase.orders import PurchaseOrderLineInput
 from app.sales.orders import SalesOrderInput, create_sales_order_in_session
 from app.sales.crm_rules import StrictInput, VersionInput, valid_date, today, json_text, get_record, require_customer, require_contact, require_open_opportunity, raw_data, record_data, audit
 
-router = APIRouter(prefix='/api/v1/crm/quotes')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/crm/quotes')
 
 
 class QuoteLineInput(StrictInput):

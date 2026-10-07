@@ -1,5 +1,6 @@
 """设备台账与维护工单附件，原文保留并追加撤销记录。"""
 
+from app.core.document_responses import NumberedRoute
 import hashlib
 from typing import Literal
 
@@ -15,7 +16,7 @@ from app.core.models import EquipmentAsset, EquipmentAttachment, EquipmentAttach
 from app.core.orm import add_model, orm_session
 from app.production.equipment_rules import TERMINAL, get
 
-router = APIRouter(prefix='/api/v1/equipment')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/equipment')
 AttachmentKind = Literal['asset', 'job']
 
 

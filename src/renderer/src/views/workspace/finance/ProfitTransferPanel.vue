@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 凭证与来源保留内部 ID，界面优先显示服务端保存的业务单号。
+import { relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NCheckbox, NCollapse } from 'naive-ui'
@@ -111,7 +113,7 @@ async function generate(): Promise<void> {
       <p v-if="!options.periods.length" class="muted">暂无会计期间。请先在“会计期间”建立公司使用的期间。</p>
     </template>
     <template v-if="preview && !loading && preview.period.id === periodId">
-      <p v-if="preview.journal_id">本期间已有{{ journalStatusLabels[preview.journal_status!] }}结转：<AppButton variant="text" @click="emit('openJournal', preview!.journal_id!)">查看记-{{ preview.journal_id }}</AppButton>。取消未过账草稿或在原期间末过账冲销后，才能重建。</p>
+      <p v-if="preview.journal_id">本期间已有{{ journalStatusLabels[preview.journal_status!] }}结转：<AppButton variant="text" @click="emit('openJournal', preview!.journal_id!)">查看{{ relatedDocumentLabel(preview, 'journal') }}</AppButton>。取消未过账草稿或在原期间末过账冲销后，才能重建。</p>
       <p>{{ preview.can_generate ? '预览通过，可填写依据并生成草稿。' : '当前不能生成，请先核对以下事项。' }}</p>
       <ul v-if="preview.blockers.length"><li v-for="item in preview.blockers" :key="item">{{ item }}</li></ul>
       <ProfitTransferEvidence :evidence="preview.evidence" :can-open-journal="can('journal.view')" @open-journal="id => emit('openJournal', id)" />

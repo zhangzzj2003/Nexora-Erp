@@ -1,5 +1,6 @@
 """期间结账、倒序重开及不可覆盖的结账证据快照。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -20,7 +21,7 @@ from app.finance.routes import financial_entries, report_data
 from app.inventory.valuation import calculate_valuation
 from app.sales.after_sales_rules import archive_cases
 
-router = APIRouter(prefix='/api/v1/finance/accounting-periods')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/accounting-periods')
 
 
 def utc_today() -> str:

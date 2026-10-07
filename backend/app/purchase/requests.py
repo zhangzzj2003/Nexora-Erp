@@ -1,5 +1,6 @@
 """采购申请审批与分批转单数量查询。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, delete, func, literal
 from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
@@ -24,7 +25,7 @@ from app.core.models import (
 UserCreator = aliased(User)
 UserReviewer = aliased(User)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class RequestLineInput(BaseModel):

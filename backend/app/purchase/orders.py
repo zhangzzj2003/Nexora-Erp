@@ -1,5 +1,6 @@
 """采购订单及入库关联；订单数量只由已确认入库单消耗。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session
 from decimal import Decimal, ROUND_HALF_UP
@@ -26,7 +27,7 @@ from app.purchase.returns import returned_quantity as purchase_returned_quantity
 from app.purchase.requests import ordered_quantity
 from app.access.security import require
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class PurchaseOrderLineInput(BaseModel):

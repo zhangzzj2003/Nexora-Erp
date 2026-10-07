@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -58,7 +60,7 @@ const rows = computed(() =>
   records.value.filter(
     (r) =>
       (!status.value || r.status === status.value) &&
-      [r.reference, r.note, String(r.id)]
+      [documentSearch(r), r.reference, r.note, String(r.id)]
         .join(' ')
         .toLowerCase()
         .includes(query.value.trim().toLowerCase())
@@ -189,7 +191,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
           用于首次启用总账。每个科目录入一方期初余额，借贷须平衡；另一账号审核并确认后进入报表，不计入本期发生额。存在未确认方案时不能过账凭证；已有过账凭证后不能重设期初。
         </p></template
       >
-      <template #cell-id="{ row }">期初-{{ row.id }}</template>
+      <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
       <template #cell-total_debit="{ row }"
         ><span class="journal-amount">¥{{ row.total_debit }}</span></template
       >
@@ -226,7 +228,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
     <NModal
       v-model:show="showForm"
       preset="card"
-      :title="form.id === null ? '新增期初方案' : `编辑期初-${form.id}`"
+      :title="form.id === null ? '新增期初方案' : `编辑${documentLabel(form, records)}`"
       :mask-closable="!busy"
       :style="{
         width: 'min(1100px, calc(100vw - 32px))',
@@ -390,7 +392,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
     <NModal
       :show="command !== null"
       preset="card"
-      :title="command ? `${openingActionLabels[command.action]} · 期初-${command.record.id}` : ''"
+      :title="command ? `${openingActionLabels[command.action]} · ${documentLabel(command.record)}` : ''"
       :mask-closable="!busy"
       :style="{ width: 'min(640px, calc(100vw - 32px))' }"
       @update:show="
@@ -424,7 +426,7 @@ function ask(record: OpeningBalance, action: OpeningBalanceAction): void {
     <NModal
       :show="!!detail"
       preset="card"
-      :title="detail ? `期初-${detail.id} · ${openingStatusLabels[detail.status]}` : ''"
+      :title="detail ? `${documentLabel(detail)} · ${openingStatusLabels[detail.status]}` : ''"
       :style="{
         width: 'min(1100px, calc(100vw - 32px))',
         maxHeight: 'calc(100vh - 48px)',

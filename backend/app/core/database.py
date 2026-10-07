@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 87:
+        if version > 88:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2649,3 +2649,32 @@ def migrate() -> None:
             db.execute('''INSERT OR IGNORE INTO material_units(name)
                 SELECT DISTINCT unit FROM materials WHERE length(unit) > 0 ORDER BY unit''')
             db.execute('PRAGMA user_version = 87')
+
+
+        if version < 88:
+            # 只扩展结构；已有单据等待管理员选择风格与时区后在 ORM 事务内补号。
+            from app.core.document_types import DOCUMENT_TYPES
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute("""CREATE TABLE IF NOT EXISTS document_numbering_settings (
+                id INTEGER PRIMARY KEY CHECK(id=1), style TEXT CHECK(style IN ('pinyin','english')),
+                timezone_mode TEXT NOT NULL CHECK(timezone_mode IN ('server','utc','specified')),
+                timezone TEXT, version INTEGER NOT NULL, locked BOOLEAN NOT NULL,
+                configured_by INTEGER REFERENCES users(id), configured_at TEXT,
+                backfilled_count INTEGER NOT NULL, undated_count INTEGER NOT NULL)""")
+            db.execute("""CREATE TABLE IF NOT EXISTS document_number_sequences (
+                document_type TEXT NOT NULL, business_date TEXT NOT NULL,
+                last_number INTEGER NOT NULL CHECK(last_number >= 0),
+                PRIMARY KEY(document_type,business_date))""")
+            # 部分旧版结构诊断夹具仅含权限表；实际业务库均已包含 users。
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'users' in tables:
+                db.execute("INSERT OR IGNORE INTO document_numbering_settings VALUES (1,NULL,'server',NULL,0,0,NULL,NULL,0,0)")
+            for _, table, _, _ in DOCUMENT_TYPES:
+                if table not in tables:
+                    continue
+                columns = {row[1] for row in db.execute(f'PRAGMA table_info({table})')}
+                if 'document_no' not in columns:
+                    db.execute(f'ALTER TABLE {table} ADD COLUMN document_no TEXT CHECK(document_no IS NULL OR length(trim(document_no)) > 0)')
+                db.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS {table}_document_no ON {table}(document_no)')
+            db.execute('PRAGMA user_version = 88')

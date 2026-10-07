@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed,onMounted,onUnmounted,ref,watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal } from 'naive-ui'
@@ -15,8 +17,8 @@ const {qualityOverview:overview,qualityDetail:detail,qualityLoading:loading,qual
 const mode=ref<'cases'|'records'>('cases'),editor=ref(false),query=ref(''),preparing=ref(false),reason=ref('')
 const command=ref<{row:QualityEvidence;action:QualityAction}|null>(null)
 const disabled=computed(()=>busy.value || loading.value || preparing.value || connectionLost.value)
-const cases=computed(()=>(overview.value?.cases??[]).filter(row=>[row.id,row.work_order_id,row.product_name,row.product_sku,row.qc_note].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
-const records=computed(()=>(overview.value?.dispositions??[]).filter(row=>[row.reference,row.completion_id,row.frozen_source.product_name,qualityStatus[row.status],row.created_by_name].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
+const cases=computed(()=>(overview.value?.cases??[]).filter(row=>[documentSearch(row), row.id,row.work_order_id,row.product_name,row.product_sku,row.qc_note].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
+const records=computed(()=>(overview.value?.dispositions??[]).filter(row=>[documentSearch(row),row.reference,row.completion_id,row.frozen_source.product_name,qualityStatus[row.status],row.created_by_name].join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const caseColumns=[{key:'source',title:'原质检 / 成品'},{key:'quantity',title:'不合格 / 占用 / 剩余'},{key:'evidence',title:'检验依据'},{key:'actions',title:'处置'}]
 const recordColumns=[{key:'source',title:'依据 / 原质检'},{key:'quantity',title:'方式 / 数量 / 成本处理'},{key:'status',title:'阶段'},{key:'actions',title:'操作 / 证据'}]
 const actions=(row:QualityEvidence)=>qualityActions(row,user.value?.permissions??[],user.value?.id??0)
@@ -42,7 +44,7 @@ onMounted(()=>{void store.loadQuality()});onUnmounted(()=>store.clearQualityDeta
     <template v-else>
       <WorkspaceTable v-if="mode==='cases'" title="不合格品质检来源" :show-title="false" :columns="caseColumns" :data="cases" :min-table-width="1000" :loading="loading">
         <template #filters><label>搜索质检来源<AppInput v-model="query" placeholder="完工单、工单、成品或检验依据" /></label></template>
-        <template #cell-source="{row}"><strong>完工 #{{ row.id }} · 工单 #{{ row.work_order_id }}</strong><span class="quality-secondary">{{ row.product_sku }} · {{ row.product_name }}</span></template>
+        <template #cell-source="{row}"><strong>完工 {{ documentLabel(row) }} · 工单 {{ relatedDocumentLabel(row, 'work_order') }}</strong><span class="quality-secondary">{{ row.product_sku }} · {{ row.product_name }}</span></template>
         <template #cell-quantity="{row}"><span>不合格 {{ row.rejected_quantity }} {{ row.product_unit }}</span><span class="quality-secondary">已占用 {{ row.reserved_quantity }} · 剩余 {{ row.remaining_quantity }}</span></template>
         <template #cell-evidence="{row}">{{ row.qc_note }}<span class="quality-secondary">{{ store.localTime(row.inspected_at) }}</span></template>
         <template #cell-actions="{row}"><AppButton v-if="store.can('quality.create') && !row.settled && Number(row.remaining_quantity)>0" size="small" :disabled="disabled" @click="newRecord(row.id)">建立处置</AppButton><span v-else-if="row.settled" class="quality-secondary">成本已结算；更正须先冲销结算</span><span v-else-if="Number(row.remaining_quantity)<=0" class="quality-secondary">数量已全部占用，查看处置记录</span><span v-else class="quality-secondary">待有权限人员编制处置</span></template>
@@ -50,8 +52,8 @@ onMounted(()=>{void store.loadQuality()});onUnmounted(()=>store.clearQualityDeta
       </WorkspaceTable>
       <WorkspaceTable v-else title="处置记录" :show-title="false" :columns="recordColumns" :data="records" :min-table-width="1100" :loading="loading">
         <template #filters><label>搜索处置记录<AppInput v-model="query" placeholder="依据编号、原质检、成品、编制人或阶段" /></label></template>
-        <template #cell-source="{row}"><strong>{{ row.reference }}</strong><span class="quality-secondary">完工 #{{ row.completion_id }} · {{ row.frozen_source.product_name }} · {{ row.created_by_name }}</span></template>
-        <template #cell-quantity="{row}">{{ row.kind==='scrap'?'报废':'返工' }} {{ row.quantity }} {{ row.frozen_source.product_unit }}<span class="quality-secondary">{{ qualityTreatment[row.loss_treatment as keyof typeof qualityTreatment] }}</span><span v-if="row.rework_order_id" class="quality-secondary">返工工单 #{{ row.rework_order_id }}</span></template>
+        <template #cell-source="{row}"><strong>{{ documentLabel(row) }} · {{ row.reference }}</strong><span class="quality-secondary">完工 {{ relatedDocumentLabel(row, 'completion') }} · {{ row.frozen_source.product_name }} · {{ row.created_by_name }}</span></template>
+        <template #cell-quantity="{row}">{{ row.kind==='scrap'?'报废':'返工' }} {{ row.quantity }} {{ row.frozen_source.product_unit }}<span class="quality-secondary">{{ qualityTreatment[row.loss_treatment as keyof typeof qualityTreatment] }}</span><span v-if="row.rework_order_id" class="quality-secondary">返工工单 {{ relatedDocumentLabel(row, 'rework_order') }}</span></template>
         <template #cell-status="{row}">{{ qualityStatus[row.status as keyof typeof qualityStatus] }} · v{{ row.version }}<span v-if="row.cost_allocation" class="quality-secondary">原工单成本已固定</span></template>
         <template #cell-actions="{row}"><div class="quality-toolbar"><AppButton size="small" :disabled="disabled" @click="store.loadQualityDetail(row.id)">详情与证据</AppButton><AppButton v-if="store.can('quality.create') && ['draft','rejected'].includes(row.status)" size="small" :disabled="disabled" @click="editRecord(row.id)">修订</AppButton><AppButton v-for="action in actions(row)" :key="action" size="small" :disabled="disabled" @click="prepare(row.id,action)">{{ qualityCommand[action] }}</AppButton></div></template>
         <template #empty>{{ connectionLost?'连接恢复后重新读取处置记录。':failure?'读取失败，请刷新记录。':query?'没有匹配的处置记录。':'尚无处置单，请从待处置来源建立，或由有权限的人员编制。' }}</template>

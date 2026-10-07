@@ -39,7 +39,7 @@ onUnmounted(dispose)
     <AppMessageProvider>
       <div :class="{ 'desktop-shell': integratedTitleBar }">
         <AppTitleBar v-if="integratedTitleBar" :platform="platform" />
-        <OnboardingView v-if="screen !== 'app' && screen !== 'login' && screen !== 'setup'" />
+        <OnboardingView v-if="screen !== 'app' && screen !== 'login' && screen !== 'setup' && screen !== 'numbering'" />
         <WorkspaceShell v-else />
       </div>
       <AppSettingsDrawer />

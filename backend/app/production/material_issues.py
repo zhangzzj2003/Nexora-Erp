@@ -1,5 +1,6 @@
 """生产领料单与库存流水；确认时核对工单剩余需料和源仓库存。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func
 from sqlalchemy.orm import Session
 from sqlalchemy.engine import RowMapping
@@ -38,7 +39,7 @@ from app.production.work_orders import issued_quantity
 from app.production.cost_lock import ensure_unsettled
 from app.core.period_lock import ensure_date_unlocked, ensure_movement_unlocked
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class MaterialIssueLineInput(BaseModel):

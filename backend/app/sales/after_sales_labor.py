@@ -1,5 +1,6 @@
 """维修实际工时的追加记录与反向更正。"""
 
+from app.core.document_responses import NumberedRoute
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,7 +15,7 @@ from app.sales.after_sales import get_case, permission
 from app.sales.after_sales_rules import audit, case_data, now
 from app.sales.customer_scope import require_visible_after_sales
 
-router = APIRouter(prefix='/api/v1/after-sales')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/after-sales')
 
 
 class LaborRecord(BaseModel):

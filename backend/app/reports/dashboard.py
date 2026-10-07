@@ -1,5 +1,6 @@
 """首页只读经营快照：业务发生额与当前待办使用明确且独立的口径。"""
 
+from app.core.document_responses import NumberedRoute
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
@@ -19,7 +20,7 @@ from app.core.models import (
 )
 from app.finance.routes import financial_entries
 
-router = APIRouter(prefix="/api/v1/dashboard")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1/dashboard")
 
 
 class DashboardQuery(BaseModel):

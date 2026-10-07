@@ -1,5 +1,6 @@
 """销售售后退换修；客户物品保管与公司库存严格分开。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 from decimal import Decimal
 from typing import Literal
@@ -21,7 +22,7 @@ from app.sales.after_sales_rules import (now, encoded, source, remaining_quantit
 from app.sales.customer_scope import (visible_customer_ids, require_visible_shipment_line,
     require_visible_after_sales)
 
-router = APIRouter(prefix='/api/v1/after-sales')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/after-sales')
 
 
 def quantity(value):

@@ -6,6 +6,7 @@ import { createSSRApp, h, nextTick } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { setup as setupSsrStyles } from '@css-render/vue3-ssr'
 import { createServer } from 'vite'
+import { parse, compileStyle } from '@vue/compiler-sfc'
 import vue from '@vitejs/plugin-vue'
 import Icons from 'unplugin-icons/vite'
 import { LOCALE_STORAGE_KEY, readLocalePreference, saveLocalePreference } from '../src/renderer/src/utils/locale-preference.ts'
@@ -28,6 +29,37 @@ before(async () => {
   ;({ englishCopy } = await server.ssrLoadModule('/src/renderer/src/i18n/en-US.ts'))
 })
 after(() => server?.close())
+
+test('首次编号风格卡片补齐边框，卡片与焦点层圆角覆盖连体按钮端点规则', async () => {
+  // 编译真实局部样式：独立卡片必须有完整边框，且不能改变常规设置的连体样式。
+  const source = readFileSync(new URL('../src/renderer/src/components/workspace/DocumentNumberingSettings.vue', import.meta.url), 'utf8')
+  const { descriptor } = parse(source)
+  const { code, errors } = compileStyle({ source: descriptor.styles[0].content, filename: 'DocumentNumberingSettings.vue', id: 'data-v-border-test', scoped: true })
+  assert.deepEqual(errors, [])
+  const rules = [...code.matchAll(/([^{}]+)\{([^{}]+)\}/g)]
+  const borderRules = rules.filter(([, selector, rule]) => selector.includes('.n-radio-button') && /border:\s*1px solid/.test(rule))
+  assert.equal(borderRules.length, 1)
+  assert.match(borderRules[0][1], /\.numbering-settings--initial\[data-v-border-test\]/)
+  assert.match(borderRules[0][2], /border:\s*1px solid var\(--n-button-border-color\)/)
+  const checked = rules.find(([, selector]) => selector.includes('.n-radio-button.n-radio-button--checked'))
+  assert.ok(checked)
+  assert.match(checked[2], /border-color:\s*var\(--n-button-border-color-active\)/)
+  const focus = rules.find(([, selector]) => selector.includes('.n-radio-button__state-border'))
+  assert.ok(focus)
+  assert.match(borderRules[0][2], /border-radius:\s*10px/)
+  assert.match(focus[2], /border-radius:\s*inherit/)
+  // 使用实际依赖生成的首尾规则比较优先级，避免 Naive UI 后插入样式再次覆盖局部圆角。
+  const naiveStyle = (await import('../node_modules/naive-ui/es/radio/src/styles/radio-group.cssr.mjs')).default
+  const endpoints = [...naiveStyle.render({ bPrefix: '.n-' }).matchAll(/([^{}]+)\{([^{}]+)\}/g)]
+    .filter(([, selector, rule]) => /:(first|last)-child/.test(selector) && /border-.*-radius:/.test(rule))
+  assert.equal(endpoints.length, 4)
+  // 这些端点选择器只包含类、局部属性与首尾伪类，三者按同一权重计数。
+  const specificity = selector => (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?:first|last)-child/g) ?? []).length
+  for (const [, selector] of endpoints) {
+    const own = selector.includes('__state-border') ? focus[1] : borderRules[0][1]
+    assert.ok(specificity(own) > specificity(selector), `圆角覆盖必须优先于 ${selector.trim()}`)
+  }
+})
 
 test('Windows 设置面板避开原生标题栏，Mac、Linux 与浏览器保留原布局', async t => {
   const oldWindow = globalThis.window
@@ -178,4 +210,37 @@ test('颜色切换同步根变量，保留语言和抽屉状态，重启恢复�
   globalThis.window.localStorage.setItem = () => { throw new Error('blocked') }
   theme.setThemeColor('rose'); await nextTick()
   assert.equal(styles.get('--app-button-primary'), '#be185d')
+})
+
+test('首次编号设置真实组件显示三步进度和下一步，锁定查看仍显示完整规则', async t => {
+  const previous = globalThis.window
+  globalThis.window = { nexora: { platform: 'linux' } }
+  t.after(() => { globalThis.window = previous })
+  const { default: Numbering } = await server.ssrLoadModule('/src/renderer/src/components/workspace/DocumentNumberingSettings.vue')
+  const { usePiniaAppStore } = await server.ssrLoadModule('/src/renderer/src/store/app-store.ts')
+  const pinia = createPinia(), store = usePiniaAppStore(pinia), settings = useSettingsStore(pinia)
+  // 使用真实 Pinia 和 Naive UI 表单，确认首次页与系统查看页没有混用提交入口。
+  store.user = { id: 1, username: 'admin', roles: ['admin'], permissions: [] }
+  store.documentNumbering = { configured: false, style: null, timezone_mode: 'server', timezone: null,
+    version: 0, locked: false, configured_by: null, configured_at: null,
+    server_time: '2026-10-07T00:01:00+08:00', business_time: '2026-10-07T00:01:00+08:00',
+    business_date: '20261007', timezones: ['UTC', 'Asia/Shanghai', 'America/New_York'], backfilled_count: 0, undated_count: 0 }
+  async function render(initial) {
+    const app = createSSRApp({ render: () => h(Numbering, { initial }) }).use(pinia)
+    setupSsrStyles(app)
+    return renderToString(app)
+  }
+  const chinese = await render(true)
+  assert.match(chinese, /aria-label="设置进度"/); assert.match(chinese, /aria-current="step"/)
+  assert.match(chinese, /选择编号风格/); assert.match(chinese, /下一步/)
+  assert.doesNotMatch(chinese, /保存编号规则/); assert.match(chinese, /切换服务端/)
+  assert.match(chinese, /QTRK-20261007-000001/); assert.match(chinese, /OIN-20261007-000001/)
+  settings.setLocale('en-US')
+  const english = await render(true)
+  assert.match(english, /Choose a numbering style/); assert.match(english, /Setup progress/)
+  assert.match(english, /Next/); assert.doesNotMatch(english, /选择编号风格/)
+  store.documentNumbering = { ...store.documentNumbering, configured: true, style: 'english', locked: true, version: 1 }
+  const locked = await render(false)
+  assert.doesNotMatch(locked, /class="app-stepper"/); assert.match(locked, /2026-10-07 00:01:00\+08:00/)
+  assert.match(locked, /locked/); assert.doesNotMatch(locked, />Save numbering rules</)
 })

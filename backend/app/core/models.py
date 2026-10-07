@@ -61,6 +61,8 @@ class CrmActivity(Base):
 
 
 class CrmQuote(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'crm_quotes'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     opportunity_id: Mapped[int] = mapped_column(Integer, ForeignKey('crm_opportunities.id'), nullable=False)
@@ -183,6 +185,8 @@ class MrpPolicyChange(Base):
 
 
 class MrpPlan(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'mrp_plans'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     reference: Mapped[str] = mapped_column(Text, nullable=False)
@@ -345,6 +349,8 @@ class PeriodClosing(Base):
 
 
 class Journal(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'journals'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
@@ -514,6 +520,8 @@ class ProfitTransfer(Base):
 
 
 class OpeningBalance(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'opening_balances'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
@@ -566,6 +574,8 @@ class OpeningBalanceChange(Base):
 
 
 class SubledgerOpening(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'subledger_openings'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
@@ -623,6 +633,8 @@ class SubledgerOpeningChange(Base):
 
 
 class SubledgerPayment(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'subledger_payments'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     opening_line_id: Mapped[int] = mapped_column(ForeignKey('subledger_opening_lines.id'), nullable=False)
@@ -863,6 +875,8 @@ class Bom(Base):
 
 
 class WorkOrder(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'work_orders'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     bom_id: Mapped[int] = mapped_column(Integer, ForeignKey('boms.id'), nullable=False)
@@ -890,6 +904,8 @@ class WorkOrderLine(Base):
 
 
 class MaterialIssue(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'material_issues'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     work_order_id: Mapped[int] = mapped_column(Integer, ForeignKey('work_orders.id'), nullable=False)
@@ -922,6 +938,8 @@ class MaterialIssueReversal(Base):
 
 
 class MaterialReturn(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'material_returns'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     material_issue_id: Mapped[int] = mapped_column(Integer, ForeignKey('material_issues.id'), nullable=False)
@@ -953,6 +971,8 @@ class MaterialReturnReversal(Base):
 
 
 class ProductionCompletion(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'production_completions'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     work_order_id: Mapped[int] = mapped_column(Integer, ForeignKey('work_orders.id'), nullable=False)
@@ -1005,6 +1025,8 @@ class ProductionCostReversal(Base):
 
 
 class ProductionCostSettlement(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'production_cost_settlements'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     work_order_id: Mapped[int] = mapped_column(Integer, ForeignKey('work_orders.id'), nullable=False)
@@ -1064,6 +1086,8 @@ class ProductionSettlementCharge(Base):
 
 
 class QualityDisposition(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'quality_dispositions'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     completion_id: Mapped[int] = mapped_column(Integer, ForeignKey('production_completions.id'), nullable=False)
@@ -1269,6 +1293,8 @@ class SalesReturnLine(Base):
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
 
 class AfterSalesCase(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = "after_sales_cases"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
@@ -1411,6 +1437,8 @@ class CustomerOwnerChange(Base):
 
 
 class SalesOrder(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'sales_orders'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     customer_id: Mapped[int] = mapped_column(Integer, ForeignKey('customers.id'), nullable=False)
@@ -1472,6 +1500,8 @@ class SalesOrderContractAttachmentReversal(Base):
 
 
 class Shipment(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'shipments'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     sales_order_id: Mapped[int] = mapped_column(Integer, ForeignKey('sales_orders.id'), nullable=False)
@@ -1504,6 +1534,8 @@ class ShipmentReversal(Base):
 
 
 class SalesReturn(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'sales_returns'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shipment_id: Mapped[int] = mapped_column(Integer, ForeignKey('shipments.id'), nullable=False)
@@ -1528,6 +1560,8 @@ class SalesReturnReversal(Base):
 
 
 class PurchaseOrder(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'purchase_orders'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey('suppliers.id'), nullable=False)
@@ -1542,6 +1576,8 @@ class PurchaseOrder(Base):
 
 
 class Receipt(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'receipts'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey('suppliers.id'), nullable=False)
@@ -1571,6 +1607,8 @@ class ReceiptReversal(Base):
 
 
 class PurchaseReturn(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'purchase_returns'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     receipt_id: Mapped[int] = mapped_column(Integer, ForeignKey('receipts.id'), nullable=False)
@@ -1602,6 +1640,8 @@ class PurchaseReturnReversal(Base):
 
 
 class PaymentRecord(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'payment_records'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     kind: Mapped[str] = mapped_column(Text, nullable=False)
@@ -1616,6 +1656,8 @@ class PaymentRecord(Base):
 
 
 class OrderSettlementTransfer(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'order_settlement_transfers'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     kind: Mapped[str] = mapped_column(Text, nullable=False)
@@ -1803,6 +1845,8 @@ class ReceiptWarehouse(Base):
 
 
 class Transfer(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = "transfers"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     from_warehouse_id: Mapped[int] = mapped_column(Integer, ForeignKey("warehouses.id"), nullable=False)
@@ -1824,6 +1868,8 @@ class TransferLine(Base):
 
 
 class Stocktake(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = "stocktakes"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     warehouse_id: Mapped[int] = mapped_column(Integer, ForeignKey("warehouses.id"), nullable=False)
@@ -1874,6 +1920,8 @@ class TransferReversal(Base):
 
 
 class PurchaseRequest(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = "purchase_requests"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     reference: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
@@ -1924,6 +1972,8 @@ class PurchaseOrderRequestLink(Base):
 
 
 class PurchaseGoodsReceipt(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = "purchase_goods_receipts"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     purchase_order_id: Mapped[int] = mapped_column(Integer, ForeignKey("purchase_orders.id"), nullable=False)
@@ -1954,6 +2004,8 @@ class PurchaseGoodsReceiptLine(Base):
 
 
 class WarehouseInbound(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = "warehouse_inbounds"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     warehouse_id: Mapped[int] = mapped_column(Integer, ForeignKey("warehouses.id"), nullable=False)
@@ -1987,6 +2039,8 @@ class WarehouseInboundReversal(Base):
 
 
 class WarehouseOutbound(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = "warehouse_outbounds"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     warehouse_id: Mapped[int] = mapped_column(Integer, ForeignKey("warehouses.id"), nullable=False)
@@ -2024,6 +2078,8 @@ class WarehouseOutboundReversal(Base):
 
 
 class StockAdjustment(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = "stock_adjustments"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     warehouse_id: Mapped[int] = mapped_column(Integer, ForeignKey("warehouses.id"), nullable=False)
@@ -2116,6 +2172,8 @@ class MaintenanceHourPlanChange(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 class MaintenanceJob(Base):
+    # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'maintenance_jobs'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     reference: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
@@ -2260,3 +2318,26 @@ class InventoryWarningEvent(Base):
     unit: Mapped[str] = mapped_column(Text, nullable=False)
     observed_at: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class DocumentNumberingSetting(Base):
+    """规则属于数据库实例，恢复备份时连同编号风格与锁定状态一起保留。"""
+    __tablename__ = 'document_numbering_settings'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    style: Mapped[str | None] = mapped_column(Text)
+    timezone_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    timezone: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    locked: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    configured_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    configured_at: Mapped[str | None] = mapped_column(Text)
+    backfilled_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    undated_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class DocumentNumberSequence(Base):
+    """各类型每日的流水与业务写入共用 SQLite 写事务，不在客户端计算。"""
+    __tablename__ = 'document_number_sequences'
+    document_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    business_date: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_number: Mapped[int] = mapped_column(Integer, nullable=False)

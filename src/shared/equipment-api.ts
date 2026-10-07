@@ -1,3 +1,4 @@
+import type { NumberedDocument } from './document-numbering'
 import type { MaterialChoice } from './material-api'
 export type EquipmentStatus = 'active' | 'inactive' | 'retired'
 export type EquipmentAttachmentKind = 'asset' | 'job'
@@ -76,7 +77,7 @@ export interface MaintenanceJobInput {
   work_order_id: number | null; assigned_to: number; request_note: string
   warehouse_id: number | null; parts: MaintenancePart[]; reason: string
 }
-export interface MaintenanceJobRecord extends Omit<MaintenanceJobInput, 'reason'> {
+export interface MaintenanceJobRecord extends Omit<MaintenanceJobInput, 'reason'> , NumberedDocument {
   id: number; version: number; status: MaintenanceStatus; plan_version: number | null; plan_due_date: string | null
   plan_due_hours: string | null; plan_meter_reading_id: number | null
   equipment_snapshot: Record<string, unknown>; work_order_snapshot: Record<string, unknown> | null

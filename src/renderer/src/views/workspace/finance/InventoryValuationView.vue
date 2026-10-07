@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -194,10 +196,10 @@ async function submitPrice(): Promise<void> {
       :columns="sourceColumns"
       :data="unpriced"
     >
-      <template #cell-movement="{ row: item }">#{{ item.id }}</template>
+      <template #cell-movement="{ row: item }">{{ documentLabel(item) }}</template>
       <template #cell-material="{ row: item }">{{ materialName(item.material_id) }}</template>
       <template #cell-quantity="{ row: item }">{{ item.quantity }}</template>
-      <template #cell-source="{ row: item }">{{ item.source_type }} #{{ item.source_id }}</template>
+      <template #cell-source="{ row: item }">{{ item.source_type }} {{ relatedDocumentLabel(item, 'source') }}</template>
     </WorkspaceTable>
     <WorkspaceTable
       title="核价修订历史"

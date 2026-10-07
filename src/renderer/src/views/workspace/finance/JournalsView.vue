@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -60,7 +62,7 @@ const rows = computed(() =>
   journals.value.filter(
     (item) =>
       (!status.value || item.status === status.value) &&
-      [item.reference, item.note, item.created_by_name, String(item.id)]
+      [documentSearch(item), item.reference, item.note, item.created_by_name, String(item.id)]
         .join(' ')
         .toLowerCase()
         .includes(query.value.trim().toLowerCase())
@@ -184,7 +186,7 @@ async function confirm(): Promise<void> {
               }))
             ]" /></label
       ></template>
-      <template #cell-id="{ row }">记-{{ row.id }}</template>
+      <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
       <template #cell-total_debit="{ row }">¥{{ row.total_debit }}</template>
       <template #cell-status="{ row }">{{
         journalStatusLabels[row.status as keyof typeof journalStatusLabels]
@@ -195,14 +197,14 @@ async function confirm(): Promise<void> {
           @click="detailId = row.reversal_of_id"
           variant="text"
           type="button"
-          >原凭证记-{{ row.reversal_of_id }}</AppButton
-        ><span v-else-if="row.profit_transfer">损益结转 · {{ row.period_code }}</span><span v-else-if="row.business_source">{{ row.business_source.evidence.label }} #{{ row.business_source.evidence.source_id }}</span><span v-else>手工录入</span
+          >原凭证{{ relatedDocumentLabel(row, 'reversal_of') }}</AppButton
+        ><span v-else-if="row.profit_transfer">损益结转 · {{ row.period_code }}</span><span v-else-if="row.business_source">{{ row.business_source.evidence.label }} {{ relatedDocumentLabel(row.business_source.evidence, 'source') }}</span><span v-else>手工录入</span
         ><AppButton
           v-if="row.reversal_journal_id"
           @click="detailId = row.reversal_journal_id"
           variant="text"
           type="button"
-          >冲销凭证记-{{ row.reversal_journal_id }}</AppButton
+          >冲销凭证{{ relatedDocumentLabel(row, 'reversal_journal') }}</AppButton
         ></template
       >
       <template #cell-actions="{ row }"
@@ -253,7 +255,7 @@ async function confirm(): Promise<void> {
     <NModal
       v-model:show="showForm"
       preset="card"
-      :title="form.id === null ? '新增手工凭证' : `编辑记-${form.id}`"
+      :title="form.id === null ? '新增手工凭证' : `编辑${documentLabel(form, journals)}`"
       :mask-closable="!busy"
       :style="{
         width: 'min(1100px, calc(100vw - 32px))',
@@ -397,7 +399,7 @@ async function confirm(): Promise<void> {
     <NModal
       :show="command !== null"
       preset="card"
-      :title="command ? `${journalActionLabels[command.action]} · 记-${command.record.id}` : ''"
+      :title="command ? `${journalActionLabels[command.action]} · ${documentLabel(command.record)}` : ''"
       :mask-closable="!busy"
       :style="{ width: 'min(640px, calc(100vw - 32px))' }"
       @update:show="
@@ -450,7 +452,7 @@ async function confirm(): Promise<void> {
     <NModal
       :show="!!detail"
       preset="card"
-      :title="detail ? `记-${detail.id} · ${journalStatusLabels[detail.status]}` : ''"
+      :title="detail ? `${documentLabel(detail)} · ${journalStatusLabels[detail.status]}` : ''"
       :style="{
         width: 'min(1100px, calc(100vw - 32px))',
         maxHeight: 'calc(100vh - 48px)',
@@ -473,7 +475,7 @@ async function confirm(): Promise<void> {
             @click="detailId = detail.reversal_of_id"
             variant="text"
             type="button"
-            >查看原凭证记-{{ detail.reversal_of_id }}</AppButton
+            >查看原凭证{{ relatedDocumentLabel(detail, 'reversal_of') }}</AppButton
           >
         </p>
         <p v-if="detail.reversal_journal_id">
@@ -481,7 +483,7 @@ async function confirm(): Promise<void> {
             @click="detailId = detail.reversal_journal_id"
             variant="text"
             type="button"
-            >查看冲销凭证记-{{ detail.reversal_journal_id }}</AppButton
+            >查看冲销凭证{{ relatedDocumentLabel(detail, 'reversal_journal') }}</AppButton
           >（{{ relatedStatus(detail.reversal_journal_id) }}）；冲销凭证过账后才抵销原凭证。
         </p>
         <WorkspaceTable

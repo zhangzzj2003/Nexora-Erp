@@ -6,3 +6,5 @@ reportlab>=4.2,<5
 zeroconf>=0.147,<1.0
 ifaddr>=0.2,<1.0
 pywin32>=306; sys_platform == "win32"
+# 指定时区使用随服务端打包的 IANA 数据，Windows 不依赖操作系统时区目录。
+tzdata>=2025.2

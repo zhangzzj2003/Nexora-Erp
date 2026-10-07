@@ -48,15 +48,16 @@ export function createConnectionActions(
     busy.value = true
     error.value = ''
     try {
-      const state = await window.nexora.startup()
+      const startupState = await window.nexora.startup()
       connectionLost.value = false
       connectionNotice.value = ''
-      if (state.status === 'connected') {
-        server.value = state.server
+      if (startupState.status === 'connected') {
+        server.value = startupState.server
         try {
           // Pinia 在页面刷新后重新创建；从服务端核验主进程会话再恢复账号和权限。
           user.value = await window.nexora.callApi('me', undefined)
-          screen.value = 'app'
+          state.documentNumbering.value = await window.nexora.callApi('documentNumbering', undefined)
+          screen.value = !state.documentNumbering.value.configured && user.value.roles.includes('admin') ? 'numbering' : 'app'
         } catch (cause) {
           // 主进程没有令牌或服务端已撤销会话时，不展示旧账号的数据。
           user.value = null
@@ -64,7 +65,7 @@ export function createConnectionActions(
           const message = displayError(cause)
           if (message !== '请先登录') error.value = message
         }
-        if (user.value) {
+        if (user.value && screen.value === 'app') {
           // 业务数据读取失败时保留已验证的登录状态，并显示具体错误供重试。
           try {
             await refreshData()
@@ -72,13 +73,13 @@ export function createConnectionActions(
             error.value = displayError(cause)
           }
         }
-      } else if (state.status === 'needs_setup') {
-        server.value = state.server
+      } else if (startupState.status === 'needs_setup') {
+        server.value = startupState.server
         screen.value = 'setup'
-      } else if (state.status === 'offline') {
-        server.value = state.server ?? null
+      } else if (startupState.status === 'offline') {
+        server.value = startupState.server ?? null
         screen.value = 'offline'
-        error.value = state.message
+        error.value = startupState.message
       } else {
         screen.value = 'welcome'
       }
@@ -114,6 +115,7 @@ export function createConnectionActions(
       }
     }
     user.value = null
+    state.documentNumbering.value = null
     connectionLost.value = false
     connectionNotice.value = ''
     server.value = null
@@ -328,6 +330,11 @@ export function createConnectionActions(
         password: password.value
       })
       password.value = ''
+      state.documentNumbering.value = await window.nexora.callApi('documentNumbering', undefined)
+      if (!state.documentNumbering.value.configured && user.value.roles.includes('admin')) {
+        screen.value = 'numbering'
+        return
+      }
       screen.value = 'app'
       connectionNotice.value = ''
       await refreshData()
@@ -379,7 +386,7 @@ export function createConnectionActions(
     if (
       !window.nexora ||
       checkingHealth ||
-      !['app', 'login', 'setup', 'ready'].includes(screen.value)
+      !['app', 'numbering', 'login', 'setup', 'ready'].includes(screen.value)
     )
       return
     checkingHealth = true
@@ -404,6 +411,10 @@ export function createConnectionActions(
       // TLS 请求仍使用固定证书；恢复后从服务端重读，避免展示断线期间的旧库存。
       connectionLost.value = false
       error.value = ''
+      if (screen.value === 'numbering') {
+        state.documentNumbering.value = await window.nexora.callApi('documentNumbering', undefined)
+        if (state.documentNumbering.value.configured) { screen.value = 'app'; await refreshData() }
+      }
       if (screen.value === 'app') {
         try {
           await refreshData()

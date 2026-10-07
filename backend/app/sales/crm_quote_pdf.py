@@ -1,5 +1,6 @@
 """用已冻结的报价资料生成可独立查看的中文 PDF。"""
 
+from app.core.document_responses import NumberedRoute
 from html import escape
 from io import BytesIO
 from pathlib import Path
@@ -20,7 +21,7 @@ from app.core.orm import orm_session
 from app.sales.crm_rules import get_record, raw_data, today
 
 
-router = APIRouter(prefix='/api/v1/crm/quotes')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/crm/quotes')
 FONT_PATH = Path(__file__).with_name('fonts') / 'NotoSansSC-Regular.ttf'
 FONT_NAME = 'NexoraNotoSansSC'
 _font_lock = Lock()
@@ -49,7 +50,7 @@ def quote_pdf(snapshot: dict, issued_on: str) -> bytes:
                                  author='Nexora ERP', pageCompression=1)
     width = A4[0] - 38*mm
     body = [paragraph('固定报价', heading), Spacer(1, 4*mm),
-            paragraph(f"报价编号：{snapshot['reference']}　　导出日期：{issued_on}", muted), Spacer(1, 7*mm)]
+            paragraph(f"业务单号：{snapshot.get('document_no') or snapshot['reference']}　　参考号：{snapshot['reference']}　　导出日期：{issued_on}", muted), Spacer(1, 7*mm)]
     status = '已转销售订单，仅供历史核对' if snapshot['status'] == 'converted' else '已批准'
     if snapshot['valid_until'] < issued_on:
         status += '；有效期已过，仅供历史核对'
@@ -99,7 +100,7 @@ def quote_pdf(snapshot: dict, issued_on: str) -> bytes:
         canvas.line(19*mm, 15*mm, A4[0]-19*mm, 15*mm)
         canvas.setFont(FONT_NAME, 8)
         canvas.setFillColor(colors.HexColor('#526174'))
-        canvas.drawString(19*mm, 10*mm, f"报价编号：{snapshot['reference']}")
+        canvas.drawString(19*mm, 10*mm, f"业务单号：{snapshot.get('document_no') or snapshot['reference']}")
         canvas.drawRightString(A4[0]-19*mm, 10*mm, f'第 {doc.page} 页')
         canvas.restoreState()
 
@@ -114,6 +115,7 @@ def export_quote_pdf(identifier: int, user: dict = Depends(require('crm.view')))
         if record.status not in ('approved', 'converted'):
             raise HTTPException(409, '只有已批准且未取消的报价可以导出 PDF')
         snapshot = raw_data(db, 'quote', record)
+        snapshot['document_no'] = record.document_no
     content = quote_pdf(snapshot, today())
     return Response(content=content, media_type='application/pdf', headers={
         'Content-Disposition': f'attachment; filename="quote-{identifier}.pdf"',

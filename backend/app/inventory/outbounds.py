@@ -1,5 +1,6 @@
 """仓库其他出库单；库存减少只发生在确认事务中。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 
@@ -31,7 +32,7 @@ UserCreator = aliased(User)
 UserPoster = aliased(User)
 UserRu = aliased(User)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class OutboundLineInput(BaseModel):

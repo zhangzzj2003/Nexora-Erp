@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 凭证与来源保留内部 ID，界面优先显示服务端保存的业务单号。
+import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NDatePicker, NModal, NCollapse } from 'naive-ui'
@@ -125,10 +127,10 @@ function closeJournal(): void {
       <p v-if="archiveLoading" role="status">正在读取归档快照…</p><p v-if="error" role="alert">{{ error }}</p>
       <div v-if="archive" class="stack"><p>归档于 {{ localTime(archive.created_at) }} · 操作者 {{ archives.find(item => item.id === archive!.id)?.created_by_name || `账号 #${archive.created_by}` }} · 依据 {{ archive.reason }}</p><AppButton type="button" variant="secondary" :disabled="connectionLost" @click="exportStatement(archive.snapshot)">导出归档 CSV</AppButton><StatementReportView :key="archive.id" :report="archive.snapshot" archived :can-open-journal="can('journal.view')" :offline="connectionLost" @open-journal="inspectJournal" /></div>
     </NModal>
-    <NModal :show="!!journal || journalLoading || !!journalError" preset="card" :title="journal ? `记-${journal.id} · ${journalStatusLabels[journal.status]}` : '当前凭证详情'" :style="modalStyle" @update:show="value => { if (!value) closeJournal() }">
+    <NModal :show="!!journal || journalLoading || !!journalError" preset="card" :title="journal ? `${documentLabel(journal)} · ${journalStatusLabels[journal.status]}` : '当前凭证详情'" :style="modalStyle" @update:show="value => { if (!value) closeJournal() }">
       <p v-if="journalLoading" role="status">正在读取凭证…</p><p v-if="journalError" role="alert">{{ journalError }}</p>
       <div v-if="journal" class="stack"><p>{{ journal.journal_date }} · 期间 {{ journal.period_code }} · 依据 {{ journal.reference }} · 建单人 {{ journal.created_by_name }} · 当前版本 {{ journal.version }}</p><p v-if="journal.note">备注：{{ journal.note }}</p>
-        <p v-if="journal.reversal_of_id">冲销原凭证：<AppButton type="button" variant="text" :disabled="connectionLost" @click="inspectJournal(journal.reversal_of_id)">记-{{ journal.reversal_of_id }}</AppButton></p>
+        <p v-if="journal.reversal_of_id">冲销原凭证：<AppButton type="button" variant="text" :disabled="connectionLost" @click="inspectJournal(journal.reversal_of_id)">{{ relatedDocumentLabel(journal, 'reversal_of') }}</AppButton></p>
         <WorkspaceTable title="当前凭证分录" :data="journal.lines" :columns="journalColumns" :min-table-width="1090"><template #cell-account_name="{ row }">{{ row.account_code }} · {{ row.account_name }}</template><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable>
         <NCollapse><AppCollapseItem v-if="journal.business_source" name="business" title="生成时的业务来源"><BusinessSourceEvidence :source="journal.business_source.evidence" :mapping="journal.business_source.mapping" /></AppCollapseItem><AppCollapseItem v-if="journal.profit_transfer" name="transfer" title="生成时的损益结转来源"><ProfitTransferEvidence :evidence="journal.profit_transfer.evidence" :can-open-journal="can('journal.view')" @open-journal="inspectJournal" /></AppCollapseItem></NCollapse>
         <JournalHistory :key="`${journal.id}:${journal.version}`" :load="() => loadJournalChanges(journal!.id)" />

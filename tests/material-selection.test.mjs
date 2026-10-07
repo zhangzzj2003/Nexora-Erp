@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createSSRApp, h } from 'vue'
+import { createSSRApp, effectScope, h, ref } from 'vue'
 import { createPinia } from 'pinia'
 import { renderToString } from '@vue/server-renderer'
 import { setup as setupSsrStyles } from '@css-render/vue3-ssr'
@@ -10,6 +10,7 @@ import { hasMaterialDetails, materialChoiceFacts, materialSelectOptions, matches
 import { appendDocumentMaterialRow, documentMaterialDisabled, documentMaterialIssue } from '../src/renderer/src/utils/document-material-lines.ts'
 import { validateMaterialChoiceResult } from '../src/shared/material-choice-validation.ts'
 import { callBackend } from '../src/main/backend.ts'
+import { useOtherInboundMaterialDetails } from '../src/renderer/src/views/workspace/warehouse/other-inbound-material-details.ts'
 
 const resistor = {id:1,sku:'EL-SR-000001',name:'贴片电阻',unit:'个',category_code:'EL-SR',
   specification:'10kΩ',package:'0603',brand:'示例品牌',manufacturer_part_number:'RC0603-10K',
@@ -75,6 +76,56 @@ test('每一行的重复、失效和数量风险均在保存前拦截',()=>{
   assert.equal(documentMaterialIssue([{...base,quantity:'1000000'}],[resistor]),'')
 })
 
+test('新增行自动切换资料展示，旧行可查看或收起，展示状态不改动草稿',()=>{
+  const scope=effectScope()
+  try {
+    const lines=ref([])
+    const details=scope.run(()=>useOtherInboundMaterialDetails(()=>lines.value))
+    assert.equal(details.activeLine.value,null)
+    lines.value=appendDocumentMaterialRow(lines.value)
+    const first=lines.value[0];first.material_id=1;first.quantity='0.125';details.showLine(first)
+    lines.value=appendDocumentMaterialRow(lines.value)
+    const second=lines.value[1];details.showLine(second)
+    assert.equal(details.activeLine.value,second)
+    const before=JSON.stringify(lines.value)
+    details.setCompact(first,false)
+    assert.equal(details.activeLine.value,first)
+    details.setCompact(first,true)
+    assert.equal(details.activeLine.value,null)
+    details.showLine({material_id:99,quantity:'1'})
+    assert.equal(details.activeLine.value,null)
+    assert.equal(JSON.stringify(lines.value),before)
+    assert.equal(lines.value[0].quantity,'0.125')
+    // 保存失败或收起不替换草稿时，当前查看行及所有输入均保留。
+    details.showLine(second)
+    assert.equal(details.activeLine.value,second)
+    assert.equal(JSON.stringify(lines.value),before)
+    lines.value=[]
+    assert.equal(details.activeLine.value,null)
+  } finally {scope.stop()}
+})
+
+test('移除中间行不按序号切换资料，移除当前行回到最后一行，恢复草稿仅默认查看最后行',()=>{
+  const scope=effectScope()
+  try {
+    const lines=ref([{material_id:1,quantity:'1'},{material_id:2,quantity:'2'},{material_id:3,quantity:'3'}])
+    const details=scope.run(()=>useOtherInboundMaterialDetails(()=>lines.value))
+    const last=lines.value[2]
+    assert.equal(details.activeLine.value,last)
+    lines.value.splice(1,1)
+    assert.equal(details.activeLine.value,last)
+    assert.equal(last.quantity,'3')
+    details.showLine(lines.value[0])
+    lines.value.splice(0,1)
+    assert.equal(details.activeLine.value,last)
+    lines.value.splice(0,1)
+    assert.equal(details.activeLine.value,null)
+    lines.value=appendDocumentMaterialRow(lines.value)
+    details.showLine(lines.value[0])
+    assert.equal(details.activeLine.value,lines.value[0])
+  } finally {scope.stop()}
+})
+
 test('旧业务响应兼容，新增字段的错误类型、超长内容及重复编号被边界拒绝',()=>{
   for(const action of ['crmOptions','afterSalesOverview','qualityOverview','equipmentOverview','inventoryWarnings','mrpOptions']) {
     validateMaterialChoiceResult(action,{materials:[resistor]})
@@ -111,8 +162,8 @@ test('真实选择器显示只读核心资料，空值、历史来源与无详�
   const server=await createServer({configFile:false,plugins:[vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'})
   t.after(()=>server.close())
   const {default:Select}=await server.ssrLoadModule('/src/renderer/src/components/workspace/WorkspaceMaterialSelect.vue')
-  async function render(modelValue,materials,options){
-    const app=createSSRApp({render:()=>h(Select,{modelValue,materials,options,required:true,ariaLabel:'待添加物料'})}).use(createPinia())
+  async function render(modelValue,materials,options,extra={}){
+    const app=createSSRApp({render:()=>h(Select,{modelValue,materials,options,required:true,ariaLabel:'待添加物料',...extra})}).use(createPinia())
     setupSsrStyles(app);return renderToString(app)
   }
   const ready=await render(1,[{...resistor,category_name:'电子类 / 贴片电阻'}])
@@ -125,4 +176,13 @@ test('真实选择器显示只读核心资料，空值、历史来源与无详�
   assert.match(await render(9,[],[{value:9,label:'物料 #9（保留的来源）'}]),/保留的来源/)
   assert.doesNotMatch(await render(null,[],[{value:null,label:'全部物料'}]),/详细资料暂不可用/)
   assert.ok((await render(1,[{...resistor,brand:'<img src=x onerror=alert(1)>'}])).includes('&lt;img'))
+  // 仅主动接入的表格精简旧行；普通表单保持核心资料，旧简要响应仍有明确提示。
+  const compact=await render(1,[resistor],undefined,{compact:true})
+  assert.match(compact,/物料资料摘要|查看资料/)
+  assert.ok(compact.includes('10kΩ · 0603 · 示例品牌 · RC0603-10K'))
+  assert.doesNotMatch(compact,/当前物料资料|展开详情|规格型号/)
+  assert.doesNotMatch(ready,/收起资料|查看资料/)
+  assert.match(await render(1,[resistor],undefined,{compact:false}),/当前物料资料.*收起资料/s)
+  assert.match(await render(1,[{id:1,sku:'OLD',name:'旧料',unit:'个'}],undefined,{compact:true}),/详细资料暂不可用/)
+  assert.doesNotMatch(await render(0,[resistor],undefined,{compact:true}),/查看资料|物料资料摘要/)
 })

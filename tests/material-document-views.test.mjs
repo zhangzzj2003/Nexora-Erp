@@ -15,7 +15,7 @@ const views = [
   ['warehouse/InventoryAdjustmentsView.vue','adjustmentForm'],
   ['sales/SalesOrdersView.vue','salesForm'],
   ['sales/SalesShipmentsView.vue','shipmentForm'],
-  ['production/ProductionBomsView.vue','bomForm'],
+  ['catalog/ProductionBomsView.vue','bomForm'],
   ['purchase/PurchaseGoodsReceiptsView.vue','goodsReceiptForm'],
   ['purchase/PurchaseReturnsView.vue','purchaseReturnForm'],
   ['sales/SalesReturnsView.vue','salesReturnForm'],
@@ -29,11 +29,12 @@ for(const key of ${JSON.stringify(['materials','suppliers','warehouses','purchas
 Object.assign(state,{busy:ref(false),connectionLost:ref(false),error:ref(''),notice:ref(''),version:ref('0.1.0'),user:ref({id:1,permissions:[]}),
  adjustmentDecisionReasons:ref({}),adjustmentReversalReasons:ref({}),otherOutboundReversalReasons:ref({}),transferReversalReasons:ref({}),stocktakeReversalReasons:ref({}),salesReturnReversalReasons:ref({}),requestRejectReasons:ref({}),
  can:()=>true,localTime:()=>'',openCustomers:()=>{},editPurchaseRequest:id=>{editLoads.push(id);state.purchaseRequestForm.value={...state.purchaseRequestForm.value,requestId:id??null,lines:[{material_id:0,quantity:'1'}]}}})
+state.materialCategories=ref([])
 state.materials.value=[{id:1,sku:'EL-SR-1',name:'电阻',unit:'个'},{id:2,sku:'HW-SC-2',name:'螺钉',unit:'件'}]
 state.warehouses.value=[{id:1,name:'主仓库'}];state.suppliers.value=[{id:1,name:'供应商'}]
 state.customers=ref([{id:1,name:'客户'}])
 for(const key of ${JSON.stringify(views.map(v=>v[1]).concat('requestConversionForm'))})state[key]=ref({requestId:31,supplier_id:1,warehouse_id:1,from_warehouse_id:1,to_warehouse_id:2,customer_id:1,purchase_order_id:31,receipt_id:31,shipment_id:31,work_order_id:31,material_issue_id:31,product_material_id:2,base_quantity:'1',reference:'原参考号',note:'原说明',reason:'原原因',lines:[{material_id:1,component_material_id:1,quantity:'1',counted_quantity:'0',unit_price:'2.5000',warranty_days:30,warranty_basis:'合同',purchase_order_line_id:31,purchase_request_line_id:31,receipt_line_id:31,shipment_line_id:31,work_order_line_id:31,material_issue_line_id:31,accepted_quantity:'1',rejected_quantity:'0',rejection_reason:''}]})
-const source={id:31,status:'approved',lines:[{id:31,material_name:'来源物料',material_id:1,remaining_quantity:'3',returnable_quantity:'4'}]}
+const source={id:31,document_no:'PR-20261007-000031',status:'approved',lines:[{id:31,material_name:'来源物料',material_id:1,remaining_quantity:'3',returnable_quantity:'4'}]}
 state.purchaseRequests.value=[source];state.purchaseOrders.value=[{...source,status:"confirmed"}]
 for(const key of ['selectedPurchaseReturnReceipt','selectedSalesReturnShipment','selectedIssueOrder','selectedReturnIssue'])state[key]=ref(source)
 export const useAppStore=()=>state
@@ -119,6 +120,8 @@ test('十四个物料单据页面共用表格弹窗，新增和删除直接修�
   create.attrs.onClick()
   assert.equal(editLoads.length,1)
   assert.equal(state.purchaseRequestForm.value.requestId,null)
+  // 转单标题使用正式业务单号，不能在布局迁移后退回内部 ID。
+  assert.match(await render('purchase/PurchaseRequestsView.vue'), /申请 PR-20261007-000031 转采购订单/)
   const purchase=await render('purchase/PurchaseOrdersView.vue')
   assert.match(purchase,/step="0.0001"/)
   const adjustment=await render('warehouse/InventoryAdjustmentsView.vue')

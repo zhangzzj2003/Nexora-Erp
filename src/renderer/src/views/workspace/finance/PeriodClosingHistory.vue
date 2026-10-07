@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 凭证与来源保留内部 ID，界面优先显示服务端保存的业务单号。
+import { relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
@@ -53,9 +55,9 @@ const movementNames: Record<string, string> = { receipt: '采购入库', receipt
     </WorkspaceTable>
     <template v-if="evidence">
       <p>结账记录 {{ selected?.id }} · {{ evidence.period.start_date }} 至 {{ evidence.period.end_date }} · 保存于 {{ localTime(selected?.created_at ?? '') }}</p>
-      <p class="muted">这是当次结账保存的证据。重开或后续业务不会覆盖它；金额按人民币，业务时间按 UTC。{{ evidence.opening_balance_id ? `正式期初来源：期初-${evidence.opening_balance_id}` : '当次没有正式期初来源。' }}</p>
+      <p class="muted">这是当次结账保存的证据。重开或后续业务不会覆盖它；金额按人民币，业务时间按 UTC。{{ evidence.opening_balance_id ? `正式期初来源：${relatedDocumentLabel(evidence, 'opening_balance')}` : '当次没有正式期初来源。' }}</p>
       <WorkspaceTable title="总账余额快照（元）" :columns="balanceColumns" :data="evidence.ledger.rows" :min-table-width="920" />
-      <p v-if="evidence.profit_transfer">损益结转检查：{{ evidence.profit_transfer.required ? '已纳管，损益余额已清零' : '沿用历史范围或没有待结损益' }}；配置版本 {{ evidence.profit_transfer.policy.version }}；{{ evidence.profit_transfer.journal_id ? `结转凭证记-${evidence.profit_transfer.journal_id}` : '没有有效生成结转凭证' }}。</p>
+      <p v-if="evidence.profit_transfer">损益结转检查：{{ evidence.profit_transfer.required ? '已纳管，损益余额已清零' : '沿用历史范围或没有待结损益' }}；配置版本 {{ evidence.profit_transfer.policy.version }}；{{ evidence.profit_transfer.journal_id ? `结转凭证${relatedDocumentLabel(evidence.profit_transfer, 'journal')}` : '没有有效生成结转凭证' }}。</p>
       <WorkspaceTable title="库存余额快照" :columns="inventoryColumns" :data="evidence.inventory.materials" :min-table-width="760" />
       <WorkspaceTable title="库存金额来源" :columns="movementColumns" :data="evidence.inventory.movements" :min-table-width="960"><template #cell-source_type="{ row }">{{ movementNames[row.source_type] ?? '库存流水' }}</template></WorkspaceTable>
       <p>业务应收来源净额 {{ evidence.business_sources.receivable_amount }} 元；应付来源净额 {{ evidence.business_sources.payable_amount }} 元；无价来源 {{ evidence.business_sources.unpriced_count }} 笔。收付款记录 {{ evidence.payments.length }} 笔，已过账凭证 {{ evidence.posted_journal_ids.length }} 张。</p>

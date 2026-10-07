@@ -1,5 +1,6 @@
 """银行对账单与已过账总账的余额调节、分组勾对及独立复核。"""
 
+from app.core.document_responses import NumberedRoute
 from datetime import date
 from decimal import Decimal
 import hashlib
@@ -24,7 +25,7 @@ from app.finance.bank_opening_rules import active_clearances
 from app.finance.ledger_reports import confirmed_opening_lines
 from app.finance.opening_rules import active_opening
 
-router = APIRouter(prefix='/api/v1/finance/bank-balance')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/bank-balance')
 ZERO = Decimal('0.00')
 
 

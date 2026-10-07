@@ -1,5 +1,6 @@
 """采购退货单：以原入库行为来源，确认后追加负向库存流水。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal, and_, or_
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.engine import RowMapping
@@ -35,7 +36,7 @@ from app.access.security import require
 UserRu = aliased(User)
 UserU = aliased(User)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class PurchaseReturnLineInput(BaseModel):

@@ -14,6 +14,7 @@
 | `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，`material-form.ts` 管理草稿与搜索；展示关联供应商；沿用 `/workspace/catalog` 地址 |
 | `catalog/` | `SuppliersView.vue` | 供应商增删改查及供货物料绑定、解绑 |
 | `catalog/` | `UnitsView.vue` | 独立单位表的搜索、分页、新增、版本编辑、启停和变更记录；物料弹窗从单位目录选择 |
+| `catalog/` | `ProductionBomsView.vue` | 生产 BOM 基础资料；复用公共单据弹窗编辑成品与组件用量，`bom-form.ts` 校验重复、自引用及数量；保留原地址、权限和 Pinia 草稿 |
 | `catalog/` | `CustomersView.vue` | 客户搜索、新增相似名称核对及单列 CSV 预检和批量导入；销售查看权限可浏览，客户管理权限可写入 |
 | `catalog/` | `WarehousesView.vue` | 仓库增删改查，默认主仓库禁止删除 |
 | `purchase/` | `PurchaseOrdersView.vue` | 建立和管理采购订单 |
@@ -36,7 +37,6 @@
 | `finance/` | `SubledgerOpeningsView.vue` | 历史未结单据逐组合核对、独立审核启用、资金历史及 CSV |
 | `finance/` | `FinancialSourcesView.vue` | 查看应收应付的业务来源明细 |
 | `finance/` | `InventoryValuationView.vue` | 查看移动平均库存金额、待核价来源和核价修订历史 |
-| `production/` | `ProductionBomsView.vue` | 管理生产 BOM 版本 |
 | `production/` | `ProductionWorkOrdersView.vue` | 建立和下达生产工单 |
 | `production/` | `MaterialIssuesView.vue` | 处理生产领料，逐行选择来源仓批次确认并展示固定证据或旧确认差额 |
 | `production/` | `MaterialReturnsView.vue` | 处理生产退料，核对原领料批次或登记退料新批次并展示固定证据 |
@@ -65,6 +65,8 @@
 工作台中的表格统一由 `components/workspace/WorkspaceTable.vue` 封装的 vxe-table 渲染。页面传入 `columns`、`data` 和可选的最小宽度，通过 `cell-<列键>` 插槽填写业务单元格；标题、筛选、操作、表前说明、空状态和页脚分别使用 `heading`、`filters`、`actions`、`beforeTable`、`empty`、`footer` 插槽。表格超出可视宽度时，底部提供始终可见的横向滚动条；查询失败可用 `error` 和 `errorActions` 显示失败原因与重试入口。采购与库存报表也使用同一组件，CSV 继续基于相同的服务端查询结果。列表新增入口以按钮打开 Naive UI 弹窗，保存失败保留草稿；复杂单据的确认、冲销仍保留原有操作流程。职务仍沿用现有角色与操作权限数据，内置角色只读；授权树由 `components/workspace/PermissionTreePicker.vue` 提供。权限目录在系统管理下使用单独路由，避免职务列表下方再展开很长的名称维护区域。权限目录可独立重试读取服务端数据，其他业务列表加载失败时不会使目录一直空白。
 
 公共分页栏把筛选后总条数与分页控件集中放在表格底部右侧，窄窗允许换行；总数为 0 时仅保留“共 0 条”。物料页使用 `useLocalPagination` 对已经加载的名单分页，默认每页 20 条，可选 10/20/50/100 条；搜索或切换每页条数回到首页，删除导致末页越界时自动回退。完整物料名单仍保存在 Pinia 中供业务选项使用，此处不改变服务端查询方式。
+
+“其他入库”操作栏的“查看详情”复用 `WorkspaceDocumentDialog` 的 `readOnly` 模式，隐藏添加、保存并拦截相关事件，空明细采用只读提示。基础信息和物料表只显示已保存的单据字段与批次证据，不使用当前物料档案覆盖历史名称或单位。按单据 ID 跟随 Pinia 最新快照，不引用新建草稿；断线或其他操作忙碌时仍可查看和关闭。查看权限由原页面路由守卫控制，不额外要求创建、确认或冲销权限。其他列表暂未接入。
 
 应用业务状态和主题状态由 Pinia 管理。`store/app-store.ts` 的 `useAppStore()` 保留页面现有的响应式 `ref` 取值接口；应用启动与监听器清理由根组件负责。
 

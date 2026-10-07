@@ -1,5 +1,6 @@
 """销售订单合同正文的追加式版本证据。"""
 
+from app.core.document_responses import NumberedRoute
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
@@ -9,7 +10,7 @@ from app.core.models import SalesOrderContractRevision, User
 from app.core.orm import add_model, model_data, orm_session
 from app.sales.customer_scope import require_visible_order
 
-router = APIRouter(prefix='/api/v1/sales-orders')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/sales-orders')
 
 
 class ContractRevisionInput(BaseModel):

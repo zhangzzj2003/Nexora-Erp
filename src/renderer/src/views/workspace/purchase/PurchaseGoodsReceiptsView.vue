@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -22,7 +24,7 @@ const query = ref('')
 const showForm = ref(false)
 const selectedOrder = computed(() => purchaseOrders.value.find((item) => item.id === goodsReceiptForm.value.purchase_order_id))
 const filtered = computed(() => goodsReceipts.value.filter((item) =>
-  [item.id, item.purchase_order_id, item.supplier_name, item.reference, ...item.lines.map((line) => line.material_name)]
+  [documentSearch(item), item.id, item.purchase_order_id, item.supplier_name, item.reference, ...item.lines.map((line) => line.material_name)]
     .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const columns = [
   { key: 'document', title: '收货单' }, { key: 'warehouse', title: '仓库与状态' },
@@ -164,11 +166,10 @@ const goodsReceiptFormColumns = [
         </WorkspaceDocumentDialog>
       </template>
       <template #cell-document="{ row: item }"
-        ><strong>#{{ item.id }} · {{ item.supplier_name }}</strong
+        ><strong>{{ documentLabel(item) }} · {{ item.supplier_name }}</strong
         ><small>{{ localTime(item.created_at) }}</small
         ><small
-          >采购订单 #{{ item.purchase_order_id
-          }}<span v-if="item.reference"> · {{ item.reference }}</span></small
+          >采购订单 {{ relatedDocumentLabel(item, 'purchase_order') }}<span v-if="item.reference"> · {{ item.reference }}</span></small
         ></template
       >
       <template #cell-warehouse="{ row: item }"
@@ -183,7 +184,7 @@ const goodsReceiptFormColumns = [
                 : '全数拒收'
         }}</small
         ><small v-if="item.inbound_receipt_id"
-          >入库单 #{{ item.inbound_receipt_id }} ·
+          >入库单 {{ relatedDocumentLabel(item, 'inbound_receipt') }} ·
           {{
             item.inbound_reversal_id
               ? '已冲销'

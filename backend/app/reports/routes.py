@@ -1,5 +1,6 @@
 """报表筛选与 CSV 使用同一份服务端计算结果。"""
 
+from app.core.document_responses import NumberedRoute
 import csv
 from datetime import date
 from sqlalchemy import select, func
@@ -34,7 +35,7 @@ from app.purchase.receipts import receipt_data
 from app.purchase.requests import request_data
 from app.purchase.returns import purchase_return_data
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 ReportKind = Literal[
     "purchase_requests", "purchase_orders", "receiving_returns", "inventory_balance", "stock_flow"
@@ -147,7 +148,7 @@ def purchase_request_rows(db: Session, filters: ReportQuery) -> list[dict[str, s
                 continue
             rows.append(
                 {
-                    "document": str(item_id),
+                    "document": db.get(PurchaseRequest, item_id).document_no or str(item_id),
                     "status": item["status"],
                     "date": item["created_at"],
                     "reference": item["reference"],
@@ -174,8 +175,8 @@ def purchase_order_rows(db: Session, filters: ReportQuery) -> list[dict[str, str
                 continue
             rows.append(
                 {
-                    "document": str(item_id),
-                    "request": str(item["purchase_request_id"] or ""),
+                    "document": db.get(PurchaseOrder, item_id).document_no or str(item_id),
+                    "request": (db.get(PurchaseRequest, item["purchase_request_id"]).document_no or str(item["purchase_request_id"])) if item["purchase_request_id"] else "",
                     "supplier": item["supplier_name"],
                     "status": item["status"],
                     "date": item["created_at"],
@@ -208,8 +209,8 @@ def receiving_return_rows(db: Session, filters: ReportQuery) -> list[dict[str, s
             rows.append(
                 {
                     "type": "采购收货",
-                    "document": str(item_id),
-                    "source": str(item["purchase_order_id"]),
+                    "document": db.get(PurchaseGoodsReceipt, item_id).document_no or str(item_id),
+                    "source": db.get(PurchaseOrder, item["purchase_order_id"]).document_no or str(item["purchase_order_id"]),
                     "supplier": item["supplier_name"],
                     "warehouse": item["warehouse_name"],
                     "status": item["status"],
@@ -234,8 +235,8 @@ def receiving_return_rows(db: Session, filters: ReportQuery) -> list[dict[str, s
             rows.append(
                 {
                     "type": "采购入库",
-                    "document": str(item_id),
-                    "source": str(item.get("goods_receipt_id") or ""),
+                    "document": db.get(Receipt, item_id).document_no or str(item_id),
+                    "source": (db.get(PurchaseGoodsReceipt, item["goods_receipt_id"]).document_no or str(item["goods_receipt_id"])) if item.get("goods_receipt_id") else "",
                     "supplier": item["supplier_name"],
                     "warehouse": item["warehouse_name"],
                     "status": "已冲销" if item["reversal_id"] else item["status"],
@@ -262,8 +263,8 @@ def receiving_return_rows(db: Session, filters: ReportQuery) -> list[dict[str, s
             rows.append(
                 {
                     "type": "采购退货",
-                    "document": str(item_id),
-                    "source": str(item["receipt_id"]),
+                    "document": db.get(PurchaseReturn, item_id).document_no or str(item_id),
+                    "source": db.get(Receipt, item["receipt_id"]).document_no or str(item["receipt_id"]),
                     "supplier": item["supplier_name"],
                     "warehouse": item["warehouse_name"],
                     "status": "已冲销" if item["reversal_id"] else item["status"],

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 凭证与来源保留内部 ID，界面优先显示服务端保存的业务单号。
+import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NCheckbox, NCollapse, NDatePicker, NModal } from 'naive-ui'
@@ -184,11 +186,11 @@ function inspectJournal(id: number): void { selectedEntity.value = null; void op
     </NModal>
     <NModal :show="!!selectedRow" preset="card" :title="selectedRow ? `${selectedRow.name} · 辅助来源明细` : ''" :style="modalStyle" @update:show="value => { if (!value) selectedEntity = null }">
       <WorkspaceTable v-if="selectedRow" title="本次查询的来源快照" :columns="entryColumns" :data="selectedRow.entries" :min-table-width="1200">
-        <template #cell-source="{ row }"><AppButton v-if="row.journal_id && can('journal.view')" variant="text" :disabled="connectionLost" @click="inspectJournal(row.journal_id)">记-{{ row.journal_id }}</AppButton><span v-else>{{ row.journal_id ? `记-${row.journal_id}` : `期初-${row.opening_balance_id}` }}</span></template>
+        <template #cell-source="{ row }"><AppButton v-if="row.journal_id && can('journal.view')" variant="text" :disabled="connectionLost" @click="inspectJournal(row.journal_id)">{{ relatedDocumentLabel(row, 'journal') }}</AppButton><span v-else>{{ row.journal_id ? `${relatedDocumentLabel(row, 'journal')}` : `${relatedDocumentLabel(row, 'opening_balance')}` }}</span></template>
         <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template><template #cell-range="{ row }">{{ row.opening_contribution ? '期初累计' : '本期发生' }}</template>
       </WorkspaceTable>
     </NModal>
-    <NModal :show="!!journal || journalLoading || !!journalError" preset="card" :title="journal ? `记-${journal.id} · ${journalStatusLabels[journal.status]}` : '当前凭证详情'" :style="modalStyle" @update:show="value => { if (!value) closeLedgerReportJournal() }">
+    <NModal :show="!!journal || journalLoading || !!journalError" preset="card" :title="journal ? `${documentLabel(journal)} · ${journalStatusLabels[journal.status]}` : '当前凭证详情'" :style="modalStyle" @update:show="value => { if (!value) closeLedgerReportJournal() }">
       <p v-if="journalLoading" role="status">正在读取当前凭证…</p><p v-if="journalError" role="alert">{{ journalError }}</p>
       <div v-if="journal" class="stack"><p>{{ journal.journal_date }} · {{ journal.reference }} · 当前版本 {{ journal.version }}；来源表保留本次查询快照。</p>
         <WorkspaceTable title="当前凭证分录" :columns="journalColumns" :data="journal.lines" :min-table-width="1100"><template #cell-account_name="{ row }">{{ row.account_code }} · {{ row.account_name }}</template><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable>

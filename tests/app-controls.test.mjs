@@ -61,6 +61,36 @@ test('公共按钮保留提交类型、禁用/加载保护以及图标和读屏�
     /aria-label="现场核对依据"/]) assert.match(textarea, pattern)
 })
 
+test('隐藏数字步进按钮不改变原生数量边界，且只作用于显式启用的数字框', async t => {
+  const server = await createServer({ configFile: false, plugins: [vue()],
+    optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
+  t.after(() => server.close())
+  const { default: AppInput } = await server.ssrLoadModule('/src/renderer/src/components/app/AppInput.vue')
+  const render = props => {
+    const app = createSSRApp({ render: () => h(AppInput, props) })
+    setupSsrStyles(app)
+    return renderToString(app)
+  }
+  const quantity = { modelValue: '1.001', type: 'number', required: true,
+    min: '0.001', max: '1000000', step: '0.001', 'aria-label': '物料数量', class: 'quantity-field' }
+  const hidden = await render({ ...quantity, hideNumberControls: true })
+  assert.match(hidden, /app-input--no-number-controls/)
+  assert.match(hidden, /quantity-field/)
+  // 检查真实 input，避免包装层隐藏按钮时意外转成文本框或吞掉校验属性。
+  const input = hidden.match(/<input\b[^>]*>/)?.[0] ?? ''
+  for (const pattern of [/type="number"/, /value="1.001"/, /required/, /min="0.001"/,
+    /max="1000000"/, /step="0.001"/, /aria-label="物料数量"/]) assert.match(input, pattern)
+  assert.doesNotMatch(input, /hide-?number-?controls/i)
+  for (const props of [quantity, { ...quantity, hideNumberControls: false },
+    { modelValue: '名称', type: 'text', hideNumberControls: true }]) {
+    assert.doesNotMatch(await render(props), /app-input--no-number-controls/)
+  }
+  const locked = await render({ ...quantity, hideNumberControls: true, disabled: true, readonly: true })
+  const lockedInput = locked.match(/<input\b[^>]*>/)?.[0] ?? ''
+  assert.match(lockedInput, /\sdisabled(?:\s|>)/)
+  assert.match(lockedInput, /\sreadonly(?:\s|>)/)
+})
+
 test('页面统一使用公共控件，只保留选择校验代理和表格专用滚动条', () => {
   const root = fileURLToPath(new URL('../src/renderer/src/', import.meta.url))
   function files(directory) {

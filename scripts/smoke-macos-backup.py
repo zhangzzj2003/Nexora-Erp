@@ -47,14 +47,14 @@ def stop_service(process: subprocess.Popen) -> None:
 
 
 def request_json(port: int, certificate: Path, route: str, payload: dict | None = None,
-                 token: str | None = None) -> dict | list:
+                 token: str | None = None, *, method: str | None = None) -> dict | list:
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(
         f"https://127.0.0.1:{port}{route}",
         data=json.dumps(payload).encode("utf-8") if payload is not None else None,
-        headers=headers,
+        headers=headers, method=method,
     )
     # 隔离测试实例也校验证书；恢复后继续使用原证书才能通过 TLS。
     context = ssl.create_default_context(cafile=str(certificate))
@@ -81,6 +81,10 @@ def wait_healthy(process: subprocess.Popen, port: int, certificate: Path, log_pa
 def verify_supplier(port: int, certificate: Path, password: str, supplier_id: int) -> None:
     login = request_json(port, certificate, "/api/v1/auth/login",
                          {"username": "ci_admin", "password": password})
+    # 备份恢复及安装升级须沿用数据库中的规则，不能重置首次设置。
+    numbering = request_json(port, certificate, "/api/v1/system/document-numbering", token=login["token"])
+    if not numbering['configured'] or numbering['style'] != 'english' or numbering['timezone'] != 'America/New_York':
+        raise AssertionError('恢复或升级后编号规则发生变化')
     suppliers = request_json(port, certificate, "/api/v1/suppliers", token=login["token"])
     if not any(row["id"] == supplier_id and row["name"] == SUPPLIER_NAME for row in suppliers):
         raise AssertionError("恢复后的业务资料与原实例不一致")
@@ -118,6 +122,10 @@ def main() -> None:
                          {"username": "ci_admin", "password": password})
             login = request_json(source_port, certificate, "/api/v1/auth/login",
                                  {"username": "ci_admin", "password": password})
+            # 新实例必须先由管理员确认编号规则，安装与恢复验收走同一初始化流程。
+            request_json(source_port, certificate, "/api/v1/system/document-numbering",
+                         {"style": "english", "timezone_mode": "specified", "timezone": "America/New_York", "version": 0},
+                         login["token"], method="PUT")
             supplier = request_json(source_port, certificate, "/api/v1/suppliers",
                                     {"name": SUPPLIER_NAME}, login["token"])
             verify_supplier(source_port, certificate, password, supplier["id"])

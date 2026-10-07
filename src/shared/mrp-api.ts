@@ -1,3 +1,4 @@
+import type { NumberedDocument } from './document-numbering'
 import type { Material, Warehouse } from './erp-api'
 
 export type MrpSupplyMode = 'auto' | 'buy' | 'make'
@@ -49,7 +50,7 @@ export interface MrpConversion {
   work_order_id: number | null; due_date: string; reason: string; created_by: number
   created_by_name: string; created_at: string; target_status: string; target_reference: string
 }
-export interface MrpPlan {
+export interface MrpPlan extends NumberedDocument {
   id: number; reference: string; start_date: string; fingerprint: string
   status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'cancelled'; version: number
   created_by: number; created_by_name: string; submitted_by: number | null; reviewed_by: number | null

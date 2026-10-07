@@ -19,7 +19,7 @@ test('刷新后从服务端核验并恢复用户，再读取工作台数据', as
   const calls = []
   globalThis.window = { nexora: {
     async startup() { calls.push('startup'); return { status: 'connected', server: profile } },
-    async callApi(action) { calls.push(action); assert.equal(action, 'me'); return admin },
+    async callApi(action) { calls.push(action); if (action === 'documentNumbering') return { configured: true }; assert.equal(action, 'me'); return admin },
     async recentServers() { return [profile] },
     async hostStatus() { return { configured: false, running: false } }
   } }
@@ -28,7 +28,7 @@ test('刷新后从服务端核验并恢复用户，再读取工作台数据', as
 
   await actions.checkConnection()
 
-  assert.deepEqual(calls, ['startup', 'me', 'refreshData'])
+  assert.deepEqual(calls, ['startup', 'me', 'documentNumbering', 'refreshData'])
   assert.deepEqual(state.user.value, admin)
   assert.equal(state.screen.value, 'app')
   assert.equal(state.busy.value, false)
@@ -62,7 +62,7 @@ test('业务数据读取失败仍保留已核验账号并显示错误', async (t
   t.after(() => { globalThis.window = previousWindow })
   globalThis.window = { nexora: {
     async startup() { return { status: 'connected', server: profile } },
-    async callApi(action) { assert.equal(action, 'me'); return admin },
+    async callApi(action) { if (action === 'documentNumbering') return { configured: true }; assert.equal(action, 'me'); return admin },
     async recentServers() { return [profile] },
     async hostStatus() { return { configured: false, running: false } }
   } }

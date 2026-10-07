@@ -1,3 +1,4 @@
+import type { NumberedDocument } from './document-numbering'
 import type { MaterialChoice } from './material-api'
 export type QualityKind = 'scrap' | 'rework'
 export type QualityTreatment = 'absorb' | 'expense' | 'carry'
@@ -18,7 +19,7 @@ export interface QualityInput {
   defect: string; action_note: string; warehouse_id: number | null; materials: QualityMaterial[]; reason: string
 }
 export interface QualityDraft extends Omit<QualityInput,'loss_treatment'> { loss_treatment: QualityTreatment | '' }
-export interface QualityEvidence extends Omit<QualityInput,'reason'> {
+export interface QualityEvidence extends Omit<QualityInput,'reason'> , NumberedDocument {
   id: number; status: QualityStatus; version: number; created_by: number; created_by_name: string; created_at: string
   submitted_by: number | null; reviewed_by: number | null; posted_by: number | null; reversed_by: number | null
   submitted_at: string | null; reviewed_at: string | null; posted_at: string | null; reversed_at: string | null

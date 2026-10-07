@@ -1,3 +1,4 @@
+import type { DocumentNumberingInput } from '../../../shared/document-numbering'
 import {createInventoryWarningActions} from './modules/inventory-warning-actions'
 import {createInventoryWarningAlerts} from './modules/inventory-warning-alerts'
 import {createPhysicalLotActions} from './modules/physical-lot-actions'
@@ -103,8 +104,12 @@ function createAppStore() {
     )?.key ?? 'home'
   )
 
-  const can = (permission: string): boolean =>
-    user.value?.permissions.includes(permission) ?? false
+  const can = (permission: string): boolean => {
+    // 未配置时保留原有查看与账号管理权限；写入仍由后端统一拦截。
+    if (state.documentNumbering.value && !state.documentNumbering.value.configured
+      && !permission.endsWith('.view') && !['users.manage'].includes(permission)) return false
+    return user.value?.permissions.includes(permission) ?? false
+  }
   // 分类和权限来自同一张路由表，避免侧栏与地址访问使用两套规则。
   const visibleGroups = computed(() =>
     visibleRouteGroups(user.value?.permissions ?? []).map((group) => ({
@@ -131,6 +136,7 @@ function createAppStore() {
     // 再次登录时从全部收起开始，不保留上个账号的侧栏状态。
     if (current !== 'app') {
       state.menuIcons.value = []
+      if (!user.value) state.documentNumbering.value = null
       expandedGroupKey.value = null
       // 页面栏只属于当前登录会话，退出后不向下一个账号展示访问记录。
       openedRouteKeys.value = []
@@ -215,6 +221,39 @@ function createAppStore() {
     reportError: (cause) => { error.value = displayError(cause) }
   })
   const refreshWorkspacePage = workspaceRefresh.refresh
+  async function loadDocumentNumbering(): Promise<void> {
+    if (!window.nexora || !user.value) return
+    const serverId = state.server.value?.id, userId = user.value.id
+    const confirmed = await window.nexora.callApi('documentNumbering', undefined)
+    // 切换实例、退出或保存后的旧轮询响应不能覆盖当前服务端规则。
+    if (state.server.value?.id !== serverId || user.value?.id !== userId
+      || (state.documentNumbering.value?.version ?? -1) > confirmed.version
+      || state.documentNumbering.value?.locked && !confirmed.locked) return
+    state.documentNumbering.value = confirmed
+    // 其他管理员已配置或超时请求已提交时，按已确认的服务端状态解除首次引导。
+    if (state.documentNumbering.value.configured && screen.value === 'numbering') {
+      screen.value = 'app'
+      await refreshData()
+    }
+  }
+  // 设置成功后才进入工作台；失败保留组件中的风格与时区草稿。
+  async function saveDocumentNumbering(input: DocumentNumberingInput): Promise<boolean> {
+    if (!window.nexora || busy.value || connectionLost.value) return false
+    busy.value = true
+    error.value = ''
+    try {
+      state.documentNumbering.value = await window.nexora.callApi('saveDocumentNumbering', input)
+      screen.value = 'app'
+      await refreshData()
+      notice.value = '单据编号规则已保存。'
+      return true
+    } catch (cause) {
+      error.value = displayError(cause)
+      // 并发设置或请求超时可能已有提交；重读服务器状态，不能误用旧配置版本。
+      try { await loadDocumentNumbering() } catch { /* 断网时保留草稿供重试。 */ }
+      return false
+    } finally { busy.value = false }
+  }
   const connectionActions = createConnectionActions(state, refreshData)
   const { checkConnection, stopScan, monitorConnection } = connectionActions
 
@@ -363,6 +402,8 @@ function createAppStore() {
     syncWorkspaceRoute,
     navigateToRoute,
     closeOpenedRoute,
+    loadDocumentNumbering,
+    saveDocumentNumbering,
     displayError,
     localTime,
     movementSource,

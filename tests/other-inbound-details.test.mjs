@@ -1,0 +1,106 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { createSSRApp, h } from 'vue'
+import { renderToString } from '@vue/server-renderer'
+import { createPinia } from 'pinia'
+import { createServer } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+// 仅替换桌面桥接和渲染外壳；真实页面、公共弹窗与业务事件均参与验证。
+const storeSource = `import {defineStore} from 'pinia'; import {ref} from 'vue'
+export const usePiniaAppStore=defineStore('inbound-details-test',()=>({
+ error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
+ otherInbounds:ref([]),otherInboundForm:ref({lines:[{material_id:99,quantity:'7'}]}),otherInboundReversalReasons:ref({}),
+ initialDetailId:ref(0),can:()=>false,localTime:value=>value,
+ createOtherInbound(){throw Error('查看详情不应创建')},postOtherInbound(){throw Error('查看详情不应确认')},
+ cancelOtherInbound(){throw Error('查看详情不应取消')},reverseOtherInbound(){throw Error('查看详情不应冲销')}
+}))`
+const tableSource = `import {defineComponent,h} from 'vue'
+export default defineComponent({props:['data','columns','emptyText'],setup(p,{slots}){return()=>h('section',[
+ slots.heading?.(),slots.actions?.(),slots.filters?.(),slots.beforeTable?.(),
+ ...p.data.map(row=>h('article',p.columns.map(c=>slots['cell-'+c.key]?.({row})))),p.data.length?null:h('p',p.emptyText)
+])}})`
+const buttonSource = `import {defineComponent,h} from 'vue'
+export const buttons=[]
+export default defineComponent({props:['type','disabled'],setup(p,{slots,attrs}){return()=>{
+ const content=slots.default?.();buttons.push({props:p,attrs,content});return h('button',{...attrs,type:p.type,disabled:p.disabled},content)
+}}})`
+const modalSource = `import {defineComponent,h} from 'vue'
+export const NModal=defineComponent({props:['show','title'],setup(p,{slots,attrs}){return()=>p.show?h('section',{'data-modal':p.title},slots.default?.()):null}})
+export const NDatePicker=NModal`
+
+const inbound = {
+ id:3,document_no:'QTRK-20261007-000003',status:'draft',reason:'gift',note:'历史说明',reference:'REF-3',
+ warehouse_name:'主仓库',created_by_name:'建单人',created_at:'2026-10-07T06:00:00Z',
+ posted_at:null,posted_by_name:null,cancelled_at:null,reversal_id:null,
+ lines:[{id:7,material_id:1,sku:'OLD-SKU',material_name:'历史物料名称',quantity:'2.125',unit:'件',physical_lots:[]}]
+}
+
+const text = nodes => (nodes ?? []).map(n => typeof n.children === 'string' ? n.children
+ : Array.isArray(n.children) ? text(n.children) : '').join('')
+
+test('其他入库各状态详情沿用历史字段，离线与只读账号可查看，关闭及刷新不影响草稿', async t => {
+ const server=await createServer({configFile:false,plugins:[{
+  name:'inbound-detail-fixtures',enforce:'pre',
+  transform(code,id){
+   // 可设置初始选中 ID 来展开真实弹窗；正常打开事件另行直接触发验证。
+   if(id.endsWith('/OtherInboundsView.vue'))return code.replace('const detailInboundId = ref(0)','const detailInboundId = ref(store.initialDetailId)').replace("'naive-ui'","'virtual:inbound-detail-modal'")
+   if(id.endsWith('/WorkspaceDocumentDialog.vue'))return code.replace("'naive-ui'","'virtual:inbound-detail-modal'")
+  },
+  resolveId(id,importer){
+   if(id==='virtual:inbound-detail-modal')return '\0inbound-detail-modal'
+   if(!importer?.includes('/src/renderer/'))return
+   if(id.endsWith('/store/app-store')&&importer.includes('OtherInboundsView'))return '\0inbound-detail-store'
+   if(id.endsWith('/WorkspaceTable.vue'))return '\0inbound-detail-table'
+   if(id.endsWith('/AppButton.vue'))return '\0inbound-detail-button'
+   if(id==='naive-ui'&&(importer.includes('OtherInboundsView')||importer.includes('WorkspaceDocumentDialog')))return '\0inbound-detail-modal'
+  },load(id){return {'\0inbound-detail-store':storeSource,'\0inbound-detail-table':tableSource,
+   '\0inbound-detail-button':buttonSource,'\0inbound-detail-modal':modalSource}[id]}
+ },vue()],server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]},appType:'custom'})
+ t.after(()=>server.close())
+ const {usePiniaAppStore}=await server.ssrLoadModule('\0inbound-detail-store')
+ const pinia=createPinia(),store=usePiniaAppStore(pinia)
+ const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/OtherInboundsView.vue')
+ const {buttons}=await server.ssrLoadModule('\0inbound-detail-button')
+ let vnode
+ const render=()=>{buttons.length=0;vnode=h(View);return renderToString(createSSRApp({render:()=>vnode}).use(pinia))}
+ store.otherInbounds=[structuredClone(inbound)]
+ const draft=JSON.stringify(store.otherInboundForm)
+ store.connectionLost=true
+ store.busy=true
+ assert.match(await render(),/查看详情/)
+ const view=buttons.find(b=>text(b.content)==='查看详情')
+ assert.equal(view.props.disabled,undefined)
+ view.attrs.onClick()
+ assert.equal(vnode.component.setupState.detailInboundId,3)
+ assert.equal(vnode.component.setupState.detailInbound.id,3)
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ store.initialDetailId=3
+ let html=await render()
+ for(const value of ['其他入库详情','QTRK-20261007-000003','OLD-SKU','历史物料名称','2.125','历史说明','REF-3','建单人','待确认','尚未登记实物批次'])assert.ok(html.includes(value),value + ': ' + html)
+ assert.doesNotMatch(html,/添加物料|保存草稿|登记批次并确认|type="submit"/)
+ const close=buttons.find(b=>text(b.content)==='关闭')
+ assert.equal(close.props.disabled,false)
+ close.attrs.onClick()
+ assert.equal(vnode.component.setupState.detailInboundId,0)
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ // 页面刷新时跟随最新保存快照，避免详情固定显示旧状态；单据消失后自动不再展示。
+ store.otherInbounds=[{...inbound,status:'posted',posted_at:'确认时间',posted_by_name:'确认人',lines:[{
+  ...inbound.lines[0],physical_lots:[{id:1,code:'LOT-3',quantity:'2.125',supplier_lot:'SUP-1',manufactured_on:'2026-09-01',expires_on:'2027-09-01'}]
+ }]}]
+ html=await render()
+ for(const value of ['已入库','确认时间','确认人','LOT-3','SUP-1','2026-09-01','2027-09-01'])assert.ok(html.includes(value),value + ': ' + html)
+ store.otherInbounds=[{...inbound,status:'posted'}]
+ assert.match(await render(),/未登记实物批次，数量在批次核对页显示为差额/)
+ store.otherInbounds=[{...inbound,status:'cancelled',cancelled_at:'取消时间'}]
+ assert.match(await render(),/取消时间/)
+ store.otherInbounds=[{...inbound,status:'posted',reversal_id:8,reversal_reason:'重复录入',reversed_at:'冲销时间',reversed_by_name:'冲销人'}]
+ html=await render()
+ for(const value of ['已冲销','重复录入','冲销时间','冲销人'])assert.ok(html.includes(value),value + ': ' + html)
+ store.otherInbounds=[{...inbound,lines:[]}]
+ assert.match(await render(),/此单据暂无物料明细/)
+ store.otherInbounds=[]
+ assert.equal(vnode.component.setupState.detailInbound,null)
+ assert.doesNotMatch(await render(),/data-modal=/)
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+})

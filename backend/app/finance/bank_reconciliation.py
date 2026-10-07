@@ -1,5 +1,6 @@
 """以银行流水证据勾对人工收付款；匹配及撤销均追加记录。"""
 
+from app.core.document_responses import NumberedRoute
 from datetime import date
 from decimal import Decimal
 import base64
@@ -21,7 +22,7 @@ from app.core.models import (BankAccount, BankImportBatch, BankMatch, BankMatchR
     PaymentRecord, SubledgerOpeningLine, SubledgerPayment, User)
 from app.core.orm import add_model, model_data, orm_session
 
-router = APIRouter(prefix='/api/v1/finance/bank-reconciliation')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/bank-reconciliation')
 
 
 def money(value: Decimal) -> str:

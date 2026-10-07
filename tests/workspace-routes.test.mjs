@@ -208,3 +208,20 @@ test('其他入库在仓库管理下使用独立查看权限', () => {
   assert.equal(canVisitRoute(routeByKey('otherInbounds'), ['inventory.view']), false)
   assert.equal(canVisitRoute(routeByKey('otherInbounds'), ['other_inbound.view']), true)
 })
+
+// 分类迁移必须同时影响侧栏和顶部目录，同时兼容旧标签地址与生产授权。
+test('生产 BOM 属于基础资料，旧地址与生产权限保持兼容', async () => {
+  assert.equal(routeGroupByKey('boms').key, 'catalog')
+  assert.equal(routeByKey('boms').path, '/workspace/boms')
+  assert.equal(routeByKey('boms').permission, 'production.view')
+  const groups = visibleRouteGroups(['production.view'])
+  assert.ok(groups.find(group => group.key === 'catalog').routes.some(route => route.key === 'boms'))
+  assert.ok(!groups.find(group => group.key === 'production').routes.some(route => route.key === 'boms'))
+  assert.equal(resolveWorkspaceRoute('/workspace/boms', ['inventory.view']).key, 'home')
+  assert.equal(resolveWorkspaceRoute('/workspace/boms', ['production.view']).key, 'boms')
+  const router = createWorkspaceRouter(createMemoryHistory(), Object.fromEntries(workspaceRoutes.map(route => [route.key, { render: () => null }])))
+  installWorkspaceAccessGuard(router, () => ['production.view'])
+  await router.push('/workspace/boms')
+  assert.equal(router.currentRoute.value.name, 'boms')
+  assert.equal(routeGroupByKey('workOrders').key, 'production')
+})

@@ -1,5 +1,6 @@
 """期初余额：唯一启用方案、独立审核、确认及启用前可审计撤销。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -28,7 +29,7 @@ from app.finance.opening_rules import active_opening, ensure_no_posted_journals
 from app.finance.auxiliary_rules import (combination, line_data, validate_references,
     validate_line, save_snapshots, selection_options)
 
-router = APIRouter(prefix="/api/v1/finance/opening-balances")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1/finance/opening-balances")
 
 
 class OpeningInput(ReasonInput):

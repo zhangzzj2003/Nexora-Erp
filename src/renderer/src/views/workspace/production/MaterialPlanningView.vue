@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NModal } from 'naive-ui'
@@ -24,7 +26,7 @@ const preparing = ref(false)
 const disabled = computed(() => loading.value || busy.value || connectionLost.value || preparing.value)
 const warehouseOptions = computed(() => [{ value:null as number | null,label:'选择工单目标仓库',disabled:true },
   ...(options.value?.warehouses ?? []).map(row => ({value:row.id,label:`${row.code} · ${row.name}`}))])
-const filtered = computed(() => records.value.filter(row => `${row.reference} ${row.created_by_name} ${row.start_date}`.toLowerCase().includes(query.value.toLowerCase().trim())))
+const filtered = computed(() => records.value.filter(row => `${documentSearch(row)} ${row.reference} ${row.created_by_name} ${row.start_date}`.toLowerCase().includes(query.value.toLowerCase().trim())))
 const columns = [{key:'reference',title:'计划编号',width:'240'}, {key:'start_date',title:'计划起日',width:'150'},
   {key:'suggestion_count',title:'供给建议'}, {key:'warning_count',title:'警告'}, {key:'status',title:'阶段',width:'150'}, {key:'actions',title:'核对 / 审核',width:'360'}]
 const modalStyle = { width:'min(600px, calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto' as const }
@@ -64,7 +66,7 @@ watch(connectionLost, lost => { command.value = null; conversion.value = null; i
     <template v-if="mode==='plans'">
       <WorkspaceTable title="固定计划" :show-title="false" :columns="columns" :data="filtered" :min-table-width="1100" :loading="loading">
         <template #filters><label>搜索计划<AppInput v-model="query" placeholder="编号、编制人或计划起日" /></label></template>
-        <template #cell-reference="{ row }"><strong>{{ row.reference }}</strong><span class="muted mrp-line">{{ row.created_by_name }} · {{ store.localTime(row.created_at) }}</span></template>
+        <template #cell-reference="{ row }"><strong>{{ documentLabel(row) }} · {{ row.reference }}</strong><span class="muted mrp-line">{{ row.created_by_name }} · {{ store.localTime(row.created_at) }}</span></template>
         <template #cell-status="{ row }">{{ mrpStatus[row.status] }} · v{{ row.version }}</template>
         <template #cell-actions="{ row }"><div class="mrp-toolbar"><AppButton size="small" :disabled="disabled" @click="store.loadMrpDetail(row)">结果与来源</AppButton>
           <AppButton v-for="action in actions(row)" :key="action" size="small" :disabled="disabled" @click="openAction(row,action)">{{ mrpAction[action] }}</AppButton></div></template>

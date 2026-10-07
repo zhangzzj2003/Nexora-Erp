@@ -1,5 +1,6 @@
 """按仓库的现存量预警，规则与修订证据统一使用 ORM。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -14,7 +15,7 @@ from app.catalog.material_rules import material_choice_data
 from app.core.models import InventoryWarningRule, InventoryWarningChange, Material, Warehouse, StockMovement, User
 from app.core.orm import orm_session, add_model, model_data
 
-router = APIRouter(prefix='/api/v1/inventory/warnings')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/inventory/warnings')
 PositiveId = Annotated[int, Path(gt=0)]
 
 

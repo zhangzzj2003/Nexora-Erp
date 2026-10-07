@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -43,8 +45,7 @@ async function submitCreate(): Promise<void> {
 const recordQuery = ref('')
 const filteredRecords = computed(() =>
   purchaseReturns.value.filter((item) =>
-    matchesRecordQuery(recordQuery.value, [
-      item.id,
+    matchesRecordQuery(recordQuery.value, [documentSearch(item), item.id,
       item.supplier_name,
       item.warehouse_name,
       item.created_by_name,
@@ -179,9 +180,9 @@ const purchaseReturnFormColumns = [
 
       <template #cell-document="{ row: item }">
         <div>
-          <strong>#{{ item.id }} · {{ item.supplier_name }} · {{ item.warehouse_name }}</strong>
+          <strong>{{ documentLabel(item) }} · {{ item.supplier_name }} · {{ item.warehouse_name }}</strong>
           <p class="muted">
-            {{ localTime(item.created_at) }} · 原入库单 #{{ item.receipt_id }} · {{ item.reason }} ·
+            {{ localTime(item.created_at) }} · 原入库单 {{ relatedDocumentLabel(item, 'receipt') }} · {{ item.reason }} ·
             创建人 {{ item.created_by_name }} · 原价金额
             {{ item.total_amount === null ? '待核对' : `¥${item.total_amount}` }}
             <span v-if="item.reversal_id">
@@ -201,7 +202,7 @@ const purchaseReturnFormColumns = [
                 : item.status === 'cancelled'
                   ? '已取消'
                   : item.outbound_id
-                    ? `待仓库出库 #${item.outbound_id}`
+                    ? `待仓库出库 ${relatedDocumentLabel(item, 'outbound')}`
                     : '草稿'
           }}
         </span>

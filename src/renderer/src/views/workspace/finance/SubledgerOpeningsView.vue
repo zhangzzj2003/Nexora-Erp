@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NDatePicker, NModal } from 'naive-ui'
@@ -51,6 +53,11 @@ const balances = [{ key: 'kind', title: '类别' }, { key: 'party_name', title: 
   { key: 'document_reference', title: '原单编号', width: '170' }, { key: 'document_date', title: '原单日期' },
   { key: 'auxiliary', title: '完整辅助快照', width: '300' }, { key: 'opening_amount', title: '期初（元）' },
   { key: 'settled_amount', title: '资金净额（元）' }, { key: 'outstanding_amount', title: '未结（元）' }, { key: 'actions', title: '核对 / 登记', width: '190' }]
+// 方案与资金记录沿用参考号检索，同时支持稳定业务单号和内部 ID。
+const documentQuery = ref('')
+const matchesDocument = (row: object) => [documentSearch(row), ...Object.values(row).filter(value => typeof value === 'string' || typeof value === 'number')].join(' ').toLowerCase().includes(documentQuery.value.trim().toLowerCase())
+const filteredPlans = computed(() => records.value.filter(matchesDocument))
+const filteredFunds = computed(() => payments.value.filter(matchesDocument))
 const plans = [{ key: 'id', title: '方案' }, { key: 'effective_date', title: '启用日' }, { key: 'reference', title: '依据编号' },
   { key: 'count', title: '未结单据数' }, { key: 'status', title: '状态' }, { key: 'actions', title: '操作', width: '330' }]
 const funds = [{ key: 'id', title: '记录' }, { key: 'kind', title: '类别' }, { key: 'party_name', title: '往来快照', width: '180' },
@@ -124,6 +131,7 @@ async function savePayment(): Promise<void> {
       <AppButton :variant="mode === 'payments' ? 'primary' : 'secondary'" @click="mode = 'payments'">资金记录</AppButton>
       <AppButton :disabled="disabled" @click="reload">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
     </div>
+    <label v-if="mode !== 'balances'">搜索单据<AppInput v-model.trim="documentQuery" placeholder="单号、参考号或原 ID" /></label>
     <p v-if="connectionLost" role="status">连接已断开，查询和写入暂停；未保存的输入保留，恢复连接后请重新读取。</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="operationError && !editing && !command && !reversal && !payment" role="alert">{{ operationError }}</p>
@@ -156,8 +164,9 @@ async function savePayment(): Promise<void> {
     </template>
     <template v-else-if="mode === 'plans'">
       <p>先确认总账期初，再逐对象及完整辅助组合核对分户。首次启用前不得已有业务往来来源、订单资金登记或已过账凭证；错误方案可取消后重建。</p>
-      <WorkspaceTable class="journal-list-table" title="分户期初方案" :show-title="false" :columns="plans" :data="records" :min-table-width="1030" :loading="loading">
+      <WorkspaceTable class="journal-list-table" title="分户期初方案" :show-title="false" :columns="plans" :data="filteredPlans" :min-table-width="1030" :loading="loading">
         <template #actions><AppButton v-if="can('subledger_opening.create')" variant="primary" :disabled="disabled || active || preparing" @click="edit()">{{ preparing ? '正在读取…' : '新增分户方案' }}</AppButton></template>
+        <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
         <template #cell-count="{ row }">{{ row.lines.length }}</template>
         <template #cell-status="{ row }">{{ openingStatusLabels[row.status] }} · v{{ row.version }}</template>
         <template #cell-actions="{ row }"><div class="row-actions">
@@ -171,9 +180,10 @@ async function savePayment(): Promise<void> {
     <template v-else>
       <p>历史单据的资金登记与冲销全部保留，时间显示为本地时间。金额符号用于未结余额计算；退款为负，冲销追加相反金额。</p>
       <AppButton v-if="can('journal.view') && can('business_journal.view')" :disabled="disabled" @click="store.navigateToRoute('journals')">到凭证管理生成业务凭证</AppButton>
-      <WorkspaceTable class="journal-list-table" title="分户资金记录" :columns="funds" :data="payments" :min-table-width="1350" :loading="loading">
+      <WorkspaceTable class="journal-list-table" title="分户资金记录" :columns="funds" :data="filteredFunds" :min-table-width="1350" :loading="loading">
         <template #cell-kind="{ row }">{{ subledgerKindLabels[row.kind] }}</template>
-        <template #cell-action="{ row }">{{ paymentLabel(row) }}{{ row.reverses_id ? ` · 原记录 #${row.reverses_id}` : '' }}</template>
+        <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
+        <template #cell-action="{ row }">{{ paymentLabel(row) }}{{ row.reverses_id ? ` · 原记录 ${relatedDocumentLabel(row, 'reverses')}` : '' }}</template>
         <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
         <template #cell-actions="{ row }"><AppButton v-if="can('finance.reverse') && !alreadyReversed(row)" variant="text" :disabled="disabled" @click="askReverse(row)">冲销</AppButton><span v-else>{{ alreadyReversed(row) ? '已保留冲销关系' : '只读' }}</span></template>
         <template #empty>暂无历史单据的资金登记。在未结余额中选择单据登记收付款。</template>
@@ -194,18 +204,19 @@ async function savePayment(): Promise<void> {
         <p>截至 {{ report?.to_date }}（UTC）：期初 {{ source.opening_amount }}；资金净额 {{ source.settled_amount }}；未结 {{ source.outstanding_amount }} 元。</p>
         <WorkspaceTable title="截止日内资金记录" :columns="funds.filter(item => item.key !== 'actions')" :data="source.payments" :min-table-width="1250">
           <template #cell-kind="{ row }">{{ subledgerKindLabels[row.kind] }}</template>
-          <template #cell-action="{ row }">{{ paymentLabel(row) }}{{ row.reverses_id ? ` · 原记录 #${row.reverses_id}` : '' }}</template>
+          <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
+        <template #cell-action="{ row }">{{ paymentLabel(row) }}{{ row.reverses_id ? ` · 原记录 ${relatedDocumentLabel(row, 'reverses')}` : '' }}</template>
           <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
           <template #empty>截至所选 UTC 日期没有资金登记。</template>
         </WorkspaceTable>
-        <p v-for="row in source.payments" :key="row.id">资金 #{{ row.id }} · 依据：{{ row.note }} · {{ auxiliaryText(row.auxiliary) }}</p>
+        <p v-for="row in source.payments" :key="row.id">资金 {{ documentLabel(row) }} · 依据：{{ row.note }} · {{ auxiliaryText(row.auxiliary) }}</p>
       </div>
     </NModal>
     <NModal :show="!!command || !!reversal" preset="card" :title="command ? openingActionLabels[command.action] : '冲销分户资金'" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) { command = null; reversal = null } }">
       <form class="ledger-editor" @submit.prevent="confirm">
         <p v-if="command">方案 {{ command.record.reference }} · 版本 {{ command.record.version }}。提交、审核与确认均须逐组合一致；建单、编辑或提交人员不能审核。</p>
         <p v-if="command?.action === 'reverse'">仅未过账且从未登记分户资金的期初可撤销，即使资金已冲销也不能重设历史。</p>
-        <p v-if="reversal">原记录 #{{ reversal.id }} · {{ reversal.party_name }} · {{ reversal.document_reference }} · {{ reversal.amount }} 元。追加等额反向记录，保留原始记录；相应凭证更正仍须在凭证管理处理。</p>
+        <p v-if="reversal">原记录 {{ documentLabel(reversal) }} · {{ reversal.party_name }} · {{ reversal.document_reference }} · {{ reversal.amount }} 元。追加等额反向记录，保留原始记录；相应凭证更正仍须在凭证管理处理。</p>
         <label>依据 / 原因<AppInput v-model.trim="reason" required maxlength="200" :disabled="disabled" /></label>
         <p v-if="operationError" role="alert">{{ operationError }}</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !reason">{{ busy ? '正在处理…' : command ? openingActionLabels[command.action] : '追加冲销记录' }}</AppButton>

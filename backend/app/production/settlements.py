@@ -1,5 +1,6 @@
 """完工成本结算：ORM 保存合格、损失及返工来源快照，冲销保留历史。"""
 
+from app.core.document_responses import NumberedRoute
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,7 +21,7 @@ from app.production.cost_lock import ensure_unsettled
 from app.production.costs import CostReversalInput, cost_report, money
 from app.production.quality_rules import settlement_dispositions
 
-router = APIRouter(prefix='/api/v1/production-costs/settlements')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/production-costs/settlements')
 
 
 class SettlementInput(BaseModel):

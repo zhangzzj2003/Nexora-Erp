@@ -1,5 +1,6 @@
 """售后维修直接毛利的受限只读接口。"""
 
+from app.core.document_responses import NumberedRoute
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.access.security import require
@@ -8,7 +9,7 @@ from app.sales.after_sales import get_case, permission
 from app.sales.after_sales_rules import repair_margin_data
 from app.sales.customer_scope import require_visible_after_sales
 
-router = APIRouter(prefix='/api/v1/after-sales')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/after-sales')
 
 
 @router.get('/cases/{case_id}/repair-margin')

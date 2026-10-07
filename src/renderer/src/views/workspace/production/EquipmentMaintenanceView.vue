@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {storeToRefs} from 'pinia'
 import {NCheckbox,NModal} from 'naive-ui'
@@ -32,7 +34,7 @@ const assets=computed(()=>(overview.value?.equipment??[]).filter(row=>(!filter.v
 const plans=computed(()=>(overview.value?.plans??[]).filter(row=>(!filter.value || (filter.value==='due'?row.due:!row.enabled)) && match([row.reference,row.title,equipmentName(row.equipment_id)])))
 const hourPlans=computed(()=>(overview.value?.hour_plans??[]).filter(row=>(!filter.value || (filter.value==='due'?row.due:!row.enabled))
   && match([row.reference,row.title,equipmentName(row.equipment_id),row.next_due_hours])))
-const jobs=computed(()=>(overview.value?.jobs??[]).filter(row=>(!filter.value || row.status===filter.value) && match([row.reference,row.equipment_snapshot.code,row.equipment_snapshot.name,row.assigned_to_name,maintenanceStatus[row.status]])))
+const jobs=computed(()=>(overview.value?.jobs??[]).filter(row=>(!filter.value || row.status===filter.value) && match([documentSearch(row),row.reference,row.equipment_snapshot.code,row.equipment_snapshot.name,row.assigned_to_name,maintenanceStatus[row.status]])))
 const filters=computed(()=>[{label:'全部状态',value:null},...(mode.value==='job'?Object.entries(maintenanceStatus).map(([value,label])=>({value,label}))
   :mode.value==='asset'?Object.entries(equipmentStatus).map(([value,label])=>({value,label})):[{label:'已到期',value:'due'},{label:'已停用',value:'disabled'}])])
 const actions=(row:MaintenanceJobRecord)=>maintenanceActions(row,user.value?.permissions??[])
@@ -121,9 +123,9 @@ onMounted(()=>{void store.loadEquipment()});onUnmounted(()=>store.clearEquipment
         <WorkspaceTable v-else title="维护工单" :show-title="false" :columns="jobColumns" :data="jobs" :min-table-width="1150" :loading="loading">
           <template #filters><label>搜索维护工单<AppInput v-model="query" placeholder="依据编号、设备或执行人" /></label><label>维护阶段<WorkspaceSelect v-model="filter" :options="filters" /></label></template>
           <template #actions><AppButton v-if="store.can('equipment.create')" :disabled="disabled" @click="start('job')">新建维护工单</AppButton></template>
-          <template #cell-name="{row}"><strong>{{ row.reference }}</strong><span class="equipment-secondary">{{ row.equipment_snapshot.code }} · {{ row.equipment_snapshot.name }}</span></template>
+          <template #cell-name="{row}"><strong>{{ documentLabel(row) }}</strong><span class="equipment-secondary">{{ row.reference }} · {{ row.equipment_snapshot.code }} · {{ row.equipment_snapshot.name }}</span></template>
           <template #cell-executor="{row}">{{ maintenanceKind[row.kind as keyof typeof maintenanceKind] }} · {{ row.assigned_to_name }}<span v-if="row.plan_due_date" class="equipment-secondary">本次到期 {{ row.plan_due_date }}</span><span v-if="row.plan_due_hours" class="equipment-secondary">本次阈值 {{ row.plan_due_hours }} 小时</span></template>
-          <template #cell-status="{row}">{{ maintenanceStatus[row.status as keyof typeof maintenanceStatus] }} · v{{ row.version }}<span v-if="row.parts_outbound_id" class="equipment-secondary">出库 #{{ row.parts_outbound_id }} · {{ partsStatus[row.parts_status as keyof typeof partsStatus] }}</span></template>
+          <template #cell-status="{row}">{{ maintenanceStatus[row.status as keyof typeof maintenanceStatus] }} · v{{ row.version }}<span v-if="row.parts_outbound_id" class="equipment-secondary">出库 {{ relatedDocumentLabel(row, 'parts_outbound') }} · {{ partsStatus[row.parts_status as keyof typeof partsStatus] }}</span></template>
           <template #cell-actions="{row}"><div class="equipment-toolbar"><AppButton size="small" :disabled="disabled" @click="inspect('job',row.id)">详情与证据</AppButton><AppButton v-if="row.can_edit && store.can('equipment.create')" size="small" :disabled="disabled" @click="inspect('job',row.id,true)">修订工单</AppButton><AppButton v-for="action in actions(row)" :key="action" size="small" :disabled="disabled" @click="prepare(row.id,action)">{{ maintenanceCommand[action] }}</AppButton></div></template>
           <template #empty>{{ empty }}</template>
         </WorkspaceTable>
@@ -144,7 +146,7 @@ onMounted(()=>{void store.loadEquipment()});onUnmounted(()=>store.clearEquipment
         </form>
         <form v-if="detail?.kind==='asset' && detail.row.status==='active' && store.can('equipment.meter')" class="equipment-operation" @submit.prevent="recordMeter">
           <h3>登记设备运行小时</h3>
-          <p>基于设备 #{{ detail.row.id }} 当前读数 {{ detail.row.meter_reading?.hours??'未登记' }} 小时。普通登记不能倒退；错误读数由有设备资料权限的账号追加更正，原记录保留。</p>
+          <p>基于设备 {{ documentLabel(detail.row) }} 当前读数 {{ detail.row.meter_reading?.hours??'未登记' }} 小时。普通登记不能倒退；错误读数由有设备资料权限的账号追加更正，原记录保留。</p>
           <div class="equipment-facts"><label>表计小时<AppInput v-model="meterHours" type="number" min="0" max="1000000000" step="0.01" required :disabled="disabled" /></label><label>读数依据编号<AppInput v-model.trim="meterReference" maxlength="100" required :disabled="disabled" /></label></div>
           <label>登记或更正原因<AppInput v-model.trim="meterReason" maxlength="200" required :disabled="disabled" /></label>
           <NCheckbox v-if="store.can('equipment.manage')" v-model:checked="meterCorrection" :disabled="disabled">更正此前错误读数（允许降低当前小时）</NCheckbox>

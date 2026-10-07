@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -147,8 +149,7 @@ async function submitCreate(): Promise<void> {
 const recordQuery = ref('')
 const filteredRecords = computed(() =>
   materialIssues.value.filter((item) =>
-    matchesRecordQuery(recordQuery.value, [
-      item.id,
+    matchesRecordQuery(recordQuery.value, [documentSearch(item), item.id,
       item.warehouse_name,
       item.created_by_name,
       item.reference,
@@ -292,7 +293,7 @@ const materialIssueFormColumns = [
       <template #cell-document="{ row: item }">
         <div>
           <strong
-            >#{{ item.id }} · 工单 #{{ item.work_order_id }} · {{ item.warehouse_name }}</strong
+            >{{ documentLabel(item) }} · 工单 {{ relatedDocumentLabel(item, 'work_order') }} · {{ item.warehouse_name }}</strong
           >
           <p class="muted">
             {{ localTime(item.created_at) }} · 创建人
@@ -382,7 +383,7 @@ const materialIssueFormColumns = [
       :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
         maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
       <form v-if="activeIssue && can('material_issue.post')" class="stack" @submit.prevent="confirmLotPost">
-        <h2>生产领料 #{{ activeIssue.id }} · 指定实物批次</h2>
+        <h2>生产领料 {{ documentLabel(activeIssue) }} · 指定实物批次</h2>
         <p>从 {{ activeIssue.warehouse_name }} 的实际可用批次逐行选择；历史未识别期初会明确标记。</p>
         <p v-if="lotLoading">正在读取可用批次…</p>
         <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>

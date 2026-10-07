@@ -11,4 +11,5 @@ export type Screen =
   | 'offline'
   | 'setup'
   | 'login'
+  | 'numbering'
   | 'app'

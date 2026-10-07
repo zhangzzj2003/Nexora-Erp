@@ -81,7 +81,7 @@ def test_v71_upgrade_keeps_existing_bank_report_and_creates_opening_tables(journ
     assert overview['reports'][0]['id'] == report['id']
     assert overview['reports'][0]['stale'] is False
     with sqlite3.connect(database_path()) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 87
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
 
 
@@ -390,7 +390,7 @@ def test_v70_upgrade_keeps_bank_data_and_adds_reconciliation_schema(monkeypatch,
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 87
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 88
         assert {name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table'")} >= {
             'bank_opening_items', 'bank_opening_clearances',
             'bank_opening_clearance_members', 'bank_opening_clearance_reversals'}
@@ -398,4 +398,4 @@ def test_v70_upgrade_keeps_bank_data_and_adds_reconciliation_schema(monkeypatch,
             'ledger_account_id', 'opening_balance', 'effective_date', 'version'}
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'bank_reconciliation.%'").fetchone()[0] == 7
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
-    assert len(Base.metadata.tables) == 185
+    assert len(Base.metadata.tables) == 187

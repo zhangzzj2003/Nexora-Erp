@@ -78,7 +78,9 @@ export const NModal = defineComponent({ props:['show','title','maskClosable','cl
   return () => p.show ? h('section', {...attrs, 'data-mask-closable':p.maskClosable, 'data-close-on-esc':p.closeOnEsc, 'data-closable':p.closable}, [h('h2',p.title),slots.default?.()]) : null
 }})`
 const tableStub = `import { defineComponent, h } from 'vue'
+export const capturedTable = {}
 export default defineComponent({props:['data','columns','emptyText'], setup(p,{slots}) {
+ Object.assign(capturedTable, {slots})
  return ()=>h('section', [slots.heading?.(),slots.actions?.(),slots.beforeTable?.(),
  ...p.data.map(row=>h('article',p.columns.map(c=>slots['cell-'+c.key]?.({row})))),p.data.length?null:h('p',p.emptyText)])
 }})`
@@ -130,11 +132,15 @@ test('统一弹窗按基础信息、分隔线、添加物料、表格及页脚�
   assert.match(busy, /data-closable="false"/)
 
   // 展开真实弹窗传给 Modal 的插槽，直接执行表单与关闭事件，校验保护逻辑而非按钮外观。
-  let submits = 0, closes = 0
-  const vnode = h(Dialog, { ...base, onSubmit: () => submits++, 'onUpdate:show': () => closes++ }, slots)
+  let submits = 0, closes = 0, adds = 0
+  const vnode = h(Dialog, { ...base, onSubmit: () => submits++, onAddMaterial: () => adds++, 'onUpdate:show': () => closes++ }, slots)
   await renderToString(createSSRApp({ render: () => vnode }))
   const { captured } = await server.ssrLoadModule('\0document-modal')
   const form = captured.slots.default()[0]
+  const { capturedTable } = await server.ssrLoadModule('\0document-table')
+  const addButton = capturedTable.slots.actions()[0]
+  addButton.props.onClick()
+  assert.equal(adds, 1)
   const submit = () => form.props.onSubmit({ preventDefault() {} })
   const close = () => captured.attrs['onUpdate:show'](false)
   submit()
@@ -156,4 +162,22 @@ test('统一弹窗按基础信息、分隔线、添加物料、表格及页脚�
   vnode.component.props.submitDisabled = true
   submit()
   assert.equal(submits, 1)
+  // 来源单据与只读详情同时受事件保护，合并后不能绕过隐藏的新增按钮。
+  vnode.component.props.showAdd = false
+  addButton.props.onClick()
+  assert.equal(adds, 1)
+  vnode.component.props.showAdd = true
+  // 详情模式不暴露写入入口，且人工触发表单事件也不能绕过只读保护。
+  vnode.component.props.submitDisabled = false
+  vnode.component.props.readOnly = true
+  addButton.props.onClick()
+  submit()
+  close()
+  assert.equal(submits, 1)
+  assert.equal(adds, 1)
+  assert.equal(closes, 3)
+  const readonly = await render({ readOnly: true })
+  assert.match(readonly, />关闭</)
+  assert.doesNotMatch(readonly, /添加物料|保存草稿|type="submit"/)
+  assert.match(await render({ readOnly: true, data: [] }), /此单据暂无物料明细/)
 })

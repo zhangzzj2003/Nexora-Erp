@@ -1,5 +1,6 @@
 """总账凭证的不可变附件及追加式撤销证据。"""
 
+from app.core.document_responses import NumberedRoute
 import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -14,7 +15,7 @@ from app.core.models import AccountingPeriod, Journal, JournalAttachment, Journa
 from app.core.orm import add_model, orm_session
 from app.finance.journals import get_journal
 
-router = APIRouter(prefix='/api/v1/finance/journals')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/journals')
 
 
 def modifiable(db: Session, journal: Journal) -> bool:

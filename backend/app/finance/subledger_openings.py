@@ -1,5 +1,6 @@
 """历史未结单据分户启用、逐组合勾稽及追加式收付款。"""
 
+from app.core.document_responses import NumberedRoute
 import csv
 import json
 from datetime import datetime, timezone
@@ -24,7 +25,7 @@ from app.finance.opening_rules import active_opening, ensure_no_posted_journals
 from app.finance.subledger_rules import active_subledger, check_control_mapping, check_subledger
 from app.reports.routes import csv_value
 
-router = APIRouter(prefix='/api/v1/finance/subledger-openings')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/subledger-openings')
 ZERO = Decimal(0)
 
 

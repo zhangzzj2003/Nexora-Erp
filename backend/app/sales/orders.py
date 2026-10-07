@@ -1,5 +1,6 @@
 """客户、销售订单和出库单；订单完成量只由已确认出库计算。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import IntegrityError
@@ -36,7 +37,7 @@ from app.sales.customer_names import duplicate_candidates, visible_name_rows
 UserRu = aliased(User)
 UserU = aliased(User)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class CustomerInput(BaseModel):

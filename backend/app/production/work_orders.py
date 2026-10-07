@@ -1,5 +1,6 @@
 """生产工单以启用 BOM 创建需料快照，并汇总净领料数量。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session
 from decimal import Decimal, ROUND_CEILING
@@ -29,7 +30,7 @@ from app.core.models import (
 from app.inventory.warehouse import require_warehouse
 from app.access.security import require
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class WorkOrderInput(BaseModel):

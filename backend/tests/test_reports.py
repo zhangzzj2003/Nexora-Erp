@@ -38,7 +38,8 @@ def test_report_csv_matches_filtered_rows(monkeypatch, tmp_path):
         client.post(f"{base}/receipts/{receipt}/post", headers=admin)
         report = client.post(f"{base}/reports/query", headers=admin, json={
             "kind": "purchase_requests", "material_id": material}).json()
-        assert report["rows"][0]["document"] == str(request_id)
+        # CSV 与筛选结果展示同一业务单号，不能再把内部 ID 当作单号。
+        assert report["rows"][0]["document"] == request['document_no']
         assert report["rows"][0]["ordered"] == "3"
         assert report["rows"][0]["remaining"] == "2"
         parsed = list(csv.reader(StringIO(report["csv"].removeprefix("\ufeff"))))

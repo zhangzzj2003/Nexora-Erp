@@ -13,6 +13,7 @@
 | 采购管理 | 采购入库 | `#/workspace/receipts` | `inventory.view` |
 | 采购管理 | 采购退货 | `#/workspace/purchase-returns` | `inventory.view` |
 | 基础资料 | 客户资料 | `#/workspace/customers` | `sales.view`，新增要求 `customer.manage` |
+| 基础资料 | 生产 BOM | `#/workspace/boms` | `production.view` |
 | 销售管理 | 销售订单 | `#/workspace/sales-orders` | `sales.view` |
 | 销售管理 | 销售出库 | `#/workspace/shipments` | `sales.view` |
 | 销售管理 | 销售退货 | `#/workspace/sales-returns` | `sales.view` |
@@ -26,7 +27,6 @@
 | 财务管理 | 收付款记录 | `#/workspace/payment-records` | `finance.view`；登记、冲销分别要求 `finance.record`、`finance.reverse` |
 | 财务管理 | 应收应付来源 | `#/workspace/financial-sources` | `finance.view` |
 | 财务管理 | 库存计价 | `#/workspace/inventory-valuation` | `inventory_valuation.view` |
-| 生产管理 | 生产 BOM | `#/workspace/boms` | `production.view` |
 | 生产管理 | 生产工单 | `#/workspace/work-orders` | `production.view` |
 | 生产管理 | 生产领料 | `#/workspace/material-issues` | `production.view` |
 | 生产管理 | 生产退料 | `#/workspace/material-returns` | `production.view` |
@@ -49,3 +49,5 @@
 路由表和 Vue Router 守卫只控制页面展示。创建、确认、冲销和其他写操作仍按各自权限由 FastAPI 服务端校验；客户端侧栏隐藏或页面拦截不能代替服务端授权。增加页面时，需要同步登记路由表、页面组件映射和测试。当前登录与初次连接流程仍由应用启动状态管理，不属于工作台路由。
 
 物料需求计划入口为 `/workspace/material-planning`，属于生产管理，仅 `mrp.view` 可见。其公司范围来源读取与原单建单权限分开；编制、参数、审核、取消和转单逐项授权。转单再检查目标权限，详见 [MRP](material-planning.md)。
+
+生产 BOM 归入基础资料，页面地址仍为 `#/workspace/boms`，查看权限仍为 `production.view`；创建、启用、停用与取消继续使用原生产业务权限，工单固定版本引用不变。新建版本复用公共单据弹窗，组件在物料明细表中搜索选择并编辑基准用量；保存失败或收起弹窗时保留 Pinia 草稿。

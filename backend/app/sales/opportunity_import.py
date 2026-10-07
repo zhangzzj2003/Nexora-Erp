@@ -1,5 +1,6 @@
 """商机批量导入；金额只作为预估，不产生销售单或财务凭证。"""
 
+from app.core.document_responses import NumberedRoute
 from decimal import Decimal
 from hashlib import sha256
 import json
@@ -17,7 +18,7 @@ from app.sales.crm_rules import (StrictInput, audit, require_contact, require_cu
 from app.sales.customer_names import comparable_customer_name
 
 
-router = APIRouter(prefix='/api/v1/crm/opportunities')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/crm/opportunities')
 
 
 class OpportunityImportRow(StrictInput):

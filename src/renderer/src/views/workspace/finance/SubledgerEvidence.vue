@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { NCollapse } from 'naive-ui'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
@@ -24,7 +26,7 @@ function account(record: SubledgerOpening, id: number): string {
 <template>
   <div class="ledger-editor">
     <p>{{ record.reference }} · {{ openingStatusLabels[record.status] }} · 版本 {{ record.version }} · 启用日 {{ record.effective_date }} · 人民币</p>
-    <p>绑定总账期初 #{{ record.opening_balance_id }}，版本 {{ record.opening_version }}。{{ record.note || '未填备注。' }}</p>
+    <p>绑定总账期初 {{ relatedDocumentLabel(record, 'opening_balance') }}，版本 {{ record.opening_version }}。{{ record.note || '未填备注。' }}</p>
     <p v-if="loading" role="status">正在读取核对依据与审计记录…</p>
     <template v-if="check">
       <p role="status">{{ record.evidence ? '确认时已固定的核对证据' : '当前草稿核对' }}：{{ check.matched ? '全部组合一致' : '存在差额，须更正后提交' }}。同一对象的借贷余额按完整辅助组合净额勾稽。</p>

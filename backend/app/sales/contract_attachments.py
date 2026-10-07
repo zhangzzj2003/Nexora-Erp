@@ -1,5 +1,6 @@
 """销售合同原件按正文版本留存，撤销只追加证据。"""
 
+from app.core.document_responses import NumberedRoute
 import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -15,7 +16,7 @@ from app.core.models import (SalesOrderContractAttachment,
 from app.core.orm import add_model, orm_session
 from app.sales.customer_scope import require_visible_order
 
-router = APIRouter(prefix='/api/v1/sales-orders')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/sales-orders')
 
 
 def visible_revision(db: Session, order_id: int, revision_id: int, user: dict):

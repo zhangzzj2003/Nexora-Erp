@@ -1,5 +1,6 @@
 """商机概率预测；只汇总当前可见的开放商机，不产生财务发生额。"""
 
+from app.core.document_responses import NumberedRoute
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends
@@ -12,7 +13,7 @@ from app.sales.crm_rules import OPEN_STAGES, today
 from app.sales.customer_scope import visible_customers
 
 
-router = APIRouter(prefix='/api/v1/crm')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/crm')
 CENT = Decimal('0.01')
 
 

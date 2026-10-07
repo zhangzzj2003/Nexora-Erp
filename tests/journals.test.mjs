@@ -43,7 +43,8 @@ test('凭证编辑提交普通字段，冲突保留旧版本和草稿；状态�
 test('撤权时在其他业务请求失败前清除凭证及建单选项', async t => {
   const old=globalThis.window; t.after(()=>{globalThis.window=old})
   const state=createAppState();state.user.value={permissions:['journal.view','journal.create']};state.journals.value=[{id:1}];state.journalOptions.value={accounts:[{id:1}],periods:[{id:1}]}
-  globalThis.window={nexora:{async callApi(action){if(action==='me')return {permissions:['inventory.view']}; if(action==='materials')throw Error('其他模块失败');return []}}}
+  globalThis.window={nexora:{async callApi(action){if (action === 'documentNumbering') return { configured: true };
+    if(action==='me')return {permissions:['inventory.view']}; if(action==='materials')throw Error('其他模块失败');return []}}}
   const loader=createDataLoader(state,p=>state.user.value.permissions.includes(p),()=>{})
   await assert.rejects(loader.refreshData(),/其他模块失败/)
   assert.deepEqual(state.journals.value,[]);assert.deepEqual(state.journalOptions.value,{accounts:[],periods:[]})

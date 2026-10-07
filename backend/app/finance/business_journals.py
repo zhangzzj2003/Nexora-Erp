@@ -1,5 +1,6 @@
 """可配置科目、来源快照和去重约束的业务凭证草稿。"""
 
+from app.core.document_responses import NumberedRoute
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,7 +22,7 @@ from app.finance.ledger import PeriodInput
 from app.finance.auxiliary_rules import AuxiliaryReference, selection_options
 from app.finance.subledger_rules import check_control_mapping
 
-router = APIRouter(prefix='/api/v1/finance/business-journals')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/business-journals')
 
 
 class PolicyInput(ReasonInput):

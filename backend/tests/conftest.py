@@ -322,3 +322,27 @@ def remove_v39_schema(remove_journal_schema):
             db.execute('DELETE FROM role_permissions WHERE permission_code = ?', (code,))
             db.execute('DELETE FROM permissions WHERE code = ?', (code,))
     return remove
+
+
+@pytest.fixture(autouse=True)
+def configure_numbering_for_business_fixtures(monkeypatch, request):
+    """既有业务用例先完成新增初始化步骤；专门的编号测试自行验证未配置状态。"""
+    if request.node.path.name == 'test_document_numbering.py':
+        return
+    from fastapi.testclient import TestClient
+    original = TestClient.request
+
+    def prepared(client, method, url, **kwargs):
+        response = original(client, method, url, **kwargs)
+        if str(url).endswith('/auth/login') and response.status_code == 200:
+            login = response.json()
+            if 'admin' in login['user']['roles']:
+                headers = {'Authorization': 'Bearer ' + login['token']}
+                current = original(client, 'GET', '/api/v1/system/document-numbering', headers=headers)
+                if current.status_code == 200 and not current.json()['configured']:
+                    configured = original(client, 'PUT', '/api/v1/system/document-numbering', headers=headers,
+                        json={'style': 'english', 'timezone_mode': 'utc', 'timezone': None,
+                              'version': current.json()['version']})
+                    assert configured.status_code == 200, configured.text
+        return response
+    monkeypatch.setattr(TestClient, 'request', prepared)

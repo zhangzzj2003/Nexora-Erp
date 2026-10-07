@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 凭证与来源保留内部 ID，界面优先显示服务端保存的业务单号。
+import { relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed } from 'vue'
 import { NCollapse } from 'naive-ui'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
@@ -37,12 +39,12 @@ const targetTotals = computed(() => journalTotals(props.evidence.lines.filter(it
         <div class="stack">
           <WorkspaceTable title="损益凭证来源" :columns="sources" :data="evidence.sources" :min-table-width="1190">
             <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template>
-            <template #cell-journal_id="{ row }"><AppButton v-if="canOpenJournal" variant="text" @click="emit('openJournal', row.journal_id)">记-{{ row.journal_id }}</AppButton><span v-else>记-{{ row.journal_id }}</span></template>
+            <template #cell-journal_id="{ row }"><AppButton v-if="canOpenJournal" variant="text" @click="emit('openJournal', row.journal_id)">{{ relatedDocumentLabel(row, 'journal') }}</AppButton><span v-else>{{ relatedDocumentLabel(row, 'journal') }}</span></template>
             <template #empty>没有损益已过账来源。</template>
           </WorkspaceTable>
           <WorkspaceTable title="正式期初来源" :columns="opening" :data="evidence.opening_sources" :min-table-width="930">
             <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template>
-            <template #cell-opening_balance_id="{ row }">期初-{{ row.opening_balance_id }}</template>
+            <template #cell-opening_balance_id="{ row }">{{ relatedDocumentLabel(row, 'opening_balance') }}</template>
             <template #empty>没有纳入本次结转的正式期初损益余额。</template>
           </WorkspaceTable>
         </div>

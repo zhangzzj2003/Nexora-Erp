@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -39,7 +41,7 @@ const activeOutbound = computed(() => warehouseOutbounds.value.find(item =>
   item.id === activeOutboundId.value && item.status === 'draft') ?? null)
 const query = ref('')
 const filtered = computed(() => warehouseOutbounds.value.filter((item) =>
-  [item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
+  [documentSearch(item), item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
     .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const reasonName = { scrap: '报废', sample: '样品', other: '其他', purchase_return: '采购退货' }
 const columns = [
@@ -245,7 +247,7 @@ const otherOutboundFormColumns = [
         </WorkspaceDocumentDialog>
       </template>
       <template #cell-document="{ row: item }"
-        ><strong>#{{ item.id }}</strong
+        ><strong>{{ documentLabel(item) }}</strong
         ><small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small
         ><small>{{
           item.status === 'draft'
@@ -261,7 +263,7 @@ const otherOutboundFormColumns = [
         >{{ item.warehouse_name }} · {{ reasonName[item.reason] }}<small>{{ item.note }}</small
         ><small v-if="item.reference">{{ item.reference }}</small
         ><small v-if="item.purchase_return_id"
-          >采购退货单 #{{ item.purchase_return_id }}</small
+          >采购退货单 {{ relatedDocumentLabel(item, 'purchase_return') }}</small
         ></template
       >
       <template #cell-lines="{ row: item }"
@@ -330,7 +332,7 @@ const otherOutboundFormColumns = [
       :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
         maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
       <form v-if="activeOutbound && can('other_outbound.post')" class="stack" @submit.prevent="confirmLotPost">
-        <h2>{{ activeOutbound.source_kind === 'purchase_return' ? '采购退货出库' : '其他出库' }} #{{ activeOutbound.id }} · 指定实物批次</h2>
+        <h2>{{ activeOutbound.source_kind === 'purchase_return' ? '采购退货出库' : '其他出库' }} {{ documentLabel(activeOutbound) }} · 指定实物批次</h2>
         <p>从 {{ activeOutbound.warehouse_name }} 的实际可用批次逐行选择；历史未识别期初会明确标记，不能当作真实来料批号。</p>
         <p v-if="lotLoading">正在读取可用批次…</p>
         <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>

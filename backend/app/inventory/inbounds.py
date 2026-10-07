@@ -1,5 +1,6 @@
 """其他入库单：不产生采购应付的正向库存来源。"""
 
+from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 
@@ -29,7 +30,7 @@ UserCreator = aliased(User)
 UserPoster = aliased(User)
 UserRu = aliased(User)
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class InboundLineInput(BaseModel):

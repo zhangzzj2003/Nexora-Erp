@@ -23,11 +23,11 @@ Material document dialogs share `WorkspaceDocumentDialog`: basic information app
 | Area | Current functionality |
 | --- | --- |
 | Accounts and permissions | Users, built-in/custom roles, document action permissions, account activation, password resets, permission trees and navigation icon settings. |
-| Master data | Materials, suppliers, customers, warehouses and supplier-material relationships; server-side pagination for suppliers. |
+| Master data | BOM versions and component quantities; materials, suppliers, customers, warehouses and supplier-material relationships; server-side pagination for suppliers. |
 | Purchasing | Request approval and split orders, orders, partial receiving, warehouse-confirmed receipts, returns awaiting shipment confirmation, and reversals. |
 | Warehousing | Multi-warehouse stock, other inbounds/outbounds, transfers, stocktakes, independently approved adjustments, source movements and stock ledgers; [inventory warnings (Chinese)](docs/inventory-warnings.md) use per-warehouse thresholds, current quantities, versions and audit evidence. The [physical lot foundation (Chinese)](docs/physical-lot-tracing.md) provides unidentified historical openings, balance differences and source history; purchase receipts and other inbound confirmation can record actual lots per line; other-purpose outbounds, purchase returns, sales shipments and warehouse transfers can select existing lots per line; stocktake differences and inventory adjustments can be assigned to physical lots. |
 | Sales | [Customer relations and quotations (Chinese)](docs/customer-relations.md) add contacts, follow-ups, opportunities and independently approved quotation conversion; orders, partial shipments, linked returns and reversals; confirmation checks remaining order quantities and stock. |
-| Production | BOM versions, frozen work-order requirements, partial material issues/returns, completion reports, basic inspection and lot-recorded accepted-goods receipts; [MRP (Chinese)](docs/material-planning.md) adds dated net requirements, fixed evidence, independent approval and draft conversion; [equipment maintenance (Chinese)](docs/equipment-maintenance.md) adds calendar and manually recorded operating-hour plans, independent execution/acceptance, downtime, material sources and asset/job attachments. |
+| Production | Frozen work-order requirements, partial material issues/returns, completion reports, basic inspection and lot-recorded accepted-goods receipts; [MRP (Chinese)](docs/material-planning.md) adds dated net requirements, fixed evidence, independent approval and draft conversion; [equipment maintenance (Chinese)](docs/equipment-maintenance.md) adds calendar and manually recorded operating-hour plans, independent execution/acceptance, downtime, material sources and asset/job attachments. |
 | Cost and operational finance | Moving-average valuation, manual valuation of unknown costs, material/labor/overhead collection, finished-goods cost allocation, receivable/payable sources, manual payments and reversals. |
 | General ledger | Accounts, periods, independently reviewed/confirmed opening balances, independently reviewed/posted/reversed manual and business-source journals with [attachments](docs/journal-attachments.md), posted account ledgers and trial balance; ordered closing, reverse-order reopening and archived balances/cost evidence. |
 | Reports and operations | Basic purchasing/inventory reports and CSV; [live home statistics (Chinese)](docs/home-statistics.md) show authorized business net amounts, trends and current pending documents/stock; LAN discovery, certificate fingerprint trust, OS services, backup/restore and upgrade backups. |
@@ -66,6 +66,10 @@ Snapshot: **2026-10-03, physical lot data foundation**. Work in progress is not 
 
 Candidate sequencing and entry conditions are in the [expansion assessment (Chinese)](docs/erp-expansion-assessment.md). Build success does not replace device or business acceptance.
 
+### Document numbering
+
+The server assigns stable business numbers to 29 core document and independent payment types. A centered three-step guide lets administrators choose pinyin initials or English prefixes, select a server, UTC or specified IANA time zone, and review the policy on first login, including after an existing database upgrade. Historical backfill and the initial policy lock commit atomically, while references, physical lots and frozen evidence remain intact. See [document numbering rules](docs/document-numbering.md). The complete lot traceability page remains planned.
+
 ## Development entry points
 
 Requires Node.js 22.12+ and Python 3.11+. Setup, architecture, business constraints, testing, **build instructions**, backup/restore and website publishing now live in the detailed guide:
@@ -76,3 +80,5 @@ Requires Node.js 22.12+ and Python 3.11+. Setup, architecture, business constrai
 Run `npm run docs:build` to generate a local HTML website and bilingual guide. The website is published manually through GitHub Pages; open the link at the top for the full interactive presentation. Installer artifacts go to `release/` and remain unsigned/unnotarized; see the guide for commands.
 
 Material management now includes production details, fixed categories and server-generated category codes. See [material catalog rules (Chinese)](docs/material-catalog.md). Upgrade both client and server.
+
+Production BOM is listed under Master data and uses the shared document dialog for product details and editable component rows. Its existing URL, production permissions and fixed work-order version references are preserved.

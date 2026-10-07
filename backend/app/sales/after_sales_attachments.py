@@ -1,5 +1,6 @@
 """售后单附件留存；只追加撤销证据，不覆盖原文件。"""
 
+from app.core.document_responses import NumberedRoute
 import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -15,7 +16,7 @@ from app.core.orm import add_model, orm_session
 from app.sales.after_sales import get_case, permission
 from app.sales.customer_scope import require_visible_after_sales
 
-router = APIRouter(prefix='/api/v1/after-sales/cases')
+router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/after-sales/cases')
 
 
 def visible_case(db: Session, case_id: int, user: dict) -> AfterSalesCase:

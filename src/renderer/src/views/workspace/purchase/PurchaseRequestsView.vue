@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
+import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -27,7 +29,7 @@ const query = ref('')
 const showForm = ref(false)
 const conversionOpen = ref(false)
 const filtered = computed(() => purchaseRequests.value.filter((item) =>
-  [item.id, item.reference, item.note, item.status, ...item.lines.map((line) => line.material_name)]
+  [documentSearch(item), item.id, item.reference, item.note, item.status, ...item.lines.map((line) => line.material_name)]
     .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const selectedRequest = computed(() => purchaseRequests.value.find((item) => item.id === requestConversionForm.value.requestId))
 const columns = [
@@ -170,7 +172,7 @@ const requestConversionFormColumns = [
         <WorkspaceDocumentDialog
           v-if="selectedRequest && can('purchase_order.create')"
           v-model:show="conversionOpen"
-          :title="`申请 #${selectedRequest?.id ?? ''} 转采购订单`"
+          :title="`申请 ${selectedRequest ? documentLabel(selectedRequest) : ''} 转采购订单`"
           :data="requestConversionFormRows"
           :columns="requestConversionFormColumns"
           :busy="busy"
@@ -235,7 +237,7 @@ const requestConversionFormColumns = [
         </WorkspaceDocumentDialog>
       </template>
       <template #cell-id="{ row: item }"
-        ><strong>#{{ item.id }}</strong
+        ><strong>{{ documentLabel(item) }}</strong
         ><small v-if="item.reference">{{ item.reference }}</small
         ><small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small></template
       >
