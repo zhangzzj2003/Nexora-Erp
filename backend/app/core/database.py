@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 88:
+        if version > 89:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2678,3 +2678,63 @@ def migrate() -> None:
                     db.execute(f'ALTER TABLE {table} ADD COLUMN document_no TEXT CHECK(document_no IS NULL OR length(trim(document_no)) > 0)')
                 db.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS {table}_document_no ON {table}(document_no)')
             db.execute('PRAGMA user_version = 88')
+
+        if version < 89:
+            # 只增加审批基础结构，不替历史已执行单据补造批准记录。
+            from app.core.approval_catalog import APPROVAL_TYPES
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS document_approval_policies (
+                document_type TEXT PRIMARY KEY, version INTEGER NOT NULL CHECK(version >= 1),
+                steps_json TEXT NOT NULL, configured_by INTEGER REFERENCES users(id), configured_at TEXT)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS document_approval_policy_changes (
+                id INTEGER PRIMARY KEY, document_type TEXT NOT NULL REFERENCES document_approval_policies(document_type),
+                version INTEGER NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(document_type, version))''')
+            db.execute('''CREATE TABLE IF NOT EXISTS document_approval_cases (
+                id INTEGER PRIMARY KEY, document_type TEXT NOT NULL REFERENCES document_approval_policies(document_type),
+                document_id INTEGER NOT NULL CHECK(document_id > 0), intent TEXT NOT NULL CHECK(intent IN ('execute','reverse')),
+                version INTEGER NOT NULL CHECK(version > 0), generation INTEGER NOT NULL CHECK(generation > 0),
+                policy_version INTEGER NOT NULL, steps_json TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+                content_digest TEXT NOT NULL, authors_json TEXT NOT NULL, current_step INTEGER NOT NULL CHECK(current_step >= 0),
+                status TEXT NOT NULL CHECK(status IN ('submitted','approved','rejected','withdrawn','executed')),
+                submitted_by INTEGER NOT NULL REFERENCES users(id), submitted_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                executed_by INTEGER REFERENCES users(id), executed_at TEXT,
+                UNIQUE(document_type, document_id, intent))''')
+            db.execute('''CREATE TABLE IF NOT EXISTS document_approval_events (
+                id INTEGER PRIMARY KEY, case_id INTEGER NOT NULL REFERENCES document_approval_cases(id),
+                version INTEGER NOT NULL, generation INTEGER NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('submit','approve','reject','withdraw','execute')),
+                step INTEGER NOT NULL CHECK(step >= 0), actor_id INTEGER NOT NULL REFERENCES users(id),
+                reason TEXT NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(case_id, version))''')
+            db.execute('''CREATE TABLE IF NOT EXISTS document_approval_authors (
+                document_type TEXT NOT NULL, document_id INTEGER NOT NULL CHECK(document_id > 0),
+                user_id INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(document_type, document_id, user_id))''')
+            # 结构层禁止重写审计，包含绕过 ORM 的更新和删除。
+            for table in ('document_approval_events', 'document_approval_policy_changes', 'document_approval_authors'):
+                for action in ('UPDATE', 'DELETE'):
+                    db.execute(f'''CREATE TRIGGER IF NOT EXISTS {table}_immutable_{action.lower()}
+                        BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT, '审批历史不能修改或删除'); END''')
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'users' in tables:
+                db.executemany('''INSERT OR IGNORE INTO document_approval_policies(document_type,version,steps_json)
+                    VALUES (?,1,?)''', [(name, '[{"name":"批准","role":null}]') for name in APPROVAL_TYPES])
+            if {'permissions', 'role_permissions', 'permission_groups', 'roles'} <= tables:
+                # 新审核权限不会自动授给执行人员；管理员也必须由另一位人员独立审核。
+                for rule in APPROVAL_TYPES.values():
+                    if rule.native_workflow:
+                        continue
+                    group = db.execute('SELECT group_code FROM permissions WHERE code=?',
+                                       (rule.execute_permission,)).fetchone()
+                    if group is None:
+                        continue
+                    label = '审核收付款与核销' if rule.review_permission == 'finance.review' else '审核' + rule.title
+                    db.execute('INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,?)',
+                               (rule.review_permission, label, group[0]))
+                    if db.execute("SELECT 1 FROM roles WHERE code='admin'").fetchone():
+                        db.execute("INSERT OR IGNORE INTO role_permissions(role_code,permission_code) VALUES ('admin',?)",
+                                   (rule.review_permission,))
+            db.execute('PRAGMA user_version = 89')

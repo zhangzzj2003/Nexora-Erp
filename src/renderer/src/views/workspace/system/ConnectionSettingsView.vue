@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import DocumentNumberingSettings from '../../../components/workspace/DocumentNumberingSettings.vue'
+import DocumentApprovalSettings from '../../../components/workspace/DocumentApprovalSettings.vue'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -24,6 +25,7 @@ const {
 <template>
   <section class="stack">
     <DocumentNumberingSettings />
+    <DocumentApprovalSettings />
     <div class="card">
       <div class="section-heading">
         <div>

@@ -1,4 +1,5 @@
 import type { DocumentNumberingInput } from '../../../shared/document-numbering'
+import { createDocumentApprovalActions } from './modules/document-approval-actions'
 import {createInventoryWarningActions} from './modules/inventory-warning-actions'
 import {createInventoryWarningAlerts} from './modules/inventory-warning-alerts'
 import {createPhysicalLotActions} from './modules/physical-lot-actions'
@@ -303,6 +304,7 @@ function createAppStore() {
   const inventoryWarningActions = createInventoryWarningActions(state, perform)
   const inventoryWarningAlerts = createInventoryWarningAlerts(state)
   const physicalLotActions = createPhysicalLotActions(state)
+  const documentApprovalActions = createDocumentApprovalActions(state)
   const equipmentActions = createEquipmentActions(state, perform)
   const dashboardActions = createDashboardActions(state)
   const ledgerReportActions = createLedgerReportActions(state)
@@ -356,6 +358,7 @@ function createAppStore() {
     window.removeEventListener('resize', revealCurrentTab)
   }
   return {
+    ...documentApprovalActions,
     ...state,
     activeTab,
     workspacePageVersion,

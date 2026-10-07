@@ -84,6 +84,7 @@ from app.reports.routes import router as reports_router
 from app.reports.dashboard import router as dashboard_router
 from app.service.routes import router as service_router
 from app.service.document_numbering import router as numbering_router, require_numbering
+from app.service.document_approvals import router as approval_policy_router
 
 
 @asynccontextmanager
@@ -129,7 +130,7 @@ app = FastAPI(title="Nexora ERP API", version="0.1.0", lifespan=lifespan,
               dependencies=[Depends(require_numbering)])
 # 路由只在这里组装；各功能目录负责自己的参数校验与业务接口。
 for router in (
-    numbering_router, service_router, access_router, menu_router, catalog_router, units_router, receipts_router,
+    numbering_router, approval_policy_router, service_router, access_router, menu_router, catalog_router, units_router, receipts_router,
     inventory_router, stock_router, warnings_router, warning_events_router, physical_lots_router, movement_evidence_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
     warehouse_inbounds_router, warehouse_outbounds_router,
     purchase_router, purchase_requests_router, goods_receipts_router,

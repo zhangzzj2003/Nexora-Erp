@@ -1,4 +1,5 @@
 import type { DocumentNumberingConfig } from '../../../shared/document-numbering'
+import type { DocumentApprovalPolicy, DocumentApprovalPolicyInput, DocumentApprovalType } from '../../../shared/document-approval-api'
 import type {InventoryWarningOverview,InventoryWarningDetail,InventoryWarningEventPage,InventoryWarningInput} from '../../../shared/inventory-warning-api'
 import type {PhysicalLotOverview,PhysicalLotHistory,PhysicalLotUnallocatedList} from '../../../shared/physical-lot-api'
 import { computed, ref } from 'vue'
@@ -113,6 +114,10 @@ import type { Screen } from './types'
 export function createAppState() {
   // 服务端规则与会话一起刷新，切换实例时不能沿用旧服务的编号配置。
   const documentNumbering = ref<DocumentNumberingConfig | null>(null)
+  // 模板和草稿属于当前账号、服务端实例；失败或切换页面保留同一实例的草稿。
+  const approvalPolicies = ref<DocumentApprovalPolicy[]>([])
+  const approvalPolicyDrafts = ref<Partial<Record<DocumentApprovalType, DocumentApprovalPolicyInput>>>({})
+  const approvalPolicyLoading = ref(false), approvalPolicyError = ref('')
   const lotOverview=ref<PhysicalLotOverview|null>(null),lotHistory=ref<PhysicalLotHistory|null>(null)
   const lotUnallocated=ref<PhysicalLotUnallocatedList|null>(null)
   const lotLoading=ref(false),lotError=ref(''),lotWarehouseId=ref(0),lotMaterialId=ref(0)
@@ -540,6 +545,7 @@ export function createAppState() {
 
   return {
     documentNumbering,
+    approvalPolicies, approvalPolicyDrafts, approvalPolicyLoading, approvalPolicyError,
     lotOverview,lotHistory,lotUnallocated,lotLoading,lotError,lotWarehouseId,lotMaterialId,
     dashboardResult, dashboardPeriod, dashboardLoading, dashboardError,
     qualityOverview, qualityDetail, qualityLoading, qualityError, qualityEdit, qualityForm,

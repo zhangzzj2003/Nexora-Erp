@@ -1,4 +1,5 @@
 import { documentNumberingBody, validateDocumentNumbering, validateDocumentNumbers } from '../shared/document-numbering.ts'
+import { documentApprovalType, documentApprovalPolicyBody, validateDocumentApprovalPolicies, validateDocumentApprovalPolicy } from '../shared/document-approval-api.ts'
 import { supplierBody } from '../shared/supplier-api.ts'
 import { materialUnitBody, validateMaterialUnitResult } from '../shared/material-unit-api.ts'
 import { validateMaterialChoiceResult } from '../shared/material-choice-validation.ts'
@@ -562,6 +563,9 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'documentNumbering': return { method: 'GET', path: '/api/v1/system/document-numbering' }
     case 'saveDocumentNumbering': return { method: 'PUT', path: '/api/v1/system/document-numbering', body: documentNumberingBody(payload) }
+    case 'documentApprovalPolicies': return { method: 'GET', path: '/api/v1/system/document-approvals' }
+    case 'documentApprovalPolicy': return { method: 'GET', path: `/api/v1/system/document-approvals/${documentApprovalType(payload)}` }
+    case 'saveDocumentApprovalPolicy': return { method: 'PUT', path: `/api/v1/system/document-approvals/${documentApprovalType(payload)}`, body: documentApprovalPolicyBody(payload) }
     case 'setupStatus': return { method: 'GET', path: '/api/v1/setup/status' }
     case 'inventoryWarnings': {
       if(payload!==undefined && (!payload || typeof payload!=='object' || Array.isArray(payload)))throw new Error('预警查询范围无效')
@@ -1582,6 +1586,8 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   if (action === 'logout' || action === 'changePassword') setSessionToken(null)
   if (action === 'documentNumbering' || action === 'saveDocumentNumbering') validateDocumentNumbering(data)
+  if (action === 'documentApprovalPolicies') validateDocumentApprovalPolicies(data)
+  if (action === 'documentApprovalPolicy' || action === 'saveDocumentApprovalPolicy') validateDocumentApprovalPolicy(data)
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
   if (action === 'customerImportPreview') validateCustomerImportPreview(data,
     customerImportNames(payload))

@@ -2341,3 +2341,75 @@ class DocumentNumberSequence(Base):
     document_type: Mapped[str] = mapped_column(Text, primary_key=True)
     business_date: Mapped[str] = mapped_column(Text, primary_key=True)
     last_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class DocumentApprovalPolicy(Base):
+    """实例级审批模板；修改后只影响下一次送审。"""
+    __tablename__ = 'document_approval_policies'
+    document_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    steps_json: Mapped[str] = mapped_column(Text, nullable=False)
+    configured_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    configured_at: Mapped[str | None] = mapped_column(Text)
+
+
+class DocumentApprovalPolicyChange(Base):
+    """模板修改追加留痕，记录修改前后内容和管理员。"""
+    __tablename__ = 'document_approval_policy_changes'
+    __table_args__ = (UniqueConstraint('document_type', 'version'),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_type: Mapped[str] = mapped_column(ForeignKey('document_approval_policies.document_type'), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    before_json: Mapped[str] = mapped_column(Text, nullable=False)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class DocumentApprovalCase(Base):
+    """单据审批当前状态；版本只递增，历史内容保存在不可改写的事件中。"""
+    __tablename__ = 'document_approval_cases'
+    __table_args__ = (UniqueConstraint('document_type', 'document_id', 'intent'),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_type: Mapped[str] = mapped_column(ForeignKey('document_approval_policies.document_type'), nullable=False)
+    document_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    intent: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    steps_json: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    content_digest: Mapped[str] = mapped_column(Text, nullable=False)
+    authors_json: Mapped[str] = mapped_column(Text, nullable=False)
+    current_step: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    submitted_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    submitted_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+    executed_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    executed_at: Mapped[str | None] = mapped_column(Text)
+
+
+class DocumentApprovalEvent(Base):
+    """每个决定独立追加，连同当时的内容及模板快照保留。"""
+    __tablename__ = 'document_approval_events'
+    __table_args__ = (UniqueConstraint('case_id', 'version'),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey('document_approval_cases.id'), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    step: Mapped[int] = mapped_column(Integer, nullable=False)
+    actor_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    state_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class DocumentApprovalAuthor(Base):
+    """保留历次建单、编辑、送审人员，撤回或驳回不能清除自审限制。"""
+    __tablename__ = 'document_approval_authors'
+    document_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    document_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), primary_key=True)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
