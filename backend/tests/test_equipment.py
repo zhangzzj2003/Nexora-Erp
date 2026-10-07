@@ -106,14 +106,20 @@ def test_maintenance_purchase_request_keeps_source_quantity_and_receipt_evidence
     evidence = api('GET', ROOT + f'/jobs/{row["id"]}')['purchase_requests'][0]
     assert evidence['lines'][0]['orders'][0]['id'] == order['id']
     assert evidence['lines'][0]['orders'][0]['quantity'] == '2'
+    # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+    approve_document(erp[0], erp[2]['admin'], 'PurchaseOrder', order['id'])
     api('POST', f'purchase-orders/{order["id"]}/confirm')
     goods = api('POST', 'purchase-goods-receipts', {'purchase_order_id': order['id'],
         'warehouse_id': 1, 'reference': '到货 EQ-1', 'lines': [{
         'purchase_order_line_id': order['lines'][0]['id'], 'accepted_quantity': '2',
         'rejected_quantity': '0'}]}, status=201)
+    # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+    approve_document(erp[0], erp[2]['admin'], 'PurchaseGoodsReceipt', goods['id'])
     receipt = api('POST', f'purchase-goods-receipts/{goods["id"]}/confirm')
     link = api('GET', ROOT + f'/jobs/{row["id"]}')['purchase_requests'][0]['lines'][0]['orders'][0]['goods_receipts'][0]
     assert link['id'] == goods['id'] and link['inbound_status'] == 'draft'
+    # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+    approve_document(erp[0], erp[2]['admin'], 'Receipt', receipt['inbound_receipt_id'])
     api('POST', f'receipts/{receipt["inbound_receipt_id"]}/post')
     link = api('GET', ROOT + f'/jobs/{row["id"]}')['purchase_requests'][0]['lines'][0]['orders'][0]['goods_receipts'][0]
     assert link['inbound_status'] == 'posted' and link['accepted_quantity'] == '2'

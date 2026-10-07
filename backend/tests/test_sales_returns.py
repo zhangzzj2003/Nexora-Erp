@@ -1,5 +1,7 @@
 """验证销售退货关联原出库、累计可退量和库存流水原子性。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -31,6 +33,8 @@ def test_sales_returns_partial_and_over_return(monkeypatch, tmp_path):
             "code": "RETURN", "name": "退货仓"}).json()["id"]
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "2.125"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         client.post(f"{base}/receipts/{receipt}/post", headers=admin)
         order = client.post(f"{base}/sales-orders", headers=seller, json={
             "customer_id": customer, "lines": [{"material_id": material,

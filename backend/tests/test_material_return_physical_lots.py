@@ -1,5 +1,7 @@
 """生产退料核对原领料批次、累计可退量与新发现批次来源。"""
 
+from approval_test_helpers import approve_document
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -27,6 +29,8 @@ def test_material_return_lots_follow_original_issue(monkeypatch, tmp_path):
                                json={'sku': 'RETURN-PART', 'name': '组件', 'unit': '件'}).json()['id']
         receipt = client.post(f'{base}/receipts', headers=auth, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '2.000'}]}).json()
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, auth, 'Receipt', receipt['id'])
         received = client.post(f'{base}/receipts/{receipt["id"]}/post', headers=auth,
             json={'lines': [{'receipt_line_id': receipt['lines'][0]['id'], 'lots': [
                 {'quantity': '1.000'}, {'quantity': '1.000'}]}]}).json()

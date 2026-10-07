@@ -1,5 +1,7 @@
 """验证分批领料、库存与剩余需料的事务核对，以及不可改写的流水来源。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -30,6 +32,8 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "warehouse_id": 1,
             "lines": [{"material_id": component, "quantity": "2"} for component in components]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(f"{base}/receipts/{receipt}/post", headers=admin).status_code == 200
         second_warehouse = client.post(f"{base}/warehouses", headers=admin, json={
             "code": "PROD", "name": "生产仓"}).json()["id"]

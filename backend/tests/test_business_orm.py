@@ -1,5 +1,7 @@
 """ORM 单据迁移须保留写入后回滚、跨模块状态和并发确认约束。"""
 
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -46,13 +48,15 @@ def erp(monkeypatch, tmp_path):
             },
             201,
         )
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, dict(client.headers), 'PurchaseOrder', purchase['id'])
         request("POST", f'purchase-orders/{purchase["id"]}/confirm')
         yield client, request, supplier, customer, materials, warehouse, purchase
 
 
 def receipt(erp, quantity="10.000"):
-    _, request, supplier, _, materials, _, purchase = erp
-    return request(
+    client, request, supplier, _, materials, _, purchase = erp
+    result = request(
         "POST",
         "receipts",
         {
@@ -62,6 +66,9 @@ def receipt(erp, quantity="10.000"):
         },
         201,
     )
+    # 显式业务夹具提供可执行入库单，不拦截或自动放宽任何被测接口。
+    approve_document(client, dict(client.headers), 'Receipt', result['id'])
+    return result
 
 
 def completion(erp):
@@ -214,6 +221,9 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
         path = f'production-completions/{source["id"]}/' + ("reverse" if case.endswith("reverse") else "post")
     if case.endswith("reverse"):
         payload = {"reason": "更正原单"}
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    if case == 'receipt_reverse':
+        approve_document(client, dict(client.headers), 'Receipt', source['id'], intent='reverse', reason='更正原单')
     before = snapshots(request)
     before_flush, after_flush = fail_after_model_flush(StockMovement)
     event.listen(Session, "before_flush", before_flush)
@@ -243,6 +253,8 @@ def test_goods_receipt_generated_inbound_failure_can_retry_without_reserving_twi
         },
         201,
     )
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    approve_document(client, dict(client.headers), 'PurchaseGoodsReceipt', source['id'])
     before_flush, after_flush = fail_after_model_flush(Receipt)
     event.listen(Session, "before_flush", before_flush)
     event.listen(Session, "after_flush_postexec", after_flush)
@@ -255,6 +267,8 @@ def test_goods_receipt_generated_inbound_failure_can_retry_without_reserving_twi
     assert request("GET", "purchase-goods-receipts")[0]["status"] == "draft"
     result = request("POST", f'purchase-goods-receipts/{source["id"]}/confirm')
     assert result["inbound_status"] == "draft" and len(request("GET", "receipts")) == 1
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    approve_document(client, dict(client.headers), 'Receipt', result['inbound_receipt_id'])
     request("POST", f'receipts/{result["inbound_receipt_id"]}/post')
     assert {line["remaining_quantity"] for line in request("GET", "purchase-orders")[0]["lines"]} == {"4.000"}
 

@@ -1,5 +1,7 @@
 """采购退货提交后由仓库确认出库，验证预留、重复操作和流水时点。"""
 
+from approval_test_helpers import approve_document
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -21,6 +23,8 @@ def test_return_requires_warehouse_outbound_confirmation(monkeypatch, tmp_path):
         receipt = client.post(f"{base}/receipts", headers=auth, json={
             "supplier_id": supplier, "warehouse_id": 1, "purchase_order_id": None,
             "lines": [{"material_id": material, "quantity": "3"}]}).json()
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, auth, 'Receipt', receipt['id'])
         assert client.post(f"{base}/receipts/{receipt['id']}/post", headers=auth).status_code == 200
         payload = {"receipt_id": receipt["id"], "reason": "质量问题", "lines": [
             {"receipt_line_id": receipt["lines"][0]["id"], "quantity": "2"}]}

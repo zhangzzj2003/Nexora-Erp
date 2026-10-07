@@ -1,5 +1,7 @@
 """销售出库逐批扣减、确认回滚与原分配冲销。"""
 
+from approval_test_helpers import approve_document
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -25,6 +27,8 @@ def test_shipment_lots_are_selected_and_reversed_atomically(monkeypatch, tmp_pat
             'sku': 'SHIP-LOT', 'name': '销售批次物料', 'unit': '件'}).json()['id']
         receipt = client.post(f'{base}/receipts', headers=auth, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '3.000'}]}).json()
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, auth, 'Receipt', receipt['id'])
         posted_receipt = client.post(f'{base}/receipts/{receipt["id"]}/post', headers=auth,
             json={'lines': [{'receipt_line_id': receipt['lines'][0]['id'], 'lots': [
                 {'quantity': '1.000'}, {'quantity': '2.000'}]}]}).json()

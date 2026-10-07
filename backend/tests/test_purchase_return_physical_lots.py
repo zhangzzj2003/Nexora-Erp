@@ -1,5 +1,7 @@
 """采购退货的实物批次选择、失败回滚及原分配冲销。"""
 
+from approval_test_helpers import approve_document
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -26,6 +28,8 @@ def test_purchase_return_lots_follow_warehouse_gate_and_reverse(monkeypatch, tmp
         receipt = client.post(f'{base}/receipts', headers=auth, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '3.000'}]}).json()
         receipt_line = receipt['lines'][0]['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, auth, 'Receipt', receipt['id'])
         posted_receipt = client.post(f'{base}/receipts/{receipt["id"]}/post', headers=auth,
             json={'lines': [{'receipt_line_id': receipt_line, 'lots': [
                 {'quantity': '1.000', 'supplier_lot': 'A'},

@@ -1,6 +1,8 @@
 """分户期初勾稽、独立审核、资金来源、并发和故障回滚。"""
 
 import csv
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from io import StringIO
@@ -268,9 +270,11 @@ def test_independent_review_includes_previous_editor_and_confirm_failure_rolls_b
 
 
 def test_existing_business_is_not_silently_added_to_imported_debt(subledger):
-    _, api, *_ = subledger
+    client, api, *_ = subledger
     material = api('POST','materials',dict(sku='OLD',name='旧物料',unit='件'),201)['id']
     receipt = api('POST','receipts',dict(supplier_id=1,lines=[dict(material_id=material,quantity='1')]),201)
+    # 先独立审批已有采购入库，再验证历史债务不会吞并新业务来源。
+    approve_document(client, dict(client.headers), 'Receipt', receipt['id'])
     api('POST',f'receipts/{receipt["id"]}/post')
     api('POST','finance/subledger-openings',subledger[4],409)
     assert api('GET','finance/subledger-openings') == []

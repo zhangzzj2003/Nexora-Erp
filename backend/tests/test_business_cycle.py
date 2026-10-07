@@ -1,5 +1,7 @@
 """验证采购、调拨、生产、销售与业务对账共用同一套物料和库存。"""
 
+from approval_test_helpers import approve_document
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -50,10 +52,14 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
         # 采购入库形成应付与主仓库存，调拨只移动库存，不重复产生采购金额。
         purchase = create("/purchase-orders", buyer, {"supplier_id": supplier, "lines": [
             {"material_id": component, "quantity": "4", "unit_price": "3"}]})["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', purchase)
         confirm(f"/purchase-orders/{purchase}/confirm", buyer)
         receipt = create("/receipts", buyer, {"supplier_id": supplier, "purchase_order_id": purchase,
                                                "warehouse_id": 1, "lines": [
                                                    {"material_id": component, "quantity": "4"}]})["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         confirm(f"/receipts/{receipt}/post", warehouse)
         transfer = create("/transfers", warehouse, {"from_warehouse_id": 1,
                                                      "to_warehouse_id": production_warehouse,

@@ -1,5 +1,7 @@
 """采购入库的真实批次分配、精确守恒与原批次冲销。"""
 
+from approval_test_helpers import approve_document
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -26,6 +28,8 @@ def test_receipt_lots_post_and_reverse_are_atomic(monkeypatch, tmp_path):
         receipt = client.post(f'{base}/receipts', headers=auth, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '2.125'}]}).json()
         receipt_id, line_id = receipt['id'], receipt['lines'][0]['id']
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, auth, 'Receipt', receipt_id)
         post_url = f'{base}/receipts/{receipt_id}/post'
         assert receipt['lines'][0]['physical_lots'] == []
         assert client.post(post_url, json={'lines': [{
@@ -72,6 +76,8 @@ def test_receipt_lots_post_and_reverse_are_atomic(monkeypatch, tmp_path):
                 source_type='lot_test_outbound', source_id=1, source_line_id=1, created_by=1),
                 [LotPart(parts[0]['id'], Decimal('-0.125'))])
             spent_id = spent.id
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, auth, 'Receipt', receipt_id, intent='reverse', reason='误入库')
         reverse_url = f'{base}/receipts/{receipt_id}/reverse'
         assert client.post(reverse_url, json={'reason': '误入库'}, headers=auth).status_code == 409
         assert client.get(f'{base}/receipts', headers=auth).json()[0]['reversal_id'] is None

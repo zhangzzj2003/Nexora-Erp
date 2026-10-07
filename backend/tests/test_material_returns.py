@@ -1,5 +1,7 @@
 """验证退料更正的原单来源、累计上限、库存流水与工单净领料。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -29,6 +31,8 @@ def test_material_return_partial_reissue_and_permissions(monkeypatch, tmp_path):
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "warehouse_id": 1,
             "lines": [{"material_id": component, "quantity": "4"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(f"{base}/receipts/{receipt}/post", headers=admin).status_code == 200
         bom = client.post(f"{base}/boms", headers=planner, json={
             "product_material_id": product, "base_quantity": "1",

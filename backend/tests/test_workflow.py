@@ -1,5 +1,7 @@
 """使用真实本地数据库验证权限、入库事务和重启后的数据。"""
 
+from approval_test_helpers import approve_document
+
 import os
 import tempfile
 import unittest
@@ -79,6 +81,8 @@ class WorkflowTest(unittest.TestCase):
         receipt_id = receipt.json()["id"]
         self.assertEqual(self.client.get(f"{base}/stock", headers=viewer).json()[0]["quantity"], "0")
         self.assertEqual(self.client.post(f"{base}/receipts/{receipt_id}/post", headers=buyer).status_code, 403)
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(self.client, admin, 'Receipt', receipt_id)
         posted = self.client.post(f"{base}/receipts/{receipt_id}/post", headers=warehouse)
         self.assertEqual(posted.status_code, 200, posted.text)
         self.assertEqual(posted.json()["status"], "posted")
@@ -86,6 +90,11 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(self.client.get(f"{base}/stock", headers=viewer).json()[0]["quantity"], "2.125")
         self.assertEqual(len(self.client.get(f"{base}/movements", headers=viewer).json()), 1)
 
+        # 审批测试人员已完成本次业务，撤去临时管理员角色后再验证最后管理员保护。
+        reviewer = next(row for row in self.client.get(f"{base}/users", headers=admin).json()
+                        if row['username'] == 'independent_reviewer_1')
+        self.assertEqual(self.client.put(f"{base}/users/{reviewer['id']}/roles", headers=admin,
+            json={"roles": ["viewer"]}).status_code, 200)
         # 角色调整立即作用于已有会话，并且不能撤销最后一个管理员。
         self.assertEqual(self.client.put(f"{base}/users/{first.json()['id']}/roles", headers=admin,
             json={"roles": ["viewer"]}).status_code, 409)

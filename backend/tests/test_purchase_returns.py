@@ -1,5 +1,7 @@
 """验证采购退货的原入库关联、库存不足回滚与历史价格边界。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -31,6 +33,8 @@ def test_purchase_returns_source_and_inventory(monkeypatch, tmp_path):
         order = client.post(f"{base}/purchase-orders", headers=buyer, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "2.125",
                                                "unit_price": "10.0000"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', order)
         client.post(f"{base}/purchase-orders/{order}/confirm", headers=buyer)
         receipt = client.post(f"{base}/receipts", headers=buyer, json={
             "supplier_id": supplier, "warehouse_id": 1, "purchase_order_id": order,
@@ -40,6 +44,8 @@ def test_purchase_returns_source_and_inventory(monkeypatch, tmp_path):
                    "lines": [{"receipt_line_id": line_id, "quantity": "1.125"}]}
         assert client.post(f"{base}/purchase-returns", headers=buyer, json=payload).status_code == 409
 
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt_id)
         client.post(f"{base}/receipts/{receipt_id}/post", headers=warehouse)
         assert client.post(f"{base}/purchase-returns", headers=viewer, json=payload).status_code == 403
         assert client.post(f"{base}/purchase-returns", headers=buyer, json={
@@ -132,6 +138,8 @@ def test_purchase_returns_source_and_inventory(monkeypatch, tmp_path):
 
         # 不关联采购订单的旧式入库不应被错误地当作零价退货。
         legacy_receipt_id = client.get(f"{base}/receipts", headers=viewer).json()[0]["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', legacy_receipt_id)
         assert client.post(f"{base}/receipts/{legacy_receipt_id}/post", headers=warehouse).status_code == 200
         legacy = client.get(f"{base}/receipts", headers=viewer).json()[0]
         unpriced = client.post(f"{base}/purchase-returns", headers=buyer, json={

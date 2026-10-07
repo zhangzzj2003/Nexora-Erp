@@ -55,6 +55,17 @@ const draft = () => ({ document_type: 'WarehouseInbound', document_id: 1, intent
   submitted_by: null, submitted_at: null, executed_by: null, executed_at: null,
   can_submit: true, can_review: false, can_withdraw: false, events: [] })
 
+test('业务列表与执行响应校验审批字段，旧响应缺省不能冒充已批准', () => {
+  // 校验两种入口和独立冲销状态，拒绝仅提供 approved 文本的残缺响应。
+  caseApi.validateDocumentApprovalResponse({ id: 1 })
+  caseApi.validateDocumentApprovalResponse([{ id: 1, approval: draft() }, { id: 2 }])
+  caseApi.validateDocumentApprovalResponse({ id: 1, approval: draft(), reversal_approval: draft() })
+  for (const value of [null, undefined, 'approved', { status: 'approved' }, { ...draft(), version: true }]) {
+    assert.throws(() => caseApi.validateDocumentApprovalResponse([{ id: 1, approval: value }]))
+    assert.throws(() => caseApi.validateDocumentApprovalResponse({ id: 1, reversal_approval: value }))
+  }
+})
+
 test('单据审批动作禁止路径、意图、结果或快照注入，并保留读取到的版本', () => {
   const input = { document_type: 'WarehouseInbound', document_id: 1, intent: 'execute',
     action: 'submit', version: 0, reason: ' 说明 ' }

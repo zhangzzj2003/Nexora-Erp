@@ -1,5 +1,7 @@
 """订单间贷方核销的金额、归属、权限和追加式撤销。"""
 
+from approval_test_helpers import approve_document
+
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
@@ -34,11 +36,15 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
         purchase = client.post(f'{base}/purchase-orders', headers=admin, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '6',
                                                 'unit_price': '4'}]}).json()['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', purchase)
         client.post(f'{base}/purchase-orders/{purchase}/confirm', headers=admin)
         receipt_doc = client.post(f'{base}/receipts', headers=admin, json={
             'supplier_id': supplier, 'purchase_order_id': purchase,
             'lines': [{'material_id': material, 'quantity': '6'}]}).json()
         receipt = receipt_doc['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(f'{base}/receipts/{receipt}/post', headers=admin).status_code == 200
 
         def sale(party):
@@ -121,10 +127,14 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
         purchase_target = client.post(f'{base}/purchase-orders', headers=admin, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '2',
                                                 'unit_price': '4'}]}).json()['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', purchase_target)
         client.post(f'{base}/purchase-orders/{purchase_target}/confirm', headers=admin)
         next_receipt = client.post(f'{base}/receipts', headers=admin, json={
             'supplier_id': supplier, 'purchase_order_id': purchase_target,
             'lines': [{'material_id': material, 'quantity': '2'}]}).json()['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', next_receipt)
         assert client.post(f'{base}/receipts/{next_receipt}/post', headers=admin).status_code == 200
         payable_transfer = client.post(path, headers=finance, json={
             'kind': 'payable', 'from_order_id': purchase, 'to_order_id': purchase_target,

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 批准与业务执行分开，审批入口复用共享 Pinia 和固定内容弹窗。
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -176,7 +178,7 @@ const goodsReceiptFormColumns = [
         >{{ item.warehouse_name
         }}<small>{{
           item.status === 'draft'
-            ? '待确认收货'
+            ? ({ submitted: '审批中', approved: '已批准待收货', rejected: '已驳回', withdrawn: '已撤回', draft: '待送审', executed: '已执行' })[item.approval?.status ?? 'draft']
             : item.status === 'cancelled'
               ? '已取消'
               : item.inbound_receipt_id
@@ -203,8 +205,12 @@ const goodsReceiptFormColumns = [
       >
       <template #cell-actions="{ row: item }"
         ><div class="form-actions">
+          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'PurchaseGoodsReceipt', document_id: item.id, intent: 'execute' })">
+            {{ item.status === 'draft' ? '单据审批' : '审批记录' }}
+          </AppButton>
           <AppButton
-            v-if="item.status === 'draft' && can('purchase_receiving.confirm')"
+            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('purchase_receiving.confirm')"
             :disabled="busy || connectionLost"
             @click="confirmGoodsReceipt(item.id)"
             variant="primary"
@@ -213,7 +219,7 @@ const goodsReceiptFormColumns = [
             >确认收货</AppButton
           >
           <AppButton
-            v-if="item.status === 'draft' && can('purchase_receiving.cancel')"
+            v-if="item.status === 'draft' && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('purchase_receiving.cancel')"
             :disabled="busy || connectionLost"
             @click="cancelGoodsReceipt(item.id)"
             variant="secondary"
@@ -225,5 +231,6 @@ const goodsReceiptFormColumns = [
       >
       <template #empty>{{ query ? '没有匹配的采购收货单。' : '暂无采购收货单。' }}</template>
     </WorkspaceTable>
+    <DocumentApprovalDialog />
   </section>
 </template>

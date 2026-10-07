@@ -1,6 +1,9 @@
 """采购收货事实与待入库单的单向生成。"""
 
 from app.core.document_responses import NumberedRoute
+# 审批核对与原业务写入共用一个事务，旧客户端也不能跳过批准直接执行。
+from app.core import document_approval as approval
+from app.core.approval_documents import goods_receipt_snapshot
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.engine import RowMapping
@@ -190,7 +193,8 @@ def goods_receipt_data(db: Session, goods_receipt_id: int) -> dict:
         .mappings()
         .all()
     )
-    return {**dict(row), "lines": [dict(line) for line in lines]}
+    return {**dict(row), "lines": [dict(line) for line in lines],
+            "approval": approval.case_data(approval.find_case(db, 'PurchaseGoodsReceipt', goods_receipt_id))}
 
 
 @router.get("/purchase-goods-receipts")
@@ -270,6 +274,8 @@ def confirm_goods_receipt(
             raise HTTPException(404, "采购收货单不存在")
         if source["status"] != "draft":
             raise HTTPException(409, "此采购收货单已处理")
+        approved = approval.require_approved(db, 'PurchaseGoodsReceipt', goods_receipt_id,
+            goods_receipt_snapshot(db, goods_receipt_id), user['id'])
         lines = (
             db.execute(
                 select(
@@ -302,6 +308,8 @@ def confirm_goods_receipt(
                     supplier_id=order["supplier_id"], reference=source["reference"], created_by=user["id"]
                 ),
             ).id
+            # 转单人员和原收货建单人员均不能审核这张派生入库单；新单仍未送审。
+            approval.record_author(db, 'Receipt', inbound_id, source['created_by'])
             add_model(db, ReceiptWarehouse(receipt_id=inbound_id, warehouse_id=source["warehouse_id"]))
             for line in accepted:
                 receipt_line_id = add_model(
@@ -328,6 +336,7 @@ def confirm_goods_receipt(
                 inbound_receipt_id=inbound_id,
             )
         )
+        approval.mark_executed(db, approved, user['id'])
         return goods_receipt_data(db, goods_receipt_id)
 
 
@@ -336,6 +345,9 @@ def cancel_goods_receipt(
     goods_receipt_id: int, user: dict = Depends(require("purchase_receiving.cancel"))
 ) -> dict:
     with orm_session(write=True) as db:
+        pending = approval.find_case(db, 'PurchaseGoodsReceipt', goods_receipt_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批，再取消收货草稿')
         cursor = db.execute(
             update(PurchaseGoodsReceipt)
             .where(PurchaseGoodsReceipt.id == goods_receipt_id, PurchaseGoodsReceipt.status == "draft")

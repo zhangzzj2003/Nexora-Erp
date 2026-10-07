@@ -160,6 +160,19 @@ export function validateDocumentApprovalState(value: unknown): asserts value is 
   }
 }
 
+export function validateDocumentApprovalResponse(value: unknown): void {
+  // 列表和执行结果也携带审批进度；旧响应可缺省，出现字段时必须是完整有效状态。
+  if (Array.isArray(value)) {
+    for (const item of value) validateDocumentApprovalResponse(item)
+    return
+  }
+  if (!value || typeof value !== 'object') return
+  const row = value as Record<string, unknown>
+  for (const field of ['approval', 'reversal_approval']) {
+    if (Object.hasOwn(row, field)) validateDocumentApprovalState(row[field])
+  }
+}
+
 export function validateDocumentApprovalRecord(value: unknown): asserts value is DocumentApprovalRecord {
   const row = record(value)
   documentApprovalTarget(row); validateDocumentApprovalState(row)

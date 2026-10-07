@@ -1,5 +1,7 @@
 """验证已确认入库冲销的库存、采购进度和应付来源保持一致。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -24,6 +26,8 @@ def test_receipt_reversal_dependencies_and_balances(monkeypatch, tmp_path):
         order = client.post(f"{base}/purchase-orders", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material,
                                               "quantity": "2.000", "unit_price": "10.0000"}]}).json()["id"]
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'PurchaseOrder', order)
         client.post(f"{base}/purchase-orders/{order}/confirm", headers=admin)
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "purchase_order_id": order,
@@ -33,10 +37,14 @@ def test_receipt_reversal_dependencies_and_balances(monkeypatch, tmp_path):
         assert client.post(url, headers=admin, json={"reason": "草稿"}).status_code == 409
         assert client.post(f"{base}/receipts/99999/reverse", headers=admin,
                            json={"reason": "不存在"}).status_code == 404
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'Receipt', receipt_id)
         client.post(f"{base}/receipts/{receipt_id}/post", headers=admin)
         assert client.post(url, headers=buyer, json={"reason": "无权"}).status_code == 403
         assert client.post(url, headers=admin, json={"reason": "  "}).status_code == 422
 
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'Receipt', receipt_id, intent='reverse', reason='误入库')
         # 有效采购退货依赖原入库，必须先冲销退货才能冲销入库。
         purchase_return = client.post(f"{base}/purchase-returns", headers=admin, json={
             "receipt_id": receipt_id, "reason": "误退", "lines": [
@@ -82,5 +90,7 @@ def test_receipt_reversal_dependencies_and_balances(monkeypatch, tmp_path):
             "supplier_id": supplier, "purchase_order_id": order,
             "lines": [{"material_id": material, "quantity": "2.000"}]})
         assert replacement.status_code == 201
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'Receipt', replacement.json()['id'])
         assert client.post(f"{base}/receipts/{replacement.json()['id']}/post",
                            headers=admin).status_code == 200

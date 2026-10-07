@@ -28,6 +28,8 @@ def test_transfer_moves_lots_between_warehouses_and_reverses_original_allocation
             'code': 'TRANSFER-LOT-2', 'name': '调拨目标仓'}).json()['id']
         receipt = client.post(f'{base}/receipts', headers=auth, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '3.000'}]}).json()
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, auth, 'Receipt', receipt['id'])
         posted_receipt = client.post(f'{base}/receipts/{receipt["id"]}/post', headers=auth,
             json={'lines': [{'receipt_line_id': receipt['lines'][0]['id'], 'lots': [
                 {'quantity': '1.000'}, {'quantity': '2.000'}]}]}).json()

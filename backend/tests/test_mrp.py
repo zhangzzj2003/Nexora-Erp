@@ -1,5 +1,7 @@
 """验证共享组件、日期净需求、来源快照、职责分离和事务转单。"""
 
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from decimal import Decimal
@@ -120,6 +122,8 @@ def seeded(monkeypatch, tmp_path):
         supplier = client.post(BASE+'/suppliers', headers=admin, json={'name':'供应商'}).json()['id']
         receipt = client.post(BASE+'/receipts', headers=admin, json={'supplier_id':supplier,'warehouse_id':1,
             'lines':[{'material_id':r,'quantity':'5'}]}).json()['id']
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(BASE+f'/receipts/{receipt}/post', headers=admin).status_code == 200
         yield client, admin, login('reviewer'), login('planner'), login('viewer'), material_ids, supplier
 
@@ -202,6 +206,8 @@ def test_existing_sales_purchases_and_work_orders_have_complete_dated_sources(se
     assert client.post(BASE+f'/sales-orders/{sale}/confirm', headers=admin).status_code == 200
     purchase = client.post(BASE+'/purchase-orders', headers=admin, json={'supplier_id':supplier,
         'lines':[{'material_id':r,'quantity':'20','unit_price':'1'}]}).json()['id']
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    approve_document(client, admin, 'PurchaseOrder', purchase)
     assert client.post(BASE+f'/purchase-orders/{purchase}/confirm', headers=admin).status_code == 200
     bom = next(row for row in client.get(BASE+'/boms', headers=admin).json() if row['product_material_id'] == b)
     work = client.post(BASE+'/work-orders', headers=admin, json={'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1'}).json()

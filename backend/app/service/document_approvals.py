@@ -11,8 +11,10 @@ from app.access.security import current_user
 from app.core.approval_catalog import APPROVAL_TYPES, approval_type
 from app.core.document_approval import actor, policy, policy_data, save_policy
 from app.core import document_approval as workflow
-from app.core.approval_documents import document_snapshot, submit_permission, inbound_pending, inbound_snapshot
-from app.core.models import DocumentApprovalAuthor, DocumentApprovalEvent, DocumentApprovalPolicy, Material, User, Warehouse
+from app.core.approval_documents import (
+    current_snapshot, document_pending, document_snapshot, document_source, document_summary, submit_permission,
+)
+from app.core.models import DocumentApprovalAuthor, DocumentApprovalEvent, DocumentApprovalPolicy, User
 from app.core.orm import orm_session
 
 router = APIRouter(prefix='/api/v1/system/document-approvals')
@@ -71,11 +73,7 @@ def document_access(db, document_type: str, identifier: int, user_id: int):
     # 单据查询也按原业务权限检查，不继承模板管理的管理员快捷入口。
     rule = approval_type(document_type)
     user = actor(db, user_id, rule.view_permission)
-    if document_type != 'WarehouseInbound':
-        raise HTTPException(409, '此类单据的统一审批入口尚未接入')
-    source = db.get(rule.model, identifier)
-    if source is None:
-        raise HTTPException(404, '单据不存在')
+    source = document_source(db, document_type, identifier)
     return rule, user, source
 
 
@@ -83,7 +81,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
     rule, user, source = document_access(db, document_type, identifier, user_id)
     row = workflow.find_case(db, document_type, identifier, intent)
     state = workflow.case_data(row)
-    current_content = inbound_snapshot(db, identifier)
+    current_content = current_snapshot(db, document_type, identifier)
     frozen_content = json.loads(row.snapshot_json) if row else current_content
     if intent == 'reverse' and row:
         frozen_content = frozen_content['document']
@@ -95,7 +93,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
     permissions = user['permissions']
     pending = True
     try:
-        inbound_pending(db, identifier, intent)
+        document_pending(db, document_type, identifier, intent)
     except HTTPException as error:
         if error.status_code != 409:
             raise
@@ -124,15 +122,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                   for event, name in db.execute(select(DocumentApprovalEvent, User.username)
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]
-    warehouse = db.get(Warehouse, frozen_content['warehouse_id'])
-    summary = [{'label': '仓库', 'value': warehouse.name if warehouse else str(frozen_content['warehouse_id'])},
-               {'label': '用途', 'value': {'opening': '期初补录', 'gift': '赠品', 'other': '其他'}[frozen_content['reason']]},
-               {'label': '参考号', 'value': frozen_content['reference'] or '—'},
-               {'label': '入库说明', 'value': frozen_content['note']}]
-    for line in frozen_content['lines']:
-        material = db.get(Material, line['material_id'])
-        summary.append({'label': f'{material.sku} · {material.name}' if material else str(line['material_id']),
-                        'value': f"{line['quantity']} {material.unit if material else ''}"})
+    summary = document_summary(db, document_type, frozen_content)
     # 摘要数量来自送审快照；资料名称只用于识别，不会改变已批准的业务内容。
     return {**state, 'document_type': document_type, 'document_id': identifier, 'intent': intent,
             'document_no': source.document_no, 'business_status': source.status,

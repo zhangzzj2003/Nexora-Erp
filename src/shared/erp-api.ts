@@ -443,6 +443,9 @@ export interface ReceivedLine extends ReceiptLine {
   physical_lots: ReceiptPhysicalLot[]
 }
 export interface Receipt extends NumberedDocument {
+  reversal_approval?: DocumentApprovalState
+  // 缺少服务端审批状态时界面不展示执行按钮，兼容旧响应而不放宽新流程。
+  approval?: DocumentApprovalState
   id: number
   supplier_id: number
   supplier_name: string
@@ -477,6 +480,8 @@ export interface GoodsReceiptLine {
   rejection_reason: string
 }
 export interface GoodsReceipt extends NumberedDocument {
+  // 缺少服务端审批状态时界面不展示执行按钮，兼容旧响应而不放宽新流程。
+  approval?: DocumentApprovalState
   id: number
   purchase_order_id: number
   supplier_id: number
@@ -532,6 +537,8 @@ export interface PurchaseOrderLine extends ReceiptLine {
   line_total: string
 }
 export interface PurchaseOrder extends NumberedDocument {
+  // 缺少服务端审批状态时界面不展示执行按钮，兼容旧响应而不放宽新流程。
+  approval?: DocumentApprovalState
   id: number
   purchase_request_id: number | null
   supplier_id: number

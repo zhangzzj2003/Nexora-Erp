@@ -1,5 +1,7 @@
 """验证盘点差异只经确认单据入账，并拒绝过时快照和越权操作。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -23,6 +25,8 @@ def test_stocktake_adjustment_stale_count_and_permissions(monkeypatch, tmp_path)
             "sku": "COUNT", "name": "盘点物料", "unit": "件"}).json()["id"]
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "3.125"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         client.post(f"{base}/receipts/{receipt}/post", headers=admin)
         warehouse = client.post(f"{base}/warehouses", headers=admin, json={
             "code": "SECOND", "name": "第二仓"}).json()["id"]
@@ -102,6 +106,8 @@ def test_posted_stocktake_reversal_keeps_history_and_checks_current_stock(monkey
             "sku": "REV", "name": "冲销物料", "unit": "件"}).json()["id"]
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "2.000"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(f"{base}/receipts/{receipt}/post", headers=admin).status_code == 200
         second = client.post(f"{base}/warehouses", headers=admin, json={
             "code": "REV2", "name": "冲销测试仓"}).json()["id"]

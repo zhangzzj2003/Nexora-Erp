@@ -1,6 +1,9 @@
 """采购入库单及冲销接口。"""
 
 from app.core.document_responses import NumberedRoute
+# 审批核对与原业务写入共用一个事务，旧客户端也不能跳过批准直接执行。
+from app.core import document_approval as approval
+from app.core.approval_documents import receipt_snapshot, document_snapshot
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
@@ -177,6 +180,8 @@ def receipt_data(db: Session, receipt_id: int) -> dict:
     return {
         **dict(row),
         "purchase_order_id": linked_order_for_receipt(db, receipt_id),
+        "approval": approval.case_data(approval.find_case(db, 'Receipt', receipt_id)),
+        "reversal_approval": approval.case_data(approval.find_case(db, 'Receipt', receipt_id, 'reverse')),
         "goods_receipt_id": goods_receipt["id"] if goods_receipt else None,
         "lines": detailed_lines,
     }
@@ -263,6 +268,8 @@ def post_receipt(receipt_id: int, payload: ReceiptPostInput | None = None,
             raise HTTPException(404, "入库单不存在")
         if row["status"] != "draft":
             raise HTTPException(409, "此入库单已经确认")
+        approved = approval.require_approved(db, 'Receipt', receipt_id,
+            receipt_snapshot(db, receipt_id), user['id'])
         order_id = validate_receipt_post(db, receipt_id, row["supplier_id"])
         lines = list(db.execute(
             select(ReceiptLine.id, ReceiptLine.material_id, ReceiptLine.quantity,
@@ -305,6 +312,7 @@ def post_receipt(receipt_id: int, payload: ReceiptPostInput | None = None,
         )
         if order_id is not None:
             update_order_receipt_status(db, order_id)
+        approval.mark_executed(db, approved, user['id'])
         return receipt_data(db, receipt_id)
 
 
@@ -338,6 +346,10 @@ def reverse_receipt(
             .first()
         ):
             raise HTTPException(409, "此入库单已冲销")
+        # 冲销原因也是固定审批内容；失败时库存和审批状态整体回滚。
+        approved = approval.require_approved(db, 'Receipt', receipt_id,
+            document_snapshot(db, 'Receipt', receipt_id, 'reverse', payload.reason),
+            user['id'], intent='reverse', permission='receipt.reverse')
         lines = (
             db.execute(
                 select(ReceiptLine.id, ReceiptLine.material_id, ReceiptLine.quantity)
@@ -377,4 +389,5 @@ def reverse_receipt(
         order_id = linked_order_for_receipt(db, receipt_id)
         if order_id is not None:
             update_order_receipt_status(db, order_id)
+        approval.mark_executed(db, approved, user['id'], permission='receipt.reverse')
         return receipt_data(db, receipt_id)

@@ -48,9 +48,13 @@ def erp(monkeypatch,tmp_path):
         part=api('POST','materials',{'sku':'PART','name':'维修备件','unit':'件'},status=201)['id']
         purchase=api('POST','purchase-orders',{'supplier_id':supplier,'lines':[
             {'material_id':m,'quantity':'20','unit_price':'1'} for m in (material,part)]},status=201)
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, actors['admin'], 'PurchaseOrder', purchase['id'])
         api('POST',f'purchase-orders/{purchase["id"]}/confirm')
         receipt=api('POST','receipts',{'supplier_id':supplier,'purchase_order_id':purchase['id'],
             'lines':[{'material_id':m,'quantity':'20'} for m in (material,part)]},status=201)
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, actors['admin'], 'Receipt', receipt['id'])
         api('POST',f'receipts/{receipt["id"]}/post')
         order=api('POST','sales-orders',{'customer_id':customer,'lines':[{'material_id':material,'quantity':'10','unit_price':'10'}]},status=201)
         api('POST',f'sales-orders/{order["id"]}/confirm')

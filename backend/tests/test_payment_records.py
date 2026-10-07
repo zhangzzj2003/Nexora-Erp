@@ -1,5 +1,7 @@
 """验证收付款按订单限额、退货退款和不可变冲销记录。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -28,6 +30,8 @@ def test_payment_records_reconciliation_and_reversal(monkeypatch, tmp_path):
         purchase = client.post(f"{base}/purchase-orders", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "2",
                                                "unit_price": "4"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', purchase)
         client.post(f"{base}/purchase-orders/{purchase}/confirm", headers=admin)
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "purchase_order_id": purchase,
@@ -47,6 +51,8 @@ def test_payment_records_reconciliation_and_reversal(monkeypatch, tmp_path):
         assert client.post(path, headers=buyer, json=payment).status_code == 403
         assert client.get(path, headers=buyer).status_code == 403
         assert client.post(path, headers=finance, json=payment).status_code == 409
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt_id)
         client.post(f"{base}/receipts/{receipt_id}/post", headers=admin)
         client.post(f"{base}/shipments/{shipment['id']}/post", headers=admin)
         assert client.post(path, headers=finance, json={**payment, "amount": "20.001"}).status_code == 422

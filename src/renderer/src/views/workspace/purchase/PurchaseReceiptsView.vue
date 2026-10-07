@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 批准与业务执行分开，审批入口复用共享 Pinia 和固定内容弹窗。
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -14,18 +16,22 @@ import type {Receipt} from '../../../../../shared/erp-api'
 import type {ReceiptLotLineInput} from '../../../../../shared/receipt-lot-api'
 import {receiptLotDate,receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
 import { computed, ref } from 'vue'
-import { useAppStore } from '../../../store/app-store'
+import { storeToRefs } from 'pinia'
+import { usePiniaAppStore } from '../../../store/app-store'
 
 // 入库确认沿用原单据接口；新建采购入库草稿由采购收货确认时自动完成。
-const { busy, connectionLost, receipts, receiptReversalReasons, can, localTime, postReceipt, reverseReceipt } =
-  useAppStore()
+const store = usePiniaAppStore()
+const { busy, connectionLost, receipts, receiptReversalReasons } = storeToRefs(store)
+const { can, localTime, postReceipt, reverseReceipt } = store
 // 只筛选当前列表快照，原有单据状态与跨页面草稿保持不变。
 const recordQuery = ref('')
 const activeReceiptId = ref(0)
 const lotDrafts = ref<ReceiptLotLineInput[]>([])
 const activeReceipt = computed(() => receipts.value.find(item =>
-  item.id === activeReceiptId.value && item.status === 'draft') ?? null)
+  item.id === activeReceiptId.value && item.status === 'draft' && item.approval?.status === 'approved') ?? null)
 function startLotPost(receipt: Receipt): void {
+  // 普通确认不要求批号；仅在已批准后按现场实际情况选择登记实物证据。
+  if (receipt.approval?.status !== 'approved' || busy.value || connectionLost.value) return
   activeReceiptId.value = receipt.id
   lotDrafts.value = receipt.lines.map(line => ({receipt_line_id: line.id,
     lots: [{quantity: line.quantity, supplier_lot: null, manufactured_on: null, expires_on: null}]}))
@@ -75,6 +81,15 @@ const filteredRecords = computed(() =>
     ])
   )
 )
+// 只执行服务端固定且已批准的冲销原因，不能临时换成列表中的未审输入。
+async function reverseApproved(identifier: number): Promise<void> {
+  if (!await store.openDocumentApproval({ document_type: 'Receipt', document_id: identifier, intent: 'reverse' })) return
+  const record = store.documentApprovalRecord
+  if (record?.status !== 'approved' || !record.reversal_reason) return
+  receiptReversalReasons.value[identifier] = record.reversal_reason
+  store.closeDocumentApproval()
+  await reverseReceipt(identifier)
+}
 </script>
 
 <template>
@@ -111,7 +126,7 @@ const filteredRecords = computed(() =>
       </template>
       <template #cell-status="{ row: item }">
         <span class="pill" :class="item.status">
-          {{ item.reversal_id ? '已冲销' : item.status === 'posted' ? '已入库' : '待确认' }}
+          {{ item.reversal_id ? '已冲销' : item.status === 'posted' ? '已入库' : ({ submitted: '审批中', approved: '已批准待入库', rejected: '已驳回', withdrawn: '已撤回', draft: '待送审', executed: '已执行' })[item.approval?.status ?? 'draft'] }}
         </span>
       </template>
       <template #cell-details="{ row: item }">
@@ -122,41 +137,39 @@ const filteredRecords = computed(() =>
             <small v-if="item.status === 'posted' && line.physical_lots?.length" class="receipt-lot-proof">
               实物批次：{{ line.physical_lots?.map(lot => `${lot.code}（${lot.quantity}；供应商批号 ${lot.supplier_lot || '未提供'}）`).join('、') }}
             </small>
-            <small v-else-if="item.status === 'posted'" class="receipt-lot-proof">未登记实物批次，数量在批次核对页显示为差额。</small>
+            <small v-else-if="item.status === 'posted'" class="receipt-lot-proof">普通入库，未登记实物批次。</small>
           </span>
         </div>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
+          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'Receipt', document_id: item.id, intent: 'execute' })">
+            {{ item.status === 'draft' ? '单据审批' : '审批记录' }}
+          </AppButton>
+          <AppButton v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('receipt.post')"
+            type="button" :disabled="busy || connectionLost" variant="primary" size="small"
+            @click="postReceipt(item.id)">确认入库</AppButton>
           <AppButton
-            v-if="item.status === 'draft' && can('receipt.post')"
+            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('receipt.post')"
             type="button"
-            :disabled="busy"
+            :disabled="busy || connectionLost"
             @click="startLotPost(item)"
-            variant="primary"
+            variant="secondary"
             size="small"
           >
-            登记批次并确认
+            登记实物批次（可选）
           </AppButton>
         </div>
-        <form
-          v-if="item.status === 'posted' && !item.reversal_id && can('receipt.reverse')"
-          class="inline-form"
-          @submit.prevent="reverseReceipt(item.id)"
-        >
-          <label>
-            冲销原因
-            <AppInput
-              v-model.trim="receiptReversalReasons[item.id]"
-              required
-              maxlength="200"
-              placeholder="说明原入库为何需要冲销"
-            />
-          </label>
-          <AppButton type="submit" :disabled="busy" variant="secondary" size="small"
-            >冲销已确认入库</AppButton
-          >
-        </form>
+        <div v-if="item.status === 'posted'" class="form-actions">
+          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'Receipt', document_id: item.id, intent: 'reverse' })">
+            {{ item.reversal_id ? '冲销审批记录' : '冲销审批' }}
+          </AppButton>
+          <AppButton v-if="!item.reversal_id && item.reversal_approval?.status === 'approved' && can('receipt.reverse')"
+            type="button" :disabled="busy || connectionLost" variant="secondary" size="small"
+            @click="reverseApproved(item.id)">执行已批准冲销</AppButton>
+        </div>
       </template>
       <template #empty>
         <strong>{{ recordQuery ? '没有匹配的记录' : '暂无采购入库记录' }}</strong>
@@ -181,6 +194,7 @@ const filteredRecords = computed(() =>
         expected-label="应入库" source-label="供应商批号" quantity-label="批次数量"
         :disabled="busy || connectionLost" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)" />
     </WorkspaceLotDialog>
+    <DocumentApprovalDialog />
   </section>
 </template>
 

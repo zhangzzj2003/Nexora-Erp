@@ -1,5 +1,7 @@
 """验证库存成本传入生产、完工分摊精度、来源锁定和多级结算冲销。"""
 
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
@@ -32,6 +34,8 @@ def erp(monkeypatch, tmp_path):
         def receipt(material_id, quantity, price=None):
             row = request('POST', 'receipts', {'supplier_id': supplier, 'warehouse_id': 1,
                 'lines': [{'material_id': material_id, 'quantity': quantity}]}, 201)
+            # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+            approve_document(client, headers, 'Receipt', row['id'])
             request('POST', f'receipts/{row["id"]}/post')
             movement = next(item for item in request('GET', 'inventory/valuation')['movements']
                             if item['source_type'] == 'receipt' and item['source_id'] == row['id'])

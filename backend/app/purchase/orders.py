@@ -1,6 +1,9 @@
 """采购订单及入库关联；订单数量只由已确认入库单消耗。"""
 
 from app.core.document_responses import NumberedRoute
+# 审批核对与原业务写入共用一个事务，旧客户端也不能跳过批准直接执行。
+from app.core import document_approval as approval
+from app.core.approval_documents import purchase_order_snapshot
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session
 from decimal import Decimal, ROUND_HALF_UP
@@ -180,6 +183,7 @@ def order_data(db: Session, order_id: int) -> dict:
     return {
         **dict(row),
         "purchase_request_id": next(iter(request_ids), None),
+        "approval": approval.case_data(approval.find_case(db, "PurchaseOrder", order_id)),
         "lines": lines,
         "total_amount": str(total),
     }
@@ -399,11 +403,14 @@ def confirm_purchase_order(order_id: int, user: dict = Depends(require("purchase
             raise HTTPException(404, "采购订单不存在")
         if row["status"] != "draft":
             raise HTTPException(409, "只能确认草稿采购订单")
+        approved = approval.require_approved(db, 'PurchaseOrder', order_id,
+            purchase_order_snapshot(db, order_id), user['id'])
         db.execute(
             update(PurchaseOrder)
             .where((PurchaseOrder.id == order_id))
             .values(status="confirmed", confirmed_by=user["id"], confirmed_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return order_data(db, order_id)
 
 
@@ -422,6 +429,9 @@ def cancel_purchase_order(order_id: int, user: dict = Depends(require("purchase_
         # 已有确认入库的数据不能通过取消订单抹去；后续退货应走独立单据。
         if row["status"] not in ("draft", "confirmed"):
             raise HTTPException(409, "已入库或已取消的采购订单不可取消")
+        pending = approval.find_case(db, 'PurchaseOrder', order_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批，再取消采购订单')
         db.execute(
             update(PurchaseOrder)
             .where((PurchaseOrder.id == order_id))

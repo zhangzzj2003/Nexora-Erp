@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 批准与业务执行分开，审批入口复用共享 Pinia 和固定内容弹窗。
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -15,7 +17,7 @@ import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocu
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
-import { useAppStore } from '../../../store/app-store'
+import { useAppStore, usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
@@ -34,6 +36,8 @@ const {
   confirmPurchaseOrder,
   cancelPurchaseOrder
 } = useAppStore()
+
+const store = usePiniaAppStore()
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
@@ -167,7 +171,7 @@ const purchaseFormColumns = [
         <AppButton
           v-if="can('purchase_order.create')"
           type="button"
-          :disabled="busy"
+          :disabled="busy || connectionLost"
           @click="createOpen = true"
           variant="primary"
         >
@@ -199,7 +203,7 @@ const purchaseFormColumns = [
         <span class="pill" :class="item.status">
           {{
             {
-              draft: '草稿',
+              draft: ({ submitted: '审批中', approved: '已批准待确认', rejected: '已驳回', withdrawn: '已撤回', draft: '待送审', executed: '已执行' })[item.approval?.status ?? 'draft'],
               confirmed: '待入库',
               partially_received: '部分入库',
               received: '全部入库',
@@ -219,10 +223,14 @@ const purchaseFormColumns = [
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
+          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'PurchaseOrder', document_id: item.id, intent: 'execute' })">
+            {{ item.status === 'draft' ? '单据审批' : '审批记录' }}
+          </AppButton>
           <AppButton
-            v-if="item.status === 'draft' && can('purchase_order.confirm')"
+            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('purchase_order.confirm')"
             type="button"
-            :disabled="busy"
+            :disabled="busy || connectionLost"
             @click="confirmPurchaseOrder(item.id)"
             variant="primary"
             size="small"
@@ -230,9 +238,9 @@ const purchaseFormColumns = [
             确认订单
           </AppButton>
           <AppButton
-            v-if="['draft', 'confirmed'].includes(item.status) && can('purchase_order.cancel')"
+            v-if="['draft', 'confirmed'].includes(item.status) && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('purchase_order.cancel')"
             type="button"
-            :disabled="busy"
+            :disabled="busy || connectionLost"
             @click="cancelPurchaseOrder(item.id)"
             variant="secondary"
             size="small"
@@ -252,5 +260,6 @@ const purchaseFormColumns = [
         </span>
       </template>
     </WorkspaceTable>
+    <DocumentApprovalDialog />
   </section>
 </template>

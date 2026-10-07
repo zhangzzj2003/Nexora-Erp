@@ -1,5 +1,7 @@
 """验证多仓库库存、调拨原子性和服务端权限。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -36,6 +38,8 @@ def test_multi_warehouse_transfer_and_audit(monkeypatch, tmp_path):
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "2.125"}]})
         assert receipt.status_code == 201
         assert receipt.json()["warehouse_id"] == 1
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt.json()['id'])
         assert client.post(f"{base}/receipts/{receipt.json()['id']}/post", headers=admin).status_code == 200
 
         draft = {"from_warehouse_id": 1, "to_warehouse_id": second.json()["id"],
@@ -86,6 +90,8 @@ def test_transfer_reversal_is_linked_atomic_and_checks_target_stock(monkeypatch,
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material,
                                                 "quantity": "5.000"} for material in materials]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(f"{base}/receipts/{receipt}/post", headers=admin).status_code == 200
         second = client.post(f"{base}/warehouses", headers=admin, json={
             "code": "REV2", "name": "目标仓"}).json()["id"]

@@ -1,5 +1,7 @@
 """客户关系的来源归属、历史证据、审批职责和并发转单。"""
 
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
@@ -535,6 +537,8 @@ def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
     supplier=client.post(B+'/suppliers',headers=admin,json={'name':'隔离测试供货方'}).json()['id']
     receipt=client.post(B+'/receipts',headers=admin,json={'supplier_id':supplier,
         'lines':[{'material_id':materials[0],'quantity':'2'}]}).json()
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    approve_document(client, admin, 'Receipt', receipt['id'])
     assert client.post(B+f'/receipts/{receipt["id"]}/post',headers=admin).status_code == 200
     shipment_input={'sales_order_id':order['id'],'warehouse_id':1,
         'lines':[{'material_id':materials[0],'quantity':'1'}]}

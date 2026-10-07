@@ -1,5 +1,7 @@
 """验证应收应付只来自已确认单据，退货冲减且历史无价入库不伪造金额。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -29,6 +31,8 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         purchase_order = client.post(f"{base}/purchase-orders", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "2.125",
                                                "unit_price": "2.3456"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', purchase_order)
         client.post(f"{base}/purchase-orders/{purchase_order}/confirm", headers=admin)
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "purchase_order_id": purchase_order,
@@ -44,6 +48,8 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         shipment_id = shipment["id"]
         # 草稿金额不进入应收应付；确认后按单据行精确舍入到分。
         assert client.get(f"{base}/finance/receivables-payables", headers=finance).json()["entries"] == []
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt_id)
         client.post(f"{base}/receipts/{receipt_id}/post", headers=admin)
         client.post(f"{base}/shipments/{shipment_id}/post", headers=admin)
         snapshot = client.get(f"{base}/finance/receivables-payables", headers=finance).json()
@@ -71,6 +77,8 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         legacy_receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "1"}]}).json()
         legacy = legacy_receipt["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', legacy)
         client.post(f"{base}/receipts/{legacy}/post", headers=admin)
         unpriced = client.get(f"{base}/finance/receivables-payables", headers=finance).json()
         assert unpriced["unpriced_count"] == 1

@@ -1,4 +1,6 @@
 """首页按权限和真实来源汇总，覆盖跨日更正、缺价与当前未完订单。"""
+
+from approval_test_helpers import approve_document
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -37,8 +39,12 @@ def erp(monkeypatch,tmp_path):
         customer=api('POST','customers',{'name':'客户'},201)['id']
         material=api('POST','materials',{'sku':'DASH','name':'统计商品','unit':'件'},201)['id']
         order=api('POST','purchase-orders',{'supplier_id':supplier,'lines':[{'material_id':material,'quantity':'20','unit_price':'3.125'}]},201)
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, dict(client.headers), 'PurchaseOrder', order['id'])
         api('POST',f'purchase-orders/{order["id"]}/confirm')
         receipt=api('POST','receipts',{'supplier_id':supplier,'purchase_order_id':order['id'],'lines':[{'material_id':material,'quantity':'10'}]},201)
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, dict(client.headers), 'Receipt', receipt['id'])
         api('POST',f'receipts/{receipt["id"]}/post')
         sale=api('POST','sales-orders',{'customer_id':customer,'lines':[{'material_id':material,'quantity':'10','unit_price':'10.5555'}]},201)
         api('POST',f'sales-orders/{sale["id"]}/confirm')
@@ -85,6 +91,8 @@ def test_cross_period_reversal_does_not_erase_original_day(erp):
 def test_missing_price_is_unknown_not_zero_and_future_events_are_excluded(erp):
     _,api,_,supplier,_,material,_,receipt,_,shipment=erp
     free=api('POST','receipts',{'supplier_id':supplier,'lines':[{'material_id':material,'quantity':'1'}]},201)
+    # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+    approve_document(erp[0], dict(erp[0].headers), 'Receipt', free['id'])
     api('POST',f'receipts/{free["id"]}/post')
     result=query(erp)
     purchase=result['finance']['purchase']['current']

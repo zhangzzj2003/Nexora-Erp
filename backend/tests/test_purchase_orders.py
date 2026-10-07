@@ -1,5 +1,7 @@
 """采购订单、分批入库和超量阻断的业务回归。"""
 
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -46,6 +48,8 @@ def test_purchase_order_receipt_lifecycle(monkeypatch, tmp_path):
                          "lines": [{"material_id": material, "quantity": "6"}]}
         assert client.post(f"{base}/receipts", headers=admin, json=receipt_input).status_code == 409
         assert client.post(f"{base}/purchase-orders/{order_id}/confirm", headers=view).status_code == 403
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'PurchaseOrder', order_id)
         assert client.post(f"{base}/purchase-orders/{order_id}/confirm", headers=admin).status_code == 200
         assert client.post(f"{base}/purchase-orders/{order_id}/confirm", headers=admin).status_code == 409
         assert client.post(f"{base}/receipts", headers=admin, json={
@@ -62,7 +66,11 @@ def test_purchase_order_receipt_lifecycle(monkeypatch, tmp_path):
         pending = client.post(f"{base}/receipts", headers=admin, json={
             **receipt_input, "lines": [{"material_id": material, "quantity": "5"}]})
         assert pending.status_code == 201
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'Receipt', first.json()['id'])
         assert client.post(f"{base}/receipts/{first.json()['id']}/post", headers=admin).status_code == 200
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'Receipt', pending.json()['id'])
         assert client.post(f"{base}/receipts/{pending.json()['id']}/post", headers=admin).status_code == 409
         mid = client.get(f"{base}/purchase-orders", headers=view).json()[0]
         assert mid["status"] == "partially_received"
@@ -73,6 +81,8 @@ def test_purchase_order_receipt_lifecycle(monkeypatch, tmp_path):
         final = client.post(f"{base}/receipts", headers=admin, json={
             **receipt_input, "lines": [{"material_id": material, "quantity": "4"}]})
         assert final.status_code == 201
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'Receipt', final.json()['id'])
         assert client.post(f"{base}/receipts/{final.json()['id']}/post", headers=admin).status_code == 200
         complete = client.get(f"{base}/purchase-orders", headers=view).json()[0]
         assert complete["status"] == "received"
@@ -108,6 +118,8 @@ def test_two_sessions_cannot_post_receipts_beyond_order_quantity(monkeypatch, tm
             "supplier_id": supplier_id,
             "lines": [{"material_id": material_id, "quantity": "10", "unit_price": "2"}]
         }).json()["id"]
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(first, headers[0], 'PurchaseOrder', order_id)
         assert first.post(f"{base}/purchase-orders/{order_id}/confirm",
                           headers=headers[0]).status_code == 200
         receipt_ids = []
@@ -118,6 +130,9 @@ def test_two_sessions_cannot_post_receipts_beyond_order_quantity(monkeypatch, tm
             assert response.status_code == 201
             receipt_ids.append(response.json()["id"])
 
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        for identifier in receipt_ids:
+            approve_document(first, headers[0], 'Receipt', identifier)
         ready = Barrier(2)
 
         def post_receipt(client, authorization, receipt_id):

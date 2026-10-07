@@ -1,5 +1,7 @@
 """验证已确认销售出库冲销的库存、订单、应收与退货依赖。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -27,6 +29,8 @@ def test_shipment_reversal_restores_order_and_preserves_sources(monkeypatch, tmp
             "sku": "SHIP-REV", "name": "冲销物料", "unit": "件"}).json()["id"]
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "2"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(f"{base}/receipts/{receipt}/post", headers=admin).status_code == 200
         order = client.post(f"{base}/sales-orders", headers=admin, json={
             "customer_id": customer, "lines": [{"material_id": material,

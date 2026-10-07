@@ -1,5 +1,7 @@
 """分批收货只生成待入库单，拒收和重复确认不改变库存。"""
 
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -21,6 +23,8 @@ def prepare(client):
     order = client.post(f"{base}/purchase-orders", headers=admin, json={
         "supplier_id": supplier, "lines": [{"material_id": material,
                                          "quantity": "10", "unit_price": "3"}]}).json()
+    # 先完成真实独立审批，保留原业务失败和并发断言。
+    approve_document(client, admin, 'PurchaseOrder', order['id'])
     assert client.post(f"{base}/purchase-orders/{order['id']}/confirm", headers=admin).status_code == 200
     return base, admin, order
 
@@ -41,6 +45,8 @@ def test_received_goods_wait_for_warehouse_post(monkeypatch, tmp_path):
         assert client.post(f"{base}/purchase-goods-receipts", headers=admin, json={
             **payload, "lines": [{**payload["lines"][0], "rejection_reason": " "}]}).status_code == 422
 
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'PurchaseGoodsReceipt', goods_id)
         confirmed = client.post(f"{base}/purchase-goods-receipts/{goods_id}/confirm", headers=admin)
         assert confirmed.status_code == 200
         inbound_id = confirmed.json()["inbound_receipt_id"]
@@ -52,6 +58,8 @@ def test_received_goods_wait_for_warehouse_post(monkeypatch, tmp_path):
         assert client.post(f"{base}/purchase-goods-receipts", headers=admin, json={
             **payload, "lines": [{"purchase_order_line_id": line_id,
                                    "accepted_quantity": "5", "rejected_quantity": "0"}]}).status_code == 409
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'Receipt', inbound_id)
         posted = client.post(f"{base}/receipts/{inbound_id}/post", headers=admin)
         assert posted.status_code == 200
         assert posted.json()["goods_receipt_id"] == goods_id
@@ -86,6 +94,8 @@ def test_received_goods_wait_for_warehouse_post(monkeypatch, tmp_path):
             **payload, "lines": [{"purchase_order_line_id": line_id,
                                    "accepted_quantity": "0", "rejected_quantity": "4",
                                    "rejection_reason": "规格不符"}]}).json()
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        approve_document(client, admin, 'PurchaseGoodsReceipt', rejected['id'])
         rejected_done = client.post(f"{base}/purchase-goods-receipts/{rejected['id']}/confirm",
                                     headers=admin).json()
         assert rejected_done["inbound_receipt_id"] is None
@@ -102,6 +112,9 @@ def test_parallel_goods_confirmation_cannot_overreserve(monkeypatch, tmp_path):
             "accepted_quantity": "6", "rejected_quantity": "0"}]}
         ids = [first.post(f"{base}/purchase-goods-receipts", headers=admin, json=payload).json()["id"]
                for _ in range(2)]
+        # 先完成真实独立审批，保留原业务失败和并发断言。
+        for identifier in ids:
+            approve_document(first, admin, 'PurchaseGoodsReceipt', identifier)
         barrier = Barrier(2)
 
         def confirm(item):

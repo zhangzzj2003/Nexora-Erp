@@ -1,5 +1,7 @@
 """合格完工批次、整批不合格与原分配冲销的接口验收。"""
 
+from approval_test_helpers import approve_document
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -28,6 +30,8 @@ def test_completion_lots_follow_accepted_quantity_and_original_reversal(monkeypa
         receipt = client.post(f'{base}/receipts', headers=auth, json={
             'supplier_id': supplier, 'warehouse_id': 1,
             'lines': [{'material_id': component, 'quantity': '4'}]}).json()['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, auth, 'Receipt', receipt)
         assert client.post(f'{base}/receipts/{receipt}/post', headers=auth).status_code == 200
         bom = client.post(f'{base}/boms', headers=auth, json={
             'product_material_id': product, 'base_quantity': '1',

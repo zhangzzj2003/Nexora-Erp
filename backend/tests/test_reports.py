@@ -1,5 +1,7 @@
 """采购与库存报表沿用服务端筛选结果生成 CSV，保持数量可追溯。"""
 
+from approval_test_helpers import approve_document
+
 import csv
 from io import StringIO
 
@@ -31,10 +33,14 @@ def test_report_csv_matches_filtered_rows(monkeypatch, tmp_path):
             "lines": [{"purchase_request_line_id": request["lines"][0]["id"],
                        "material_id": material, "quantity": "3", "unit_price": "4"}]}).json()
         order_id = order["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'PurchaseOrder', order_id)
         client.post(f"{base}/purchase-orders/{order_id}/confirm", headers=admin)
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "warehouse_id": 1, "purchase_order_id": order_id,
             "lines": [{"material_id": material, "quantity": "3"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         client.post(f"{base}/receipts/{receipt}/post", headers=admin)
         report = client.post(f"{base}/reports/query", headers=admin, json={
             "kind": "purchase_requests", "material_id": material}).json()

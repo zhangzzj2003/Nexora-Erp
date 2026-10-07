@@ -1,5 +1,7 @@
 """从质检隔离数量到报废、返工成本、凭证来源及更正的跨模块风险。"""
 
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from decimal import Decimal
@@ -40,6 +42,8 @@ def quality_erp(monkeypatch, tmp_path):
         product = api('POST','materials',{'sku':'PRODUCT-Q','name':'成品','unit':'件'},201)['id']
         receipt = api('POST','receipts',{'supplier_id':supplier,'warehouse_id':1,
             'lines':[{'material_id':raw,'quantity':'30'}]},201)
+        # 原采购入库先独立审批，质量测试继续验证报废、返工和成本依赖。
+        approve_document(client, admin, 'Receipt', receipt['id'])
         api('POST',f'receipts/{receipt["id"]}/post')
         movement = api('GET','inventory/valuation')['movements'][0]
         api('POST','inventory/valuation/inputs',{'movement_id':movement['id'],'unit_cost':'2',

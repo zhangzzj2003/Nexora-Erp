@@ -1,5 +1,7 @@
 """验证领料核价、退料净额、费用归集与冲销后的待核价状态。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -29,6 +31,8 @@ def test_production_cost_collection_and_reversal(monkeypatch, tmp_path):
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "warehouse_id": 1,
             "lines": [{"material_id": component, "quantity": "3"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         client.post(f"{base}/receipts/{receipt}/post", headers=admin)
         bom = client.post(f"{base}/boms", headers=planner, json={
             "product_material_id": product, "base_quantity": "1",

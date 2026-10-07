@@ -3,6 +3,35 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { callBackend, getBackendHealth, retainedSessionToken } from '../src/main/backend.ts'
 
+test('采购列表和确认响应在主进程拒绝残缺审批状态', async t => {
+  // 使用真实受限请求入口，防止只校验审批弹窗而遗漏业务列表和执行返回值。
+  const originalUrl = process.env.NEXORA_API_URL
+  t.after(() => {
+    if (originalUrl === undefined) delete process.env.NEXORA_API_URL
+    else process.env.NEXORA_API_URL = originalUrl
+  })
+  process.env.NEXORA_API_URL = 'http://127.0.0.1:8123'
+  let output
+  t.mock.method(globalThis, 'fetch', async url => url.pathname.endsWith('/login')
+    ? Response.json({ token: 'test-token', user: { id: 1 } }) : Response.json(output))
+  await callBackend('login', {})
+  const state = { version: 2, status: 'approved', generation: 1, current_step: 1,
+    steps: [{ name: '批准', role: null }], policy_version: 1,
+    submitted_by: 1, submitted_at: '2026-10-07 12:00:00', executed_by: null, executed_at: null }
+  for (const [action, input, list] of [
+    ['purchaseOrders', undefined, true], ['goodsReceipts', undefined, true], ['receipts', undefined, true],
+    ['confirmPurchaseOrder', { orderId: 7 }, false],
+    ['confirmGoodsReceipt', { goodsReceiptId: 7 }, false], ['postReceipt', { receiptId: 7 }, false]
+  ]) {
+    const row = { id: 7, approval: state }
+    output = list ? [row] : row
+    assert.deepEqual(await callBackend(action, input), output)
+    const malformed = { id: 7, approval: { status: 'approved' } }
+    output = list ? [malformed] : malformed
+    await assert.rejects(callBackend(action, input), /审批状态无效/)
+  }
+})
+
 test('成本结算与冲销仅访问固定接口，拒绝非法路径编号', async t => {
   const originalUrl = process.env.NEXORA_API_URL
   t.after(() => {

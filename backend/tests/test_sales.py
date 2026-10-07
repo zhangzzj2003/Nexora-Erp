@@ -1,5 +1,7 @@
 """验证销售订单分批出库、库存扣减、服务端权限及草稿竞争。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -34,6 +36,8 @@ def test_sales_orders_shipments_and_audit(monkeypatch, tmp_path):
         supplier = client.post(f"{base}/suppliers", headers=admin, json={"name": "供应商"}).json()["id"]
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "lines": [{"material_id": material, "quantity": "3.125"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         assert client.post(f"{base}/receipts/{receipt}/post", headers=admin).status_code == 200
         second = client.post(f"{base}/warehouses", headers=admin, json={
             "code": "EMPTY", "name": "空仓"}).json()["id"]

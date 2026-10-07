@@ -1,5 +1,5 @@
 import { documentNumberingBody, validateDocumentNumbering, validateDocumentNumbers } from '../shared/document-numbering.ts'
-import { documentApprovalType, documentApprovalPolicyBody, validateDocumentApprovalPolicies, validateDocumentApprovalPolicy, documentApprovalTarget, documentApprovalActionBody, validateDocumentApprovalRecord } from '../shared/document-approval-api.ts'
+import { documentApprovalType, documentApprovalPolicyBody, validateDocumentApprovalPolicies, validateDocumentApprovalPolicy, documentApprovalTarget, documentApprovalActionBody, validateDocumentApprovalRecord, validateDocumentApprovalResponse } from '../shared/document-approval-api.ts'
 import { supplierBody } from '../shared/supplier-api.ts'
 import { materialUnitBody, validateMaterialUnitResult } from '../shared/material-unit-api.ts'
 import { validateMaterialChoiceResult } from '../shared/material-choice-validation.ts'
@@ -1588,6 +1588,8 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     throw new Error(typeof detail === 'string' ? detail : `请求失败（HTTP ${response.status}）`)
   }
   validateDocumentNumbers(data)
+  // 业务列表与执行响应同样校验审批状态，避免格式错误直接开放确认按钮。
+  validateDocumentApprovalResponse(data)
   if (action === 'login') {
     if (!data || typeof data !== 'object' || !('token' in data) || typeof data.token !== 'string'
       || !('user' in data) || !data.user) throw new Error('登录响应格式不匹配')

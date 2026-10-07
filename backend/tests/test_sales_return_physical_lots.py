@@ -1,5 +1,7 @@
 """销售退货批次必须来自原出库或明确登记为退回新批次。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -21,6 +23,8 @@ def test_sales_return_lots_source_and_reversal(monkeypatch, tmp_path):
             'code': 'RET', 'name': '退货仓'}).json()['id']
         receipt = client.post(f'{base}/receipts', headers=headers, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '2.000'}]}).json()
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, headers, 'Receipt', receipt['id'])
         posted = client.post(f'{base}/receipts/{receipt["id"]}/post', headers=headers, json={
             'lines': [{'receipt_line_id': receipt['lines'][0]['id'], 'lots': [
                 {'quantity': '1.000', 'supplier_lot': 'ORIGINAL-A'},

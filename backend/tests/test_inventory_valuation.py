@@ -35,11 +35,15 @@ def test_moving_average_and_late_price_audit(monkeypatch, tmp_path):
             order = client.post(f"{base}/purchase-orders", headers=admin, json={
                 "supplier_id": supplier,
                 "lines": [{"material_id": material, "quantity": "10", "unit_price": price}]}).json()["id"]
+            # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+            approve_document(client, admin, 'PurchaseOrder', order)
             assert client.post(f"{base}/purchase-orders/{order}/confirm",
                                headers=admin).status_code == 200
             receipt = client.post(f"{base}/receipts", headers=admin, json={
                 "supplier_id": supplier, "purchase_order_id": order,
                 "lines": [{"material_id": material, "quantity": "10"}]}).json()["id"]
+            # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+            approve_document(client, admin, 'Receipt', receipt)
             assert client.post(f"{base}/receipts/{receipt}/post", headers=admin).status_code == 200
             receipt_movements.append(client.get(f"{base}/movements", headers=admin).json()[0]["id"])
         snapshot = client.get(url, headers=admin).json()

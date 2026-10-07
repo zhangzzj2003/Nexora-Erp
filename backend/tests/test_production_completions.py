@@ -1,5 +1,7 @@
 """验证分批报工、质检、需料下限和合格成品的入库来源。"""
 
+from approval_test_helpers import approve_document
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -29,6 +31,8 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
         receipt = client.post(f"{base}/receipts", headers=admin, json={
             "supplier_id": supplier, "warehouse_id": 1,
             "lines": [{"material_id": component, "quantity": "4"}]}).json()["id"]
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt)
         client.post(f"{base}/receipts/{receipt}/post", headers=admin)
         target_warehouse = client.post(f"{base}/warehouses", headers=admin, json={
             "code": "FIN", "name": "成品仓"}).json()["id"]

@@ -1,5 +1,7 @@
 """财务 ORM 迁移：来源方向、并发余额与失败回滚。"""
 
+from approval_test_helpers import approve_document
+
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
@@ -29,9 +31,13 @@ def cycle(monkeypatch, tmp_path):
         material = api('POST', 'materials', {'sku': 'FIN', 'name': '测试物料', 'unit': '件'}, 201)['id']
         purchase = api('POST', 'purchase-orders', {'supplier_id': supplier,
             'lines': [{'material_id': material, 'quantity': '2', 'unit_price': '5'}]}, 201)['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, dict(client.headers), 'PurchaseOrder', purchase)
         api('POST', f'purchase-orders/{purchase}/confirm')
         receipt = api('POST', 'receipts', {'supplier_id': supplier, 'purchase_order_id': purchase,
             'lines': [{'material_id': material, 'quantity': '2'}]}, 201)
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, dict(client.headers), 'Receipt', receipt['id'])
         api('POST', f'receipts/{receipt["id"]}/post')
         sale = api('POST', 'sales-orders', {'customer_id': customer,
             'lines': [{'material_id': material, 'quantity': '1', 'unit_price': '10'}]}, 201)['id']
@@ -86,13 +92,15 @@ def test_reversal_failure_rolls_back_then_concurrent_retry_once(cycle, monkeypat
 
 
 def test_all_eight_sources_preserve_original_and_reversal_amounts(cycle):
-    _, api, _, _, receipt, shipment = cycle
+    client, api, _, _, receipt, shipment = cycle
     sale_return = api('POST', 'sales-returns', {'shipment_id': shipment['id'], 'warehouse_id': 1,
         'reason': '退回', 'lines': [{'shipment_line_id': shipment['lines'][0]['id'], 'quantity': '0.5'}]}, 201)
     api('POST', f'sales-returns/{sale_return["id"]}/post')
     purchase_return = api('POST', 'purchase-returns', {'receipt_id': receipt['id'], 'reason': '退回',
         'lines': [{'receipt_line_id': receipt['lines'][0]['id'], 'quantity': '0.5'}]}, 201)
     api('POST', f'purchase-returns/{purchase_return["id"]}/post')
+    # 冲销前显式审批固定原因，保留原八类业务来源金额与依赖核对。
+    approve_document(client, dict(client.headers), 'Receipt', receipt['id'], intent='reverse', reason='更正')
     for path in (f'purchase-returns/{purchase_return["id"]}', f'sales-returns/{sale_return["id"]}',
                  f'shipments/{shipment["id"]}', f'receipts/{receipt["id"]}'):
         api('POST', path + '/reverse', {'reason': '更正'}, 201)

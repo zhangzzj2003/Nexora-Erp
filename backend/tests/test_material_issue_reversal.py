@@ -1,5 +1,7 @@
 """已确认生产领料冲销保留原流水，并阻止有下游依赖时更正。"""
 
+from approval_test_helpers import approve_document
+
 import sqlite3
 from decimal import Decimal
 
@@ -36,6 +38,8 @@ def test_material_issue_reversal_restores_stock_lots_cost_and_work_order(monkeyp
             json={'sku': 'REV-PART', 'name': '冲销组件', 'unit': '件'}).json()['id']
         receipt = client.post(f'{base}/receipts', headers=admin, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '2'}]}).json()
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, admin, 'Receipt', receipt['id'])
         posted_receipt = client.post(f'{base}/receipts/{receipt["id"]}/post', headers=admin,
             json={'lines': [{'receipt_line_id': receipt['lines'][0]['id'],
                              'lots': [{'quantity': '2'}]}]}).json()
@@ -135,6 +139,8 @@ def test_material_issue_reversal_blocks_return_and_completion(monkeypatch, tmp_p
             json={'sku': 'DEP-PART', 'name': '依赖组件', 'unit': '件'}).json()['id']
         receipt = client.post(f'{base}/receipts', headers=auth, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '2'}]}).json()['id']
+        # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
+        approve_document(client, auth, 'Receipt', receipt)
         client.post(f'{base}/receipts/{receipt}/post', headers=auth)
         bom = client.post(f'{base}/boms', headers=auth, json={
             'product_material_id': product, 'base_quantity': '1',
