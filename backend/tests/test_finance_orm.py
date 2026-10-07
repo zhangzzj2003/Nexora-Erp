@@ -1,6 +1,6 @@
 """财务 ORM 迁移：来源方向、并发余额与失败回滚。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, prepare_purchase_return
 
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
@@ -98,9 +98,11 @@ def test_all_eight_sources_preserve_original_and_reversal_amounts(cycle):
     api('POST', f'sales-returns/{sale_return["id"]}/post')
     purchase_return = api('POST', 'purchase-returns', {'receipt_id': receipt['id'], 'reason': '退回',
         'lines': [{'receipt_line_id': receipt['lines'][0]['id'], 'quantity': '0.5'}]}, 201)
+    prepare_purchase_return(client, dict(client.headers), purchase_return['id'])
     api('POST', f'purchase-returns/{purchase_return["id"]}/post')
     # 冲销前显式审批固定原因，保留原八类业务来源金额与依赖核对。
     approve_document(client, dict(client.headers), 'Receipt', receipt['id'], intent='reverse', reason='更正')
+    approve_document(client, dict(client.headers), 'PurchaseReturn', purchase_return['id'], intent='reverse', reason='更正')
     for path in (f'purchase-returns/{purchase_return["id"]}', f'sales-returns/{sale_return["id"]}',
                  f'shipments/{shipment["id"]}', f'receipts/{receipt["id"]}'):
         api('POST', path + '/reverse', {'reason': '更正'}, 201)

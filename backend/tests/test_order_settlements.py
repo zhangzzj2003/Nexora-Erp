@@ -1,6 +1,6 @@
 """订单间贷方核销的金额、归属、权限和追加式撤销。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, prepare_purchase_return
 
 from datetime import datetime, timezone
 
@@ -123,6 +123,7 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
         purchase_return = client.post(f'{base}/purchase-returns', headers=admin, json={
             'receipt_id': receipt, 'reason': '退一件',
             'lines': [{'receipt_line_id': receipt_doc['lines'][0]['id'], 'quantity': '1'}]}).json()['id']
+        prepare_purchase_return(client, admin, purchase_return)
         assert client.post(f'{base}/purchase-returns/{purchase_return}/post', headers=admin).status_code == 200
         purchase_target = client.post(f'{base}/purchase-orders', headers=admin, json={
             'supplier_id': supplier, 'lines': [{'material_id': material, 'quantity': '2',

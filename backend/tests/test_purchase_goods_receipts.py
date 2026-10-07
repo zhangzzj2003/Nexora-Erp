@@ -73,9 +73,11 @@ def test_received_goods_wait_for_warehouse_post(monkeypatch, tmp_path):
         purchase_return = client.post(f"{base}/purchase-returns", headers=admin, json={
             "receipt_id": inbound_id, "reason": "质量问题", "lines": [{
                 "receipt_line_id": posted.json()["lines"][0]["id"], "quantity": "2"}]}).json()
+        approve_document(client, admin, 'PurchaseReturn', purchase_return['id'])
         outbound_id = client.post(f"{base}/purchase-returns/{purchase_return['id']}/submit",
                                   headers=admin).json()["outbound_id"]
         assert client.get(f"{base}/finance/receivables-payables", headers=admin).json()["payable_amount"] == "18.00"
+        approve_document(client, admin, 'WarehouseOutbound', outbound_id)
         assert client.post(f"{base}/warehouse-outbounds/{outbound_id}/post", headers=admin).status_code == 200
         assert client.post(f"{base}/warehouse-outbounds/{outbound_id}/post", headers=admin).status_code == 409
         payable_after_return = client.get(f"{base}/finance/receivables-payables", headers=admin).json()

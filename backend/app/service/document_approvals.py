@@ -154,7 +154,10 @@ def act_document_approval(document_type: str, identifier: int,
             json.loads(row.snapshot_json).get('reversal_reason', '') if row else '')
         content = document_snapshot(db, document_type, identifier, payload.intent, reason)
         if action == 'submit':
+            # 派生草稿同时排除原方案编制人员；作者范围取自服务端快照，客户端无法指定。
+            original = content['document'] if payload.intent == 'reverse' else content
             workflow.submit(db, document_type, identifier, content, payload.version, user['id'],
+                            authors=original.get('source_author_ids', ()),
                             intent=payload.intent, permission=submit_permission(document_type, payload.intent))
         elif action in ('approve', 'reject'):
             workflow.review(db, document_type, identifier, content, payload.version, user['id'],

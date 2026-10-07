@@ -91,11 +91,13 @@ def test_sales_return_lots_source_and_reversal(monkeypatch, tmp_path):
             'warehouse_id': warehouse, 'reason': 'sample', 'note': '借出',
             'lines': [{'material_id': material, 'quantity': '0.500'}]}).json()
         outbound_id = outbound['id']
+        approve_document(client, headers, 'WarehouseOutbound', outbound_id)
         assert client.post(f'{base}/warehouse-outbounds/{outbound_id}/post', headers=headers, json={
             'lines': [{'outbound_line_id': outbound['lines'][0]['id'], 'lots': [
                 {'lot_id': new_lot, 'quantity': '0.500'}]}]}).status_code == 200
         reverse = f'{url}/reverse'
         assert client.post(reverse, headers=headers, json={'reason': '误退'}).status_code == 409
+        approve_document(client, headers, 'WarehouseOutbound', outbound_id, intent='reverse', reason='归还')
         assert client.post(f'{base}/warehouse-outbounds/{outbound_id}/reverse', headers=headers,
                            json={'reason': '归还'}).status_code == 201
         reversal = client.post(reverse, headers=headers, json={'reason': '误退'})

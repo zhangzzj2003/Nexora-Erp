@@ -1,6 +1,6 @@
 """业务来源重算、独立审核、跨模块价格锁定和原子去重。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, prepare_purchase_return
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from threading import Barrier
@@ -108,10 +108,12 @@ def test_returns_and_fee_reversal_keep_independent_sources(business):
     request('POST', f'receipts/{received["id"]}/post')
     returned = request('POST', 'purchase-returns', dict(receipt_id=received['id'], reason='退货',
         lines=[dict(receipt_line_id=received['lines'][0]['id'], quantity='1')]), 201)
+    prepare_purchase_return(client, dict(client.headers), returned['id'])
     request('POST', f'purchase-returns/{returned["id"]}/post')
     key = f'purchase_return:{returned["id"]}'
     assert source(client, key)['roles'] == {'inventory': '-3.12', 'payable': '3.13', 'price_variance': '-0.01'}
     post(client, generate(client, key, 'PUR-RET'), reviewer)
+    approve_document(client, dict(client.headers), 'PurchaseReturn', returned['id'], intent='reverse', reason='退货更正')
     request('POST', f'purchase-returns/{returned["id"]}/reverse', dict(reason='退货更正'), 201)
     reverse_key = next(item['key'] for item in client.get(BASE).json() if item['source_type'] == 'purchase_return_reversal')
     assert source(client, reverse_key)['roles'] == {'inventory': '3.12', 'payable': '-3.13', 'price_variance': '0.01'}
@@ -248,6 +250,7 @@ def test_inventory_accounting_amount_clears_fractional_tail(business):
     for index in range(3):
         row = request('POST', 'warehouse-outbounds', dict(warehouse_id=1, reason='other', note='分批出清',
             lines=[dict(material_id=erp[4][0], quantity='1')]), 201)
+        approve_document(client, dict(client.headers), 'WarehouseOutbound', row['id'])
         request('POST', f'warehouse-outbounds/{row["id"]}/post')
     report = request('GET', 'inventory/valuation')
     assert [item['accounting_amount'] for item in report['movements']] == ['3.02', '-1.01', '-1.00', '-1.01']

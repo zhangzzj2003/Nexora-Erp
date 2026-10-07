@@ -36,6 +36,7 @@ def test_existing_movements_become_unidentified_lot_openings(monkeypatch, tmp_pa
         outbound_id = client.post('/api/v1/warehouse-outbounds', headers=auth, json={
             'warehouse_id': 1, 'reason': 'sample', 'note': '旧出库',
             'lines': [{'material_id': material_id, 'quantity': '0.125'}]}).json()['id']
+        approve_document(client, auth, 'WarehouseOutbound', outbound_id)
         assert client.post(f'/api/v1/warehouse-outbounds/{outbound_id}/post', headers=auth).status_code == 200
 
     with orm_session() as db:

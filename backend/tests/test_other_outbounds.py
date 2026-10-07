@@ -29,13 +29,18 @@ def test_other_outbound_requires_stock_and_keeps_source(monkeypatch, tmp_path):
         draft = client.post(f"{base}/warehouse-outbounds", headers=admin, json=payload)
         assert draft.status_code == 201
         outbound_id = draft.json()["id"]
+        # 已批准仍须重核实际库存，失败不消费批准或写入流水。
+        state = approve_document(client, admin, 'WarehouseOutbound', outbound_id)
         assert client.post(f"{base}/warehouse-outbounds/{outbound_id}/post", headers=admin).status_code == 409
         assert client.get(f"{base}/stock", headers=admin).json()[0]["quantity"] == "2"
+        assert client.post(f"{base}/system/document-approvals/WarehouseOutbound/{outbound_id}/withdraw",
+                           headers=admin, json={"version": state["version"]}).status_code == 200
         assert client.post(f"{base}/warehouse-outbounds/{outbound_id}/cancel", headers=admin).status_code == 200
         assert client.post(f"{base}/warehouse-outbounds/{outbound_id}/post", headers=admin).status_code == 409
 
         posted_id = client.post(f"{base}/warehouse-outbounds", headers=admin, json={
             **payload, "lines": [{"material_id": material, "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'WarehouseOutbound', posted_id)
         assert client.post(f"{base}/warehouse-outbounds/{posted_id}/post", headers=admin).status_code == 200
         assert client.post(f"{base}/warehouse-outbounds/{posted_id}/post", headers=admin).status_code == 409
         assert client.get(f"{base}/stock", headers=admin).json()[0]["quantity"] == "1"
@@ -43,6 +48,7 @@ def test_other_outbound_requires_stock_and_keeps_source(monkeypatch, tmp_path):
         assert movement["source_type"] == "other_outbound"
         assert movement["other_outbound_id"] == posted_id
         assert client.get(f"{base}/finance/receivables-payables", headers=admin).json()["entries"] == []
+        approve_document(client, admin, 'WarehouseOutbound', posted_id, intent='reverse', reason='样品未寄出')
         reversed_entry = client.post(f"{base}/warehouse-outbounds/{posted_id}/reverse", headers=admin,
                                      json={"reason": "样品未寄出"})
         assert reversed_entry.status_code == 201

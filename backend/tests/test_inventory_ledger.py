@@ -24,6 +24,7 @@ def test_ledger_filters_and_balances(monkeypatch, tmp_path):
         outbound = client.post(f"{base}/warehouse-outbounds", headers=auth, json={
             "warehouse_id": 1, "reason": "sample", "note": "样品",
             "lines": [{"material_id": material, "quantity": "2"}]}).json()["id"]
+        approve_document(client, auth, 'WarehouseOutbound', outbound)
         client.post(f"{base}/warehouse-outbounds/{outbound}/post", headers=auth)
         filters = {"warehouse_id": 1, "material_id": material}
         result = client.post(f"{base}/inventory-ledger/query", headers=auth, json=filters).json()

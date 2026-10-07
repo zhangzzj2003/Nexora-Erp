@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 退货只在批准后转出库；共用审批弹窗保留固定正文和完整历史。
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -13,7 +15,7 @@ import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocu
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
-import { useAppStore } from '../../../store/app-store'
+import { useAppStore, usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
@@ -35,6 +37,17 @@ const {
   cancelPurchaseReturn,
   reversePurchaseReturn
 } = useAppStore()
+const approvalStore = usePiniaAppStore()
+
+// 冲销只能使用另行批准的固定原因，不能改用未审核的列表草稿。
+async function reverseApproved(identifier: number): Promise<void> {
+  if (!await approvalStore.openDocumentApproval({ document_type: 'PurchaseReturn', document_id: identifier, intent: 'reverse' })) return
+  const record = approvalStore.documentApprovalRecord
+  if (record?.status !== 'approved' || !record.reversal_reason) return
+  purchaseReturnReversalReasons.value[identifier] = record.reversal_reason
+  approvalStore.closeDocumentApproval()
+  await reversePurchaseReturn(identifier)
+}
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
@@ -201,9 +214,9 @@ const purchaseReturnFormColumns = [
                 ? '已退供应商'
                 : item.status === 'cancelled'
                   ? '已取消'
-                  : item.outbound_id
+                  : item.outbound_id && item.approval?.status === 'executed'
                     ? `待仓库出库 ${relatedDocumentLabel(item, 'outbound')}`
-                    : '草稿'
+                    : ({ submitted: '审批中', approved: '已批准待转出库', rejected: '已驳回', withdrawn: '已撤回', draft: '待送审', executed: '已转出库' })[item.approval?.status ?? 'draft']
           }}
         </span>
       </template>
@@ -217,20 +230,25 @@ const purchaseReturnFormColumns = [
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
+          <!-- 旧待出库草稿的父退货仍须补走审批，不能因已有子单误显示为已转单。 -->
+          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="approvalStore.openDocumentApproval({ document_type: 'PurchaseReturn', document_id: item.id, intent: 'execute' })">
+            {{ item.status === 'draft' && item.approval?.status !== 'executed' ? '单据审批' : '审批记录' }}
+          </AppButton>
           <AppButton
-            v-if="item.status === 'draft' && !item.outbound_id && can('purchase_return.submit')"
+            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('purchase_return.submit')"
             type="button"
-            :disabled="busy"
+            :disabled="busy || connectionLost"
             @click="submitPurchaseReturn(item.id)"
             variant="primary"
             size="small"
           >
-            提交待出库
+            生成出库草稿
           </AppButton>
           <AppButton
-            v-if="item.status === 'draft' && can('purchase_return.cancel')"
+            v-if="item.status === 'draft' && !['submitted', 'approved'].includes(item.approval?.status ?? '') && !['submitted', 'approved'].includes(item.outbound_approval?.status ?? '') && can('purchase_return.cancel')"
             type="button"
-            :disabled="busy"
+            :disabled="busy || connectionLost"
             @click="cancelPurchaseReturn(item.id)"
             variant="secondary"
             size="small"
@@ -238,24 +256,15 @@ const purchaseReturnFormColumns = [
             取消
           </AppButton>
         </div>
-        <form
-          v-if="item.status === 'posted' && !item.reversal_id && can('purchase_return.reverse')"
-          class="inline-form"
-          @submit.prevent="reversePurchaseReturn(item.id)"
-        >
-          <label>
-            冲销原因
-            <AppInput
-              v-model.trim="purchaseReturnReversalReasons[item.id]"
-              required
-              maxlength="200"
-              placeholder="说明原退货为何需要冲销"
-            />
-          </label>
-          <AppButton type="submit" :disabled="busy" variant="secondary" size="small"
-            >冲销已确认退货</AppButton
-          >
-        </form>
+        <div v-if="item.status === 'posted'" class="form-actions">
+          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="approvalStore.openDocumentApproval({ document_type: 'PurchaseReturn', document_id: item.id, intent: 'reverse' })">
+            {{ item.reversal_id ? '冲销审批记录' : '冲销审批' }}
+          </AppButton>
+          <AppButton v-if="!item.reversal_id && item.reversal_approval?.status === 'approved' && can('purchase_return.reverse')"
+            type="button" :disabled="busy || connectionLost" variant="secondary" size="small"
+            @click="reverseApproved(item.id)">执行已批准冲销</AppButton>
+        </div>
       </template>
       <template #empty>
         <strong>{{ recordQuery ? '没有匹配的记录' : '暂无采购退货记录' }}</strong>
@@ -268,5 +277,6 @@ const purchaseReturnFormColumns = [
         </span>
       </template>
     </WorkspaceTable>
+    <DocumentApprovalDialog />
   </section>
 </template>

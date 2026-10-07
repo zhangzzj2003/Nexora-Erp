@@ -128,6 +128,7 @@ def test_stocktake_surplus_reverse_requires_original_lot_quantity(monkeypatch, t
         outbound = client.post(f'{base}/warehouse-outbounds', headers=auth, json={
             'warehouse_id': 1, 'reason': 'sample', 'note': '已领用',
             'lines': [{'material_id': material, 'quantity': '0.500'}]}).json()
+        approve_document(client, auth, 'WarehouseOutbound', outbound['id'])
         assert client.post(f'{base}/warehouse-outbounds/{outbound["id"]}/post', headers=auth,
             json={'lines': [{'outbound_line_id': outbound['lines'][0]['id'],
                              'lots': [{'lot_id': lot_id, 'quantity': '0.500'}]}]}).status_code == 200

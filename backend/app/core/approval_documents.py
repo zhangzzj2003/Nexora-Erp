@@ -5,10 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.models import (
-    Material, PurchaseGoodsReceipt, PurchaseGoodsReceiptLine, PurchaseOrder, PurchaseOrderLine,
+    DocumentApprovalCase, Material, PurchaseGoodsReceipt, PurchaseGoodsReceiptLine, PurchaseOrder, PurchaseOrderLine,
     PurchaseOrderRequestLink, Receipt, ReceiptLine, ReceiptOrderLink, ReceiptReversal,
     ReceiptWarehouse, Supplier, Warehouse, WarehouseInbound, WarehouseInboundLine,
-    WarehouseInboundReversal,
+    WarehouseInboundReversal, PurchaseReturn, PurchaseReturnLine, PurchaseReturnReversal,
+    WarehouseOutbound, WarehouseOutboundLine, WarehouseOutboundReversal, MaintenanceJob, MaintenanceChange,
+    AfterSalesCase, AfterSalesChange,
 )
 from app.core.approval_catalog import approval_type
 
@@ -73,11 +75,60 @@ def receipt_snapshot(db: Session, identifier: int) -> dict:
                 PurchaseGoodsReceipt.inbound_receipt_id == identifier))}
 
 
+def purchase_return_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'PurchaseReturn', identifier)
+    receipt = db.get(Receipt, source.receipt_id)
+    # 退货批准固定原入库、供应商、仓库和逐行数量，不包含动态可退余额。
+    return {'receipt_id': source.receipt_id, 'supplier_id': receipt.supplier_id,
+            'warehouse_id': db.scalar(select(ReceiptWarehouse.warehouse_id).where(
+                ReceiptWarehouse.receipt_id == source.receipt_id)),
+            'reason': source.reason,
+            'lines': [dict(row) for row in db.execute(select(
+                PurchaseReturnLine.id, PurchaseReturnLine.receipt_line_id,
+                ReceiptLine.material_id, ReceiptLine.receipt_id.label('source_receipt_id'),
+                PurchaseReturnLine.quantity, ReceiptOrderLink.purchase_order_line_id,
+                PurchaseOrderLine.purchase_order_id, PurchaseOrderLine.unit_price)
+                .join(ReceiptLine, ReceiptLine.id == PurchaseReturnLine.receipt_line_id)
+                .outerjoin(ReceiptOrderLink, ReceiptOrderLink.receipt_line_id == ReceiptLine.id)
+                .outerjoin(PurchaseOrderLine, PurchaseOrderLine.id == ReceiptOrderLink.purchase_order_line_id)
+                .where(PurchaseReturnLine.purchase_return_id == identifier)
+                .order_by(PurchaseReturnLine.id)).mappings()]}
+
+
+def outbound_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'WarehouseOutbound', identifier)
+    jobs = list(db.scalars(select(MaintenanceJob).where(MaintenanceJob.parts_outbound_id == identifier)
+                          .order_by(MaintenanceJob.id)))
+    cases = list(db.scalars(select(AfterSalesCase).where(AfterSalesCase.parts_outbound_id == identifier)
+                           .order_by(AfterSalesCase.id)))
+    # 旧服务派生的待执行草稿可能没有新作者表记录，须从原方案编制审计恢复排除范围。
+    authors = {row.created_by for row in [*jobs, *cases]}
+    authors.update(row.submitted_by for row in cases if row.submitted_by is not None)
+    authors.update(db.scalars(select(MaintenanceChange.changed_by).where(
+        MaintenanceChange.entity_type == 'job', MaintenanceChange.entity_id.in_([row.id for row in jobs]),
+        MaintenanceChange.action.in_(('create', 'edit', 'submit')))))
+    authors.update(db.scalars(select(AfterSalesChange.changed_by).where(
+        AfterSalesChange.case_id.in_([row.id for row in cases]),
+        AfterSalesChange.action.in_(('create', 'edit', 'submit')))))
+    # 仓库查看权限不扩大为采购金额权限，固定来源 ID 及出库正文即可。
+    return {'warehouse_id': source.warehouse_id, 'source_kind': source.source_kind,
+            'purchase_return_id': source.purchase_return_id, 'reason': source.reason,
+            'note': source.note, 'reference': source.reference,
+            'maintenance_job_ids': [row.id for row in jobs],
+            'after_sales_case_ids': [row.id for row in cases], 'source_author_ids': sorted(authors),
+            'lines': [{'id': line.id, 'material_id': line.material_id, 'quantity': line.quantity}
+                      for line in db.scalars(select(WarehouseOutboundLine).where(
+                          WarehouseOutboundLine.outbound_id == identifier).order_by(WarehouseOutboundLine.id))]}
+
+
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
 _SNAPSHOTS = {'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
-              'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot}
+              'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
+              'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot}
 _REVERSE = {'WarehouseInbound': (WarehouseInboundReversal, 'inbound_id', 'other_inbound.reverse'),
-            'Receipt': (ReceiptReversal, 'receipt_id', 'receipt.reverse')}
+            'Receipt': (ReceiptReversal, 'receipt_id', 'receipt.reverse'),
+            'PurchaseReturn': (PurchaseReturnReversal, 'purchase_return_id', 'purchase_return.reverse'),
+            'WarehouseOutbound': (WarehouseOutboundReversal, 'outbound_id', 'other_outbound.reverse')}
 
 
 def document_source(db: Session, document_type: str, identifier: int):
@@ -96,7 +147,12 @@ def current_snapshot(db: Session, document_type: str, identifier: int) -> dict:
 
 def document_pending(db: Session, document_type: str, identifier: int, intent: str):
     source = document_source(db, document_type, identifier)
+    if document_type == 'WarehouseOutbound' and (source.source_kind not in ('other', 'purchase_return')
+            or source.source_kind == 'purchase_return' and source.purchase_return_id is None):
+        raise HTTPException(409, '出库单缺少有效业务来源，不能审批')
     if intent == 'reverse':
+        if document_type == 'WarehouseOutbound' and source.source_kind != 'other':
+            raise HTTPException(422, '采购退货出库请从原退货单另行申请冲销')
         reversal = _REVERSE.get(document_type)
         if reversal is None:
             raise HTTPException(422, '此类单据不支持独立冲销审批')
@@ -106,6 +162,12 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
     elif source.status != 'draft':
         # 历史已执行记录不补造审批；只限制仍待执行的草稿。
         raise HTTPException(409, '此单据已处理，不能继续审批')
+    elif document_type == 'PurchaseReturn' and db.scalar(select(DocumentApprovalCase.id).where(
+            DocumentApprovalCase.document_type == document_type,
+            DocumentApprovalCase.document_id == identifier, DocumentApprovalCase.intent == 'execute',
+            DocumentApprovalCase.status == 'executed')):
+        # 退货转出库是本单执行点；后续待出库不允许再次撤回或生成另一张出库单。
+        raise HTTPException(409, '退货已转出库，请在仓库出库单继续独立审批')
     return source
 
 
@@ -149,14 +211,26 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
     if document_type == 'WarehouseInbound':
         summary.extend([{'label': '用途', 'value': {'opening': '期初补录', 'gift': '赠品', 'other': '其他'}[content['reason']]},
                         {'label': '入库说明', 'value': content['note']}])
-    summary.append({'label': '参考号', 'value': content['reference'] or '—'})
+    if document_type == 'PurchaseReturn':
+        receipt = db.get(Receipt, content['receipt_id'])
+        summary.extend([{'label': '原入库单', 'value': receipt.document_no or f'#{receipt.id}'},
+                        {'label': '退货原因', 'value': content['reason']}])
+    if document_type == 'WarehouseOutbound':
+        summary.extend([{'label': '出库用途', 'value': {
+            'scrap': '报废', 'sample': '样品', 'other': '其他', 'purchase_return': '采购退货'}[content['reason']]},
+                        {'label': '出库说明', 'value': content['note']}])
+        if content['purchase_return_id'] is not None:
+            source = db.get(PurchaseReturn, content['purchase_return_id'])
+            summary.append({'label': '采购退货单', 'value': source.document_no or f'#{source.id}'})
+    if 'reference' in content:
+        summary.append({'label': '参考号', 'value': content['reference'] or '—'})
     for line in content['lines']:
         material = db.get(Material, line['material_id'])
         unit = f' {material.unit}' if material else ''
         value = (f"合格 {line['accepted_quantity']}{unit}；拒收 {line['rejected_quantity']}{unit}；原因 {line['rejection_reason'] or '—'}"
                  if document_type == 'PurchaseGoodsReceipt' else line['quantity'] + unit)
         if 'unit_price' in line:
-            value += f"；单价 ¥{line['unit_price']}"
+            value += f"；单价 ¥{line['unit_price']}" if line['unit_price'] is not None else '；原价待核对'
         summary.append({'label': f'{material.sku} · {material.name}' if material else str(line['material_id']),
                         'value': value})
     return summary

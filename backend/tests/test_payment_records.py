@@ -1,6 +1,6 @@
 """验证收付款按订单限额、退货退款和不可变冲销记录。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, prepare_purchase_return
 
 from fastapi.testclient import TestClient
 
@@ -118,6 +118,7 @@ def test_payment_records_reconciliation_and_reversal(monkeypatch, tmp_path):
         purchase_return = client.post(f"{base}/purchase-returns", headers=admin, json={
             "receipt_id": receipt_id, "reason": "退一件",
             "lines": [{"receipt_line_id": receipt["lines"][0]["id"], "quantity": "1"}]}).json()["id"]
+        prepare_purchase_return(client, admin, purchase_return)
         client.post(f"{base}/purchase-returns/{purchase_return}/post", headers=admin)
         payable_account = next(item for item in client.get(f"{base}/finance/accounts", headers=finance).json()
                                if item["kind"] == "payable")

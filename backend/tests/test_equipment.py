@@ -143,6 +143,7 @@ def reported(erp, **extra):
     api = erp[1]
     row = action(api, approved(erp, **extra), 'start')
     if row['parts_outbound_id']:
+        approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
         api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     return action(api, row, 'report', solution='更换轴承并试运行通过', labor_hours='1.25', service_amount='30.10')
 
@@ -157,6 +158,7 @@ def test_periodic_maintenance_parts_acceptance_and_reversal(erp):
     assert row['downtime']['ongoing'] and row['parts_status']=='draft'
     assert api('GET','stock')[0]['quantity']=='10'
     action(api,row,'report',status=409,solution='处理完毕',labor_hours='1',service_amount='0')
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     row = action(api,row,'report',solution='处理完毕',labor_hours='1.25',service_amount='30.10')
     action(api,row,'accept',status=409)
@@ -164,7 +166,8 @@ def test_periodic_maintenance_parts_acceptance_and_reversal(erp):
     assert row['labor_hours']=='1.25' and row['service_amount']=='30.10'
     assert not row['downtime']['ongoing'] and row['downtime']['ended_by']==erp[3]['reviewer']
     assert api('GET',ROOT+f'/plans/{plan["id"]}')['next_due']==(date.fromisoformat(now()[:10])+timedelta(days=30)).isoformat()
-    api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/reverse',{'reason':'耗材更正'},status=409)
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'], intent='reverse', reason='实物已归库')
+    api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/reverse',{'reason':'实物已归库'},status=409)
     downtime = row['downtime']
     row = action(api,row,'reverse')
     assert row['downtime']==downtime and row['plan_roll']['reversal_effect']=='restored_due'
@@ -205,6 +208,7 @@ def test_cancel_requires_draft_outbound_cancel_but_retains_actual_consumption(er
     api, part = erp[1], erp[5]
     row = action(api,approved(erp,warehouse_id=1,parts=[{'material_id':part,'quantity':'1'}]),'start')
     action(api,row,'cancel',status=409)
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     row = action(api,row,'cancel',evidence='中途取消，但已使用备件不归库')
     assert row['status']=='cancelled' and row['parts_status']=='posted'
@@ -218,6 +222,7 @@ def test_cancel_requires_draft_outbound_cancel_but_retains_actual_consumption(er
 def test_consumed_parts_reversed_before_acceptance_prevent_false_acceptance(erp):
     api = erp[1]
     row = reported(erp,warehouse_id=1,parts=[{'material_id':erp[5],'quantity':'1'}])
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'], intent='reverse', reason='实际耗材领用错误')
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/reverse',{'reason':'实际耗材领用错误'},status=201)
     action(api,row,'accept',actor='reviewer',status=409)
     assert api('GET',ROOT+f'/jobs/{row["id"]}')['status']=='reported'

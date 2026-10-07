@@ -46,7 +46,7 @@ test('全部十一类单据接入公共批次弹窗并保留原确认载荷、�
  for(const config of lotViewCases){
   const seed=documentLotFixture(config),pinia=createPinia(),store=usePiniaAppStore(pinia)
   // 已接入审批的入库批次操作属于批准后的仓库执行，不能让布局测试绕过新审批前提。
-  if(['otherInbounds','receipts'].includes(seed.state))seed.record.approval={status:'approved'}
+  if(['otherInbounds','receipts','warehouseOutbounds'].includes(seed.state))seed.record.approval={status:'approved'}
   store[seed.state]=[seed.record];fixture.options=seed.options;fixture.sent=[];fixture.fail=true
   const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/'+seed.file)
   const originalSetup=View.setup;let bindings

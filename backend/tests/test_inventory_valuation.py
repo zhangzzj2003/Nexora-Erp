@@ -122,6 +122,7 @@ def test_unpriced_stock_clears_only_after_full_depletion(monkeypatch, tmp_path):
         outbound = client.post(f"{base}/warehouse-outbounds", headers=admin, json={
             "warehouse_id": 1, "reason": "sample", "note": "样品出库",
             "lines": [{"material_id": material, "quantity": "2"}]}).json()["id"]
+        approve_document(client, admin, 'WarehouseOutbound', outbound)
         assert client.post(f"{base}/warehouse-outbounds/{outbound}/post", headers=admin).status_code == 200
         result = client.get(f"{base}/inventory/valuation", headers=admin).json()
         assert result["materials"][0]["amount"] == "0.00"

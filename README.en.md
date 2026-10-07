@@ -70,6 +70,8 @@ Candidate sequencing and entry conditions are in the [expansion assessment (Chin
 
 The server assigns stable business numbers to 29 core document and independent payment types. A centered three-step guide lets administrators choose pinyin initials or English prefixes, select a server, UTC or specified IANA time zone, and review the policy on first login, including after an existing database upgrade. Historical backfill and the initial policy lock commit atomically, while references, physical lots and frozen evidence remain intact. See [document numbering rules](docs/document-numbering.md). The complete lot traceability page remains planned.
 
+Unified approval, production document links and optional physical lots are being implemented on the requirement branch. Six document types currently use independent approval: other inbound, purchase order, goods receipt, purchase receipt, purchase return and warehouse outbound. Each purchase stage is reviewed separately; a return creates an outbound draft that requires its own approval. Ordinary inbound and outbound confirmation is available after approval, with physical lot registration or selection optional. The remaining document integrations and complete delivery are still pending. See the [implementation checklist (Chinese)](docs/document-approval-and-links.md).
+
 ## Development entry points
 
 Requires Node.js 22.12+ and Python 3.11+. Setup, architecture, business constraints, testing, **build instructions**, backup/restore and website publishing now live in the detailed guide:

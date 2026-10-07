@@ -58,6 +58,7 @@ def test_other_outbound_lots_are_selected_and_reversed_atomically(monkeypatch, t
             'lines': [{'material_id': materials[0], 'quantity': '1.000'}]}).json()
         assert client.get(f'{base}/warehouse-outbounds/{other_draft["id"]}/available-lots',
                           headers=auth).json()['lines'][0]['lots'] == []
+        approve_document(client, auth, 'WarehouseOutbound', other_draft['id'])
         assert client.post(f'{base}/warehouse-outbounds/{other_draft["id"]}/post', headers=auth,
                            json={'lines': [{'outbound_line_id': other_draft['lines'][0]['id'],
                                             'lots': [{'lot_id': lot_a, 'quantity': '1.000'}]}]}).status_code == 409
@@ -70,6 +71,7 @@ def test_other_outbound_lots_are_selected_and_reversed_atomically(monkeypatch, t
         assert client.post(f'{base}/warehouse-outbounds/{purchase_return_gate}/post', headers=auth,
                            json={'lines': [{'outbound_line_id': line_a,
                                             'lots': [{'lot_id': lot_a, 'quantity': '1.000'}]}]}).status_code == 409
+        approve_document(client, auth, 'WarehouseOutbound', draft['id'])
         post_url = f'{base}/warehouse-outbounds/{draft["id"]}/post'
         allocation = [
             {'outbound_line_id': line_a, 'lots': [
@@ -97,6 +99,7 @@ def test_other_outbound_lots_are_selected_and_reversed_atomically(monkeypatch, t
                     [(lot_a, '1.125'), (lot_b, '1.000')], [(lot_c, '1.000')]]
         assert client.get(options_url, headers=auth).status_code == 409
         assert client.post(post_url, headers=auth, json={'lines': allocation}).status_code == 409
+        approve_document(client, auth, 'WarehouseOutbound', draft['id'], intent='reverse', reason='未实际领用')
         reverse = client.post(f'{base}/warehouse-outbounds/{draft["id"]}/reverse', headers=auth,
                               json={'reason': '未实际领用'})
         assert reverse.status_code == 201

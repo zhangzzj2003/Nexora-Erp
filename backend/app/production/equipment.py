@@ -1,6 +1,7 @@
 """设备台账、日历维护与可追溯的执行验收，业务读写统一 ORM。"""
 
 from app.core.document_responses import NumberedRoute
+from app.core.document_approval import record_author
 import json
 from datetime import date, timedelta
 from decimal import Decimal
@@ -18,7 +19,7 @@ from app.production.equipment_inputs import (EquipmentInput, EquipmentEdit, Plan
     JobInput, JobEdit, ActionInput, JobAction)
 from app.production.equipment_rules import (now, encoded, permission, get, version, unique, active_jobs,
     audit, independent, executors, validate_job, frozen_links, parts_status, parts_ready,
-    changes, downtime_data, job_data, RUNNING)
+    changes, downtime_data, job_data, RUNNING, authors)
 from app.production.equipment_hours import (latest_reading, reading_data, hour_plan_data,
                                             hours_text, audit_hour_plan)
 
@@ -264,6 +265,9 @@ def change_job(identifier: int, action: JobAction, payload: ActionInput,
                     reason='other', note=f'设备维护耗材 {row.reference}'[:200], reference=row.reference, created_by=user['id']))
                 db.add_all([WarehouseOutboundLine(outbound_id=outbound.id, **part) for part in parts])
                 row.parts_outbound_id = outbound.id
+                # 原维护方案编制人员也不能审批派生的耗材出库单，保留原审计作者范围。
+                for author_id in authors(db, row):
+                    record_author(db, 'WarehouseOutbound', outbound.id, author_id)
             row.status = 'in_progress'
             row.started_at = now()
             db.add(MaintenanceDowntime(equipment_id=row.equipment_id, job_id=row.id, started_at=row.started_at,

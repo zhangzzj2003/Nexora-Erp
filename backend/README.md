@@ -60,7 +60,9 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 采购订单 `PurchaseOrder`、收货 `PurchaseGoodsReceipt`、入库 `Receipt` 已接入同一单据审批入口；原 `confirm`/`post` 写事务内核对批准正文并追加执行记录。三阶段分别送审，不继承上游批准；收货只生成未送审入库草稿。查看权限沿用 `inventory.view` / `purchase_receiving.view`，审核分别使用 `purchase_order.review` / `purchase_receiving.review` / `receipt.review`；采购入库冲销按 `receipt.reverse` 单独送审固定原因。批准后普通入库无需批次请求体，可选批次仍守恒并在失败时整体回滚。其余领域仍在需求分支接入，不代表 29 类全部完成。
 
-**当前处于需求分支开发阶段，其余业务入口尚未全部接入；不能据此认为原确认接口已全部实施新审批门槛。** 财务草稿状态、自动转单门槛、生产关联查询和可选批次仍待实施，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
+采购退货 `PurchaseReturn` 与仓库出库 `WarehouseOutbound` 已接入独立审批。退货 `submit` 在批准后生成出库草稿、记录父单执行；出库另行批准后才扣库存。旧退货 `post` 不再自动生成并确认子单；父单批准与转单、子单批准及父子正文一致性均须满足。升级前尚未执行的出库草稿可在父单重新批准后复用，但子单待审或批准时必须先撤回以记录转单人员。维护、售后耗材子单保留原方案作者排除自审。普通出库无需批次请求体，可选批次仍逐行守恒；采购退货和其他出库冲销各自单独审批固定原因，库存与执行事件在原事务内提交或回滚。取消退货时同时检查父子审批进度。
+
+**当前处于需求分支开发阶段，已接入六类，不能据此认为 29 类接口已全部实施新审批门槛。** 财务草稿状态、其他自动转单门槛、生产关联查询和其他单据的可选批次仍待实施，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
 
 ## 基础资料与供货关系
 

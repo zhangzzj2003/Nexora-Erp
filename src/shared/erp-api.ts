@@ -343,6 +343,11 @@ export interface OtherInbound extends NumberedDocument {
 }
 // 出库确认才扣库存；后续采购退货沿用仓库确认单。
 export interface WarehouseOutbound extends NumberedDocument {
+  // 执行与冲销各自批准；旧响应缺省时界面关闭执行入口。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
+  // 退货出库由采购退货原单冲销，关联 ID 与其他出库冲销分别保存。
+  purchase_return_reversal_id?: number | null
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -562,6 +567,10 @@ export interface PurchaseReturnLine extends ReceiptLine {
   line_total: string | null
 }
 export interface PurchaseReturn extends NumberedDocument {
+  // 退货转单和下游出库分别审批，进度不包含下游敏感正文。
+  approval?: DocumentApprovalState
+  outbound_approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   receipt_id: number
   supplier_id: number

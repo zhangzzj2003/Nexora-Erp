@@ -168,7 +168,7 @@ export function validateDocumentApprovalResponse(value: unknown): void {
   }
   if (!value || typeof value !== 'object') return
   const row = value as Record<string, unknown>
-  for (const field of ['approval', 'reversal_approval']) {
+  for (const field of ['approval', 'reversal_approval', 'outbound_approval']) {
     if (Object.hasOwn(row, field)) validateDocumentApprovalState(row[field])
   }
 }

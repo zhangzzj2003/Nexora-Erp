@@ -122,6 +122,7 @@ def test_transfer_reverse_rejects_consumed_target_lot_without_partial_stock(monk
         outbound = client.post(f'{base}/warehouse-outbounds', headers=auth, json={
             'warehouse_id': target, 'reason': 'sample', 'note': '已领用',
             'lines': [{'material_id': material, 'quantity': '0.500'}]}).json()
+        approve_document(client, auth, 'WarehouseOutbound', outbound['id'])
         assert client.post(f'{base}/warehouse-outbounds/{outbound["id"]}/post', headers=auth,
             json={'lines': [{'outbound_line_id': outbound['lines'][0]['id'],
                              'lots': [{'lot_id': lot_id, 'quantity': '0.500'}]}]}).status_code == 200

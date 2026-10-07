@@ -1,6 +1,6 @@
 """ORM 单据迁移须保留写入后回滚、跨模块状态和并发确认约束。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, prepare_purchase_return
 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
@@ -189,6 +189,7 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
             },
             201,
         )
+        prepare_purchase_return(client, dict(client.headers), source['id'])
         path = f'purchase-returns/{source["id"]}/post'
     elif case == "shipment_post":
         order = request(

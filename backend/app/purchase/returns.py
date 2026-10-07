@@ -1,6 +1,9 @@
 """采购退货单：以原入库行为来源，确认后追加负向库存流水。"""
 
 from app.core.document_responses import NumberedRoute
+# 退货转单与仓库扣库存各有独立批准，两个边界均在原写事务内校验。
+from app.core import document_approval as approval
+from app.core.approval_documents import purchase_return_snapshot, outbound_snapshot, document_snapshot
 from sqlalchemy import select, update, func, literal, and_, or_
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.engine import RowMapping
@@ -228,7 +231,11 @@ def purchase_return_data(db: Session, return_id: int) -> dict:
             # 历史自由入库无采购单价，金额保持未知，不能伪造为零元。
             priced = False
         lines.append({**dict(item), "line_total": str(line_total) if line_total is not None else None})
-    return {**dict(row), "lines": lines, "total_amount": str(total) if priced else None}
+    return {**dict(row), "lines": lines, "total_amount": str(total) if priced else None,
+            'approval': approval.case_data(approval.find_case(db, 'PurchaseReturn', return_id)),
+            'outbound_approval': approval.case_data(approval.find_case(db, 'WarehouseOutbound', row['outbound_id']))
+                if row['outbound_id'] else approval.case_data(None),
+            'reversal_approval': approval.case_data(approval.find_case(db, 'PurchaseReturn', return_id, 'reverse'))}
 
 
 @router.get("/purchase-returns")
@@ -269,7 +276,19 @@ def create_purchase_return(
         return purchase_return_data(db, cursor.id)
 
 
-def submit_return_in_transaction(db: Session, return_id: int) -> int:
+def validate_return_outbound(db: Session, return_id: int, outbound: WarehouseOutbound) -> None:
+    # 升级前已生成的待出库单也重新审批；不能用旧子单替换批准的数量或来源仓库。
+    parent = purchase_return_snapshot(db, return_id)
+    child = outbound_snapshot(db, outbound.id)
+    expected = {line['material_id']: Decimal(line['quantity']) for line in parent['lines']}
+    actual = {line['material_id']: Decimal(line['quantity']) for line in child['lines']}
+    if (child['source_kind'] != 'purchase_return' or child['purchase_return_id'] != return_id
+            or child['warehouse_id'] != parent['warehouse_id'] or child['note'] != parent['reason']
+            or len(actual) != len(child['lines']) or actual != expected):
+        raise HTTPException(409, '关联出库单与已批准退货内容不一致，请先更正来源')
+
+
+def submit_return_in_transaction(db: Session, return_id: int, actor_id: int) -> int:
     # 同一退货只对应一张待出库单；提交时预留可退量，确认时再次检查。
     row = (
         db.execute(
@@ -295,16 +314,13 @@ def submit_return_in_transaction(db: Session, return_id: int) -> int:
         raise HTTPException(404, "采购退货单不存在")
     if row["status"] != "draft":
         raise HTTPException(409, "此采购退货单已处理")
-    if (
-        db.execute(
-            select(literal(1))
-            .select_from(WarehouseOutbound)
-            .where((WarehouseOutbound.purchase_return_id == return_id))
-        )
-        .mappings()
-        .first()
-    ):
-        raise HTTPException(409, "退货已提交，不能重复生成出库单")
+    approved = approval.require_approved(db, 'PurchaseReturn', return_id,
+        purchase_return_snapshot(db, return_id), actor_id)
+    existing = db.scalar(select(WarehouseOutbound).where(WarehouseOutbound.purchase_return_id == return_id))
+    if existing:
+        if existing.status != 'draft':
+            raise HTTPException(409, '关联出库单已处理')
+        validate_return_outbound(db, return_id, existing)
     lines = (
         db.execute(
             select(PurchaseReturnLine.receipt_line_id, PurchaseReturnLine.quantity, ReceiptLine.material_id)
@@ -316,8 +332,13 @@ def submit_return_in_transaction(db: Session, return_id: int) -> int:
         .all()
     )
     checked_return_lines(
-        db, row["receipt_id"], [(line["receipt_line_id"], Decimal(line["quantity"])) for line in lines]
+        db, row["receipt_id"], [(line["receipt_line_id"], Decimal(line["quantity"])) for line in lines],
+        exclude_return_id=return_id,
     )
+    if existing:
+        approval.record_author(db, 'WarehouseOutbound', existing.id, actor_id)
+        approval.mark_executed(db, approved, actor_id)
+        return existing.id
     warehouse_id = db.scalar(
         select(ReceiptWarehouse.warehouse_id)
         .select_from(ReceiptWarehouse)
@@ -343,11 +364,15 @@ def submit_return_in_transaction(db: Session, return_id: int) -> int:
             for line in lines
         ]
     )
+    # 建单人和转单人均排除自审；派生出库仍是未送审草稿。
+    approval.record_author(db, 'WarehouseOutbound', outbound_id, actor_id)
+    approval.mark_executed(db, approved, actor_id)
     return outbound_id
 
 
 def post_return_in_transaction(db: Session, return_id: int, actor_id: int,
-                               lot_lines: dict[int, list[LotPart]] | None = None) -> dict:
+                               lot_lines: dict[int, list[LotPart]] | None = None,
+                               execution_permission: str = 'purchase_return.post') -> dict:
     # 必须持有 BEGIN IMMEDIATE 写锁；重查原入库可退量和原仓库余额。
     row = (
         db.execute(
@@ -383,18 +408,18 @@ def post_return_in_transaction(db: Session, return_id: int, actor_id: int,
         .first()
     )
     if not outbound:
-        outbound_id = submit_return_in_transaction(db, return_id)
-        outbound = (
-            db.execute(
-                select(WarehouseOutbound.id, WarehouseOutbound.status, WarehouseOutbound.warehouse_id)
-                .select_from(WarehouseOutbound)
-                .where((WarehouseOutbound.id == outbound_id))
-            )
-            .mappings()
-            .first()
-        )
+        # 旧直接确认接口不能在执行时自动补建并批准另一张业务单据。
+        raise HTTPException(409, '请先批准采购退货并生成出库草稿，再独立批准仓库出库单')
     if outbound["status"] != "draft":
         raise HTTPException(409, "关联出库单已处理")
+    parent = approval.find_case(db, 'PurchaseReturn', return_id)
+    if (parent is None or parent.status != 'executed'
+            or parent.content_digest != approval.digest(purchase_return_snapshot(db, return_id))[1]):
+        raise HTTPException(409, '请先完成退货批准及转出库，不能复用旧子单绕过审批')
+    child = db.get(WarehouseOutbound, outbound['id'])
+    validate_return_outbound(db, return_id, child)
+    approved = approval.require_approved(db, 'WarehouseOutbound', child.id,
+        outbound_snapshot(db, child.id), actor_id, permission=execution_permission)
     lines = (
         db.execute(
             select(PurchaseReturnLine.id, PurchaseReturnLine.receipt_line_id, PurchaseReturnLine.quantity)
@@ -441,19 +466,20 @@ def post_return_in_transaction(db: Session, return_id: int, actor_id: int,
         .where((WarehouseOutbound.id == outbound["id"]))
         .values(status="posted", posted_by=actor_id, posted_at=func.current_timestamp())
     )
+    approval.mark_executed(db, approved, actor_id, permission=execution_permission)
     return purchase_return_data(db, return_id)
 
 
 @router.post("/purchase-returns/{return_id}/submit")
 def submit_purchase_return(return_id: int, user: dict = Depends(require("purchase_return.submit"))) -> dict:
     with orm_session(write=True) as db:
-        submit_return_in_transaction(db, return_id)
+        submit_return_in_transaction(db, return_id, user['id'])
         return purchase_return_data(db, return_id)
 
 
 @router.post("/purchase-returns/{return_id}/post")
 def post_purchase_return(return_id: int, user: dict = Depends(require("purchase_return.post"))) -> dict:
-    # 兼容旧客户端：直接确认会在同一事务补建并确认关联出库单。
+    # 保留固定旧接口，但必须先完成退货转单和独立的仓库出库批准。
     with orm_session(write=True) as db:
         return post_return_in_transaction(db, return_id, user["id"])
 
@@ -461,6 +487,12 @@ def post_purchase_return(return_id: int, user: dict = Depends(require("purchase_
 @router.post("/purchase-returns/{return_id}/cancel")
 def cancel_purchase_return(return_id: int, user: dict = Depends(require("purchase_return.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        # 取消同时影响父子草稿，任一正在审批或已批准都须先撤回。
+        child_id = db.scalar(select(WarehouseOutbound.id).where(WarehouseOutbound.purchase_return_id == return_id))
+        for kind, identifier in [('PurchaseReturn', return_id), ('WarehouseOutbound', child_id)]:
+            pending = approval.find_case(db, kind, identifier) if identifier else None
+            if pending and pending.status in ('submitted', 'approved'):
+                raise HTTPException(409, '请先撤回退货及出库审批，再取消草稿')
         row = (
             db.execute(
                 select(PurchaseReturn.status)
@@ -519,6 +551,9 @@ def reverse_purchase_return(
             .first()
         ):
             raise HTTPException(409, "此采购退货单已冲销")
+        approved = approval.require_approved(db, 'PurchaseReturn', return_id,
+            document_snapshot(db, 'PurchaseReturn', return_id, 'reverse', payload.reason),
+            user['id'], intent='reverse', permission='purchase_return.reverse')
         lines = (
             db.execute(
                 select(PurchaseReturnLine.id, PurchaseReturnLine.quantity, ReceiptLine.material_id)
@@ -560,4 +595,5 @@ def reverse_purchase_return(
                     part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
             else:
                 db.add(movement)
+        approval.mark_executed(db, approved, user['id'], permission='purchase_return.reverse')
         return purchase_return_data(db, return_id)

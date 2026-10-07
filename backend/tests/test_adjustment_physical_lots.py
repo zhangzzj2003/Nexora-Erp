@@ -137,6 +137,7 @@ def test_adjustment_surplus_reverse_refuses_consumed_lot(monkeypatch, tmp_path):
         outbound = client.post(f'{base}/warehouse-outbounds', headers=admin, json={
             'warehouse_id': 1, 'reason': 'sample', 'note': '已领用',
             'lines': [{'material_id': material, 'quantity': '0.500'}]}).json()
+        approve_document(client, admin, 'WarehouseOutbound', outbound['id'])
         assert client.post(f'{base}/warehouse-outbounds/{outbound["id"]}/post', headers=admin,
             json={'lines': [{'outbound_line_id': outbound['lines'][0]['id'],
                              'lots': [{'lot_id': lot_id, 'quantity': '0.500'}]}]}).status_code == 200

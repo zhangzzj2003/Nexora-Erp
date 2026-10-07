@@ -31,6 +31,7 @@ def test_return_requires_warehouse_outbound_confirmation(monkeypatch, tmp_path):
         return_id = client.post(f"{base}/purchase-returns", headers=auth, json=payload).json()["id"]
         before = len(client.get(f"{base}/movements", headers=auth).json())
 
+        approve_document(client, auth, 'PurchaseReturn', return_id)
         submitted = client.post(f"{base}/purchase-returns/{return_id}/submit", headers=auth)
         assert submitted.status_code == 200
         outbound_id = submitted.json()["outbound_id"]
@@ -43,6 +44,7 @@ def test_return_requires_warehouse_outbound_confirmation(monkeypatch, tmp_path):
             **payload, "lines": [{"receipt_line_id": receipt["lines"][0]["id"], "quantity": "2"}]
         }).status_code == 409
 
+        approve_document(client, auth, 'WarehouseOutbound', outbound_id)
         confirmed = client.post(f"{base}/warehouse-outbounds/{outbound_id}/post", headers=auth)
         assert confirmed.status_code == 200
         assert confirmed.json()["purchase_return_id"] == return_id
@@ -56,6 +58,7 @@ def test_return_requires_warehouse_outbound_confirmation(monkeypatch, tmp_path):
         pending = client.post(f"{base}/purchase-returns", headers=auth, json={
             **payload, "lines": [{"receipt_line_id": receipt["lines"][0]["id"], "quantity": "1"}]
         }).json()["id"]
+        approve_document(client, auth, 'PurchaseReturn', pending)
         pending_outbound = client.post(f"{base}/purchase-returns/{pending}/submit",
                                        headers=auth).json()["outbound_id"]
         movement_count = len(client.get(f"{base}/movements", headers=auth).json())
@@ -66,4 +69,5 @@ def test_return_requires_warehouse_outbound_confirmation(monkeypatch, tmp_path):
         replacement = client.post(f"{base}/purchase-returns", headers=auth, json={
             **payload, "lines": [{"receipt_line_id": receipt["lines"][0]["id"], "quantity": "1"}]
         }).json()["id"]
+        approve_document(client, auth, 'PurchaseReturn', replacement)
         assert client.post(f"{base}/purchase-returns/{replacement}/submit", headers=auth).status_code == 200

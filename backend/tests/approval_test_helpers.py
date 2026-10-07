@@ -28,3 +28,13 @@ def approve_document(client, author_headers, document_type, identifier, *, inten
         state = approved.json()
     assert state['status'] == 'approved', state
     return state
+
+
+def prepare_purchase_return(client, author_headers, identifier):
+    # 业务夹具显式完成两张单据的审批，保留旧确认接口的数量、权限与回滚断言。
+    approve_document(client, author_headers, 'PurchaseReturn', identifier)
+    converted = client.post(f'/api/v1/purchase-returns/{identifier}/submit', headers=author_headers)
+    assert converted.status_code == 200, converted.text
+    row = converted.json()
+    approve_document(client, author_headers, 'WarehouseOutbound', row['outbound_id'])
+    return row

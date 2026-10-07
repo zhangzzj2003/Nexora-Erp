@@ -459,6 +459,7 @@ def test_repair_margin_combines_recognized_fee_parts_and_labor_without_hiding_ga
     row=api('POST',f'{ROOT}/{row["id"]}/labor',dict(version=row['version'],hours='1.50',
         reason='拆机维修',evidence='维修工单 M-1'),actor='warehouse',status=201)
     labor_id=row['labor'][0]['id']
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     row=action(api,row,'inspect',inspection_result='pass')
     row=action(api,row,'close')
@@ -513,6 +514,7 @@ def test_repair_margin_waits_for_missing_stock_price_and_recomputes_after_valuat
     row=approved(erp,payload(erp,reference='MARGIN-UNPRICED',warehouse_id=1,
         parts=[dict(material_id=part,quantity='1')]))
     row=action(api,row,'receive')
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     row=action(api,row,'inspect',inspection_result='pass')
     row=action(api,row,'close')
@@ -645,6 +647,7 @@ def test_repair_parts_use_company_outbound_and_require_effective_posting(erp):
     row=action(api,row,'receive')
     assert row['parts_status']=='draft'
     action(api,row,'inspect',inspection_result='pass',status=409)
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseOutbound', row['parts_outbound_id'])
     api('POST',f'warehouse-outbounds/{row["parts_outbound_id"]}/post')
     row=action(api,row,'inspect',inspection_result='pass')
     row=action(api,row,'close')

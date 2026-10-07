@@ -1,6 +1,6 @@
 """验证已确认入库冲销的库存、采购进度和应付来源保持一致。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, prepare_purchase_return
 
 from fastapi.testclient import TestClient
 
@@ -49,10 +49,12 @@ def test_receipt_reversal_dependencies_and_balances(monkeypatch, tmp_path):
         purchase_return = client.post(f"{base}/purchase-returns", headers=admin, json={
             "receipt_id": receipt_id, "reason": "误退", "lines": [
                 {"receipt_line_id": receipt["lines"][0]["id"], "quantity": "0.500"}]}).json()["id"]
+        prepare_purchase_return(client, admin, purchase_return)
         client.post(f"{base}/purchase-returns/{purchase_return}/post", headers=admin)
         before = len(client.get(f"{base}/movements", headers=admin).json())
         assert client.post(url, headers=admin, json={"reason": "误入库"}).status_code == 409
         assert len(client.get(f"{base}/movements", headers=admin).json()) == before
+        approve_document(client, admin, 'PurchaseReturn', purchase_return, intent='reverse', reason='恢复原入库')
         client.post(f"{base}/purchase-returns/{purchase_return}/reverse", headers=admin,
                     json={"reason": "恢复原入库"})
 

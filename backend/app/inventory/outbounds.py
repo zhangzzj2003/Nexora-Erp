@@ -1,6 +1,9 @@
 """仓库其他出库单；库存减少只发生在确认事务中。"""
 
 from app.core.document_responses import NumberedRoute
+# 包括采购退货子单在内，出库均须在原库存事务内核对独立批准。
+from app.core import document_approval as approval
+from app.core.approval_documents import outbound_snapshot, document_snapshot
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 
@@ -23,6 +26,7 @@ from app.core.models import (
     PhysicalLot,
     PhysicalLotAllocation,
     PurchaseReturnLine,
+    PurchaseReturnReversal,
     ReceiptLine,
 )
 from app.inventory.warehouse import balance, require_warehouse
@@ -186,7 +190,14 @@ def outbound_data(db: Session, outbound_id: int) -> dict:
             'source_kind': lot.source_kind, 'supplier_lot': lot.supplier_lot,
             'manufactured_on': lot.manufactured_on, 'expires_on': lot.expires_on,
         })
-    return {**dict(row), 'lines': [
+    return {**dict(row),
+        # 采购退货沿父单冲销；单独展示关联标识，不能冒充其他出库冲销记录。
+        'purchase_return_reversal_id': db.scalar(select(PurchaseReturnReversal.id).where(
+            PurchaseReturnReversal.purchase_return_id == row['purchase_return_id']))
+            if row['source_kind'] == 'purchase_return' else None,
+        'approval': approval.case_data(approval.find_case(db, 'WarehouseOutbound', outbound_id)),
+        'reversal_approval': approval.case_data(approval.find_case(db, 'WarehouseOutbound', outbound_id, 'reverse')),
+        'lines': [
         {**dict(line), 'physical_lots': lots_by_line.get(line['id'], [])} for line in lines]}
 
 
@@ -287,6 +298,8 @@ def post_outbound(outbound_id: int, payload: OutboundPostInput | None = None,
         )
         if not source:
             raise HTTPException(404, "仓库出库单不存在")
+        if source['status'] != 'draft':
+            raise HTTPException(409, '关联出库单已处理')
         if source["source_kind"] == "purchase_return":
             # 退货流水仍由退货单生成；仓库闸口将选定批次传入同一写事务。
             from app.purchase.returns import post_return_in_transaction
@@ -318,10 +331,13 @@ def post_outbound(outbound_id: int, payload: OutboundPostInput | None = None,
                     if sum((part.quantity for part in parts), Decimal(0)) != Decimal(line.quantity):
                         raise HTTPException(422, f'采购退货出库明细 #{line.id} 的批次数量之和不匹配')
                     lot_lines[line.material_id] = [LotPart(part.lot_id, -part.quantity) for part in parts]
-            post_return_in_transaction(db, row["purchase_return_id"], user["id"], lot_lines)
+            post_return_in_transaction(db, row["purchase_return_id"], user["id"], lot_lines,
+                                       execution_permission='other_outbound.post')
             return outbound_data(db, outbound_id)
         if source["status"] != "draft" or source["source_kind"] != "other":
             raise HTTPException(409, "此出库单不能按其他出库确认")
+        approved = approval.require_approved(db, 'WarehouseOutbound', outbound_id,
+            outbound_snapshot(db, outbound_id), user['id'])
         lines = (
             db.execute(
                 select(
@@ -366,12 +382,16 @@ def post_outbound(outbound_id: int, payload: OutboundPostInput | None = None,
             .where((WarehouseOutbound.id == outbound_id))
             .values(status="posted", posted_by=user["id"], posted_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return outbound_data(db, outbound_id)
 
 
 @router.post("/warehouse-outbounds/{outbound_id}/cancel")
 def cancel_outbound(outbound_id: int, user: dict = Depends(require("other_outbound.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        pending = approval.find_case(db, 'WarehouseOutbound', outbound_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回出库审批，再取消草稿')
         cursor = db.execute(
             update(WarehouseOutbound)
             .where(
@@ -426,6 +446,9 @@ def reverse_outbound(
             .first()
         ):
             raise HTTPException(409, "只能冲销尚未冲销的已确认其他出库")
+        approved = approval.require_approved(db, 'WarehouseOutbound', outbound_id,
+            document_snapshot(db, 'WarehouseOutbound', outbound_id, 'reverse', payload.reason),
+            user['id'], intent='reverse', permission='other_outbound.reverse')
         if db.scalar(select(MaintenanceJob.id).where(MaintenanceJob.parts_outbound_id == outbound_id,
                 MaintenanceJob.status == 'accepted')):
             raise HTTPException(409, '耗材已被有效设备维护验收使用，先更正验收再冲销出库')
@@ -463,4 +486,5 @@ def reverse_outbound(
                     part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
             else:
                 db.add(movement)
+        approval.mark_executed(db, approved, user['id'], permission='other_outbound.reverse')
         return outbound_data(db, outbound_id)

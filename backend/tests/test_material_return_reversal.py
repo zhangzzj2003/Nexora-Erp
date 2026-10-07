@@ -155,6 +155,7 @@ def test_return_reversal_rejects_reissue_and_consumed_lot(monkeypatch, tmp_path)
         outbound = client.post(f'{base}/warehouse-outbounds', headers=auth, json={
             'warehouse_id': 1, 'reason': 'sample', 'note': '耗用退料批次',
             'lines': [{'material_id': material, 'quantity': '3'}]}).json()
+        approve_document(client, auth, 'WarehouseOutbound', outbound['id'])
         assert client.post(f'{base}/warehouse-outbounds/{outbound["id"]}/post', headers=auth,
             json={'lines': [{'outbound_line_id': outbound['lines'][0]['id'],
                              'lots': [{'lot_id': lot_id, 'quantity': '3'}]}]}).status_code == 200

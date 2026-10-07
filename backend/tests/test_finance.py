@@ -1,6 +1,6 @@
 """验证应收应付只来自已确认单据，退货冲减且历史无价入库不伪造金额。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, prepare_purchase_return
 
 from fastapi.testclient import TestClient
 
@@ -66,6 +66,7 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
             "receipt_id": receipt_id, "reason": "供应商退货",
             "lines": [{"receipt_line_id": receipt["lines"][0]["id"], "quantity": "0.125"}]}).json()["id"]
         client.post(f"{base}/sales-returns/{sale_return}/post", headers=admin)
+        prepare_purchase_return(client, admin, purchase_return)
         client.post(f"{base}/purchase-returns/{purchase_return}/post", headers=admin)
         adjusted = client.get(f"{base}/finance/receivables-payables", headers=finance).json()
         assert adjusted["receivable_amount"] == "10.01"
@@ -91,6 +92,7 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         unknown_return = client.post(f"{base}/purchase-returns", headers=admin, json={
             "receipt_id": legacy, "reason": "退回未定价物料",
             "lines": [{"receipt_line_id": legacy_receipt["lines"][0]["id"], "quantity": "0.5"}]}).json()["id"]
+        prepare_purchase_return(client, admin, unknown_return)
         client.post(f"{base}/purchase-returns/{unknown_return}/post", headers=admin)
         with_unknown_return = client.get(f"{base}/finance/receivables-payables", headers=finance).json()
         assert with_unknown_return["unpriced_count"] == 2

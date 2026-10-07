@@ -63,6 +63,7 @@ test('业务列表与执行响应校验审批字段，旧响应缺省不能冒�
   for (const value of [null, undefined, 'approved', { status: 'approved' }, { ...draft(), version: true }]) {
     assert.throws(() => caseApi.validateDocumentApprovalResponse([{ id: 1, approval: value }]))
     assert.throws(() => caseApi.validateDocumentApprovalResponse({ id: 1, reversal_approval: value }))
+    assert.throws(() => caseApi.validateDocumentApprovalResponse({ id: 1, outbound_approval: value }))
   }
 })
 

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 普通出库和可选实物批次均先批准，使用同一服务端事务与审批记录。
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -40,7 +42,7 @@ const lotLoading = ref(false)
 const lotLoadError = ref('')
 let loadTicket = 0
 const activeOutbound = computed(() => warehouseOutbounds.value.find(item =>
-  item.id === activeOutboundId.value && item.status === 'draft') ?? null)
+  item.id === activeOutboundId.value && item.status === 'draft' && item.approval?.status === 'approved') ?? null)
 const query = ref('')
 const filtered = computed(() => warehouseOutbounds.value.filter((item) =>
   [documentSearch(item), item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
@@ -61,6 +63,8 @@ function closeLotPost(): void {
   lotDrafts.value = []
 }
 async function startLotPost(outbound: WarehouseOutbound): Promise<void> {
+  // 审批撤回或连接失效时不能继续提交已打开的实物分配草稿。
+  if (outbound.approval?.status !== 'approved' || busy.value || connectionLost.value) return
   const ticket = ++loadTicket
   activeOutboundId.value = outbound.id
   lotOptions.value = null
@@ -130,6 +134,16 @@ const otherOutboundFormColumns = [
   { key: 'quantity', title: '数量', width: '150' },
   { key: 'actions', title: '操作', width: '90' },
 ]
+
+async function reverseApproved(identifier: number): Promise<void> {
+  // 读取固定冲销原因后执行，服务端仍会在原写事务内再次核对批准正文。
+  if (!await store.openDocumentApproval({ document_type: 'WarehouseOutbound', document_id: identifier, intent: 'reverse' })) return
+  const record = store.documentApprovalRecord
+  if (record?.status !== 'approved' || !record.reversal_reason) return
+  otherOutboundReversalReasons.value[identifier] = record.reversal_reason
+  store.closeDocumentApproval()
+  await reverseOtherOutbound(identifier)
+}
 </script>
 
 <template>
@@ -253,10 +267,12 @@ const otherOutboundFormColumns = [
         ><small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small
         ><small>{{
           item.status === 'draft'
-            ? '待确认'
+            ? ({ submitted: '审批中', approved: '已批准待出库', rejected: '已驳回', withdrawn: '已撤回', draft: '待送审', executed: '已执行' })[item.approval?.status ?? 'draft']
             : item.status === 'cancelled'
               ? '已取消'
-              : item.reversal_id
+              : item.purchase_return_reversal_id
+                ? '采购退货已冲销'
+                : item.reversal_id
                 ? '已冲销'
                 : '已出库'
         }}</small></template
@@ -274,23 +290,31 @@ const otherOutboundFormColumns = [
           <small v-if="item.status === 'posted' && line.physical_lots?.length" class="outbound-lot-proof">
             实物批次：{{ line.physical_lots?.map(lot => `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`).join('、') }}
           </small>
-          <small v-else-if="item.status === 'posted'" class="outbound-lot-proof">旧确认未指定实物批次，数量在批次核对页显示为差额。</small>
+          <small v-else-if="item.status === 'posted'" class="outbound-lot-proof">普通出库，未指定实物批次。</small>
         </div></template
       >
       <template #cell-actions="{ row: item }"
         ><div class="form-actions">
+          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'WarehouseOutbound', document_id: item.id, intent: 'execute' })">
+            {{ item.status === 'draft' ? '单据审批' : '审批记录' }}
+          </AppButton>
+          <AppButton v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('other_outbound.post')"
+            :disabled="busy || connectionLost" type="button" variant="primary" size="small"
+            @click="postWarehouseOutbound(item.id)">确认出库</AppButton>
           <AppButton
-            v-if="item.status === 'draft' && can('other_outbound.post')"
+            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('other_outbound.post')"
             :disabled="busy || connectionLost"
             @click="startLotPost(item)"
-            variant="primary"
+            variant="secondary"
             size="small"
             type="button"
-            >指定批次并确认</AppButton
+            >指定实物批次（可选）</AppButton
           >
           <AppButton
             v-if="
               item.status === 'draft' &&
+              !['submitted', 'approved'].includes(item.approval?.status ?? '') &&
               item.source_kind === 'other' &&
               can('other_outbound.cancel')
             "
@@ -302,30 +326,15 @@ const otherOutboundFormColumns = [
             >取消</AppButton
           >
         </div>
-        <form
-          v-if="
-            item.status === 'posted' &&
-            !item.reversal_id &&
-            item.source_kind === 'other' &&
-            can('other_outbound.reverse')
-          "
-          class="inline-form"
-          @submit.prevent="reverseOtherOutbound(item.id)"
-        >
-          <label
-            >冲销原因<AppInput
-              v-model.trim="otherOutboundReversalReasons[item.id]"
-              required
-              maxlength="200"
-          /></label>
-          <AppButton
-            :disabled="busy || connectionLost"
-            variant="secondary"
-            size="small"
-            type="submit"
-            >冲销</AppButton
-          >
-        </form>
+        <div v-if="item.status === 'posted' && item.source_kind === 'other'" class="form-actions">
+          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'WarehouseOutbound', document_id: item.id, intent: 'reverse' })">
+            {{ item.reversal_id ? '冲销审批记录' : '冲销审批' }}
+          </AppButton>
+          <AppButton v-if="!item.reversal_id && item.reversal_approval?.status === 'approved' && can('other_outbound.reverse')"
+            type="button" :disabled="busy || connectionLost" variant="secondary" size="small"
+            @click="reverseApproved(item.id)">执行已批准冲销</AppButton>
+        </div>
         <small v-if="item.reversal_reason">冲销：{{ item.reversal_reason }}</small></template
       >
       <template #empty>{{ query ? '没有匹配的出库单。' : '暂无仓库出库单。' }}</template>
@@ -347,6 +356,7 @@ const otherOutboundFormColumns = [
                   value:lot.lot_id}))]"
         :disabled="busy || connectionLost || lotLoading" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)" />
     </WorkspaceLotDialog>
+    <DocumentApprovalDialog />
   </section>
 </template>
 
