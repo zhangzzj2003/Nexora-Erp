@@ -13,11 +13,12 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   submitDisabled?: boolean
   addDisabled?: boolean
+  readOnly?: boolean
   submitLabel?: string
   hint?: string
   minTableWidth?: number
 }>(), {
-  busy: false, disabled: false, submitDisabled: false, addDisabled: false,
+  busy: false, disabled: false, submitDisabled: false, addDisabled: false, readOnly: false,
   submitLabel: '保存草稿', hint: '', minTableWidth: 760
 })
 const emit = defineEmits<{
@@ -35,10 +36,11 @@ function updateShow(show: boolean): void {
   if (!props.busy) emit('update:show', show)
 }
 function addMaterial(): void {
-  if (!props.busy && !props.disabled && !props.addDisabled) emit('addMaterial')
+  if (!props.readOnly && !props.busy && !props.disabled && !props.addDisabled) emit('addMaterial')
 }
 function submit(): void {
-  if (!props.busy && !props.disabled && !props.submitDisabled) emit('submit')
+  // 详情模式同时拦截事件，避免隐藏按钮后仍可通过表单提交触发业务写入。
+  if (!props.readOnly && !props.busy && !props.disabled && !props.submitDisabled) emit('submit')
 }
 </script>
 
@@ -48,6 +50,7 @@ function submit(): void {
     :style="{ width: 'min(1040px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)' }">
     <form class="document-form" @submit.prevent="submit">
       <div class="document-body">
+        <!-- 详情插槽使用纯文本，不禁用整个字段集，保留表格滚动和分页等查看交互。 -->
         <fieldset :disabled="busy || disabled" class="document-fields">
           <section class="document-basic" aria-label="基础信息">
             <h3>基础信息</h3>
@@ -56,9 +59,9 @@ function submit(): void {
           <!-- 分隔线明确区分单据头与物料明细，避免两类信息混在同一张表单中。 -->
           <hr class="document-divider" />
           <WorkspaceTable title="物料明细" :data="data" :columns="columns" :min-table-width="minTableWidth"
-            empty-text="尚未添加物料，请点击“添加物料”新增一行，再在表格内搜索选择。" class="document-lines">
+            :empty-text="readOnly ? '此单据暂无物料明细。' : '尚未添加物料，请点击“添加物料”新增一行，再在表格内搜索选择。'" class="document-lines">
             <template #heading><h3>物料明细 <span class="document-count">{{ data.length }} 项</span></h3></template>
-            <template #actions>
+            <template v-if="!readOnly" #actions>
               <AppButton type="button" :disabled="busy || disabled || addDisabled"
                 @click="addMaterial" variant="secondary">＋ 添加物料</AppButton>
             </template>
@@ -73,8 +76,8 @@ function submit(): void {
       <footer class="document-footer">
         <p v-if="hint" class="muted">{{ hint }}</p>
         <div class="document-actions">
-          <AppButton type="button" :disabled="busy" @click="updateShow(false)">收起</AppButton>
-          <AppButton type="submit" variant="primary" :loading="busy"
+          <AppButton type="button" :disabled="busy" @click="updateShow(false)">{{ readOnly ? '关闭' : '收起' }}</AppButton>
+          <AppButton v-if="!readOnly" type="submit" variant="primary" :loading="busy"
             :disabled="busy || disabled || submitDisabled">{{ submitLabel }}</AppButton>
         </div>
       </footer>

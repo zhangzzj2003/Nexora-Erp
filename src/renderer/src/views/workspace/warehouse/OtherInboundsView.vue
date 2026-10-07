@@ -73,6 +73,20 @@ const filtered = computed(() => otherInbounds.value.filter((item) =>
   [documentSearch(item), item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
     .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const reasonName = { opening: '期初补录', gift: '赠品', other: '其他' }
+// 详情按 ID 读取当前快照，与新建草稿、批次登记各自独立；刷新后不展示过期对象。
+const detailInboundId = ref(0)
+const detailInbound = computed(() => otherInbounds.value.find(item => item.id === detailInboundId.value) ?? null)
+const detailColumns = [
+  { key: 'sku', title: '物料编码', width: '180' },
+  { key: 'name', title: '物料名称', width: '240' },
+  { key: 'quantity', title: '数量', width: '110' },
+  { key: 'unit', title: '单位', width: '70' },
+  { key: 'lots', title: '实物批次', width: '340' }
+]
+function inboundStatus(inbound: OtherInbound): string {
+  return inbound.status === 'draft' ? '待确认' : inbound.status === 'cancelled' ? '已取消'
+    : inbound.reversal_id ? '已冲销' : '已入库'
+}
 const columns = [
   { key: 'document', title: '单据' }, { key: 'source', title: '仓库与来源' },
   { key: 'lines', title: '物料明细' }, { key: 'actions', title: '操作' }
@@ -196,15 +210,7 @@ async function confirmLotPost(): Promise<void> {
       <template #cell-document="{ row: item }"
         ><strong>{{ documentLabel(item) }}</strong
         ><small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small
-        ><small>{{
-          item.status === 'draft'
-            ? '待确认'
-            : item.status === 'cancelled'
-              ? '已取消'
-              : item.reversal_id
-                ? '已冲销'
-                : '已入库'
-        }}</small></template
+        ><small>{{ inboundStatus(item) }}</small></template
       >
       <template #cell-source="{ row: item }"
         >{{ item.warehouse_name }} · {{ reasonName[item.reason] }}<small>{{ item.note }}</small
@@ -221,6 +227,9 @@ async function confirmLotPost(): Promise<void> {
       >
       <template #cell-actions="{ row: item }"
         ><div class="form-actions">
+          <!-- 查看沿用页面查看权限，断线和无写权限时仍可读取已加载的单据。 -->
+          <AppButton type="button" variant="secondary" size="small"
+            @click="detailInboundId = item.id">查看详情</AppButton>
           <AppButton
             v-if="item.status === 'draft' && can('other_inbound.post')"
             :disabled="busy || connectionLost"
@@ -263,6 +272,38 @@ async function confirmLotPost(): Promise<void> {
       >
       <template #empty>{{ query ? '没有匹配的入库单。' : '暂无其他入库单。' }}</template>
     </WorkspaceTable>
+    <WorkspaceDocumentDialog v-if="detailInbound" :show="true" read-only
+      :title="`其他入库详情 · ${documentLabel(detailInbound)}`"
+      :data="detailInbound.lines" :columns="detailColumns" :min-table-width="940"
+      hint="单据详情仅供查看；确认、取消和冲销请使用列表中的操作。"
+      @update:show="value => { if (!value) detailInboundId = 0 }">
+      <template #basicInfo>
+        <div class="inbound-detail-field"><span>单号</span><strong>{{ documentLabel(detailInbound) }}</strong></div>
+        <div class="inbound-detail-field"><span>状态</span><strong>{{ inboundStatus(detailInbound) }}</strong></div>
+        <div class="inbound-detail-field"><span>仓库</span><strong>{{ detailInbound.warehouse_name }}</strong></div>
+        <div class="inbound-detail-field"><span>用途</span><strong>{{ reasonName[detailInbound.reason] }}</strong></div>
+        <div class="inbound-detail-field"><span>参考号</span><strong>{{ detailInbound.reference || '—' }}</strong></div>
+        <div class="inbound-detail-field"><span>入库说明</span><strong>{{ detailInbound.note || '—' }}</strong></div>
+        <div class="inbound-detail-field"><span>创建人</span><strong>{{ detailInbound.created_by_name }}</strong></div>
+        <div class="inbound-detail-field"><span>创建时间</span><strong>{{ localTime(detailInbound.created_at) }}</strong></div>
+        <div v-if="detailInbound.posted_at" class="inbound-detail-field"><span>确认记录</span><strong>{{ localTime(detailInbound.posted_at) }} · {{ detailInbound.posted_by_name || '—' }}</strong></div>
+        <div v-if="detailInbound.cancelled_at" class="inbound-detail-field"><span>取消时间</span><strong>{{ localTime(detailInbound.cancelled_at) }}</strong></div>
+        <div v-if="detailInbound.reversal_id" class="inbound-detail-field"><span>冲销记录</span><strong>{{ detailInbound.reversed_at ? localTime(detailInbound.reversed_at) : '—' }} · {{ detailInbound.reversed_by_name || '—' }}</strong></div>
+        <div v-if="detailInbound.reversal_id" class="inbound-detail-field"><span>冲销原因</span><strong>{{ detailInbound.reversal_reason || '—' }}</strong></div>
+      </template>
+      <template #cell-sku="{ row }"><strong>{{ row.sku }}</strong></template>
+      <template #cell-name="{ row }">{{ row.material_name }}</template>
+      <template #cell-quantity="{ row }">{{ row.quantity }}</template>
+      <template #cell-unit="{ row }">{{ row.unit }}</template>
+      <template #cell-lots="{ row }">
+        <div v-for="lot in row.physical_lots" :key="lot.id" class="inbound-detail-lot">
+          <strong>{{ lot.code }}</strong><small>{{ lot.quantity }} {{ row.unit }} · 来源批号 {{ lot.supplier_lot || '未提供' }}</small>
+          <small v-if="lot.manufactured_on">生产日期：{{ lot.manufactured_on }}</small>
+          <small v-if="lot.expires_on">失效日期：{{ lot.expires_on }}</small>
+        </div>
+        <span v-if="!row.physical_lots?.length">{{ detailInbound.status === 'posted' ? '未登记实物批次，数量在批次核对页显示为差额。' : '尚未登记实物批次' }}</span>
+      </template>
+    </WorkspaceDocumentDialog>
     <NModal :show="!!activeInbound" @update:show="value=>{if(!value) activeInboundId=0}" preset="card"
       :mask-closable="!busy" :style="{width:'min(1000px,calc(100vw - 32px))',
         maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
@@ -292,6 +333,11 @@ async function confirmLotPost(): Promise<void> {
 </template>
 
 <style scoped>
+/* 详情展示历史单据字段，使用可选中复制的文本，并兼容长说明和窄窗口。 */
+.inbound-detail-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.inbound-detail-field span { color: var(--workspace-field-muted); font-size: 12px; }
+.inbound-detail-field strong { font-weight: 500; overflow-wrap: anywhere; white-space: pre-wrap; }
+.inbound-detail-lot + .inbound-detail-lot { margin-top: 12px; }
 .inbound-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
 .inbound-lot-line h3{margin:0}
 .inbound-lot-grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;align-items:end}
