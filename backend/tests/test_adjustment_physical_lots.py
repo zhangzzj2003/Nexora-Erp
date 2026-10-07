@@ -1,5 +1,6 @@
 """库存调整逐批归属、异人审批、冲销及失败回滚。"""
 
+from approval_test_helpers import approve_document
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -32,6 +33,7 @@ def test_adjustment_lots_follow_approval_and_original_allocations(monkeypatch, t
         inbound = client.post(f'{base}/warehouse-inbounds', headers=admin, json={
             'warehouse_id': 1, 'reason': 'gift', 'note': '来源',
             'lines': [{'material_id': material, 'quantity': '2.000'}]}).json()
+        approve_document(client, admin, 'WarehouseInbound', inbound["id"])
         posted_inbound = client.post(f'{base}/warehouse-inbounds/{inbound["id"]}/post', headers=admin,
             json={'lines': [{'inbound_line_id': inbound['lines'][0]['id'], 'lots': [
                 {'quantity': '2.000'}]}]}).json()

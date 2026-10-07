@@ -51,10 +51,11 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
    if(id==='virtual:inbound-detail-modal')return '\0inbound-detail-modal'
    if(!importer?.includes('/src/renderer/'))return
    if(id.endsWith('/store/app-store')&&importer.includes('OtherInboundsView'))return '\0inbound-detail-store'
+   if(id.endsWith('/DocumentApprovalDialog.vue'))return '\0inbound-approval-placeholder'
    if(id.endsWith('/WorkspaceTable.vue'))return '\0inbound-detail-table'
    if(id.endsWith('/AppButton.vue'))return '\0inbound-detail-button'
    if(id==='naive-ui'&&(importer.includes('OtherInboundsView')||importer.includes('WorkspaceDocumentDialog')))return '\0inbound-detail-modal'
-  },load(id){return {'\0inbound-detail-store':storeSource,'\0inbound-detail-table':tableSource,
+  },load(id){if(id==='\0inbound-approval-placeholder')return 'export default {render(){return null}}';return {'\0inbound-detail-store':storeSource,'\0inbound-detail-table':tableSource,
    '\0inbound-detail-button':buttonSource,'\0inbound-detail-modal':modalSource}[id]}
  },vue()],server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]},appType:'custom'})
  t.after(()=>server.close())
@@ -77,7 +78,7 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
  store.initialDetailId=3
  let html=await render()
- for(const value of ['其他入库详情','QTRK-20261007-000003','OLD-SKU','历史物料名称','2.125','历史说明','REF-3','建单人','待确认','尚未登记实物批次'])assert.ok(html.includes(value),value + ': ' + html)
+ for(const value of ['其他入库详情','QTRK-20261007-000003','OLD-SKU','历史物料名称','2.125','历史说明','REF-3','建单人','待送审','尚未登记实物批次'])assert.ok(html.includes(value),value + ': ' + html)
  assert.doesNotMatch(html,/添加物料|保存草稿|登记批次并确认|type="submit"/)
  const close=buttons.find(b=>text(b.content)==='关闭')
  assert.equal(close.props.disabled,false)
@@ -91,7 +92,7 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  html=await render()
  for(const value of ['已入库','确认时间','确认人','LOT-3','SUP-1','2026-09-01','2027-09-01'])assert.ok(html.includes(value),value + ': ' + html)
  store.otherInbounds=[{...inbound,status:'posted'}]
- assert.match(await render(),/未登记实物批次，数量在批次核对页显示为差额/)
+ assert.match(await render(),/普通入库，未登记实物批次/)
  store.otherInbounds=[{...inbound,status:'cancelled',cancelled_at:'取消时间'}]
  assert.match(await render(),/取消时间/)
  store.otherInbounds=[{...inbound,status:'posted',reversal_id:8,reversal_reason:'重复录入',reversed_at:'冲销时间',reversed_by_name:'冲销人'}]

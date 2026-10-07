@@ -1,5 +1,6 @@
 """验证移动平均、来源沿用、缺价隔离以及人工核价修订留痕。"""
 
+from approval_test_helpers import approve_document
 from fastapi.testclient import TestClient
 
 from app.core.database import connection, migrate
@@ -66,6 +67,7 @@ def test_moving_average_and_late_price_audit(monkeypatch, tmp_path):
         inbound = client.post(f"{base}/warehouse-inbounds", headers=admin, json={
             "warehouse_id": 1, "reason": "gift", "note": "赠品入库", "reference": "GIFT-1",
             "lines": [{"material_id": material, "quantity": "3"}]}).json()["id"]
+        approve_document(client, admin, 'WarehouseInbound', inbound)
         client.post(f"{base}/warehouse-inbounds/{inbound}/post", headers=admin)
         unpriced = client.get(url, headers=admin).json()
         movement_id = unpriced["unpriced_movement_ids"][0]
@@ -110,6 +112,7 @@ def test_unpriced_stock_clears_only_after_full_depletion(monkeypatch, tmp_path):
         inbound = client.post(f"{base}/warehouse-inbounds", headers=admin, json={
             "warehouse_id": 1, "reason": "opening", "note": "期初入库",
             "lines": [{"material_id": material, "quantity": "2"}]}).json()["id"]
+        approve_document(client, admin, 'WarehouseInbound', inbound)
         client.post(f"{base}/warehouse-inbounds/{inbound}/post", headers=admin)
         assert client.get(f"{base}/inventory/valuation", headers=admin).json()["total_amount"] is None
         outbound = client.post(f"{base}/warehouse-outbounds", headers=admin, json={

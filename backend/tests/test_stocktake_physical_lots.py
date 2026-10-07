@@ -1,5 +1,6 @@
 """盘点差异逐批归属、冲销原分配及失败回滚。"""
 
+from approval_test_helpers import approve_document
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -33,6 +34,7 @@ def test_stocktake_surplus_and_shortage_fix_actual_lots_and_reverse(monkeypatch,
         inbound = client.post(f'{base}/warehouse-inbounds', headers=auth, json={
             'warehouse_id': 1, 'reason': 'gift', 'note': '来源',
             'lines': [{'material_id': material, 'quantity': '3.000'}]}).json()
+        approve_document(client, auth, 'WarehouseInbound', inbound["id"])
         posted_inbound = client.post(f'{base}/warehouse-inbounds/{inbound["id"]}/post', headers=auth,
             json={'lines': [{'inbound_line_id': inbound['lines'][0]['id'], 'lots': [
                 {'quantity': '1.000'}, {'quantity': '2.000'}]}]}).json()

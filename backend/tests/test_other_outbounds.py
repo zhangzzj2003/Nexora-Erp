@@ -1,5 +1,6 @@
 """其他出库确认、库存不足与冲销回归。"""
 
+from approval_test_helpers import approve_document
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -19,6 +20,7 @@ def test_other_outbound_requires_stock_and_keeps_source(monkeypatch, tmp_path):
         inbound = client.post(f"{base}/warehouse-inbounds", headers=admin, json={
             "warehouse_id": 1, "reason": "gift", "note": "入库测试",
             "lines": [{"material_id": material, "quantity": "2"}]}).json()["id"]
+        approve_document(client, admin, 'WarehouseInbound', inbound)
         assert client.post(f"{base}/warehouse-inbounds/{inbound}/post", headers=admin).status_code == 200
         payload = {"warehouse_id": 1, "reason": "sample", "note": "寄送客户试用",
                    "lines": [{"material_id": material, "quantity": "3"}]}

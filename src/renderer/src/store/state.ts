@@ -1,5 +1,5 @@
 import type { DocumentNumberingConfig } from '../../../shared/document-numbering'
-import type { DocumentApprovalPolicy, DocumentApprovalPolicyInput, DocumentApprovalType } from '../../../shared/document-approval-api'
+import type { DocumentApprovalPolicy, DocumentApprovalPolicyInput, DocumentApprovalType, DocumentApprovalTarget, DocumentApprovalRecord } from '../../../shared/document-approval-api'
 import type {InventoryWarningOverview,InventoryWarningDetail,InventoryWarningEventPage,InventoryWarningInput} from '../../../shared/inventory-warning-api'
 import type {PhysicalLotOverview,PhysicalLotHistory,PhysicalLotUnallocatedList} from '../../../shared/physical-lot-api'
 import { computed, ref } from 'vue'
@@ -115,6 +115,11 @@ export function createAppState() {
   // 服务端规则与会话一起刷新，切换实例时不能沿用旧服务的编号配置。
   const documentNumbering = ref<DocumentNumberingConfig | null>(null)
   // 模板和草稿属于当前账号、服务端实例；失败或切换页面保留同一实例的草稿。
+  // 当前审批弹窗与意见草稿由 Pinia 保存；换账号/实例时统一失效。
+  const documentApprovalTarget = ref<DocumentApprovalTarget | null>(null)
+  const documentApprovalRecord = ref<DocumentApprovalRecord | null>(null)
+  const documentApprovalReasons = ref<Record<string, string>>({})
+  const documentApprovalLoading = ref(false), documentApprovalError = ref('')
   const approvalPolicies = ref<DocumentApprovalPolicy[]>([])
   const approvalPolicyDrafts = ref<Partial<Record<DocumentApprovalType, DocumentApprovalPolicyInput>>>({})
   const approvalPolicyLoading = ref(false), approvalPolicyError = ref('')
@@ -545,6 +550,7 @@ export function createAppState() {
 
   return {
     documentNumbering,
+    documentApprovalTarget, documentApprovalRecord, documentApprovalReasons, documentApprovalLoading, documentApprovalError,
     approvalPolicies, approvalPolicyDrafts, approvalPolicyLoading, approvalPolicyError,
     lotOverview,lotHistory,lotUnallocated,lotLoading,lotError,lotWarehouseId,lotMaterialId,
     dashboardResult, dashboardPeriod, dashboardLoading, dashboardError,

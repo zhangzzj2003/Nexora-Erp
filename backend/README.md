@@ -56,7 +56,9 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 `app/core/document_approval.py` 提供共用事务服务，送审固定内容与模板，版本递增，建单/编辑/送审人员不能审核本单，各步骤由不同人员完成；执行核对批准内容，事件与业务事务共同回滚。模板和审批历史使用 ORM，审计记录禁止更新和删除。迁移不重写历史单据、金额、数量、单号或批次证据。
 
-**当前处于需求分支开发阶段，各业务入口尚未全部接入；不能据此认为原确认接口已全部实施新审批门槛。** 财务草稿状态、自动转单门槛、生产关联查询和可选批次仍待实施，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
+其他入库已接入 `GET /api/v1/system/document-approvals/WarehouseInbound/{id}` 和 `POST /{id}/submit|approve|reject|withdraw`，携带 `version`、`intent: execute|reverse` 及意见或冲销原因。查看、建单送审、独立审核、冲销送审分别沿用 `other_inbound.view`、`other_inbound.create`、`other_inbound.review`、`other_inbound.reverse`。普通确认和可选实物批次均须完成全部步骤，确认与审批执行事件在同一库存事务内提交；冲销单独审批固定原因，原批准不可复用。旧客户端直接确认未批准草稿返回 409。历史已执行单据保留原记录。
+
+**当前处于需求分支开发阶段，其余业务入口尚未全部接入；不能据此认为原确认接口已全部实施新审批门槛。** 财务草稿状态、自动转单门槛、生产关联查询和可选批次仍待实施，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
 
 ## 基础资料与供货关系
 

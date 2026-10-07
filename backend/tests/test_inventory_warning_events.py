@@ -1,5 +1,6 @@
 """验证服务端预警事件的状态基线、来源快照与事务回滚。"""
 
+from approval_test_helpers import approve_document
 import os
 import sqlite3
 from threading import Event
@@ -43,6 +44,7 @@ def rule(erp, *, version=0, threshold='2', enabled=True):
 def inbound(erp, quantity):
     row = erp[1]('POST', '/warehouse-inbounds', {'warehouse_id': 1, 'reason': 'other',
         'note': '库存事件来源', 'lines': [{'material_id': erp[2], 'quantity': quantity}]}, 201)
+    approve_document(erp[0], erp[3], 'WarehouseInbound', row['id'])
     erp[1]('POST', f'/warehouse-inbounds/{row["id"]}/post')
     return row
 
@@ -104,6 +106,7 @@ def test_escalation_permission_scope_and_failed_write_roll_back(erp):
 
     second = inbound(erp, '1')
     assert scan_warning_events() == 0
+    approve_document(erp[0], erp[3], 'WarehouseInbound', second['id'], intent='reverse', reason='退回误收')
     api('POST', f'/warehouse-inbounds/{second["id"]}/reverse', {'reason': '退回误收'}, 201)
     event.listen(Session, 'after_flush', fail)
     try:
@@ -116,6 +119,7 @@ def test_escalation_permission_scope_and_failed_write_roll_back(erp):
         assert len(db.scalars(select(InventoryWarningEvent)).all()) == 1
     assert scan_warning_events() == 1
     assert events(erp)['events'][0]['previous_status'] == 'normal'
+    approve_document(erp[0], erp[3], 'WarehouseInbound', first['id'], intent='reverse', reason='退回误收')
     api('POST', f'/warehouse-inbounds/{first["id"]}/reverse', {'reason': '退回误收'}, 201)
     assert scan_warning_events() == 1
     assert events(erp)['events'][0]['previous_status'] == 'low'

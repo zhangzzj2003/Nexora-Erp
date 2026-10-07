@@ -17,9 +17,10 @@ test('其他入库列表区分待登记、已登记和旧单未分配批次',asy
   const server=await createServer({configFile:false,plugins:[{
     name:'other-inbound-lot-fixture',enforce:'pre',resolveId(id,importer){
       if(importer?.includes('/warehouse/OtherInboundsView')&&id.endsWith('/store/app-store'))return '\0other-inbound-store'
+      if(id.endsWith('/DocumentApprovalDialog.vue'))return '\0inbound-approval-placeholder'
       if(id.endsWith('/WorkspaceTable.vue'))return '\0other-inbound-table'
       if(id==='naive-ui'&&importer?.includes('OtherInboundsView'))return '\0other-inbound-naive'
-    },load(id){if(id==='\0other-inbound-store')return fixture
+    },load(id){if(id==='\0inbound-approval-placeholder')return 'export default {render(){return null}}';if(id==='\0other-inbound-store')return fixture
       if(id==='\0other-inbound-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:{data:Array},setup(props,{slots}){return ()=>h('section',[slots.filters?.(),...props.data.flatMap(row=>['document','source','lines','actions'].map(key=>slots['cell-'+key]?.({row}))),slots.empty?.()])}})`
       if(id==='\0other-inbound-naive')return `import {defineComponent,h} from 'vue';const Modal=defineComponent({props:{show:Boolean},setup(props,{slots}){return ()=>props.show?h('section',slots.default?.()):null}});export const NModal=Modal,NDatePicker=Modal;`
     }
@@ -33,9 +34,13 @@ test('其他入库列表区分待登记、已登记和旧单未分配批次',asy
     created_by_name:'admin',reference:'GIFT',reversal_id:null,reversal_reason:null,
     lines:[{id:7,sku:'GIFT-3',material_name:'赠品物料',quantity:'2.125',unit:'件',physical_lots:[]}]}
   store.otherInbounds=[inbound]
-  assert.match(await render(),/登记批次并确认/)
+  assert.doesNotMatch(await render(),/登记实物批次（可选）|>确认入库</)
+  // 批准后普通入库与实物登记均可执行，未送审不能借批次弹窗绕过审批。
+  store.otherInbounds=[{...inbound,approval:{status:'approved'}}]
+  assert.match(await render(),/登记实物批次（可选）/)
+  assert.match(await render(),/>确认入库</)
   store.otherInbounds=[{...inbound,status:'posted'}]
-  assert.match(await render(),/未登记实物批次，数量在批次核对页显示为差额/)
+  assert.match(await render(),/普通入库，未登记实物批次/)
   store.otherInbounds=[{...inbound,status:'posted',lines:[{...inbound.lines[0],physical_lots:[
     {id:1,code:'O3-L7-P1',quantity:'2.125',supplier_lot:null}]}]}]
   const posted=await render()

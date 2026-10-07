@@ -2,7 +2,7 @@ import type { WorkspaceRouteKey } from '../router/workspace-routes'
 
 // 页面说明紧随外部主标题；卡片专注操作、筛选与业务内容。
 export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string>> = {
-  otherInbounds: '登记期初、赠品等非采购来源入库，确认后增加库存。',
+  otherInbounds: '登记期初、赠品等非采购来源入库，独立审批通过并确认后增加库存。',
   warehouseOutbounds: '查看其他用途出库与采购退货，确认后扣减库存。',
   stock: '按仓库查看物料当前库存，数量随已确认的出入库单据更新。',
   inventoryWarnings: '按仓库现存量识别缺货和低库存，阈值修订保留版本与历史。未配置的组合不参与预警。',

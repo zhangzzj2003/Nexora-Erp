@@ -1,5 +1,6 @@
 """设备维护真实流程、独立处理、库存依赖、并发与写后故障回滚。"""
 
+from approval_test_helpers import approve_document
 import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
@@ -42,6 +43,7 @@ def erp(monkeypatch, tmp_path):
         part = api('POST','materials',{'sku':'SPARE','name':'维护备件','unit':'件'}, status=201)['id']
         inbound = api('POST','warehouse-inbounds',{'warehouse_id':1,'reason':'other','note':'备件期初',
             'lines':[{'material_id':part,'quantity':'10'}]},status=201)
+        approve_document(client, actors['admin'], 'WarehouseInbound', inbound['id'])
         api('POST',f'warehouse-inbounds/{inbound["id"]}/post')
         asset = api('POST', ROOT+'/assets', asset_input(), status=201)
         yield client, api, actors, ids, asset, part

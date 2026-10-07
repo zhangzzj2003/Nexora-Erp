@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.access.security import require
 from app.core.orm import orm_session, add_model
+from app.core import document_approval as approval
+from app.core.approval_documents import inbound_snapshot, document_snapshot
 from app.core.models import (
     Material,
     PhysicalLot,
@@ -156,7 +158,9 @@ def inbound_data(db: Session, inbound_id: int) -> dict:
             'supplier_lot': lot.supplier_lot, 'manufactured_on': lot.manufactured_on,
             'expires_on': lot.expires_on,
         })
-    return {**dict(row), 'lines': [
+    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'WarehouseInbound', inbound_id)),
+            'reversal_approval': approval.case_data(approval.find_case(db, 'WarehouseInbound', inbound_id, 'reverse')),
+            'lines': [
         {**dict(line), 'physical_lots': lots_by_line.get(line['id'], [])} for line in lines]}
 
 
@@ -226,6 +230,9 @@ def post_inbound(inbound_id: int, payload: InboundPostInput | None = None,
             raise HTTPException(404, "其他入库单不存在")
         if source["status"] != "draft":
             raise HTTPException(409, "此入库单已处理")
+        # 无论普通入库还是登记实物批次，都必须核对同一份已批准明细后才能增加库存。
+        approved = approval.require_approved(db, 'WarehouseInbound', inbound_id,
+                                              inbound_snapshot(db, inbound_id), user['id'])
         lines = list(db.execute(select(WarehouseInboundLine.id, WarehouseInboundLine.material_id,
                                        WarehouseInboundLine.quantity)
                                 .where(WarehouseInboundLine.inbound_id == inbound_id)
@@ -260,12 +267,17 @@ def post_inbound(inbound_id: int, payload: InboundPostInput | None = None,
             .where((WarehouseInbound.id == inbound_id))
             .values(status="posted", posted_by=user["id"], posted_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return inbound_data(db, inbound_id)
 
 
 @router.post("/warehouse-inbounds/{inbound_id}/cancel")
 def cancel_inbound(inbound_id: int, user: dict = Depends(require("other_inbound.cancel"))) -> dict:
     with orm_session(write=True) as db:
+        # 已送审内容先撤回再取消，避免留下可执行的批准记录。
+        pending = approval.find_case(db, 'WarehouseInbound', inbound_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批，再取消入库单')
         cursor = db.execute(
             update(WarehouseInbound)
             .where(WarehouseInbound.id == inbound_id, WarehouseInbound.status == "draft")
@@ -313,6 +325,10 @@ def reverse_inbound(
             .first()
         ):
             raise HTTPException(409, "只能冲销尚未冲销的已确认其他入库")
+        # 冲销是独立审批意图，批准的原因必须与实际冲销一致，原入库审批不能复用。
+        approved = approval.require_approved(db, 'WarehouseInbound', inbound_id,
+            document_snapshot(db, 'WarehouseInbound', inbound_id, 'reverse', payload.reason),
+            user['id'], intent='reverse', permission='other_inbound.reverse')
         lines = (
             db.execute(
                 select(
@@ -349,4 +365,5 @@ def reverse_inbound(
                     part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
             else:
                 db.add(movement)
+        approval.mark_executed(db, approved, user['id'], permission='other_inbound.reverse')
         return inbound_data(db, inbound_id)

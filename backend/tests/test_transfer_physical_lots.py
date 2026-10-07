@@ -1,5 +1,6 @@
 """调拨批次跨仓移动、异常回滚及沿原分配冲销。"""
 
+from approval_test_helpers import approve_document
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -104,6 +105,7 @@ def test_transfer_reverse_rejects_consumed_target_lot_without_partial_stock(monk
         inbound = client.post(f'{base}/warehouse-inbounds', headers=auth, json={
             'warehouse_id': 1, 'reason': 'gift', 'note': '来源',
             'lines': [{'material_id': material, 'quantity': '2.000'}]}).json()
+        approve_document(client, auth, 'WarehouseInbound', inbound["id"])
         posted_inbound = client.post(f'{base}/warehouse-inbounds/{inbound["id"]}/post', headers=auth,
             json={'lines': [{'inbound_line_id': inbound['lines'][0]['id'],
                              'lots': [{'quantity': '2.000'}]}]}).json()

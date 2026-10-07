@@ -1,5 +1,5 @@
 import type { DocumentNumberingOperations, NumberedDocument } from './document-numbering'
-import type { DocumentApprovalOperations } from './document-approval-api'
+import type { DocumentApprovalOperations, DocumentApprovalState } from './document-approval-api'
 import type { Supplier, SupplierInput } from './supplier-api'
 export type { Supplier, SupplierInput } from './supplier-api'
 import type {InventoryWarningOperations} from './inventory-warning-api'
@@ -316,6 +316,9 @@ export interface AccountingPeriodInput {
 }
 // 非采购入库沿用单据确认和冲销模式，不进入采购应付来源。
 export interface OtherInbound extends NumberedDocument {
+  // 审批进度与仓库状态分开，未批准的草稿不能确认入库。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   warehouse_id: number
   warehouse_name: string

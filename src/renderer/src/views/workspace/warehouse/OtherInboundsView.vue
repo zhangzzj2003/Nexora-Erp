@@ -13,6 +13,7 @@ import type { ComponentPublicInstance } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 // 全部批次单据共享标题、固定操作区与数量核对表。
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
 import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
@@ -68,7 +69,7 @@ function focusNewRow(line: (typeof otherInboundForm.value.lines)[number], instan
 const activeInboundId = ref(0)
 const lotDrafts = ref<InboundLotLineInput[]>([])
 const activeInbound = computed(() => otherInbounds.value.find(item =>
-  item.id === activeInboundId.value && item.status === 'draft') ?? null)
+  item.id === activeInboundId.value && item.status === 'draft' && item.approval?.status === 'approved') ?? null)
 const query = ref('')
 const filtered = computed(() => otherInbounds.value.filter((item) =>
   [documentSearch(item), item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
@@ -85,7 +86,8 @@ const detailColumns = [
   { key: 'lots', title: '实物批次', width: '340' }
 ]
 function inboundStatus(inbound: OtherInbound): string {
-  return inbound.status === 'draft' ? '待确认' : inbound.status === 'cancelled' ? '已取消'
+  return inbound.status === 'draft' ? ({ draft: '待送审', submitted: '审批中', approved: '已批准，待入库',
+    rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }[inbound.approval?.status ?? 'draft']) : inbound.status === 'cancelled' ? '已取消'
     : inbound.reversal_id ? '已冲销' : '已入库'
 }
 const columns = [
@@ -99,6 +101,8 @@ async function submitCreate(): Promise<void> {
   await submitCreateDialog(createOtherInbound, { busy, error, notice }, showForm)
 }
 function startLotPost(inbound: OtherInbound): void {
+  // 批次登记是批准后的可选实物证据，不承担业务审批。
+  if (inbound.approval?.status !== 'approved' || busy.value || connectionLost.value) return
   activeInboundId.value = inbound.id
   lotDrafts.value = inbound.lines.map(line => ({inbound_line_id: line.id,
     lots: [{quantity: line.quantity, supplier_lot: null, manufactured_on: null, expires_on: null}]}))
@@ -136,6 +140,15 @@ async function confirmLotPost(): Promise<void> {
     lots: line.lots.map(part => ({quantity: part.quantity, supplier_lot: part.supplier_lot?.trim() || null,
       manufactured_on: part.manufactured_on, expires_on: part.expires_on}))})))
 }
+// 执行冲销前从服务端读取已批准原因；不能使用未送审的列表输入。
+async function reverseApproved(identifier: number): Promise<void> {
+  if (!await store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: identifier, intent: 'reverse' })) return
+  const record = store.documentApprovalRecord
+  if (record?.status !== 'approved' || !record.reversal_reason) return
+  otherInboundReversalReasons.value[identifier] = record.reversal_reason
+  store.closeDocumentApproval()
+  await reverseOtherInbound(identifier)
+}
 </script>
 
 <template>
@@ -172,7 +185,7 @@ async function confirmLotPost(): Promise<void> {
           :submit-disabled="!!materialIssue"
           :add-disabled="addDisabled"
           :min-table-width="960"
-          hint="确认后才增加库存；这类入库不产生采购应付。"
+          hint="创建草稿后提交独立审批，批准并确认后才增加库存；这类入库不产生采购应付。"
           @submit="submitCreate"
           @add-material="addMaterialRow"
         >
@@ -224,7 +237,7 @@ async function confirmLotPost(): Promise<void> {
           <small v-if="item.status === 'posted' && line.physical_lots?.length" class="inbound-lot-proof">
             实物批次：{{ line.physical_lots?.map(lot => `${lot.code}（${lot.quantity}；来源批号 ${lot.supplier_lot || '未提供'}）`).join('、') }}
           </small>
-          <small v-else-if="item.status === 'posted'" class="inbound-lot-proof">未登记实物批次，数量在批次核对页显示为差额。</small>
+          <small v-else-if="item.status === 'posted'" class="inbound-lot-proof">普通入库，未登记实物批次。</small>
         </div></template
       >
       <template #cell-actions="{ row: item }"
@@ -232,17 +245,22 @@ async function confirmLotPost(): Promise<void> {
           <!-- 查看沿用页面查看权限，断线和无写权限时仍可读取已加载的单据。 -->
           <AppButton type="button" variant="secondary" size="small"
             @click="detailInboundId = item.id">查看详情</AppButton>
+          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: item.id, intent: 'execute' })">审批记录 / 送审</AppButton>
+          <AppButton v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('other_inbound.post')"
+            type="button" variant="primary" size="small" :disabled="busy || connectionLost"
+            @click="postOtherInbound(item.id)">确认入库</AppButton>
           <AppButton
-            v-if="item.status === 'draft' && can('other_inbound.post')"
+            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('other_inbound.post')"
             :disabled="busy || connectionLost"
             @click="startLotPost(item)"
             variant="primary"
             size="small"
             type="button"
-            >登记批次并确认</AppButton
+            >登记实物批次（可选）</AppButton
           >
           <AppButton
-            v-if="item.status === 'draft' && can('other_inbound.cancel')"
+            v-if="item.status === 'draft' && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('other_inbound.cancel')"
             :disabled="busy || connectionLost"
             @click="cancelOtherInbound(item.id)"
             variant="secondary"
@@ -251,25 +269,14 @@ async function confirmLotPost(): Promise<void> {
             >取消</AppButton
           >
         </div>
-        <form
-          v-if="item.status === 'posted' && !item.reversal_id && can('other_inbound.reverse')"
-          class="inline-form"
-          @submit.prevent="reverseOtherInbound(item.id)"
-        >
-          <label
-            >冲销原因<AppInput
-              v-model.trim="otherInboundReversalReasons[item.id]"
-              required
-              maxlength="200"
-          /></label>
-          <AppButton
-            :disabled="busy || connectionLost"
-            variant="secondary"
-            size="small"
-            type="submit"
-            >冲销</AppButton
-          >
-        </form>
+        <!-- 冲销使用独立审批，执行时采用已批准原因，原入库批准不可复用。 -->
+        <div v-if="item.status === 'posted' && !item.reversal_id" class="form-actions">
+          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: item.id, intent: 'reverse' })">冲销审批</AppButton>
+          <AppButton v-if="item.reversal_approval?.status === 'approved' && can('other_inbound.reverse')"
+            type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+            @click="reverseApproved(item.id)">执行冲销</AppButton>
+        </div>
         <small v-if="item.reversal_reason">冲销：{{ item.reversal_reason }}</small></template
       >
       <template #empty>{{ query ? '没有匹配的入库单。' : '暂无其他入库单。' }}</template>
@@ -303,9 +310,10 @@ async function confirmLotPost(): Promise<void> {
           <small v-if="lot.manufactured_on">生产日期：{{ lot.manufactured_on }}</small>
           <small v-if="lot.expires_on">失效日期：{{ lot.expires_on }}</small>
         </div>
-        <span v-if="!row.physical_lots?.length">{{ detailInbound.status === 'posted' ? '未登记实物批次，数量在批次核对页显示为差额。' : '尚未登记实物批次' }}</span>
+        <span v-if="!row.physical_lots?.length">{{ detailInbound.status === 'posted' ? '普通入库，未登记实物批次。' : '尚未登记实物批次' }}</span>
       </template>
     </WorkspaceDocumentDialog>
+    <DocumentApprovalDialog title="其他入库审批" />
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
     <WorkspaceLotDialog v-if="activeInbound && can('other_inbound.post')" :show="true"
       title="其他入库 · 批次登记" :document-number="documentLabel(activeInbound)"

@@ -31,7 +31,7 @@ test('全部十一类单据接入公共批次弹窗并保留原确认载荷、�
   transform(code,id){if(id.endsWith('.vue'))return code.replace(/'naive-ui'/g,"'virtual:all-lot-naive'")},
   resolveId(id,importer){
    if(id==='virtual:all-lot-naive')return '\0all-lot-naive'
-   if(importer?.includes('/views/workspace/')&&id.endsWith('/store/app-store'))return '\0all-lot-store'
+   if((importer?.includes('/views/workspace/')||importer?.includes('/components/workspace/DocumentApprovalDialog'))&&id.endsWith('/store/app-store'))return '\0all-lot-store'
    if(id.endsWith('/WorkspaceTable.vue'))return '\0all-lot-table'
    if(id.endsWith('/WorkspaceSelect.vue'))return '\0all-lot-select'
    if(id.endsWith('/AppButton.vue'))return '\0all-lot-button'
@@ -45,6 +45,8 @@ test('全部十一类单据接入公共批次弹窗并保留原确认载荷、�
  const {usePiniaAppStore,fixture}=await server.ssrLoadModule('\0all-lot-store')
  for(const config of lotViewCases){
   const seed=documentLotFixture(config),pinia=createPinia(),store=usePiniaAppStore(pinia)
+  // 其他入库的批次操作属于批准后的仓库执行，不能让布局测试绕过新审批前提。
+  if(seed.state==='otherInbounds')seed.record.approval={status:'approved'}
   store[seed.state]=[seed.record];fixture.options=seed.options;fixture.sent=[];fixture.fail=true
   const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/'+seed.file)
   const originalSetup=View.setup;let bindings

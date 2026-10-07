@@ -244,9 +244,10 @@ def review(db: Session, document_type: str, document_id: int, snapshot: Mapping,
 
 
 def withdraw(db: Session, document_type: str, document_id: int,
-             version: int, user_id: int, *, intent: str = 'execute') -> dict:
+             version: int, user_id: int, *, intent: str = 'execute',
+             permission: str | None = None) -> dict:
     write_transaction(db)
-    user = actor(db, user_id, approval_type(document_type).submit_permission)
+    user = actor(db, user_id, permission or approval_type(document_type).submit_permission)
     row = find_case(db, document_type, document_id, intent)
     check_version(row.version if row else 0, version)
     if row is None or row.status not in ('submitted', 'approved'):

@@ -1,5 +1,6 @@
 """业务来源重算、独立审核、跨模块价格锁定和原子去重。"""
 
+from approval_test_helpers import approve_document
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from threading import Barrier
@@ -173,6 +174,7 @@ def test_stale_cost_blocks_draft_and_posted_cost_change_rolls_back(business):
     client, request, _, reviewer, erp = business
     inbound = request('POST', 'warehouse-inbounds', dict(warehouse_id=1, reference='FREE', reason='other', note='其他来源',
         lines=[dict(material_id=erp[4][0], quantity='3')]), 201)
+    approve_document(client, None, 'WarehouseInbound', inbound['id'])
     request('POST', f'warehouse-inbounds/{inbound["id"]}/post')
     key = f'other_inbound:{inbound["id"]}'
     generate(client, key, expected=409)
@@ -239,6 +241,7 @@ def test_inventory_accounting_amount_clears_fractional_tail(business):
     client, request, _, _, erp = business
     record = request('POST', 'warehouse-inbounds', dict(warehouse_id=1, reason='other', note='分位尾差',
         lines=[dict(material_id=erp[4][0], quantity='3')]), 201)
+    approve_document(client, None, 'WarehouseInbound', record['id'])
     request('POST', f'warehouse-inbounds/{record["id"]}/post')
     movement = source(client, f'other_inbound:{record["id"]}')['movements'][0]['id']
     request('POST', 'inventory/valuation/inputs', dict(movement_id=movement, unit_cost='1.005', reference='ROUND', reason='核价'), 201)

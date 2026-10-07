@@ -1,5 +1,6 @@
 """售后独立审核、数量占用、客户物品保管和收费来源的真实跨模块约束。"""
 
+from approval_test_helpers import approve_document
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -502,6 +503,7 @@ def test_repair_margin_waits_for_missing_stock_price_and_recomputes_after_valuat
     api=erp[1];part=erp[5]
     inbound=api('POST','warehouse-inbounds',dict(warehouse_id=1,reason='gift',
         note='待核价入库',reference='MARGIN-IN',lines=[dict(material_id=part,quantity='1')]),status=201)
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseInbound', inbound['id'])
     api('POST',f'warehouse-inbounds/{inbound["id"]}/post')
     source_id=api('GET','inventory/valuation')['unpriced_movement_ids'][0]
     row=approved(erp,payload(erp,reference='MARGIN-UNPRICED',warehouse_id=1,

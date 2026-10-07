@@ -1,5 +1,6 @@
 """已确认退料冲销保留原单，并对库存、批次和后续领用执行原子校验。"""
 
+from approval_test_helpers import approve_document
 import sqlite3
 from decimal import Decimal
 
@@ -73,6 +74,7 @@ def test_return_reversal_restores_net_issue_and_pairs_cost(monkeypatch, tmp_path
         inbound = client.post(f'{base}/warehouse-inbounds', headers=auth, json={
             'warehouse_id': 1, 'reason': 'gift', 'note': '测试平均价变化',
             'lines': [{'material_id': material, 'quantity': '1'}]}).json()
+        approve_document(client, auth, 'WarehouseInbound', inbound["id"])
         assert client.post(f'{base}/warehouse-inbounds/{inbound["id"]}/post', headers=auth,
             json={'lines': [{'inbound_line_id': inbound['lines'][0]['id'],
                              'lots': [{'quantity': '1'}]}]}).status_code == 200
@@ -158,6 +160,7 @@ def test_return_reversal_rejects_reissue_and_consumed_lot(monkeypatch, tmp_path)
         inbound = client.post(f'{base}/warehouse-inbounds', headers=auth, json={
             'warehouse_id': 1, 'reason': 'gift', 'note': '另一批次补入',
             'lines': [{'material_id': material, 'quantity': '1'}]}).json()
+        approve_document(client, auth, 'WarehouseInbound', inbound["id"])
         assert client.post(f'{base}/warehouse-inbounds/{inbound["id"]}/post', headers=auth,
             json={'lines': [{'inbound_line_id': inbound['lines'][0]['id'],
                              'lots': [{'quantity': '1'}]}]}).status_code == 200

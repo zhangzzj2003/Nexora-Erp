@@ -1,5 +1,6 @@
 """预警按仓库精确计算，修订冲突、授权、审计及迁移不得破坏原业务。"""
 
+from approval_test_helpers import approve_document
 import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
@@ -52,6 +53,7 @@ def inbound(erp, warehouse, quantity, post=True):
     row = api('POST','warehouse-inbounds',{'warehouse_id':warehouse,'reason':'other','note':'预警来源',
               'lines':[{'material_id':erp[3],'quantity':quantity}]},status=201)
     if post:
+        approve_document(erp[0], erp[2]['admin'], 'WarehouseInbound', row['id'])
         api('POST',f'warehouse-inbounds/{row["id"]}/post')
     return row
 
@@ -91,6 +93,7 @@ def test_confirmed_stock_and_reversal_change_alert_without_rewriting_rule(erp):
     row = save(erp,threshold='1')
     received = inbound(erp,1,'1')
     assert api('GET',ROOT)['rows'][0]['status']=='normal'
+    approve_document(erp[0], erp[2]['admin'], 'WarehouseInbound', received['id'], intent='reverse', reason='更正误确认')
     api('POST',f'warehouse-inbounds/{received["id"]}/reverse',{'reason':'更正误确认'},status=201)
     detail = api('GET',ROOT+f'/rules/1/{erp[3]}')
     assert detail['row']['status']=='out_of_stock' and detail['row']['quantity']=='0'

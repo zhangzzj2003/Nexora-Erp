@@ -1,5 +1,6 @@
 """其他入库多批次登记、原批次冲销及事务回滚。"""
 
+from approval_test_helpers import approve_document
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -31,6 +32,7 @@ def test_other_inbound_lots_are_fixed_and_reversed_atomically(monkeypatch, tmp_p
         assert created.status_code == 201
         inbound_id = created.json()['id']
         first_line, second_line = [line['id'] for line in created.json()['lines']]
+        approve_document(client, auth, 'WarehouseInbound', inbound_id)
         post_url = f'{base}/warehouse-inbounds/{inbound_id}/post'
         assert created.json()['lines'][0]['physical_lots'] == []
         first_parts = [{'quantity': '1.125', 'supplier_lot': '  GIFT-01  ',
@@ -70,6 +72,7 @@ def test_other_inbound_lots_are_fixed_and_reversed_atomically(monkeypatch, tmp_p
                 source_type='lot_test_outbound', source_id=1, source_line_id=1,
                 created_by=1), [LotPart(parts[0]['id'], Decimal('-0.125'))])
             spent_id = spent.id
+        approve_document(client, auth, 'WarehouseInbound', inbound_id, intent='reverse', reason='误录')
         reverse_url = f'{base}/warehouse-inbounds/{inbound_id}/reverse'
         assert client.post(reverse_url, headers=auth, json={'reason': '误录'}).status_code == 409
         assert client.get(f'{base}/warehouse-inbounds', headers=auth).json()[0]['reversal_id'] is None

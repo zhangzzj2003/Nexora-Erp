@@ -1,5 +1,5 @@
 import { documentNumberingBody, validateDocumentNumbering, validateDocumentNumbers } from '../shared/document-numbering.ts'
-import { documentApprovalType, documentApprovalPolicyBody, validateDocumentApprovalPolicies, validateDocumentApprovalPolicy } from '../shared/document-approval-api.ts'
+import { documentApprovalType, documentApprovalPolicyBody, validateDocumentApprovalPolicies, validateDocumentApprovalPolicy, documentApprovalTarget, documentApprovalActionBody, validateDocumentApprovalRecord } from '../shared/document-approval-api.ts'
 import { supplierBody } from '../shared/supplier-api.ts'
 import { materialUnitBody, validateMaterialUnitResult } from '../shared/material-unit-api.ts'
 import { validateMaterialChoiceResult } from '../shared/material-choice-validation.ts'
@@ -563,6 +563,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'documentNumbering': return { method: 'GET', path: '/api/v1/system/document-numbering' }
     case 'saveDocumentNumbering': return { method: 'PUT', path: '/api/v1/system/document-numbering', body: documentNumberingBody(payload) }
+    // 单据动作固定路由、类型白名单及版本校验，客户端不能传入执行状态或业务快照。
+    case 'documentApproval': {
+      const target = documentApprovalTarget(payload)
+      return { method: 'GET', path: `/api/v1/system/document-approvals/${target.document_type}/${target.document_id}?intent=${target.intent}` }
+    }
+    case 'actDocumentApproval': {
+      const target = documentApprovalTarget(payload), body = documentApprovalActionBody(payload)
+      const action = (payload as ErpOperations['actDocumentApproval']['input']).action
+      return { method: 'POST', path: `/api/v1/system/document-approvals/${target.document_type}/${target.document_id}/${action}`, body }
+    }
     case 'documentApprovalPolicies': return { method: 'GET', path: '/api/v1/system/document-approvals' }
     case 'documentApprovalPolicy': return { method: 'GET', path: `/api/v1/system/document-approvals/${documentApprovalType(payload)}` }
     case 'saveDocumentApprovalPolicy': return { method: 'PUT', path: `/api/v1/system/document-approvals/${documentApprovalType(payload)}`, body: documentApprovalPolicyBody(payload) }
@@ -1586,6 +1596,13 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   if (action === 'logout' || action === 'changePassword') setSessionToken(null)
   if (action === 'documentNumbering' || action === 'saveDocumentNumbering') validateDocumentNumbering(data)
+  if (action === 'documentApproval' || action === 'actDocumentApproval') {
+    validateDocumentApprovalRecord(data)
+    const target = documentApprovalTarget(payload)
+    if (data.document_type !== target.document_type || data.document_id !== target.document_id || data.intent !== target.intent) {
+      throw Error('服务端返回了其他单据的审批结果，请重新读取。')
+    }
+  }
   if (action === 'documentApprovalPolicies') validateDocumentApprovalPolicies(data)
   if (action === 'documentApprovalPolicy' || action === 'saveDocumentApprovalPolicy') validateDocumentApprovalPolicy(data)
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)

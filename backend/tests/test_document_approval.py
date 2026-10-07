@@ -4,6 +4,7 @@ import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
@@ -392,3 +393,187 @@ def test_upgrade_failure_rolls_back_schema_and_permissions(context, monkeypatch)
     migrate()
     with orm_session() as db:
         assert db.get(DocumentApprovalPolicy, 'WarehouseInbound') is not None
+
+
+def reviewer_auth(client, name='reviewer'):
+    return {'Authorization': 'Bearer ' + client.post('/api/v1/auth/login', json={
+        'username': name, 'password': 'secure-pass-123'}).json()['token']}
+
+
+def approval_api(client, auth, identifier, action=None, **fields):
+    url = f'/api/v1/system/document-approvals/WarehouseInbound/{identifier}'
+    if action:
+        return client.post(url + '/' + action, headers=auth, json=fields)
+    return client.get(url, headers=auth, params=fields)
+
+
+def test_inbound_old_client_cannot_post_before_independent_approval(context):
+    client, auth, source = context
+    identifier = source['id']
+    url = f'/api/v1/warehouse-inbounds/{identifier}/post'
+    # 普通、实物批次两条确认路径均不能在未批准时写入库存。
+    assert client.post(url, headers=auth).status_code == 409
+    assert client.post(url, headers=auth, json={'lines': [{'inbound_line_id': source['lines'][0]['id'],
+        'lots': [{'quantity': '10'}]}]}).status_code == 409
+    sent = approval_api(client, auth, identifier, 'submit', version=0)
+    assert sent.status_code == 200 and sent.json()['status'] == 'submitted'
+    assert not sent.json()['can_review']
+    assert approval_api(client, auth, identifier, 'approve', version=1).status_code == 403
+    assert client.post(url, headers=auth).status_code == 409
+    reviewer = reviewer_auth(client)
+    read = approval_api(client, reviewer, identifier)
+    assert read.json()['can_review'] and 'snapshot' not in read.json()
+    assert approval_api(client, reviewer, identifier, 'approve', version=1).status_code == 200
+    posted = client.post(url, headers=auth)
+    assert posted.status_code == 200 and posted.json()['approval']['status'] == 'executed'
+    assert posted.json()['lines'][0]['physical_lots'] == []
+    assert client.post(url, headers=auth).status_code == 409
+    history = approval_api(client, reviewer, identifier).json()
+    assert [event['action'] for event in history['events']] == ['submit', 'approve', 'execute']
+    assert not history['can_submit'] and not history['can_review'] and not history['can_withdraw']
+    with orm_session() as db:
+        assert db.scalar(select(func.count()).select_from(StockMovement)) == 1
+
+
+def test_inbound_multistep_cannot_execute_until_last_approval(context):
+    client, auth, source = context
+    identifier = source['id']
+    saved = client.put('/api/v1/system/document-approvals/WarehouseInbound', headers=auth,
+        json={'version': 1, 'steps': [{'name': '审核', 'role': None}, {'name': '核准', 'role': None}]})
+    assert saved.status_code == 200
+    assert approval_api(client, auth, identifier, 'submit', version=0).status_code == 200
+    reviewer = reviewer_auth(client)
+    first = approval_api(client, reviewer, identifier, 'approve', version=1)
+    assert first.json()['status'] == 'submitted' and first.json()['current_step'] == 1
+    assert not first.json()['can_review']
+    assert client.post(f'/api/v1/warehouse-inbounds/{identifier}/post', headers=auth).status_code == 409
+    assert approval_api(client, reviewer, identifier, 'approve', version=2).status_code == 403
+    assert approval_api(client, reviewer_auth(client, 'editor'), identifier, 'approve', version=2).json()['status'] == 'approved'
+    assert client.post(f'/api/v1/warehouse-inbounds/{identifier}/post', headers=auth).status_code == 200
+
+
+def test_inbound_rejection_withdraw_and_cancel_are_consistent(context):
+    client, auth, source = context
+    identifier = source['id']
+    reviewer = reviewer_auth(client)
+    approval_api(client, auth, identifier, 'submit', version=0)
+    url = f'/api/v1/warehouse-inbounds/{identifier}/cancel'
+    assert client.post(url, headers=auth).status_code == 409
+    assert approval_api(client, reviewer, identifier, 'reject', version=1, reason=' ').status_code == 422
+    assert approval_api(client, reviewer, identifier, 'reject', version=1, reason='说明不完整').json()['status'] == 'rejected'
+    assert approval_api(client, auth, identifier, 'submit', version=2).status_code == 200
+    assert approval_api(client, reviewer, identifier, 'withdraw', version=3).status_code == 200
+    assert client.post(url, headers=auth).status_code == 200
+    assert approval_api(client, auth, identifier, 'submit', version=4).status_code == 409
+
+
+def test_inbound_invalid_lots_and_changed_content_roll_back_approval(context):
+    client, auth, source = context
+    identifier = source['id']
+    reviewer = reviewer_auth(client)
+    approval_api(client, auth, identifier, 'submit', version=0)
+    approval_api(client, reviewer, identifier, 'approve', version=1)
+    url = f'/api/v1/warehouse-inbounds/{identifier}/post'
+    invalid = {'lines': [{'inbound_line_id': source['lines'][0]['id'], 'lots': [{'quantity': '9'}]}]}
+    assert client.post(url, headers=auth, json=invalid).status_code == 422
+    assert approval_api(client, auth, identifier).json()['status'] == 'approved'
+    with orm_session(write=True) as db:
+        db.get(WarehouseInboundLine, source['lines'][0]['id']).quantity = '11'
+    assert client.post(url, headers=auth).status_code == 409
+    with orm_session() as db:
+        assert db.scalar(select(func.count()).select_from(StockMovement)) == 0
+        assert db.get(WarehouseInbound, identifier).status == 'draft'
+
+
+def test_inbound_reversal_requires_separate_reason_and_approval(context):
+    client, auth, source = context
+    identifier = source['id']
+    reviewer = reviewer_auth(client)
+    approval_api(client, auth, identifier, 'submit', version=0)
+    approval_api(client, reviewer, identifier, 'approve', version=1)
+    assert client.post(f'/api/v1/warehouse-inbounds/{identifier}/post', headers=auth).status_code == 200
+    url = f'/api/v1/warehouse-inbounds/{identifier}/reverse'
+    assert client.post(url, headers=auth, json={'reason': '误收'}).status_code == 409
+    assert approval_api(client, auth, identifier, 'submit', version=0, intent='reverse', reason='误收').status_code == 200
+    assert approval_api(client, reviewer, identifier, 'approve', version=1, intent='reverse').status_code == 200
+    assert client.post(url, headers=auth, json={'reason': '改变原因'}).status_code == 409
+    result = client.post(url, headers=auth, json={'reason': '误收'})
+    assert result.status_code == 201 and result.json()['reversal_approval']['status'] == 'executed'
+    assert result.json()['approval']['status'] == 'executed'
+    assert client.post(url, headers=auth, json={'reason': '误收'}).status_code == 409
+    with orm_session() as db:
+        assert sum(Decimal(quantity) for quantity in db.scalars(select(StockMovement.quantity))) == 0
+
+
+def test_inbound_approval_api_strict_boundary_and_permission_revocation(context):
+    client, auth, source = context
+    identifier = source['id']
+    for extra in [{'version': True}, {'version': '0'}, {'version': -1}, {'status': 'approved'},
+                  {'snapshot': {}}, {'intent': 'anything'}]:
+        assert approval_api(client, auth, identifier, 'submit', **{'version': 0, **extra}).status_code == 422
+    assert approval_api(client, auth, identifier, 'execute', version=0).status_code == 422
+    assert client.get('/api/v1/system/document-approvals/WorkOrder/1', headers=auth).status_code == 409
+    assert approval_api(client, auth, identifier, 'submit', version=0).status_code == 200
+    reviewer = reviewer_auth(client)
+    with orm_session(write=True) as db:
+        db.execute(delete(UserRole).where(UserRole.user_id == 2))
+    assert approval_api(client, reviewer, identifier).status_code == 403
+    assert approval_api(client, reviewer, identifier, 'approve', version=1).status_code == 403
+
+
+def test_inbound_preview_freezes_content_and_resubmission_shows_current_body(context):
+    client, auth, source = context
+    identifier = source['id']
+    reviewer = reviewer_auth(client)
+    approval_api(client, auth, identifier, 'submit', version=0)
+    with orm_session(write=True) as db:
+        db.get(WarehouseInboundLine, source['lines'][0]['id']).quantity = '11'
+    frozen = approval_api(client, reviewer, identifier).json()
+    assert not frozen['content_matches'] and not frozen['can_review']
+    assert frozen['summary'][-1]['value'] == '10 个'
+    assert approval_api(client, reviewer, identifier, 'approve', version=1).status_code == 409
+    assert approval_api(client, auth, identifier, 'withdraw', version=1).status_code == 200
+    current = approval_api(client, auth, identifier).json()
+    assert current['content_matches'] and current['can_submit']
+    assert current['summary'][-1]['value'] == '11 个'
+    assert approval_api(client, auth, identifier, 'submit', version=2).status_code == 200
+    assert approval_api(client, reviewer, identifier, 'approve', version=3).status_code == 200
+    assert client.post(f'/api/v1/warehouse-inbounds/{identifier}/post', headers=auth).status_code == 200
+    with orm_session() as db:
+        first = db.scalar(select(DocumentApprovalEvent).where(DocumentApprovalEvent.action == 'submit').order_by(DocumentApprovalEvent.id))
+        assert json.loads(first.state_json)['snapshot']['lines'][0]['quantity'] == '10'
+
+
+def test_inbound_history_keeps_original_step_names_after_policy_change(context):
+    client, auth, source = context
+    identifier = source['id']
+    reviewer = reviewer_auth(client)
+    url = '/api/v1/system/document-approvals/WarehouseInbound'
+    assert client.put(url, headers=auth, json={'version': 1,
+        'steps': [{'name': '旧审核', 'role': None}, {'name': '旧批准', 'role': None}]}).status_code == 200
+    approval_api(client, auth, identifier, 'submit', version=0)
+    approval_api(client, reviewer, identifier, 'approve', version=1)
+    assert approval_api(client, auth, identifier, 'withdraw', version=2).status_code == 200
+    assert client.put(url, headers=auth, json={'version': 2,
+        'steps': [{'name': '新核准', 'role': None}]}).status_code == 200
+    approval_api(client, auth, identifier, 'submit', version=3)
+    approval_api(client, reviewer, identifier, 'approve', version=4)
+    history = approval_api(client, auth, identifier).json()['events']
+    assert [event['step_name'] for event in history if event['action'] == 'approve'] == ['旧审核', '新核准']
+
+
+def test_inbound_concurrent_withdraw_and_post_are_one_atomic_decision(context):
+    client, auth, source = context
+    identifier = source['id']
+    approval_api(client, auth, identifier, 'submit', version=0)
+    approval_api(client, reviewer_auth(client), identifier, 'approve', version=1)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        post = pool.submit(client.post, f'/api/v1/warehouse-inbounds/{identifier}/post', headers=auth)
+        cancel = pool.submit(approval_api, client, auth, identifier, 'withdraw', version=2)
+        statuses = [post.result().status_code, cancel.result().status_code]
+    assert sorted(statuses) == [200, 409]
+    with orm_session() as db:
+        row = find_case(db, 'WarehouseInbound', identifier)
+        quantity = sum(Decimal(value) for value in db.scalars(select(StockMovement.quantity)))
+        assert (row.status, db.get(WarehouseInbound, identifier).status, quantity) in (
+            ('executed', 'posted', Decimal(10)), ('withdrawn', 'draft', Decimal(0)))
