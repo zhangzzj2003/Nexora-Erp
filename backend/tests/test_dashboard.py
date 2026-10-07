@@ -47,8 +47,10 @@ def erp(monkeypatch,tmp_path):
         approve_document(client, dict(client.headers), 'Receipt', receipt['id'])
         api('POST',f'receipts/{receipt["id"]}/post')
         sale=api('POST','sales-orders',{'customer_id':customer,'lines':[{'material_id':material,'quantity':'10','unit_price':'10.5555'}]},201)
+        approve_document(client, dict(client.headers), 'SalesOrder', sale['id'])
         api('POST',f'sales-orders/{sale["id"]}/confirm')
         shipment=api('POST','shipments',{'sales_order_id':sale['id'],'warehouse_id':1,'lines':[{'material_id':material,'quantity':'4'}]},201)
+        approve_document(client, dict(client.headers), 'Shipment', shipment['id'])
         api('POST',f'shipments/{shipment["id"]}/post')
         yield client,api,admin,supplier,customer,material,order,receipt,sale,shipment
 
@@ -75,6 +77,7 @@ def test_real_amounts_precision_pending_and_orm_snapshot(erp):
 
 def test_cross_period_reversal_does_not_erase_original_day(erp):
     _,api,_,_,_,_,_,_,_,shipment=erp
+    approve_document(erp[0], dict(erp[0].headers), 'Shipment', shipment['id'], intent='reverse', reason='原出库更正')
     api('POST',f'shipments/{shipment["id"]}/reverse',{'reason':'原出库更正'},201)
     with orm_session(write=True) as db:
         db.get(Shipment,shipment['id']).posted_at='2026-09-24 23:59:59'
@@ -111,6 +114,7 @@ def test_draft_cancelled_and_fully_delivered_orders_do_not_inflate_waiting(erp):
     draft=api('POST','sales-orders',{'customer_id':customer,'lines':[{'material_id':material,'quantity':'1','unit_price':'100'}]},201)
     api('POST',f'sales-orders/{draft["id"]}/cancel')
     final=api('POST','shipments',{'sales_order_id':sale['id'],'warehouse_id':1,'lines':[{'material_id':material,'quantity':'6'}]},201)
+    approve_document(erp[0], dict(erp[0].headers), 'Shipment', final['id'])
     api('POST',f'shipments/{final["id"]}/post')
     result=query(erp)
     assert result['sales']=={'draft':0,'waiting':0}
@@ -140,8 +144,10 @@ def test_customer_return_and_correction_keep_daily_net_and_effective_document_co
     _,api,_,_,_,_,_,_,_,shipment=erp
     row=api('POST','sales-returns',{'shipment_id':shipment['id'],'warehouse_id':1,'reason':'客户退回',
         'lines':[{'shipment_line_id':shipment['lines'][0]['id'],'quantity':'1'}]},201)
+    approve_document(erp[0], dict(erp[0].headers), 'SalesReturn', row['id'])
     api('POST',f'sales-returns/{row["id"]}/post')
     assert query(erp)['finance']['sales']['current']['amount']=='31.66'
+    approve_document(erp[0], dict(erp[0].headers), 'SalesReturn', row['id'], intent='reverse', reason='退货更正')
     api('POST',f'sales-returns/{row["id"]}/reverse',{'reason':'退货更正'},201)
     result=query(erp)
     assert result['finance']['sales']['current']['amount']=='42.22'

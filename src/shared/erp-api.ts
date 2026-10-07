@@ -997,6 +997,8 @@ export interface SalesOrderLine extends ReceiptLine {
   line_total: string
 }
 export interface SalesOrder extends NumberedDocument {
+  // 服务端返回独立审批进度，旧响应缺失时页面禁止确认。
+  approval?: DocumentApprovalState
   id: number
   customer_id: number
   customer_name: string
@@ -1050,6 +1052,9 @@ export interface SalesOrderContractAttachmentList {
   items: SalesOrderContractAttachment[]
 }
 export interface Shipment extends NumberedDocument {
+  // 服务端返回独立审批进度，旧响应缺失时页面禁止确认。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   sales_order_id: number
   warehouse_id: number
@@ -1084,6 +1089,9 @@ export interface SalesReturnLine extends ReceiptLine {
   physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
 export interface SalesReturn extends NumberedDocument {
+  // 服务端返回独立审批进度，旧响应缺失时页面禁止确认。
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
   id: number
   shipment_id: number
   sales_order_id: number

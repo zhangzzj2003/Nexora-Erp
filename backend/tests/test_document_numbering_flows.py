@@ -1,5 +1,7 @@
 """编号贯穿实际采购、生产、销售和资金流程，来源与导出保持一致。"""
 
+from approval_test_helpers import approve_document
+
 from test_business_orm import erp, receipt, completion
 from test_business_journals import business, generate, source
 from test_crm import seeded, base_records, approved, action, pdf_text, B, C
@@ -20,10 +22,12 @@ def test_numbered_purchase_production_sales_sources_and_exports(erp):
     assert produced['work_order_document_no'].startswith('WO-')
     sale = request('POST', 'sales-orders', dict(customer_id=customer, reference='客户合同',
         lines=[dict(material_id=materials[0], quantity='1', unit_price='8')]), 201)
+    approve_document(client, dict(client.headers), 'SalesOrder', sale['id'])
     request('POST', f'sales-orders/{sale["id"]}/confirm')
     shipment = request('POST', 'shipments', dict(sales_order_id=sale['id'], warehouse_id=1,
         lines=[dict(material_id=materials[0], quantity='1')]), 201)
     assert shipment['sales_order_document_no'] == sale['document_no']
+    approve_document(client, dict(client.headers), 'Shipment', shipment['id'])
     request('POST', f'shipments/{shipment["id"]}/post')
     paid = request('POST', 'finance/payment-records', dict(kind='receivable', order_id=sale['id'],
         action='settlement', amount='8', reference='外部银行流水'), 201)
@@ -38,6 +42,7 @@ def test_numbered_purchase_production_sales_sources_and_exports(erp):
     assert received['document_no'] in report['csv']
     assert purchase['document_no'] in request('POST', 'reports/query', dict(kind='purchase_orders'))['csv']
     # 冲销来源指向原主单，库存冲销日志本身不冒充新的入库主单。
+    approve_document(client, dict(client.headers), 'Shipment', shipment['id'], intent='reverse', reason='测试来源冲销')
     request('POST', f'shipments/{shipment["id"]}/reverse', dict(reason='测试来源冲销'), 201)
     movements = request('POST', 'inventory-ledger/query', {})['rows']
     assert next(row for row in movements if row['source_type'] == 'shipment_reversal')['source_document_no'] == shipment['document_no']

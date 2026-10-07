@@ -533,6 +533,7 @@ def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
     assert client.post(B+'/sales-orders',headers=seller,json=order_input).status_code == 404
     assert all(row['id'] != order['id'] for row in client.get(B+'/sales-orders',headers=seller).json())
     assert client.post(B+f'/sales-orders/{order["id"]}/confirm',headers=seller).status_code == 404
+    approve_document(client, admin, 'SalesOrder', order['id'])
     assert client.post(B+f'/sales-orders/{order["id"]}/confirm',headers=admin).status_code == 200
     supplier=client.post(B+'/suppliers',headers=admin,json={'name':'隔离测试供货方'}).json()['id']
     receipt=client.post(B+'/receipts',headers=admin,json={'supplier_id':supplier,
@@ -546,6 +547,7 @@ def test_customer_owner_scope_audit_and_transfer_revoke_access(seeded):
     assert client.post(B+'/shipments',headers=seller,json=shipment_input).status_code == 404
     assert all(row['id'] != shipment['id'] for row in client.get(B+'/shipments',headers=seller).json())
     assert client.post(B+f'/shipments/{shipment["id"]}/cancel',headers=seller).status_code == 404
+    approve_document(client, admin, 'Shipment', shipment['id'])
     assert client.post(B+f'/shipments/{shipment["id"]}/post',headers=admin).status_code == 200
     return_input={'shipment_id':shipment['id'],'warehouse_id':1,'reason':'客户退货',
         'lines':[{'shipment_line_id':shipment['lines'][0]['id'],'quantity':'1'}]}
@@ -630,6 +632,7 @@ def test_complete_crm_workflow_keeps_snapshot_and_does_not_post_stock(seeded):
     assert history[0]['after']['sales_order_id'] == order['id']
     assert history[0]['changed_by_name'] == 'seller'
     # 已转单并不等于收款或出库，仍必须经过既有订单流程。
+    approve_document(client, admin, 'SalesOrder', order['id'])
     assert client.post(B+f'/sales-orders/{order["id"]}/confirm',headers=admin).status_code == 200
 
 
@@ -885,3 +888,25 @@ def test_crm_upgrade_failure_rolls_back_schema_and_permissions(seeded,remove_crm
         assert db.execute('PRAGMA user_version').fetchone()[0] == 49
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='crm_quotes'").fetchone()
         assert not db.execute("SELECT 1 FROM permissions WHERE code='crm.view'").fetchone()
+
+
+def test_converted_order_excludes_original_quote_submitter_without_new_author_rows(seeded):
+    from app.core.models import DocumentApprovalAuthor, UserRole
+    client, admin, reviewer, seller, *_ = seeded
+    _, opportunity, data = base_records(seeded)
+    quote = client.post(C + '/quotes', headers=admin, json=data).json()
+    quote = action(client, seller, quote, 'submit')
+    quote = action(client, reviewer, quote, 'approve')
+    converted = action(client, admin, quote, 'convert', acceptance_reference='客户确认依据',
+                       opportunity_version=opportunity['version'])
+    identifier = converted['sales_order_id']
+    with orm_session(write=True) as db:
+        # 模拟没有新作者记录的旧派生草稿；原报价提交人升级为管理员仍然不能自审。
+        assert db.scalar(select(DocumentApprovalAuthor.user_id).where(
+            DocumentApprovalAuthor.document_type == 'SalesOrder', DocumentApprovalAuthor.document_id == identifier)) is None
+        db.add(UserRole(user_id=3, role_code='admin'))
+    path = B + f'/system/document-approvals/SalesOrder/{identifier}'
+    assert client.post(path + '/submit', headers=admin, json={'version': 0}).status_code == 200
+    assert not client.get(path, headers=seller).json()['can_review']
+    assert client.post(path + '/approve', headers=seller, json={'version': 1}).status_code == 403
+    assert client.post(path + '/approve', headers=reviewer, json={'version': 1}).status_code == 200

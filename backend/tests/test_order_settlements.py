@@ -51,10 +51,12 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
             order = client.post(f'{base}/sales-orders', headers=admin, json={
                 'customer_id': party, 'lines': [{'material_id': material, 'quantity': '2',
                                                   'unit_price': '10'}]}).json()['id']
+            approve_document(client, admin, 'SalesOrder', order)
             client.post(f'{base}/sales-orders/{order}/confirm', headers=admin)
             shipment = client.post(f'{base}/shipments', headers=admin, json={
                 'sales_order_id': order, 'warehouse_id': 1,
                 'lines': [{'material_id': material, 'quantity': '2'}]}).json()
+            approve_document(client, admin, 'Shipment', shipment['id'])
             assert client.post(f'{base}/shipments/{shipment["id"]}/post', headers=admin).status_code == 200
             return order, shipment
 
@@ -68,6 +70,7 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
         returned = client.post(f'{base}/sales-returns', headers=admin, json={
             'shipment_id': shipment['id'], 'warehouse_id': 1, 'reason': '退回一件',
             'lines': [{'shipment_line_id': shipment['lines'][0]['id'], 'quantity': '1'}]}).json()['id']
+        approve_document(client, admin, 'SalesReturn', returned)
         assert client.post(f'{base}/sales-returns/{returned}/post', headers=admin).status_code == 200
         path = f'{base}/finance/order-settlements'
         draft = {'kind': 'receivable', 'from_order_id': source, 'to_order_id': target,

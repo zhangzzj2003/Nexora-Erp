@@ -103,9 +103,11 @@ def test_inventory_costs_returns_allocations_and_sales_cost(erp):
     customer = api('POST', 'customers', {'name': '客户'}, 201)['id']
     sale = api('POST', 'sales-orders', {'customer_id': customer,
         'lines': [{'material_id': product, 'quantity': '1', 'unit_price': '10'}]}, 201)
+    approve_document(erp[0], erp[1], 'SalesOrder', sale['id'])
     api('POST', f'sales-orders/{sale["id"]}/confirm')
     shipment = api('POST', 'shipments', {'sales_order_id': sale['id'], 'warehouse_id': 1,
         'lines': [{'material_id': product, 'quantity': '1'}]}, 201)
+    approve_document(erp[0], erp[1], 'Shipment', shipment['id'])
     api('POST', f'shipments/{shipment["id"]}/post')
     report = api('GET', 'inventory/valuation')
     assert next(row for row in report['movements'] if row['source_type'] == 'shipment')['amount'] == '-2.57'

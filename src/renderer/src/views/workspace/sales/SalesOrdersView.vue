@@ -13,34 +13,20 @@ import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMate
 import { documentRows } from '../../../utils/document-rows'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import SalesContractAttachments from './SalesContractAttachments.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref, watch } from 'vue'
 import { NModal } from 'naive-ui'
 import type { SalesOrder, SalesOrderContract } from '../../../../../shared/erp-api'
-import { useAppStore } from '../../../store/app-store'
+import { storeToRefs } from 'pinia'
+import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
-const {
-  error,
-  notice,
-  busy,
-  connectionLost,
-  user,
-  materials,
-  customers,
-  salesOrders,
-  salesForm,
-  can,
-  localTime,
-  navigateToRoute,
-  createSalesOrder,
-  loadSalesOrderContract,
-  reviseSalesOrderContract,
-  confirmSalesOrder,
-  cancelSalesOrder
-} = useAppStore()
+const store = usePiniaAppStore()
+const { error, notice, busy, connectionLost, user, materials, customers, salesOrders, salesForm } = storeToRefs(store)
+const { can, localTime, navigateToRoute, createSalesOrder, loadSalesOrderContract, reviseSalesOrderContract, confirmSalesOrder, cancelSalesOrder } = store
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
@@ -118,10 +104,14 @@ const salesFormColumns = [
   { key: 'warrantyBasis', title: '合同或承诺依据', width: '220' },
   { key: 'actions', title: '操作', width: '90' },
 ]
+// 审批进度与执行状态分开显示，上游批准不会代替本单批准。
+const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '已批准，待确认',
+  rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
 </script>
 
 <template>
   <section class="stack">
+    <DocumentApprovalDialog />
     <NModal v-model:show="contractOpen" preset="card" title="销售合同正文与修订历史"
       :mask-closable="!busy" :closable="!busy"
       :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
@@ -315,7 +305,7 @@ const salesFormColumns = [
         <span class="pill" :class="item.status">
           {{
             {
-              draft: '草稿',
+              draft: approvalLabels[item.approval?.status ?? 'draft'],
               confirmed: '待出库',
               partially_shipped: '部分出库',
               shipped: '全部出库',
@@ -337,26 +327,13 @@ const salesFormColumns = [
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
           <AppButton type="button" :disabled="busy" @click="openContract(item)" size="small">合同正文</AppButton>
-          <AppButton
-            v-if="item.status === 'draft' && can('sales_order.confirm')"
-            type="button"
-            :disabled="busy"
-            @click="confirmSalesOrder(item.id)"
-            variant="primary"
-            size="small"
-          >
-            确认订单
-          </AppButton>
-          <AppButton
-            v-if="['draft', 'confirmed'].includes(item.status) && can('sales_order.cancel')"
-            type="button"
-            :disabled="busy"
-            @click="cancelSalesOrder(item.id)"
-            variant="secondary"
-            size="small"
-          >
-            取消订单
-          </AppButton>
+          <AppButton type="button" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'SalesOrder', document_id: item.id, intent: 'execute' })">单据审批</AppButton>
+          <template v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('sales_order.confirm')">
+            <AppButton type="button" variant="primary" size="small" :disabled="busy || connectionLost" @click="confirmSalesOrder(item.id)">确认订单</AppButton>
+          </template>
+          <AppButton v-if="['draft', 'confirmed'].includes(item.status) && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('sales_order.cancel')"
+            type="button" size="small" :disabled="busy || connectionLost" @click="cancelSalesOrder(item.id)">取消订单</AppButton>
         </div>
       </template>
       <template #empty>

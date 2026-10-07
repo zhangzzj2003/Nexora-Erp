@@ -40,6 +40,7 @@ def test_payment_records_reconciliation_and_reversal(monkeypatch, tmp_path):
         sale = client.post(f"{base}/sales-orders", headers=admin, json={
             "customer_id": customer, "lines": [{"material_id": material, "quantity": "2",
                                                "unit_price": "10"}]}).json()["id"]
+        approve_document(client, admin, 'SalesOrder', sale)
         client.post(f"{base}/sales-orders/{sale}/confirm", headers=admin)
         shipment = client.post(f"{base}/shipments", headers=admin, json={
             "sales_order_id": sale, "warehouse_id": 1,
@@ -54,6 +55,7 @@ def test_payment_records_reconciliation_and_reversal(monkeypatch, tmp_path):
         # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
         approve_document(client, admin, 'Receipt', receipt_id)
         client.post(f"{base}/receipts/{receipt_id}/post", headers=admin)
+        approve_document(client, admin, 'Shipment', shipment['id'])
         client.post(f"{base}/shipments/{shipment['id']}/post", headers=admin)
         assert client.post(path, headers=finance, json={**payment, "amount": "20.001"}).status_code == 422
         assert client.post(path, headers=finance, json={**payment, "reference": "   "}).status_code == 422
@@ -97,6 +99,7 @@ def test_payment_records_reconciliation_and_reversal(monkeypatch, tmp_path):
         sale_return = client.post(f"{base}/sales-returns", headers=admin, json={
             "shipment_id": shipment["id"], "warehouse_id": 1, "reason": "退一件",
             "lines": [{"shipment_line_id": shipment["lines"][0]["id"], "quantity": "1"}]}).json()["id"]
+        approve_document(client, admin, 'SalesReturn', sale_return)
         client.post(f"{base}/sales-returns/{sale_return}/post", headers=admin)
         sale_account = next(item for item in client.get(f"{base}/finance/accounts", headers=finance).json()
                             if item["kind"] == "receivable")

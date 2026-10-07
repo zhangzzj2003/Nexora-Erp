@@ -14,6 +14,9 @@ from app.core.models import (
     WarehouseOutbound, WarehouseOutboundLine, WarehouseOutboundReversal, MaintenanceJob, MaintenanceChange,
     AfterSalesCase, AfterSalesChange, Transfer, TransferLine, TransferReversal,
     Stocktake, StocktakeLine, StocktakeReversal, StockAdjustment, StockAdjustmentLine, StockAdjustmentReversal,
+    SalesOrder, SalesOrderLine, Shipment, ShipmentLine, ShipmentReversal, SalesReturn, SalesReturnLine,
+    SalesReturnReversal, Customer, CrmQuote, CrmChange, SalesOrderContractRevision,
+    SalesOrderContractAttachment, SalesOrderContractAttachmentReversal,
 )
 from app.core.approval_catalog import approval_type
 
@@ -152,6 +155,80 @@ def adjustment_snapshot(db: Session, identifier: int) -> dict:
                 .where(StockAdjustmentLine.adjustment_id == identifier).order_by(StockAdjustmentLine.id)).mappings()]}
 
 
+def sales_source_authors(db: Session, order_id: int) -> list[int]:
+    # 新旧派生草稿都从原审计恢复编制人员，转换人或原方案作者不能审核下游。
+    quotes = list(db.scalars(select(CrmQuote).where(CrmQuote.sales_order_id == order_id)))
+    cases = list(db.scalars(select(AfterSalesCase).where(AfterSalesCase.replacement_order_id == order_id)))
+    authors = {row.created_by for row in [*quotes, *cases]}
+    authors.update(row.submitted_by for row in [*quotes, *cases] if row.submitted_by is not None)
+    authors.update(db.scalars(select(CrmChange.changed_by).where(
+        CrmChange.entity_kind == 'quote', CrmChange.entity_id.in_([row.id for row in quotes]),
+        CrmChange.action.in_(('create', 'edit', 'submit', 'convert')))))
+    authors.update(db.scalars(select(AfterSalesChange.changed_by).where(
+        AfterSalesChange.case_id.in_([row.id for row in cases]),
+        AfterSalesChange.action.in_(('create', 'edit', 'submit', 'process')))))
+    return sorted(authors)
+
+
+def sales_order_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'SalesOrder', identifier)
+    revisions = list(db.scalars(select(SalesOrderContractRevision).where(
+        SalesOrderContractRevision.sales_order_id == identifier).order_by(SalesOrderContractRevision.version)))
+    attachments = list(db.scalars(select(SalesOrderContractAttachment).where(
+        SalesOrderContractAttachment.revision_id.in_([row.id for row in revisions]))
+        .order_by(SalesOrderContractAttachment.id)))
+    reversals = list(db.scalars(select(SalesOrderContractAttachmentReversal).where(
+        SalesOrderContractAttachmentReversal.attachment_id.in_([row.id for row in attachments]))
+        .order_by(SalesOrderContractAttachmentReversal.id)))
+    authors = set(sales_source_authors(db, identifier))
+    authors.update(row.created_by for row in [*revisions, *attachments, *reversals])
+    # 合同正文和附件指纹一起固定，审批期间不得追加或撤销依据后直接确认。
+    return {'customer_id': source.customer_id, 'reference': source.reference,
+            'source_author_ids': sorted(authors),
+            'contract': [{field: getattr(row, field) for field in (
+                'id', 'version', 'body', 'acceptance_reference', 'reason')} for row in revisions],
+            'contract_attachments': [{'id': row.id, 'revision_id': row.revision_id, 'sha256': row.sha256,
+                'reversal_id': next((part.id for part in reversals if part.attachment_id == row.id), None)}
+                for row in attachments],
+            'lines': [dict(row) for row in db.execute(select(
+                SalesOrderLine.id, SalesOrderLine.material_id, SalesOrderLine.quantity,
+                SalesOrderLine.unit_price, SalesOrderLine.warranty_days, SalesOrderLine.warranty_basis)
+                .where(SalesOrderLine.sales_order_id == identifier).order_by(SalesOrderLine.id)).mappings()]}
+
+
+def shipment_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'Shipment', identifier)
+    order = db.get(SalesOrder, source.sales_order_id)
+    # 出库审批只固定客户、来源和数量，不扩大为订单金额查看权限。
+    return {'sales_order_id': source.sales_order_id, 'customer_id': order.customer_id,
+            'warehouse_id': source.warehouse_id, 'reference': source.reference,
+            'lines': [dict(row) for row in db.execute(select(
+                ShipmentLine.id, ShipmentLine.sales_order_line_id, SalesOrderLine.material_id,
+                ShipmentLine.quantity).join(SalesOrderLine, SalesOrderLine.id == ShipmentLine.sales_order_line_id)
+                .where(ShipmentLine.shipment_id == identifier).order_by(ShipmentLine.id)).mappings()]}
+
+
+def sales_return_snapshot(db: Session, identifier: int) -> dict:
+    source = document_source(db, 'SalesReturn', identifier)
+    shipment = db.get(Shipment, source.shipment_id)
+    order = db.get(SalesOrder, shipment.sales_order_id)
+    cases = list(db.scalars(select(AfterSalesCase).where(AfterSalesCase.sales_return_id == identifier)))
+    authors = {row.created_by for row in cases}
+    authors.update(row.submitted_by for row in cases if row.submitted_by is not None)
+    authors.update(db.scalars(select(AfterSalesChange.changed_by).where(
+        AfterSalesChange.case_id.in_([row.id for row in cases]),
+        AfterSalesChange.action.in_(('create', 'edit', 'submit', 'process')))))
+    return {'shipment_id': source.shipment_id, 'sales_order_id': order.id,
+            'customer_id': order.customer_id, 'warehouse_id': source.warehouse_id,
+            'reason': source.reason, 'source_author_ids': sorted(authors),
+            'lines': [dict(row) for row in db.execute(select(
+                SalesReturnLine.id, SalesReturnLine.shipment_line_id, ShipmentLine.sales_order_line_id,
+                SalesOrderLine.material_id, SalesReturnLine.quantity)
+                .join(ShipmentLine, ShipmentLine.id == SalesReturnLine.shipment_line_id)
+                .join(SalesOrderLine, SalesOrderLine.id == ShipmentLine.sales_order_line_id)
+                .where(SalesReturnLine.sales_return_id == identifier).order_by(SalesReturnLine.id)).mappings()]}
+
+
 def native_review_evidence(db: Session, document_type: str, identifier: int) -> dict | None:
     # 首次接入前保存原流程信息，独立于新审批正文，不能冒充新模板中的批准。
     if document_type != 'StockAdjustment':
@@ -183,8 +260,11 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 _SNAPSHOTS = {'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
-              'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot}
-_REVERSE = {'Transfer': (TransferReversal, 'transfer_id', 'transfer.reverse'),
+              'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
+              'SalesOrder': sales_order_snapshot, 'Shipment': shipment_snapshot, 'SalesReturn': sales_return_snapshot}
+_REVERSE = {'Shipment': (ShipmentReversal, 'shipment_id', 'shipment.reverse'),
+            'SalesReturn': (SalesReturnReversal, 'sales_return_id', 'sales_return.reverse'),
+            'Transfer': (TransferReversal, 'transfer_id', 'transfer.reverse'),
             'Stocktake': (StocktakeReversal, 'stocktake_id', 'stocktake.reverse'),
             'StockAdjustment': (StockAdjustmentReversal, 'adjustment_id', 'adjustment.reverse'),
             'WarehouseInbound': (WarehouseInboundReversal, 'inbound_id', 'other_inbound.reverse'),
@@ -255,7 +335,7 @@ def submit_permission(document_type: str, intent: str) -> str | None:
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
     # 只读取固定正文和当前资料名称，不调用包含金额、客户或动态库存的其他领域详情。
     summary = []
-    for field, model, label in [('supplier_id', Supplier, '供应商'), ('warehouse_id', Warehouse, '仓库'),
+    for field, model, label in [('supplier_id', Supplier, '供应商'), ('customer_id', Customer, '客户'), ('warehouse_id', Warehouse, '仓库'),
                                 ('from_warehouse_id', Warehouse, '来源仓库'), ('to_warehouse_id', Warehouse, '目标仓库')]:
         if field in content:
             item = db.get(model, content[field])
@@ -263,6 +343,17 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
     if 'purchase_order_id' in content:
         order = db.get(PurchaseOrder, content['purchase_order_id'])
         summary.append({'label': '采购订单', 'value': order.document_no or f'#{order.id}'})
+    if 'sales_order_id' in content:
+        order = db.get(SalesOrder, content['sales_order_id'])
+        summary.append({'label': '销售订单', 'value': order.document_no or f'#{order.id}'})
+    if document_type == 'SalesReturn':
+        source = db.get(Shipment, content['shipment_id'])
+        summary.extend([{'label': '原出库单', 'value': source.document_no or f'#{source.id}'},
+                        {'label': '退货原因', 'value': content['reason']}])
+    if document_type == 'SalesOrder' and content['contract']:
+        contract = content['contract'][-1]
+        summary.extend([{'label': '合同正文（版本 ' + str(contract['version']) + '）', 'value': contract['body']},
+                        {'label': '客户确认依据', 'value': contract['acceptance_reference']}])
     if document_type == 'Receipt':
         # 来源单号只用于识别；来源订单 ID 本身已经固定在逐行正文中。
         for order_id in sorted({line['purchase_order_id'] for line in content['lines']
@@ -298,6 +389,8 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
                        if document_type == 'Stocktake' else line['quantity'] + unit))
         if 'unit_price' in line:
             value += f"；单价 ¥{line['unit_price']}" if line['unit_price'] is not None else '；原价待核对'
+        if document_type == 'SalesOrder' and line['warranty_days'] is not None:
+            value += f"；保修 {line['warranty_days']} 天（{line['warranty_basis']}）"
         summary.append({'label': f'{material.sku} · {material.name}' if material else str(line['material_id']),
                         'value': value})
     return summary

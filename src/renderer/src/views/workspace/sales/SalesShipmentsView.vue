@@ -13,12 +13,14 @@ import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMate
 import { documentRows } from '../../../utils/document-rows'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
 import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
-import { useAppStore } from '../../../store/app-store'
+import { storeToRefs } from 'pinia'
+import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import {displayError} from '../../../utils/formatters.ts'
 import {receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
@@ -28,26 +30,9 @@ import type {ShipmentLotLineInput,ShipmentLotOptions} from '../../../../../share
 import type {Shipment} from '../../../../../shared/erp-api'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
-const {
-  error,
-  notice,
-  busy,
-  connectionLost,
-  materials,
-  warehouses,
-  salesOrders,
-  shipments,
-  shipmentReversalReasons,
-  shipmentForm,
-  can,
-  localTime,
-  chooseShipmentOrder,
-  createShipment,
-  loadAvailableShipmentLots,
-  postShipment,
-  cancelShipment,
-  reverseShipment
-} = useAppStore()
+const store = usePiniaAppStore()
+const { error, notice, busy, connectionLost, materials, warehouses, salesOrders, shipments, shipmentReversalReasons, shipmentForm } = storeToRefs(store)
+const { can, localTime, chooseShipmentOrder, createShipment, loadAvailableShipmentLots, postShipment, cancelShipment, reverseShipment } = store
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false)
@@ -58,7 +43,7 @@ const lotLoading = ref(false)
 const lotLoadError = ref('')
 let loadTicket = 0
 const activeShipment = computed(() => shipments.value.find(item =>
-  item.id === activeShipmentId.value && item.status === 'draft') ?? null)
+  item.id === activeShipmentId.value && item.status === 'draft' && item.approval?.status === 'approved') ?? null)
 
 function closeLotPost(): void {
   loadTicket++
@@ -156,10 +141,23 @@ const shipmentFormColumns = [
   { key: 'quantity', title: '出库数量', width: '150' },
   { key: 'actions', title: '操作', width: '90' },
 ]
+// 审批进度与执行状态分开显示，上游批准不会代替本单批准。
+const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '已批准，待确认',
+  rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
+// 冲销执行重新读取批准原因，禁止以临时输入替换审批记录。
+async function reverseApproved(identifier: number): Promise<void> {
+  if (!await store.openDocumentApproval({ document_type: 'Shipment', document_id: identifier, intent: 'reverse' })) return
+  const record = store.documentApprovalRecord
+  if (record?.status !== 'approved' || !record.reversal_reason) return
+  shipmentReversalReasons.value[identifier] = record.reversal_reason
+  store.closeDocumentApproval()
+  await reverseShipment(identifier)
+}
 </script>
 
 <template>
   <section class="stack">
+    <DocumentApprovalDialog />
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
         <WorkspaceDocumentDialog
           v-if="can('shipment.create')"
@@ -301,7 +299,7 @@ const shipmentFormColumns = [
                 ? '已出库'
                 : item.status === 'cancelled'
                   ? '已取消'
-                  : '待确认'
+                  : approvalLabels[item.approval?.status ?? 'draft']
           }}
         </span>
       </template>
@@ -313,51 +311,30 @@ const shipmentFormColumns = [
             <small v-if="item.status === 'posted' && line.physical_lots?.length" class="shipment-lot-proof">
               实物批次：{{ line.physical_lots.map(lot => `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`).join('、') }}
             </small>
-            <small v-else-if="item.status === 'posted'" class="shipment-lot-proof">旧确认未指定实物批次，数量在批次核对页显示为差额。</small>
+            <small v-else-if="item.status === 'posted'" class="shipment-lot-proof">普通确认未指定实物批次，数量在批次核对页显示为差额。</small>
           </span>
         </div>
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
-          <AppButton
-            v-if="item.status === 'draft' && can('shipment.post')"
-            type="button"
-            :disabled="busy"
-            @click="startLotPost(item)"
-            variant="primary"
-            size="small"
-          >
-            指定批次并确认
-          </AppButton>
-          <AppButton
-            v-if="item.status === 'draft' && can('shipment.cancel')"
-            type="button"
-            :disabled="busy"
-            @click="cancelShipment(item.id)"
-            variant="secondary"
-            size="small"
-          >
-            取消
-          </AppButton>
+          <AppButton type="button" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'Shipment', document_id: item.id, intent: 'execute' })">单据审批</AppButton>
+          <!-- 冲销完成后仍可查批准人员和固定原因，查询入口沿用本单查看权限。 -->
+          <AppButton v-if="item.reversal_id" type="button" size="small" :disabled="busy || connectionLost"
+            @click="store.openDocumentApproval({ document_type: 'Shipment', document_id: item.id, intent: 'reverse' })">冲销审批记录</AppButton>
+          <template v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('shipment.post')">
+            <AppButton type="button" variant="primary" size="small" :disabled="busy || connectionLost" @click="postShipment(item.id)">确认出库</AppButton>
+            <AppButton type="button" size="small" :disabled="busy || connectionLost" @click="startLotPost(item)">指定实物批次（可选）</AppButton>
+          </template>
+          <AppButton v-if="item.status === 'draft' && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('shipment.cancel')"
+            type="button" size="small" :disabled="busy || connectionLost" @click="cancelShipment(item.id)">取消</AppButton>
+          <template v-if="item.status === 'posted' && !item.reversal_id && can('shipment.reverse')">
+            <AppButton type="button" size="small" :disabled="busy || connectionLost"
+              @click="store.openDocumentApproval({ document_type: 'Shipment', document_id: item.id, intent: 'reverse' })">冲销审批</AppButton>
+            <AppButton v-if="item.reversal_approval?.status === 'approved'" type="button" size="small" :disabled="busy || connectionLost"
+              @click="reverseApproved(item.id)">执行已批准冲销</AppButton>
+          </template>
         </div>
-        <form
-          v-if="item.status === 'posted' && !item.reversal_id && can('shipment.reverse')"
-          class="inline-form"
-          @submit.prevent="reverseShipment(item.id)"
-        >
-          <label>
-            冲销原因
-            <AppInput
-              v-model.trim="shipmentReversalReasons[item.id]"
-              required
-              maxlength="200"
-              placeholder="说明原出库为何需要冲销"
-            />
-          </label>
-          <AppButton type="submit" :disabled="busy" variant="secondary" size="small"
-            >冲销已确认出库</AppButton
-          >
-        </form>
       </template>
       <template #empty>
         <strong>{{ recordQuery ? '没有匹配的记录' : '暂无销售出库记录' }}</strong>

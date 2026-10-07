@@ -56,15 +56,18 @@ def test_moving_average_and_late_price_audit(monkeypatch, tmp_path):
         order = client.post(f"{base}/sales-orders", headers=admin, json={
             "customer_id": customer,
             "lines": [{"material_id": material, "quantity": "5", "unit_price": "20"}]}).json()["id"]
+        approve_document(client, admin, 'SalesOrder', order)
         client.post(f"{base}/sales-orders/{order}/confirm", headers=admin)
         shipment = client.post(f"{base}/shipments", headers=admin, json={
             "sales_order_id": order, "warehouse_id": 1,
             "lines": [{"material_id": material, "quantity": "5"}]}).json()
+        approve_document(client, admin, 'Shipment', shipment['id'])
         client.post(f"{base}/shipments/{shipment['id']}/post", headers=admin)
         assert client.get(url, headers=admin).json()["total_amount"] == "112.50"
         returned = client.post(f"{base}/sales-returns", headers=admin, json={
             "shipment_id": shipment["id"], "warehouse_id": 1, "reason": "退回",
             "lines": [{"shipment_line_id": shipment["lines"][0]["id"], "quantity": "2"}]}).json()["id"]
+        approve_document(client, admin, 'SalesReturn', returned)
         client.post(f"{base}/sales-returns/{returned}/post", headers=admin)
         assert client.get(url, headers=admin).json()["total_amount"] == "127.50"
 

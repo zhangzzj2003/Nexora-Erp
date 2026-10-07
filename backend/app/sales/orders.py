@@ -9,6 +9,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core import document_approval as approval
+from app.core.approval_documents import sales_order_snapshot, shipment_snapshot
 from app.core.orm import orm_session, add_model
 from app.core.models import (
     Customer,
@@ -228,7 +230,7 @@ def sales_order_data(db: Session, order_id: int) -> dict:
                 "line_total": str(line_total),
             }
         )
-    return {**dict(row), "lines": lines, "total_amount": str(total)}
+    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'SalesOrder', order_id)), "lines": lines, "total_amount": str(total)}
 
 
 def shipment_data(db: Session, shipment_id: int) -> dict:
@@ -314,7 +316,8 @@ def shipment_data(db: Session, shipment_id: int) -> dict:
                 ),
             }
         )
-    return {**dict(row), "lines": result_lines}
+    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'Shipment', shipment_id)),
+            'reversal_approval': approval.case_data(approval.find_case(db, 'Shipment', shipment_id, 'reverse')), "lines": result_lines}
 
 
 def checked_order_lines(db: Session, order_id: int, lines: list[tuple[int, Decimal]]) -> dict[int, int]:
@@ -503,6 +506,8 @@ def create_sales_order(payload: SalesOrderInput, user: dict = Depends(require("s
 def confirm_sales_order(order_id: int, user: dict = Depends(require("sales_order.confirm"))) -> dict:
     with orm_session(write=True) as db:
         require_visible_order(db, order_id, user)
+        # 批准与原业务写入共用事务，数量和库存仍由原领域重新核对。
+        approved = approval.require_approved(db, 'SalesOrder', order_id, sales_order_snapshot(db, order_id), user['id'])
         from app.sales.after_sales_rules import ensure_replacement_available
         ensure_replacement_available(db, order_id)
         row = (
@@ -519,6 +524,7 @@ def confirm_sales_order(order_id: int, user: dict = Depends(require("sales_order
             .where((SalesOrder.id == order_id))
             .values(status="confirmed", confirmed_by=user["id"], confirmed_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return sales_order_data(db, order_id)
 
 
@@ -526,6 +532,9 @@ def confirm_sales_order(order_id: int, user: dict = Depends(require("sales_order
 def cancel_sales_order(order_id: int, user: dict = Depends(require("sales_order.cancel"))) -> dict:
     with orm_session(write=True) as db:
         require_visible_order(db, order_id, user)
+        pending = approval.find_case(db, 'SalesOrder', order_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批再取消单据')
         row = (
             db.execute(select(SalesOrder.status).select_from(SalesOrder).where((SalesOrder.id == order_id)))
             .mappings()
@@ -672,6 +681,8 @@ def post_shipment(shipment_id: int, payload: ShipmentPostInput | None = None,
         for line in lines:
             if balance(db, shipment["warehouse_id"], line["material_id"]) < Decimal(line["quantity"]):
                 raise HTTPException(409, f"物料 #{line['material_id']} 在出库仓库的库存不足")
+        # 批准与原业务写入共用事务，数量和库存仍由原领域重新核对。
+        approved = approval.require_approved(db, 'Shipment', shipment_id, shipment_snapshot(db, shipment_id), user['id'])
         for line in lines:
             movement = StockMovement(
                     warehouse_id=shipment["warehouse_id"],
@@ -697,6 +708,7 @@ def post_shipment(shipment_id: int, payload: ShipmentPostInput | None = None,
             .values(status="posted", posted_by=user["id"], posted_at=func.current_timestamp())
         )
         update_order_shipment_status(db, shipment["sales_order_id"])
+        approval.mark_executed(db, approved, user['id'])
         return shipment_data(db, shipment_id)
 
 
@@ -745,6 +757,10 @@ def reverse_shipment(
         for line in lines:
             if returned_quantity(db, line["id"]) > 0:
                 raise HTTPException(409, "原出库单仍有已确认销售退货，请先冲销退货")
+        # 冲销原因也必须与独立批准的内容一致。
+        approved = approval.require_approved(db, 'Shipment', shipment_id,
+            {'document': shipment_snapshot(db, shipment_id), 'reversal_reason': payload.reason.strip()},
+            user['id'], intent='reverse', permission='shipment.reverse')
         cursor = add_model(
             db, ShipmentReversal(shipment_id=shipment_id, reason=payload.reason, created_by=user["id"])
         )
@@ -774,6 +790,7 @@ def reverse_shipment(
             else:
                 db.add(movement)
         update_order_shipment_status(db, shipment["sales_order_id"])
+        approval.mark_executed(db, approved, user['id'])
         return shipment_data(db, shipment_id)
 
 
@@ -781,6 +798,9 @@ def reverse_shipment(
 def cancel_shipment(shipment_id: int, user: dict = Depends(require("shipment.cancel"))) -> dict:
     with orm_session(write=True) as db:
         require_visible_shipment(db, shipment_id, user)
+        pending = approval.find_case(db, 'Shipment', shipment_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批再取消单据')
         row = (
             db.execute(select(Shipment.status).select_from(Shipment).where((Shipment.id == shipment_id)))
             .mappings()

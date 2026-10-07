@@ -35,6 +35,7 @@ def test_shipment_reversal_restores_order_and_preserves_sources(monkeypatch, tmp
         order = client.post(f"{base}/sales-orders", headers=admin, json={
             "customer_id": customer, "lines": [{"material_id": material,
                                                "quantity": "2", "unit_price": "5"}]}).json()["id"]
+        approve_document(client, admin, 'SalesOrder', order)
         assert client.post(f"{base}/sales-orders/{order}/confirm", headers=admin).status_code == 200
 
         def create_shipment(quantity: str) -> dict:
@@ -51,7 +52,9 @@ def test_shipment_reversal_restores_order_and_preserves_sources(monkeypatch, tmp
         assert client.post(first_url, headers=admin, json={"reason": "草稿"}).status_code == 409
         assert client.post(f"{base}/shipments/999/reverse", headers=admin,
                            json={"reason": "不存在"}).status_code == 404
+        approve_document(client, admin, 'Shipment', first['id'])
         assert client.post(f"{base}/shipments/{first['id']}/post", headers=admin).status_code == 200
+        approve_document(client, admin, 'Shipment', second['id'])
         assert client.post(f"{base}/shipments/{second['id']}/post", headers=admin).status_code == 200
         assert client.get(f"{base}/sales-orders", headers=admin).json()[0]["status"] == "shipped"
         assert client.post(first_url, headers=seller, json={"reason": "无权"}).status_code == 403
@@ -63,12 +66,16 @@ def test_shipment_reversal_restores_order_and_preserves_sources(monkeypatch, tmp
                               "shipment_line_id": first["lines"][0]["id"], "quantity": "1"}]}
         returned = client.post(f"{base}/sales-returns", headers=admin,
                                json=return_payload).json()["id"]
+        approve_document(client, admin, 'SalesReturn', returned)
         assert client.post(f"{base}/sales-returns/{returned}/post",
                            headers=admin).status_code == 200
+        approve_document(client, admin, 'Shipment', first['id'], intent='reverse', reason='误出库')
         assert client.post(first_url, headers=admin, json={"reason": "误出"}).status_code == 409
+        approve_document(client, admin, 'SalesReturn', returned, intent='reverse', reason='误退')
         assert client.post(f"{base}/sales-returns/{returned}/reverse", headers=admin,
                            json={"reason": "误退"}).status_code == 201
 
+        approve_document(client, admin, 'Shipment', second['id'], intent='reverse', reason='误出库')
         reversed_second = client.post(second_url, headers=admin, json={"reason": "误出库"})
         assert reversed_second.status_code == 201
         assert reversed_second.json()["reversal_reason"] == "误出库"
@@ -94,6 +101,7 @@ def test_shipment_reversal_restores_order_and_preserves_sources(monkeypatch, tmp
         assert movements[0]["source_type"] == "shipment_reversal"
         assert movements[0]["shipment_reversal_id"] is not None
         replacement = create_shipment("2")
+        approve_document(client, admin, 'Shipment', replacement['id'])
         assert client.post(f"{base}/shipments/{replacement['id']}/post",
                            headers=admin).status_code == 200
         assert client.get(f"{base}/sales-orders", headers=admin).json()[0]["status"] == "shipped"

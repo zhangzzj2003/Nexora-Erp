@@ -32,11 +32,13 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
       <p v-if="loading" role="status">正在读取审批记录…</p>
       <p v-if="error" role="alert" class="approval-error">{{ error }}</p>
       <template v-if="record">
-        <p v-if="!record.content_matches" role="alert" class="approval-error">当前单据内容与送审内容不一致，请撤回后重新送审。</p>
+        <!-- 已执行单据的后续合同证据保留原快照，不要求撤回已经执行的审批。 -->
+        <p v-if="!record.content_matches && record.status !== 'executed'" role="alert" class="approval-error">当前单据内容与送审内容不一致，请撤回后重新送审。</p>
+        <p v-else-if="!record.content_matches" class="approval-hint">当前正文与执行时审批快照不同，下方保留原审批内容，请核对后续变更记录。</p>
         <dl class="approval-summary">
           <div v-for="(item, index) in record.summary" :key="index"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>
         </dl>
-        <p v-if="record.intent === 'execute' && record.version === 0 && ['posted', 'cancelled', 'confirmed', 'closed'].includes(record.business_status)">已处理单据保留原业务记录，不补造审批记录。</p>
+        <p v-if="record.intent === 'execute' && record.version === 0 && ['posted', 'cancelled', 'confirmed', 'partially_shipped', 'shipped', 'closed'].includes(record.business_status)">已处理单据保留原业务记录，不补造审批记录。</p>
         <p v-else><strong>{{ labels[record.status] }}</strong> · 审批版本 {{ record.version }}</p>
         <p class="approval-hint">建单、编辑、提交人员不能自审；不同审批步骤由不同人员完成。批准后仍需执行对应业务操作。</p>
         <ol v-if="record.steps.length" class="approval-steps">

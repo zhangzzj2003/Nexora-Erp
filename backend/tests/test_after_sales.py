@@ -57,8 +57,10 @@ def erp(monkeypatch,tmp_path):
         approve_document(client, actors['admin'], 'Receipt', receipt['id'])
         api('POST',f'receipts/{receipt["id"]}/post')
         order=api('POST','sales-orders',{'customer_id':customer,'lines':[{'material_id':material,'quantity':'10','unit_price':'10'}]},status=201)
+        approve_document(client, actors['admin'], 'SalesOrder', order['id'])
         api('POST',f'sales-orders/{order["id"]}/confirm')
         shipment=api('POST','shipments',{'sales_order_id':order['id'],'warehouse_id':1,'lines':[{'material_id':material,'quantity':'10'}]},status=201)
+        approve_document(client, actors['admin'], 'Shipment', shipment['id'])
         shipment=api('POST',f'shipments/{shipment["id"]}/post')
         yield client,api,actors,shipment,material,part,order
 
@@ -182,9 +184,11 @@ def test_order_warranty_terms_follow_shipment_into_case_and_cannot_be_overridden
          'warranty_days':365,'warranty_basis':'  销售合同 W-365  '}]},status=201)
     assert order['lines'][0]['warranty_days']==365
     assert order['lines'][0]['warranty_basis']=='销售合同 W-365'
+    approve_document(erp[0], erp[2]['admin'], 'SalesOrder', order['id'])
     api('POST',f'sales-orders/{order["id"]}/confirm')
     shipment=api('POST','shipments',{'sales_order_id':order['id'],'warehouse_id':1,
         'lines':[{'material_id':material,'quantity':'2'}]},status=201)
+    approve_document(erp[0], erp[2]['admin'], 'Shipment', shipment['id'])
     shipment=api('POST',f'shipments/{shipment["id"]}/post')
     source_id=shipment['lines'][0]['id']
     original=next(item for item in api('GET','after-sales')['sources'] if item['shipment_line_id']==source_id)
@@ -638,6 +642,7 @@ def test_paid_repair_keeps_customer_goods_out_of_stock_and_reconciles_original_o
     account=next(item for item in api('GET','finance/accounts') if item['kind']=='receivable' and item['order_id']==order['id'])
     assert account['business_amount']=='100.00' and account['outstanding_amount']=='-5.50'
     assert len(row['custody'])==2 and row['custody_quantity']=='0'
+    approve_document(erp[0], erp[2]['admin'], 'Shipment', shipment['id'], intent='reverse', reason='来源更正')
     api('POST',f'shipments/{shipment["id"]}/reverse',{'reason':'来源更正'},status=201)
 
 
@@ -662,10 +667,12 @@ def test_return_case_uses_existing_return_and_retains_audited_correction(erp):
     row=approved(erp,payload(erp,kind='return'))
     row=action(api,row,'process')
     action(api,row,'close',status=409)
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'])
     api('POST',f'sales-returns/{row["sales_return_id"]}/post')
     row=action(api,row,'close')
     action(api,row,'reverse',status=409)
     api('POST',f'shipments/{shipment["id"]}/reverse',{'reason':'已有售后'},status=409)
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'], intent='reverse', reason='退回数量更正')
     api('POST',f'sales-returns/{row["sales_return_id"]}/reverse',{'reason':'退回数量更正'},status=201)
     row=action(api,row,'reverse')
     assert row['status']=='reversed' and row['sales_return_id'] is not None
@@ -676,15 +683,20 @@ def test_exchange_cannot_ship_before_return_or_reverse_return_before_replacement
     _,api,_,_,material,_,_=erp
     row=action(api,approved(erp,payload(erp,kind='exchange')),'process')
     api('POST',f'sales-orders/{row["replacement_order_id"]}/confirm',status=409)
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'])
     api('POST',f'sales-returns/{row["sales_return_id"]}/post')
+    approve_document(erp[0], erp[2]['admin'], 'SalesOrder', row['replacement_order_id'])
     api('POST',f'sales-orders/{row["replacement_order_id"]}/confirm')
     action(api,row,'close',status=409)
     replacement=api('POST','shipments',{'sales_order_id':row['replacement_order_id'],'warehouse_id':1,
         'lines':[{'material_id':material,'quantity':'2'}]},status=201)
+    approve_document(erp[0], erp[2]['admin'], 'Shipment', replacement['id'])
     api('POST',f'shipments/{replacement["id"]}/post')
     row=action(api,row,'close')
     api('POST',f'sales-returns/{row["sales_return_id"]}/reverse',{'reason':'需先更正换货'},status=409)
+    approve_document(erp[0], erp[2]['admin'], 'Shipment', replacement['id'], intent='reverse', reason='換货更正')
     api('POST',f'shipments/{replacement["id"]}/reverse',{'reason':'換货更正'},status=201)
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'], intent='reverse', reason='退货更正')
     api('POST',f'sales-returns/{row["sales_return_id"]}/reverse',{'reason':'退货更正'},status=201)
     api('POST',f'sales-orders/{row["replacement_order_id"]}/cancel')
     assert action(api,row,'reverse')['status']=='reversed'
@@ -723,6 +735,7 @@ def test_pending_cases_and_plain_returns_share_quantity_and_source_guards(erp):
         'lines':[{'shipment_line_id':shipment['lines'][0]['id'],'quantity':'3'}]},status=201)
     api('POST',f'sales-returns/{returned["id"]}/post',status=409)
     action(api,row,'cancel')
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', returned['id'])
     api('POST',f'sales-returns/{returned["id"]}/post')
     api('POST',ROOT,payload(erp,quantity='8',reference='AFTER-2'),status=409)
 
@@ -823,9 +836,11 @@ def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_
 def test_exchange_cancelled_during_processing_has_a_complete_correction_path(erp):
     _,api,_,_,_,_,_=erp
     row=action(api,approved(erp,payload(erp,kind='exchange')),'process')
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'])
     api('POST',f'sales-returns/{row["sales_return_id"]}/post')
     api('POST',f'sales-orders/{row["replacement_order_id"]}/cancel')
     action(api,row,'cancel',status=409)
+    approve_document(erp[0], erp[2]['admin'], 'SalesReturn', row['sales_return_id'], intent='reverse', reason='客户取消换货')
     api('POST',f'sales-returns/{row["sales_return_id"]}/reverse',{'reason':'客户取消换货'},status=201)
     assert action(api,row,'cancel')['status']=='cancelled'
     assert api('GET','after-sales')['sources'][0]['remaining_quantity']=='10'
@@ -950,3 +965,24 @@ def test_archive_uses_last_audit_before_end_instead_of_future_case_state(erp):
         assert frozen['case']['status']=='received' and frozen['custody_quantity']=='2'
         assert len(frozen['custody'])==1
         assert archive_cases(db,'2027-01-01')[0]['case']['status']==cancelled['status']
+
+
+def test_after_sales_children_exclude_original_submitter_before_new_author_migration(erp):
+    from app.core.models import DocumentApprovalAuthor, UserRole
+    client, api, actors, *_ = erp
+    row = api('POST', ROOT, payload(erp, kind='exchange'), status=201)
+    row = action(api, row, 'submit', actor='seller')
+    row = action(api, row, 'approve', actor='reviewer')
+    row = action(api, row, 'process')
+    for kind, identifier in [('SalesOrder', row['replacement_order_id']), ('SalesReturn', row['sales_return_id'])]:
+        with orm_session() as db:
+            assert db.scalar(select(DocumentApprovalAuthor.user_id).where(
+                DocumentApprovalAuthor.document_type == kind, DocumentApprovalAuthor.document_id == identifier)) is None
+    with orm_session(write=True) as db:
+        # 原售后编制记录不能因为换货/退货生成另一张草稿就失去自审排除。
+        db.add(UserRole(user_id=3, role_code='admin'))
+    for kind, identifier in [('SalesOrder', row['replacement_order_id']), ('SalesReturn', row['sales_return_id'])]:
+        path = f'/api/v1/system/document-approvals/{kind}/{identifier}'
+        assert client.post(path + '/submit', headers=actors['admin'], json={'version': 0}).status_code == 200
+        assert not client.get(path, headers=actors['seller']).json()['can_review']
+        assert client.post(path + '/approve', headers=actors['seller'], json={'version': 1}).status_code == 403

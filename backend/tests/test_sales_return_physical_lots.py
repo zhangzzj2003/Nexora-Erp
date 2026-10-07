@@ -35,11 +35,13 @@ def test_sales_return_lots_source_and_reversal(monkeypatch, tmp_path):
         order = client.post(f'{base}/sales-orders', headers=headers, json={
             'customer_id': customer, 'lines': [{'material_id': material,
                                                  'quantity': '2.000', 'unit_price': '10.0000'}]}).json()
+        approve_document(client, headers, 'SalesOrder', order['id'])
         assert client.post(f'{base}/sales-orders/{order["id"]}/confirm', headers=headers).status_code == 200
         shipment = client.post(f'{base}/shipments', headers=headers, json={
             'sales_order_id': order['id'], 'warehouse_id': 1,
             'lines': [{'material_id': material, 'quantity': '2.000'}]}).json()
         source_line = shipment['lines'][0]['id']
+        approve_document(client, headers, 'Shipment', shipment['id'])
         assert client.post(f'{base}/shipments/{shipment["id"]}/post', headers=headers, json={
             'lines': [{'shipment_line_id': source_line, 'lots': [
                 {'lot_id': source_lot, 'quantity': '1.000'},
@@ -53,6 +55,7 @@ def test_sales_return_lots_source_and_reversal(monkeypatch, tmp_path):
         assert options.status_code == 200
         assert options.json()['lines'][0]['lots'][0]['quantity'] == '1.000'
         assert options.json()['lines'][0]['lots'][0]['lot_id'] == source_lot
+        approve_document(client, headers, 'SalesReturn', return_id)
         wrong = client.post(f'{url}/post', headers=headers, json={'lines': [
             {'return_line_id': return_line, 'lots': [{'lot_id': 9999, 'quantity': '1.500'}]}]})
         assert wrong.status_code == 422
@@ -80,6 +83,7 @@ def test_sales_return_lots_source_and_reversal(monkeypatch, tmp_path):
         assert len(later_options) == 1
         assert later_options[0]['lot_id'] == other_lot
         assert later_options[0]['quantity'] == '1.000'
+        approve_document(client, headers, 'SalesReturn', later['id'])
         assert client.post(f'{base}/sales-returns/{later["id"]}/post', headers=headers,
                            json={'lines': [{'return_line_id': later['lines'][0]['id'], 'lots': [
                                {'lot_id': source_lot, 'quantity': '0.500'}]}]}).status_code == 409
@@ -95,6 +99,7 @@ def test_sales_return_lots_source_and_reversal(monkeypatch, tmp_path):
         assert client.post(f'{base}/warehouse-outbounds/{outbound_id}/post', headers=headers, json={
             'lines': [{'outbound_line_id': outbound['lines'][0]['id'], 'lots': [
                 {'lot_id': new_lot, 'quantity': '0.500'}]}]}).status_code == 200
+        approve_document(client, headers, 'SalesReturn', return_id, intent='reverse', reason='误退')
         reverse = f'{url}/reverse'
         assert client.post(reverse, headers=headers, json={'reason': '误退'}).status_code == 409
         approve_document(client, headers, 'WarehouseOutbound', outbound_id, intent='reverse', reason='归还')

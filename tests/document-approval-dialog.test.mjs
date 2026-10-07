@@ -61,6 +61,12 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.match(html, /审核 · 独立审核人/)
   assert.match(html, /核对明细/)
   assert.doesNotMatch(html, />批准<|>执行<|>确认入库</)
+  // 已确认订单允许追加合同依据，查看原执行快照时不能提示无法完成的撤回操作。
+  store.documentApprovalRecord = { ...store.documentApprovalRecord, status: 'executed', content_matches: false, can_withdraw: false }
+  html = await render()
+  assert.match(html, /下方保留原审批内容/)
+  assert.doesNotMatch(html, /请撤回后重新送审|>撤回审批</)
+  store.documentApprovalRecord = { ...store.documentApprovalRecord, status: 'approved', content_matches: true, can_withdraw: true }
   store.connectionLost = true
   assert.match(await render(), /<button[^>]*disabled[^>]*>撤回审批/)
   store.documentApprovalTarget.intent = 'reverse'

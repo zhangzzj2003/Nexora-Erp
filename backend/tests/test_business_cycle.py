@@ -89,6 +89,7 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
 
         sale = create("/sales-orders", seller, {"customer_id": customer, "lines": [
             {"material_id": product, "quantity": "2", "unit_price": "10"}]})["id"]
+        approve_document(client, admin, 'SalesOrder', sale)
         confirm(f"/sales-orders/{sale}/confirm", seller)
         shipment = create("/shipments", warehouse, {"sales_order_id": sale,
                                                      "warehouse_id": production_warehouse,
@@ -114,6 +115,7 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
         assert settlement['allocations'][0]['amount'] == '14.00'
         produced = client.get(f"{base}/stock?warehouse_id={production_warehouse}", headers=warehouse).json()
         assert Decimal(next(row["quantity"] for row in produced if row["id"] == product)) == Decimal(2)
+        approve_document(client, admin, 'Shipment', shipment)
         confirm(f"/shipments/{shipment}/post", warehouse)
 
         def quantity(warehouse_id, material_id):

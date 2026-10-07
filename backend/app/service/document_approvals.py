@@ -75,6 +75,12 @@ def document_access(db, document_type: str, identifier: int, user_id: int):
     rule = approval_type(document_type)
     user = actor(db, user_id, rule.view_permission)
     source = document_source(db, document_type, identifier)
+    # 通用审批入口必须沿用原客户归属检查，拒绝跨客户的查询、送审与审核。
+    from app.sales.customer_scope import require_visible_order, require_visible_shipment, require_visible_return
+    scope = {'SalesOrder': require_visible_order, 'Shipment': require_visible_shipment,
+             'SalesReturn': require_visible_return}.get(document_type)
+    if scope is not None:
+        scope(db, identifier, user)
     return rule, user, source
 
 

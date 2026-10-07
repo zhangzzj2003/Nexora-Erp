@@ -81,9 +81,11 @@ def test_purchase_sales_and_payments_use_real_sources(business):
     # 实际销售收入与移动平均出库成本进入同一张平衡凭证。
     sales = request('POST', 'sales-orders', dict(customer_id=erp[3], reference='S1',
         lines=[dict(material_id=erp[4][0], quantity='2', unit_price='7')]), 201)
+    approve_document(client, dict(client.headers), 'SalesOrder', sales['id'])
     request('POST', f'sales-orders/{sales["id"]}/confirm')
     shipment = request('POST', 'shipments', dict(sales_order_id=sales['id'], warehouse_id=1,
         lines=[dict(material_id=erp[4][0], quantity='2')]), 201)
+    approve_document(client, dict(client.headers), 'Shipment', shipment['id'])
     request('POST', f'shipments/{shipment["id"]}/post')
     key = f'shipment:{shipment["id"]}'
     assert source(client, key)['roles'] == dict(inventory='-6.25', receivable='14.00', income='-14.00', sales_cost='6.25')
@@ -96,6 +98,7 @@ def test_purchase_sales_and_payments_use_real_sources(business):
     reverse = request('POST', f'finance/payment-records/{payment["id"]}/reverse', dict(reason='登记更正'), 201)
     assert source(client, f'payment_record:{reverse["id"]}')['roles'] == {'cash': '-14.00', 'receivable': '14.00'}
     post(client, generate(client, f'payment_record:{reverse["id"]}', 'PAY-REV'), reviewer)
+    approve_document(client, dict(client.headers), 'Shipment', shipment['id'], intent='reverse', reason='出库更正')
     request('POST', f'shipments/{shipment["id"]}/reverse', dict(reason='出库更正'), 201)
     reverse_key = next(item['key'] for item in client.get(BASE).json() if item['source_type'] == 'shipment_reversal')
     assert source(client, reverse_key)['roles'] == dict(inventory='6.25', receivable='-14.00', income='14.00', sales_cost='-6.25')
@@ -120,12 +123,15 @@ def test_returns_and_fee_reversal_keep_independent_sources(business):
     post(client, generate(client, reverse_key, 'PUR-RET-REV'), reviewer)
     sales = request('POST', 'sales-orders', dict(customer_id=erp[3], reference='SALE',
         lines=[dict(material_id=erp[4][0], quantity='2', unit_price='7')]), 201)
+    approve_document(client, dict(client.headers), 'SalesOrder', sales['id'])
     request('POST', f'sales-orders/{sales["id"]}/confirm')
     shipment = request('POST', 'shipments', dict(sales_order_id=sales['id'], warehouse_id=1,
         lines=[dict(material_id=erp[4][0], quantity='2')]), 201)
+    approve_document(client, dict(client.headers), 'Shipment', shipment['id'])
     request('POST', f'shipments/{shipment["id"]}/post')
     returned = request('POST', 'sales-returns', dict(shipment_id=shipment['id'], warehouse_id=1, reason='客户退回',
         lines=[dict(shipment_line_id=shipment['lines'][0]['id'], quantity='1')]), 201)
+    approve_document(client, dict(client.headers), 'SalesReturn', returned['id'])
     request('POST', f'sales-returns/{returned["id"]}/post')
     key = f'sales_return:{returned["id"]}'
     assert source(client, key)['roles'] == {'inventory': '3.13', 'receivable': '-7.00', 'income': '7.00', 'sales_cost': '-3.13'}

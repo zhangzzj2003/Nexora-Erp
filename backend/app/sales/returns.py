@@ -9,6 +9,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core import document_approval as approval
+from app.core.approval_documents import sales_return_snapshot
 from app.core.orm import orm_session, add_model
 from app.core.models import (
     Customer,
@@ -262,7 +264,8 @@ def sales_return_data(db: Session, return_id: int) -> dict:
                             StockMovement.source_id == return_id,
                             StockMovement.source_line_id == item['id']).order_by(PhysicalLotAllocation.id))]
         lines.append({**dict(item), "line_total": str(line_total), "physical_lots": lots})
-    return {**dict(row), "lines": lines, "total_amount": str(total)}
+    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'SalesReturn', return_id)),
+            'reversal_approval': approval.case_data(approval.find_case(db, 'SalesReturn', return_id, 'reverse')), "lines": lines, "total_amount": str(total)}
 
 
 @router.get("/sales-returns")
@@ -398,6 +401,8 @@ def post_sales_return(return_id: int, payload: SalesReturnPostInput | None = Non
         if lot_lines is not None and (len(lot_lines) != len(payload.lines)
                                       or set(lot_lines) != {line['id'] for line in lines}):
             raise HTTPException(422, '批次明细必须与销售退货明细逐行对应')
+        # 批准与原业务写入共用事务，数量和库存仍由原领域重新核对。
+        approved = approval.require_approved(db, 'SalesReturn', return_id, sales_return_snapshot(db, return_id), user['id'])
         for line in lines:
             # 原出库保留负向流水；退回的实物作为新来源入所选仓库。
             movement = StockMovement(
@@ -444,6 +449,7 @@ def post_sales_return(return_id: int, payload: SalesReturnPostInput | None = Non
             .where((SalesReturn.id == return_id))
             .values(status="posted", posted_by=user["id"], posted_at=func.current_timestamp())
         )
+        approval.mark_executed(db, approved, user['id'])
         return sales_return_data(db, return_id)
 
 
@@ -451,6 +457,9 @@ def post_sales_return(return_id: int, payload: SalesReturnPostInput | None = Non
 def cancel_sales_return(return_id: int, user: dict = Depends(require("sales_return.cancel"))) -> dict:
     with orm_session(write=True) as db:
         require_visible_return(db, return_id, user)
+        pending = approval.find_case(db, 'SalesReturn', return_id)
+        if pending and pending.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回审批再取消单据')
         row = (
             db.execute(
                 select(SalesReturn.status).select_from(SalesReturn).where((SalesReturn.id == return_id))
@@ -516,6 +525,10 @@ def reverse_sales_return(
         for line in lines:
             if balance(db, row["warehouse_id"], line["material_id"]) < Decimal(line["quantity"]):
                 raise HTTPException(409, f"退回仓物料 #{line['material_id']} 库存不足，无法冲销")
+        # 冲销原因也必须与独立批准的内容一致。
+        approved = approval.require_approved(db, 'SalesReturn', return_id,
+            {'document': sales_return_snapshot(db, return_id), 'reversal_reason': payload.reason.strip()},
+            user['id'], intent='reverse', permission='sales_return.reverse')
         cursor = add_model(
             db, SalesReturnReversal(sales_return_id=return_id, reason=payload.reason, created_by=user["id"])
         )
@@ -540,4 +553,5 @@ def reverse_sales_return(
                     part.lot_id, -Decimal(part.quantity), part.id) for part in allocations])
             else:
                 db.add(movement)
+        approval.mark_executed(db, approved, user['id'])
         return sales_return_data(db, return_id)

@@ -41,6 +41,7 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         sales_order = client.post(f"{base}/sales-orders", headers=admin, json={
             "customer_id": customer, "lines": [{"material_id": material, "quantity": "1.125",
                                                "unit_price": "10.0050"}]}).json()["id"]
+        approve_document(client, admin, 'SalesOrder', sales_order)
         client.post(f"{base}/sales-orders/{sales_order}/confirm", headers=admin)
         shipment = client.post(f"{base}/shipments", headers=admin, json={
             "sales_order_id": sales_order, "warehouse_id": 1,
@@ -51,6 +52,7 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         # 业务前置单据通过真实独立审批，再验证原领域的库存、数量或金额约束。
         approve_document(client, admin, 'Receipt', receipt_id)
         client.post(f"{base}/receipts/{receipt_id}/post", headers=admin)
+        approve_document(client, admin, 'Shipment', shipment_id)
         client.post(f"{base}/shipments/{shipment_id}/post", headers=admin)
         snapshot = client.get(f"{base}/finance/receivables-payables", headers=finance).json()
         assert snapshot["receivable_amount"] == "11.26"
@@ -65,6 +67,7 @@ def test_receivables_payables_sources_and_permissions(monkeypatch, tmp_path):
         purchase_return = client.post(f"{base}/purchase-returns", headers=admin, json={
             "receipt_id": receipt_id, "reason": "供应商退货",
             "lines": [{"receipt_line_id": receipt["lines"][0]["id"], "quantity": "0.125"}]}).json()["id"]
+        approve_document(client, admin, 'SalesReturn', sale_return)
         client.post(f"{base}/sales-returns/{sale_return}/post", headers=admin)
         prepare_purchase_return(client, admin, purchase_return)
         client.post(f"{base}/purchase-returns/{purchase_return}/post", headers=admin)

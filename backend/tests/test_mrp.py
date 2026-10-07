@@ -203,6 +203,7 @@ def test_existing_sales_purchases_and_work_orders_have_complete_dated_sources(se
     customer = client.post(BASE+'/customers', headers=admin, json={'name':'客户'}).json()['id']
     sale = client.post(BASE+'/sales-orders', headers=admin, json={'customer_id':customer,
         'lines':[{'material_id':a,'quantity':'2','unit_price':'1'}]}).json()['id']
+    approve_document(client, admin, 'SalesOrder', sale)
     assert client.post(BASE+f'/sales-orders/{sale}/confirm', headers=admin).status_code == 200
     purchase = client.post(BASE+'/purchase-orders', headers=admin, json={'supplier_id':supplier,
         'lines':[{'material_id':r,'quantity':'20','unit_price':'1'}]}).json()['id']

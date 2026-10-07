@@ -204,6 +204,7 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
             },
             201,
         )
+        approve_document(client, dict(client.headers), 'SalesOrder', order['id'])
         request("POST", f'sales-orders/{order["id"]}/confirm')
         source = request(
             "POST",
@@ -215,6 +216,7 @@ def test_stock_write_failure_rolls_back_document_and_related_modules(erp, case):
             },
             201,
         )
+        approve_document(client, dict(client.headers), 'Shipment', source['id'])
         path = f'shipments/{source["id"]}/post'
     else:
         source = completion(erp)

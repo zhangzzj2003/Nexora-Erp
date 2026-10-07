@@ -1,5 +1,6 @@
 """销售订单合同正文的追加式版本证据。"""
 
+from app.core.document_approval import record_author
 from app.core.document_responses import NumberedRoute
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -68,6 +69,9 @@ def record_contract(order_id: int, payload: ContractRevisionInput,
             raise HTTPException(409, '合同版本已变化，请重新核对')
         if current and current.body == payload.body and current.acceptance_reference == payload.acceptance_reference:
             raise HTTPException(409, '相同合同正文与客户确认依据已经登记')
+        # 草稿合同属于送审依据，送审后先撤回；已确认订单保留原追加证据能力。
+        if order.status == 'draft':
+            record_author(db, 'SalesOrder', order_id, user['id'])
         # 仅追加证据；订单明细、保修条款及既有售后来源快照不随正文修订重写。
         add_model(db, SalesOrderContractRevision(
             sales_order_id=order_id, version=version + 1, body=payload.body,

@@ -37,7 +37,12 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
       const result = await window.nexora!.callApi('documentApproval', { ...target })
       if (session !== owner || ticket !== reads || !available()
           || !state.documentApprovalTarget.value || approvalTargetKey(state.documentApprovalTarget.value) !== key) return false
-      checked(result, target); state.documentApprovalRecord.value = result
+      checked(result, target)
+      // 他人在另一客户端完成审批后，刷新记录同时刷新原业务列表，不能继续显示旧的下一步动作。
+      await refreshData()
+      if (session !== owner || ticket !== reads || !available()
+          || !state.documentApprovalTarget.value || approvalTargetKey(state.documentApprovalTarget.value) !== key) return false
+      state.documentApprovalRecord.value = result
       return true
     } catch (cause) {
       if (session === owner && ticket === reads) state.documentApprovalError.value = displayError(cause)

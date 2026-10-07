@@ -21,9 +21,11 @@ test('销售退货显示回仓批次证据与旧单据差额', async t => {
     resolveId(id, importer) {
       if (importer?.includes('/views/workspace/sales/SalesReturnsView')
           && id.endsWith('/store/app-store')) return '\0return-view-store'
+      if(id.endsWith('/DocumentApprovalDialog.vue'))return '\0sales-proof-approval-dialog'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0return-view-table'
       if (id.endsWith('/WorkspaceSelect.vue')) return '\0return-view-select'
     }, load(id) {
+      if(id==='\0sales-proof-approval-dialog')return `export default {render:()=>null}`
       if (id === '\0return-view-store') return storeModule
       if (id === '\0return-view-table') return `import {defineComponent,h} from 'vue';export default defineComponent({props:{data:Array},setup(props,{slots}){return ()=>h('section',[
         ...(props.data??[]).flatMap(row=>Object.entries(slots).filter(([key])=>key.startsWith('cell-')).map(([,slot])=>slot?.({row})))])}})`
@@ -47,6 +49,6 @@ test('销售退货显示回仓批次证据与旧单据差额', async t => {
   const html = await renderToString(createSSRApp({render: () => h(Component)}).use(pinia))
   assert.match(html, /SR2-L7-P1/)
   assert.match(html, /退货新批次/)
-  assert.match(html, /旧确认未指定实物批次/)
-  assert.equal((html.match(/旧确认未指定实物批次/g) ?? []).length, 1)
+  assert.match(html, /普通确认未指定实物批次/)
+  assert.equal((html.match(/普通确认未指定实物批次/g) ?? []).length, 1)
 })

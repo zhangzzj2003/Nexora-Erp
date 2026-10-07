@@ -1,5 +1,7 @@
 """销售合同正文只追加版本，不能覆盖原单金额和保修证据。"""
 
+from approval_test_helpers import approve_document
+
 import sqlite3
 from contextlib import contextmanager
 
@@ -51,6 +53,7 @@ def test_sales_contract_revisions_preserve_history_and_order_terms(monkeypatch, 
         assert client.post(url, headers=admin, json={
             **first, 'expected_version': 1}).status_code == 409
 
+        approve_document(client, admin, 'SalesOrder', order_id)
         assert client.post(f'{base}/sales-orders/{order_id}/confirm', headers=admin).status_code == 200
         second = client.post(url, headers=admin, json={
             'expected_version': 1, 'body': '合同全文第二版',

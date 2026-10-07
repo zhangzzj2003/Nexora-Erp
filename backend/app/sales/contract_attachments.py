@@ -1,5 +1,6 @@
 """销售合同原件按正文版本留存，撤销只追加证据。"""
 
+from app.core.document_approval import record_author
 from app.core.document_responses import NumberedRoute
 import hashlib
 
@@ -80,6 +81,8 @@ def add_attachment(data: AttachmentInput, order_id: int = Path(gt=0),
             raise HTTPException(409, '单个合同版本最多保留 10 个有效附件')
         if db.scalar(active.where(SalesOrderContractAttachment.sha256 == digest).limit(1)) is not None:
             raise HTTPException(409, '此合同版本已有相同内容的有效附件')
+        if order.status == 'draft':
+            record_author(db, 'SalesOrder', order_id, user['id'])
         row = add_model(db, SalesOrderContractAttachment(revision_id=revision_id,
             file_name=data.file_name, media_type=media_type, byte_count=len(content),
             sha256=digest, content=content, reason=data.reason, created_by=user['id']))
@@ -115,6 +118,9 @@ def reverse_attachment(data: ReversalInput, order_id: int = Path(gt=0),
             if db.scalar(select(SalesOrderContractAttachmentReversal.id).where(
                     SalesOrderContractAttachmentReversal.attachment_id == row.id)) is not None:
                 raise HTTPException(409, '合同附件已撤销')
+            # 不允许审批期间更换已固定的原件依据。
+            if order.status == 'draft':
+                record_author(db, 'SalesOrder', order_id, user['id'])
             add_model(db, SalesOrderContractAttachmentReversal(attachment_id=row.id,
                 reason=data.reason, created_by=user['id']))
             return attachment_data(db, row)
