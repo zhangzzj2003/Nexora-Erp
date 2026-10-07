@@ -151,7 +151,9 @@ function focusPanel(): void { if (props.initial) panelHeading.value?.focus({ pre
 .numbering-settings--initial :deep(.n-radio-group) { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; height: auto; }
 /* 单选组自带的分隔节点不占网格位置，内部标签也解除默认的单行高度。 */
 .numbering-settings--initial :deep(.n-radio-group__splitor) { display: none; }
-.numbering-settings--initial :deep(.n-radio-button) { height: auto; min-height: 80px; min-width: 0; border-radius: 10px; }
+/* Naive UI 的连体按钮只绘制组外侧边框；独立卡片需补齐四边，并保留选中态主题色。 */
+.numbering-settings--initial :deep(.n-radio-button) { height: auto; min-height: 80px; min-width: 0; border: 1px solid var(--n-button-border-color); border-radius: 10px; }
+.numbering-settings--initial :deep(.n-radio-button.n-radio-button--checked) { border-color: var(--n-button-border-color-active); }
 .numbering-settings--initial :deep(.n-radio__label) { height: auto; width: 100%; padding: 12px 14px; line-height: normal; }
 .numbering-settings--initial :deep(.n-radio-button__state-border) { border-radius: 10px; }
 .numbering-style-choice { display: grid; gap: 10px; padding: 5px 0; min-width: 0; }
