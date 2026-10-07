@@ -22,7 +22,7 @@ from app.core.models import (
     Bom, WorkOrder, WorkOrderLine, MaterialIssue, MaterialIssueLine, MaterialIssueReversal,
     MaterialReturn, MaterialReturnLine, MaterialReturnReversal, ProductionCompletion, ProductionCompletionReversal,
     QualityDisposition, QualityDispositionChange, MrpPlan, MrpPlanChange, MrpConversion,
-    Journal, JournalChange, JournalAttachment, JournalAttachmentReversal, OpeningBalance, OpeningBalanceChange,
+    Journal, JournalChange, JournalAttachment, JournalAttachmentReversal, OpeningBalance, OpeningBalanceChange, SubledgerOpening, SubledgerOpeningChange,
 )
 from app.core.approval_catalog import approval_type
 
@@ -496,6 +496,34 @@ def completion_snapshot(db: Session, identifier: int) -> dict:
                        'quantity': source.reported_quantity}]}
 
 
+def subledger_snapshot(db: Session, identifier: int) -> dict:
+    from app.finance.subledger_openings import snapshot
+    import json
+    source = document_source(db, 'SubledgerOpening', identifier)
+    original = snapshot(db, source)
+    basis = opening_snapshot(db, source.opening_balance_id)
+    basis.pop('source_author_ids')
+    authors = {source.created_by}
+    authors.update(db.scalars(select(SubledgerOpeningChange.changed_by).where(
+        SubledgerOpeningChange.opening_id == identifier,
+        SubledgerOpeningChange.action.in_(('create', 'update', 'submit')))))
+    authors.update(db.scalars(select(DocumentApprovalAuthor.user_id).where(
+        DocumentApprovalAuthor.document_type == 'SubledgerOpening', DocumentApprovalAuthor.document_id == identifier)))
+    executed = db.scalar(select(DocumentApprovalCase).where(
+        DocumentApprovalCase.document_type == 'SubledgerOpening', DocumentApprovalCase.document_id == identifier,
+        DocumentApprovalCase.intent == 'execute', DocumentApprovalCase.status == 'executed'))
+    if executed:
+        authors = set(json.loads(executed.snapshot_json)['source_author_ids'])
+    # 完整五百行与总账依据全部参与摘要，确认结果与基础资料名称不覆盖批准正文。
+    return {field: original[field] for field in ('reference', 'effective_date', 'opening_balance_id',
+        'opening_version', 'control_accounts', 'note', 'currency')} | {
+        'source_author_ids': sorted(authors), 'ledger_basis': basis,
+        'lines': [{field: line[field] for field in ('id', 'kind', 'customer_id', 'supplier_id',
+            'account_id', 'account_code', 'document_reference', 'document_date', 'debit', 'credit')} | {
+            'auxiliary': [{'kind': item['kind'], 'id': item['id']} for item in line['auxiliary']]}
+            for line in original['lines']]}
+
+
 def opening_snapshot(db: Session, identifier: int) -> dict:
     from app.finance.opening_balances import snapshot
     import json
@@ -573,7 +601,7 @@ def native_review_evidence(db: Session, document_type: str, identifier: int) -> 
             'submitted_at': submitted.created_at if submitted else None, 'reviewed_by': source.reviewed_by,
             'reviewed_at': reviewed.created_at if reviewed else None,
             'review_reason': (reviewed.reason + '；现场依据：' + reviewed.evidence) if reviewed else ''}
-    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'Journal', 'OpeningBalance'):
+    if document_type not in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'Journal', 'OpeningBalance', 'SubledgerOpening'):
         return None
     source = db.get(approval_type(document_type).model, identifier)
     if source.submitted_by is None and source.reviewed_by is None:
@@ -581,7 +609,11 @@ def native_review_evidence(db: Session, document_type: str, identifier: int) -> 
     result = {field: getattr(source, field) for field in (
         'status', 'submitted_by', 'submitted_at', 'reviewed_by', 'reviewed_at')}
     # 报价和售后意见保存在追加审计中，不存在主单 review_reason 字段。
-    if document_type == 'OpeningBalance':
+    if document_type == 'SubledgerOpening':
+        result['review_reason'] = db.scalar(select(SubledgerOpeningChange.reason).where(
+            SubledgerOpeningChange.opening_id == identifier, SubledgerOpeningChange.action.in_(('approve', 'reject')))
+            .order_by(SubledgerOpeningChange.id.desc()).limit(1)) or ''
+    elif document_type == 'OpeningBalance':
         result['review_reason'] = db.scalar(select(OpeningBalanceChange.reason).where(
             OpeningBalanceChange.opening_balance_id == identifier, OpeningBalanceChange.action.in_(('approve', 'reject')))
             .order_by(OpeningBalanceChange.id.desc()).limit(1)) or ''
@@ -628,7 +660,7 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+_SNAPSHOTS = {'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
@@ -669,7 +701,7 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
             or source.source_kind == 'purchase_return' and source.purchase_return_id is None):
         raise HTTPException(409, '出库单缺少有效业务来源，不能审批')
     if intent == 'reverse':
-        if document_type == 'OpeningBalance':
+        if document_type in ('OpeningBalance', 'SubledgerOpening'):
             if source.status != 'confirmed':
                 raise HTTPException(409, '仅已确认期初可以另行申请撤销')
             return source
@@ -694,7 +726,7 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         if source.status != 'posted' or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
     elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
-                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance') else
+                               if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening') else
                                ('inspected',) if document_type == 'ProductionCompletion' else ('draft',)):
         # 历史已执行记录不补造审批；只限制仍待执行的草稿。
         raise HTTPException(409, '此单据已处理，不能继续审批')
@@ -734,8 +766,8 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
         if not reason.strip() or len(reason.strip()) > 200:
             raise HTTPException(422, '冲销原因必填，最多二百字')
         result = {'document': content, 'reversal_reason': reason.strip()}
-        if document_type == 'OpeningBalance':
-            source = db.get(OpeningBalance, identifier)
+        if document_type in ('OpeningBalance', 'SubledgerOpening'):
+            source = db.get(approval_type(document_type).model, identifier)
             result['confirmation'] = {'confirmed_by': source.confirmed_by, 'confirmed_at': source.confirmed_at}
         if document_type == 'MaintenanceJob':
             if not evidence.strip() or len(evidence.strip()) > 600:
@@ -747,6 +779,8 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
 
 def submit_permission(document_type: str, intent: str) -> str | None:
     # 冲销送审/撤回沿用冲销权限，不能因为有建单权限而获得冲销权限。
+    if intent == 'reverse' and document_type == 'SubledgerOpening':
+        return 'subledger_opening.reverse'
     if intent == 'reverse' and document_type == 'OpeningBalance':
         return 'opening_balance.reverse'
     if intent == 'reverse' and document_type == 'MaintenanceJob':
@@ -761,6 +795,23 @@ def submit_permission(document_type: str, intent: str) -> str | None:
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'SubledgerOpening':
+        from app.core.models import LedgerAccount
+        from app.finance.auxiliary_rules import LABELS
+        original = db.get(OpeningBalance, content['opening_balance_id'])
+        result = [{'label': label, 'value': str(value)} for label, value in [
+            ('分户依据', content['reference']), ('启用日', content['effective_date']),
+            ('总账期初', original.document_no or f"#{original.id}"), ('总账版本', content['opening_version']),
+            ('备注', content['note']), ('原单总数', len(content['lines']))]]
+        for control in content['control_accounts']:
+            account = db.get(LedgerAccount, control['account_id'])
+            result.append({'label': '应收控制科目' if control['kind'] == 'receivable' else '应付控制科目',
+                'value': account.code + ' · ' + account.name if account else str(control['account_id'])})
+        for line in content['lines'][:100]:
+            auxiliary = '、'.join(f"{LABELS[item['kind']]} #{item['id']}" for item in line['auxiliary'])
+            result.append({'label': line['document_reference'], 'value': f"原单日期 {line['document_date']}；科目 {line['account_code']}；借 {line['debit']} / 贷 {line['credit']}；{auxiliary}"})
+        result.append({'label': '完整核对', 'value': '请在本方案“核对与审计”中核对全部原单及逐组合勾稽；此处展示前一百行，全部原单及总账期初依据均参与摘要校验。'})
+        return result
     if document_type == 'OpeningBalance':
         from app.core.models import LedgerAccount, AccountingPeriod
         from app.finance.auxiliary_rules import LABELS

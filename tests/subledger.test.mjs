@@ -29,8 +29,8 @@ test('分户页面独立查看授权，参与编制者不能看到审核操作',
   assert.equal(canVisitRoute(routeByKey('subledgerOpenings'), ['finance.view','journal.view']), false)
   const item={status:'submitted',author_ids:[1,2]}
   assert.deepEqual(subledgerActions(item,['subledger_opening.review'],1), [])
-  assert.deepEqual(subledgerActions(item,['subledger_opening.review'],3), ['approve','reject'])
-  assert.deepEqual(subledgerActions({...item,status:'confirmed'},['subledger_opening.cancel','subledger_opening.reverse'],3), ['reverse'])
+  assert.deepEqual(subledgerActions(item,['subledger_opening.review'],3), [])
+  assert.deepEqual(subledgerActions({...item,status:'confirmed',reversal_approval:{status:'approved'}},['subledger_opening.cancel','subledger_opening.reverse'],3), ['reverse'])
   assert.deepEqual(subledgerActions({...item,status:'cancelled'},['subledger_opening.reverse'],3), [])
 })
 function fixture(t,callApi,perform=action=>action()) {
@@ -122,4 +122,21 @@ test('只读用户加载方案和资金历史，无权读取建单选项或写�
   assert.equal(state.subledgerOptions.value,null)
   assert.equal(await actions.saveSubledger(),false);assert.equal(await actions.createSubledgerPayment({line_id:1}),false)
   assert.equal(calls.length,2)
+})
+
+// 排队期间切换服务端，原方案的批准不能用于新服务端上的同号记录。
+test('分户旧审核及未批准启用被阻止，排队执行不能跨服务端',async t=>{
+  const pending=deferred(),calls=[]
+  const {state,actions}=fixture(t,async(...input)=>{calls.push(input)},async fn=>{
+    await pending.promise;try{await fn()}catch(e){state.error.value=e.message}
+  })
+  state.user.value={id:1,permissions:[...permissions,'subledger_opening.confirm']}
+  state.server.value={id:'source',fingerprint:'source-ca'}
+  const row={id:1,version:3}
+  assert.equal(await actions.changeSubledgerStatus(row,'submit','旧审核'),false)
+  assert.equal(await actions.changeSubledgerStatus(row,'confirm','提前启用'),false)
+  const run=actions.changeSubledgerStatus({...row,approval:{status:'approved'}},'confirm','逐组合核对')
+  state.server.value={id:'destination',fingerprint:'other-ca'};pending.resolve()
+  assert.equal(await run,false);assert.equal(calls.length,0)
+  assert.match(state.error.value,/会话或连接已变化/)
 })

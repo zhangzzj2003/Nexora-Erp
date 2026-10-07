@@ -25,6 +25,9 @@ from app.finance.opening_rules import active_opening, ensure_no_posted_journals
 from app.finance.subledger_rules import active_subledger, check_control_mapping, check_subledger
 from app.reports.routes import csv_value
 
+from app.core import document_approval as approval
+from app.core.approval_documents import subledger_snapshot, document_snapshot
+
 router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/finance/subledger-openings')
 ZERO = Decimal(0)
 
@@ -147,7 +150,11 @@ def snapshot(db: Session, record: SubledgerOpening) -> dict:
 
 
 def view(db: Session, record: SubledgerOpening) -> dict:
-    return dict(**snapshot(db, record), created_by_name=db.get(User, record.created_by).username,
+    reverse = approval.find_case(db, 'SubledgerOpening', record.id, 'reverse')
+    return dict(**snapshot(db, record),
+        approval=approval.case_data(approval.find_case(db, 'SubledgerOpening', record.id)),
+        reversal_approval=approval.case_data(reverse),
+        reversal_reason=json.loads(reverse.snapshot_json).get('reversal_reason', '') if reverse else '', created_by_name=db.get(User, record.created_by).username,
         author_ids=list(db.scalars(select(SubledgerOpeningChange.changed_by).where(
             SubledgerOpeningChange.opening_id == record.id,
             SubledgerOpeningChange.action.in_(('create', 'update', 'submit'))).distinct())))
@@ -329,6 +336,43 @@ def changes(record_id: int = Path(gt=0), _: dict = Depends(require('subledger_op
                 .where(SubledgerOpeningChange.opening_id == record_id).order_by(SubledgerOpeningChange.id))]
 
 
+def validate_reversal(db: Session, record: SubledgerOpening) -> None:
+    # 真实资金记录即使已冲销也必须保留历史期初，独立批准不能绕过该限制。
+    ensure_no_posted_journals(db)
+    ensure_date_unlocked(db, record.effective_date)
+    if db.scalar(select(SubledgerPayment.id).join(SubledgerOpeningLine,
+            SubledgerOpeningLine.id == SubledgerPayment.opening_line_id)
+            .where(SubledgerOpeningLine.opening_id == record.id).limit(1)) is not None:
+        raise HTTPException(409, '期初已有收付款记录，即使已冲销也不能重设历史期初')
+
+
+def prepare_approval_action(db: Session, record: SubledgerOpening, action: str,
+                            user: dict, reason: str, intent: str = 'execute') -> dict:
+    if action != 'withdraw' and (not reason.strip() or len(reason.strip()) > 200):
+        raise HTTPException(422, '分户审批依据必填，最多二百字')
+    before = snapshot(db, record)
+    if action in ('submit', 'approve'):
+        if intent == 'reverse':
+            validate_reversal(db, record)
+        else:
+            validate(db, record)
+    return before
+
+
+def sync_approval_action(db: Session, record: SubledgerOpening, action: str, state: dict,
+                         user_id: int, reason: str, before: dict) -> None:
+    record.status = 'draft' if action == 'withdraw' else state['status']
+    record.version += 1
+    if action == 'submit':
+        record.submitted_by, record.submitted_at = state['submitted_by'], state['submitted_at']
+        record.reviewed_by = record.reviewed_at = None
+    elif action in ('approve', 'reject'):
+        record.reviewed_by, record.reviewed_at = user_id, approval.now(db)
+    elif action == 'withdraw':
+        record.submitted_by = record.submitted_at = record.reviewed_by = record.reviewed_at = None
+    audit(db, record, before, action, reason, user_id)
+
+
 @router.post('/{record_id}/{action}')
 def transition(data: VersionInput, action: str, record_id: int = Path(gt=0), user: dict = Depends(current_user)) -> dict:
     permission = {'submit':'submit', 'approve':'review', 'reject':'review', 'confirm':'confirm',
@@ -337,37 +381,39 @@ def transition(data: VersionInput, action: str, record_id: int = Path(gt=0), use
         raise HTTPException(404, '分户操作不存在')
     if 'subledger_opening.' + permission not in user['permissions']:
         raise HTTPException(403, '没有执行此操作的权限')
-    states = {'submit':('draft','rejected'), 'approve':('submitted',), 'reject':('submitted',),
-        'confirm':('approved',), 'cancel':('draft','rejected','submitted','approved'), 'reverse':('confirmed',)}
+    states = {'confirm': ('approved',), 'cancel': ('draft', 'rejected', 'submitted', 'approved'),
+              'reverse': ('confirmed',)}
     with orm_session(write=True) as db:
         record = get_record(db, record_id, data.version)
+        if action in ('submit', 'approve', 'reject'):
+            raise HTTPException(409, '请从带审批版本的统一单据入口送审或审核分户期初')
         if record.status not in states[action]:
             raise HTTPException(409, '分户方案状态不允许此操作')
-        if action in ('approve','reject') and user['id'] in view(db, record)['author_ids']:
-            raise HTTPException(409, '建单、编辑或提交过方案的人不能审核，请由另一账号处理')
+        case = approval.find_case(db, 'SubledgerOpening', record_id)
+        if action == 'cancel' and case and case.status in ('submitted', 'approved'):
+            raise HTTPException(409, '请先撤回分户审批，再取消草稿')
         before = snapshot(db, record)
-        if action in ('submit','approve','confirm'):
-            evidence = validate(db, record)
-            if action == 'confirm':
-                record.evidence_json = encode(evidence)
-        if action == 'reverse':
-            ensure_no_posted_journals(db)
-            ensure_date_unlocked(db, record.effective_date)
-            if db.scalar(select(SubledgerPayment.id).join(SubledgerOpeningLine,
-                    SubledgerOpeningLine.id == SubledgerPayment.opening_line_id)
-                    .where(SubledgerOpeningLine.opening_id == record.id).limit(1)) is not None:
-                raise HTTPException(409, '期初已有收付款记录，即使已冲销也不能重设历史期初')
-        record.status = {'submit':'submitted', 'approve':'approved', 'reject':'rejected',
-            'confirm':'confirmed', 'cancel':'cancelled', 'reverse':'reversed'}[action]
+        if action == 'confirm':
+            case = approval.require_approved(db, 'SubledgerOpening', record_id,
+                subledger_snapshot(db, record_id), user['id'])
+            record.evidence_json = encode(validate(db, record))
+        elif action == 'reverse':
+            case = approval.require_approved(db, 'SubledgerOpening', record_id,
+                document_snapshot(db, 'SubledgerOpening', record_id, 'reverse', data.reason), user['id'],
+                intent='reverse', permission='subledger_opening.reverse')
+            validate_reversal(db, record)
+        record.status = {'confirm':'confirmed', 'cancel':'cancelled', 'reverse':'reversed'}[action]
         record.version += 1
         if action in ('cancel','reverse'):
             record.active_key = None
-        prefix = {'submit':'submitted', 'approve':'reviewed', 'reject':'reviewed',
-            'confirm':'confirmed', 'cancel':'cancelled', 'reverse':'reversed'}[action]
+        prefix = {'confirm':'confirmed', 'cancel':'cancelled', 'reverse':'reversed'}[action]
         setattr(record, prefix + '_by', user['id'])
         setattr(record, prefix + '_at', datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
         db.flush()
         audit(db, record, before, action, data.reason, user['id'])
+        if action in ('confirm', 'reverse'):
+            approval.mark_executed(db, case, user['id'],
+                permission='subledger_opening.reverse' if action == 'reverse' else None)
         return view(db, record)
 
 

@@ -101,7 +101,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
     if intent == 'reverse' and row:
         frozen_content = frozen_content['document']
     content_matches = workflow.digest(current_content)[1] == workflow.digest(frozen_content)[1]
-    if intent == 'reverse' and document_type == 'OpeningBalance' and row:
+    if intent == 'reverse' and document_type in ('OpeningBalance', 'SubledgerOpening') and row:
         content_matches = content_matches and json.loads(row.snapshot_json)['confirmation'] == {
             'confirmed_by': source.confirmed_by, 'confirmed_at': source.confirmed_at}
     if intent == 'reverse' and document_type == 'MaintenanceJob' and row:
@@ -144,7 +144,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]
     summary = document_summary(db, document_type, frozen_content)
-    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance') and intent == 'execute':
+    if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening') and intent == 'execute':
         # 升级前记录只作历史核对；首次送审后从不可改写的事件恢复。
         previous = native_review_evidence(db, document_type, identifier) if row is None else None
         if row:
@@ -162,7 +162,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
             if previous['review_reason']:
                 parts.append(f"意见：{previous['review_reason']}")
             summary.append({'label': '升级前流程记录（仅供历史核对）', 'value': '；'.join(parts)})
-    if document_type == 'OpeningBalance' and intent == 'reverse':
+    if document_type in ('OpeningBalance', 'SubledgerOpening') and intent == 'reverse':
         # 撤销核对原实际确认人员和时间，不能把原启用批准当作撤销授权。
         confirmation = json.loads(row.snapshot_json)['confirmation'] if row and state['status'] not in ('rejected', 'withdrawn') else {
             'confirmed_by': source.confirmed_by, 'confirmed_at': source.confirmed_at}
@@ -215,7 +215,7 @@ def act_document_approval(document_type: str, identifier: int,
         native = native_review_evidence(db, document_type, identifier)
         prior = native if row is None and payload.intent == 'execute' else None
         before = None
-        if document_type in ('CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance') and payload.intent == 'execute':
+        if document_type in ('CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening') and payload.intent == 'execute':
             # 使用外层业务事务准备固定正文，失败时原资料、原审计与审批事件全部回滚。
             if document_type == 'CrmQuote':
                 from app.sales.crm_quotes import prepare_approval_action
@@ -225,6 +225,8 @@ def act_document_approval(document_type: str, identifier: int,
                 from app.production.quality import prepare_approval_action
             elif document_type == 'MrpPlan':
                 from app.production.mrp import prepare_approval_action
+            elif document_type == 'SubledgerOpening':
+                from app.finance.subledger_openings import prepare_approval_action
             elif document_type == 'OpeningBalance':
                 from app.finance.opening_balances import prepare_approval_action
             elif document_type == 'Journal':
@@ -270,9 +272,12 @@ def act_document_approval(document_type: str, identifier: int,
                 EquipmentAttachmentReversal.attachment_id.in_([item.id for item in attachments]))))
             for author_id in {source.created_by, user['id'], *extra_authors}:
                 workflow.record_author(db, document_type, identifier, author_id)
-        if document_type == 'OpeningBalance' and payload.intent == 'reverse':
-            from app.finance.opening_balances import prepare_approval_action
-            workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else 'opening_balance.reverse')
+        if document_type in ('OpeningBalance', 'SubledgerOpening') and payload.intent == 'reverse':
+            if document_type == 'OpeningBalance':
+                from app.finance.opening_balances import prepare_approval_action
+            else:
+                from app.finance.subledger_openings import prepare_approval_action
+            workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else submit_permission(document_type, 'reverse'))
             workflow.check_version(row.version if row else 0, payload.version)
             document_pending(db, document_type, identifier, payload.intent)
             prepare_approval_action(db, source, action, user, payload.reason, payload.intent)
@@ -297,7 +302,10 @@ def act_document_approval(document_type: str, identifier: int,
             result = workflow.withdraw(db, document_type, identifier, payload.version, user['id'],
                               intent=payload.intent, permission=submit_permission(document_type, payload.intent))
         if payload.intent == 'execute':
-            if document_type == 'OpeningBalance':
+            if document_type == 'SubledgerOpening':
+                from app.finance.subledger_openings import sync_approval_action
+                sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
+            elif document_type == 'OpeningBalance':
                 from app.finance.opening_balances import sync_approval_action
                 sync_approval_action(db, source, action, result, user['id'], payload.reason, before)
             elif document_type == 'Journal':

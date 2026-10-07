@@ -276,7 +276,7 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 ## 历史未结单据分户期初
 
-第 48 版新增分户方案、原单、审计及资金四张 ORM 表，此迁移后共 104 张静态模型表。历史明细与已确认总账期初逐完整辅助组合勾稽，由另一账号审核后启用；资金登记、追加冲销、业务凭证来源及结账快照沿用统一会话和期间锁定。路由模块 app/finance/subledger_openings.py 在 main.py 装配，跨模块约束由 subledger_rules.py 复用。独立权限、API、首次启用限制及升级见 [分户期初](../docs/subledger-openings.md)，客户端和服务端须同步升级。
+第 48 版新增分户方案、原单、审计及资金四张 ORM 表，此迁移后共 104 张静态模型表。历史明细与已确认总账期初逐完整辅助组合勾稽，经统一一至五步独立批准后启用；撤销另行批准并固定原确认依据，旧原生审核入口返回 409；资金登记、追加冲销、业务凭证来源及结账快照沿用统一会话和期间锁定。路由模块 app/finance/subledger_openings.py 在 main.py 装配，跨模块约束由 subledger_rules.py 复用。独立权限、API、首次启用限制及升级见 [分户期初](../docs/subledger-openings.md)，客户端和服务端须同步升级。
 
 ## MRP 物料需求计划
 

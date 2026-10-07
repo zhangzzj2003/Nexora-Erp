@@ -58,6 +58,13 @@ def create(subledger, **changes):
 
 
 def action(subledger, record, name, review=False):
+    client = subledger[0]
+    if name in ('submit','approve','reject','withdraw'):
+        # 显式调用真实分户审批入口，原确认、资金及勾稽断言保留原领域路径。
+        response = client.post(f'/api/v1/system/document-approvals/SubledgerOpening/{record["id"]}/{name}',
+            json={'version': record['approval']['version'], 'reason': '分户核对'}, headers=subledger[2] if review else None)
+        assert response.status_code == 200, response.text
+        return next(row for row in client.get(BASE).json() if row['id'] == record['id'])
     return subledger[1]('POST',f'finance/subledger-openings/{record["id"]}/{name}',
         dict(version=record['version'],reason='分户核对'),headers=subledger[2] if review else None)
 
@@ -107,7 +114,7 @@ def test_equal_company_total_does_not_hide_wrong_party_or_project(subledger):
     record = create(subledger, lines=lines)
     check = api('GET',f'finance/subledger-openings/{record["id"]}/check')
     assert not check['matched'] and any(row['difference'] != '0.00' for row in check['rows'])
-    api('POST',f'finance/subledger-openings/{record["id"]}/submit',dict(version=1,reason='合计相等仍须核对'),409)
+    api('POST',f'system/document-approvals/SubledgerOpening/{record["id"]}/submit',dict(version=0,reason='合计相等仍须核对'),409)
     changed = [dict(row) for row in payload['lines']]
     changed[0]['auxiliary'] = []
     saved = api('PUT',f'finance/subledger-openings/{record["id"]}',{**payload,'version':1,'lines':changed})
@@ -139,6 +146,8 @@ def test_cancel_reverse_dependency_and_replacement_gap(subledger):
     record = create(subledger, reference='SECOND')
     for name in ('submit','approve','confirm'):
         record = action(subledger, record, name, name == 'approve')
+    approve_document(subledger[0], None, 'SubledgerOpening', record['id'], intent='reverse', reason='分户核对')
+    record = next(row for row in subledger[0].get(BASE).json() if row['id'] == record['id'])
     record = action(subledger, record, 'reverse')
     api('POST','finance/subledger-openings/query',dict(to_date='2026-12-31'),409)
     replacement = create(subledger, reference='REPLACEMENT')
@@ -256,7 +265,8 @@ def test_independent_review_includes_previous_editor_and_confirm_failure_rolls_b
     api('POST',f'finance/subledger-openings/{record["id"]}/approve',dict(version=3,reason='编辑人自审'),409,reviewer)
     api('POST','users',dict(username='third',password='third-pass-123',roles=['finance']),201)
     headers = {'Authorization':'Bearer ' + api('POST','auth/login',dict(username='third',password='third-pass-123'))['token']}
-    record = api('POST',f'finance/subledger-openings/{record["id"]}/approve',dict(version=3,reason='第三人审核'),headers=headers)
+    reviewed = api('POST',f'system/document-approvals/SubledgerOpening/{record["id"]}/approve',dict(version=record['approval']['version'],reason='第三人审核'),headers=headers)
+    record = next(row for row in api('GET','finance/subledger-openings') if row['id'] == record['id'])
     original = module.audit
     def fail_confirmation(*args):
         original(*args)

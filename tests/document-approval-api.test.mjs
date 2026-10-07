@@ -105,6 +105,9 @@ test('合法报价完整摘要保留全部物料与附件且拒绝越界',()=>{
   caseApi.validateDocumentApprovalRecord(state)
   // 凭证最多百行、十份附件及原流程记录，适配只扩大凭证摘要，不放宽其他领域。
   caseApi.validateDocumentApprovalRecord({...state,document_type:'Journal'})
+  // 分户原单及独立撤销确认摘要允许一百二十八项，其他类型保持原额度。
+  caseApi.validateDocumentApprovalRecord({...state,document_type:'SubledgerOpening'})
+  assert.throws(()=>caseApi.validateDocumentApprovalRecord({...state,document_type:'SubledgerOpening',summary:Array(129).fill({label:'越界',value:''})}))
   assert.throws(()=>caseApi.validateDocumentApprovalRecord({...state,document_type:'WarehouseInbound'}))
   assert.throws(()=>caseApi.validateDocumentApprovalRecord({...state,summary:Array(129).fill({label:'越界',value:''})}))
 })
@@ -134,4 +137,11 @@ test('期初审批依据必填且最多二百字，撤回保持独立版本',()=
   assert.equal(caseApi.documentApprovalActionBody(input).reason,'核对期初')
   for(const reason of [' ','字'.repeat(201)])assert.throws(()=>caseApi.documentApprovalActionBody({...input,reason}))
   assert.equal(caseApi.documentApprovalActionBody({...input,action:'withdraw',version:2,reason:''}).version,2)
+})
+
+// 分户摘要可展示前一百行与核对说明，完整五百行留在服务端固定正文中。
+test('分户摘要允许独立撤销的确认依据，仍拒绝超长和无效审批输入',()=>{
+  const input={document_type:'SubledgerOpening',document_id:1,intent:'execute',action:'submit',version:0,reason:'核对分户'}
+  assert.equal(caseApi.documentApprovalActionBody(input).reason,'核对分户')
+  for(const reason of [' ','字'.repeat(201)])assert.throws(()=>caseApi.documentApprovalActionBody({...input,reason}))
 })

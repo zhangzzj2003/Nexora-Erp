@@ -22,10 +22,10 @@ export function subledgerDraftError(input: SubledgerInput, effectiveDate: string
 export function subledgerActions(item: SubledgerOpening, permissions: string[], userId: number): OpeningBalanceAction[] {
   const can = (action: string) => permissions.includes('subledger_opening.' + action)
   const result: OpeningBalanceAction[] = []
-  if (['draft','rejected'].includes(item.status) && can('submit')) result.push('submit')
-  if (item.status === 'submitted' && can('review') && !item.author_ids.includes(userId)) result.push('approve','reject')
-  if (item.status === 'approved' && can('confirm')) result.push('confirm')
-  if (['draft','rejected','submitted','approved'].includes(item.status) && can('cancel')) result.push('cancel')
-  if (item.status === 'confirmed' && can('reverse')) result.push('reverse')
+  // 审核动作由统一弹窗按服务端步骤资格显示，执行动作还需本单批准。
+  if (item.status === 'approved' && item.approval?.status === 'approved' && can('confirm')) result.push('confirm')
+  if (['draft','rejected','submitted','approved'].includes(item.status) && can('cancel')
+      && !['submitted','approved'].includes(item.approval?.status ?? '')) result.push('cancel')
+  if (item.status === 'confirmed' && item.reversal_approval?.status === 'approved' && can('reverse')) result.push('reverse')
   return result
 }

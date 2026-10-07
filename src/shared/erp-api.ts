@@ -278,6 +278,7 @@ export interface SubledgerReconciliation {
   rows: { account_id: number; auxiliary: AuxiliarySnapshot[]; ledger_amount: string; subledger_amount: string; difference: string }[]
 }
 export interface SubledgerOpening extends Omit<SubledgerInput, 'reason' | 'lines'>, NumberedDocument {
+  approval?: DocumentApprovalState; reversal_approval?: DocumentApprovalState; reversal_reason?: string
   id: number; effective_date: string; status: OpeningBalance['status']; version: number; active_key: number | null
   lines: SubledgerLine[]; evidence: SubledgerReconciliation | null; currency: 'CNY'; author_ids: number[]
   created_by: number; created_by_name: string; created_at: string
@@ -287,7 +288,7 @@ export interface SubledgerOpening extends Omit<SubledgerInput, 'reason' | 'lines
 }
 export interface SubledgerOptions extends AuxiliarySelectionOptions { accounts: LedgerAccount[]; opening_balance: OpeningBalance | null }
 export interface SubledgerChange extends FinanceMetadataChange<Omit<SubledgerOpening, 'created_by_name' | 'author_ids'>> {
-  action: OpeningBalanceAction | 'create' | 'update'
+  action: OpeningBalanceAction | 'create' | 'update' | 'withdraw'
 }
 export interface SubledgerPaymentInput { line_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; reason: string }
 export interface SubledgerPayment extends NumberedDocument {

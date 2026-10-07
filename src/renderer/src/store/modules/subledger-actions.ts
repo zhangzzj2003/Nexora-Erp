@@ -19,7 +19,7 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
     detailTicket++; state.subledgerChanges.value = []; state.subledgerCheck.value = null
   }
   watch(state.subledgerQuery, clearReport, { deep: true, flush: 'sync' })
-  watch(() => `${state.user.value?.id}:${state.user.value?.permissions.join('|')}`, () => {
+  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`, () => {
     owner++; invalidateReads(); state.subledgerOpenings.value = []; state.subledgerPayments.value = []
     state.subledgerOptions.value = null; state.subledgerForm.value = emptyForm()
   }, { flush: 'sync' })
@@ -77,7 +77,8 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
   async function write(permission: string, run: () => Promise<unknown>, message: string): Promise<boolean> {
     if (!can(permission) || !connected() || state.busy.value) return false
     const session = owner; let saved = false
-    await perform(async () => { await run(); saved = session === owner && can(permission) }, message)
+    // 排队写操作在发送前重新检查原会话，不能把期初或资金写入另一个实例。
+    await perform(async () => { if (session !== owner || !can(permission) || !connected()) throw new Error('会话或连接已变化，请重新打开分户方案。'); await run(); saved = session === owner && can(permission) }, message)
     if (!saved || session !== owner || !can(permission)) return false
     detailTicket++; state.subledgerChanges.value = []; state.subledgerCheck.value = null
     await loadSubledger()
@@ -98,6 +99,10 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
     return saved
   }
   async function changeSubledgerStatus(item: SubledgerOpening, action: OpeningBalanceAction, reason: string): Promise<boolean> {
+    if (['submit','approve','reject'].includes(action)) return false
+    if (action === 'confirm' && item.approval?.status !== 'approved') return false
+    if (action === 'reverse' && item.reversal_approval?.status !== 'approved') return false
+    if (action === 'cancel' && ['submitted','approved'].includes(item.approval?.status ?? '')) return false
     const permission = ['approve','reject'].includes(action) ? 'subledger_opening.review' : `subledger_opening.${action}`
     return write(permission, () => window.nexora!.callApi('changeSubledgerStatus', { id: item.id, version: item.version, action, reason }), '分户期初状态已更新。')
   }

@@ -17,6 +17,7 @@ import { openingActionLabels, openingStatusLabels } from './opening-display'
 import { subledgerActions, subledgerKindLabels } from './subledger-display'
 import SubledgerEditor from './SubledgerEditor.vue'
 import SubledgerEvidence from './SubledgerEvidence.vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import './ledger-metadata.css'
 import './journals.css'
 import './subledger.css'
@@ -24,8 +25,8 @@ import './subledger.css'
 const store = usePiniaAppStore()
 const { subledgerOpenings: records, subledgerPayments: payments, subledgerQuery: filters,
   subledgerReport: report, subledgerCheck: check, subledgerChanges: changes, subledgerLoading: loading,
-  subledgerError: error, error: operationError, busy, connectionLost, user } = storeToRefs(store)
-const { can, loadSubledger, querySubledger, exportSubledger, editSubledger, loadSubledgerDetail,
+  subledgerError: error, error: operationError, busy, connectionLost, user, server } = storeToRefs(store)
+const { can, openDocumentApproval, loadSubledger, querySubledger, exportSubledger, editSubledger, loadSubledgerDetail,
   clearSubledgerDetail, changeSubledgerStatus, createSubledgerPayment, reverseSubledgerPayment } = store
 const mode = ref<'balances' | 'plans' | 'payments'>('balances')
 const editing = ref(false)
@@ -79,7 +80,7 @@ function alreadyReversed(row: SubledgerPayment): boolean {
 watch(() => filters.value.kind, () => { filters.value.party_id = null })
 watch(filters, () => { source.value = null }, { deep: true, flush: 'sync' })
 function closeDetail(): void { detailTicket++; detailLoading.value = false; detail.value = null; clearSubledgerDetail() }
-watch(() => `${user.value?.id}:${user.value?.permissions.join('|')}`, () => {
+watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`, () => {
   editing.value = false; command.value = null; reversal.value = null; payment.value = null; source.value = null; closeDetail()
 }, { flush: 'sync' })
 watch(connectionLost, () => { source.value = null; closeDetail() }, { flush: 'sync' })
@@ -102,14 +103,21 @@ async function inspect(item: SubledgerOpening): Promise<void> {
   if (ticket === detailTicket) detailLoading.value = false
 }
 function ask(item: SubledgerOpening, action: OpeningBalanceAction): void {
-  command.value = { record: item, action }; reversal.value = null; reason.value = ''; operationError.value = ''
+  if (!actions(item).includes(action)) return
+  command.value = { record: item, action }; reversal.value = null; reason.value = action === 'reverse' ? item.reversal_reason ?? '' : ''; operationError.value = ''
 }
 function askReverse(item: SubledgerPayment): void {
   reversal.value = item; command.value = null; reason.value = ''; operationError.value = ''
 }
 async function confirm(): Promise<void> {
   if (disabled.value || !reason.value.trim()) return
-  const saved = command.value ? await changeSubledgerStatus(command.value.record, command.value.action, reason.value)
+  const current = command.value ? records.value.find(row => row.id === command.value?.record.id) : undefined
+  // 打开的执行弹窗必须重新核对本单版本与批准状态。
+  if (command.value && (!current || current.version !== command.value.record.version || !actions(current).includes(command.value.action))) {
+    operationError.value = '分户方案已变化，请关闭弹窗后重新核对。'
+    return
+  }
+  const saved = command.value && current ? await changeSubledgerStatus(current, command.value.action, reason.value)
     : reversal.value ? await reverseSubledgerPayment(reversal.value.id, reason.value) : false
   if (saved) { command.value = null; reversal.value = null; closeDetail() }
 }
@@ -121,9 +129,11 @@ async function savePayment(): Promise<void> {
   if (disabled.value || !payment.value) return
   if (await createSubledgerPayment({ ...paymentForm.value })) { payment.value = null; source.value = null; await querySubledger() }
 }
+const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && ['confirmed','reversed','cancelled'].includes(item.status) ? '保留历史流程' : ({draft:'未送审',submitted:'审批中',approved:'已批准待确认',rejected:'已驳回',withdrawn:'已撤回',executed:'已执行'}[item.approval?.status ?? 'draft'])
 </script>
 
 <template>
+  <DocumentApprovalDialog />
   <section class="stack ledger-metadata-page subledger-page">
     <div class="ledger-actions" aria-label="分户期初内容">
       <AppButton :variant="mode === 'balances' ? 'primary' : 'secondary'" @click="mode = 'balances'">未结余额</AppButton>
@@ -168,8 +178,10 @@ async function savePayment(): Promise<void> {
         <template #actions><AppButton v-if="can('subledger_opening.create')" variant="primary" :disabled="disabled || active || preparing" @click="edit()">{{ preparing ? '正在读取…' : '新增分户方案' }}</AppButton></template>
         <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
         <template #cell-count="{ row }">{{ row.lines.length }}</template>
-        <template #cell-status="{ row }">{{ openingStatusLabels[row.status] }} · v{{ row.version }}</template>
+        <template #cell-status="{ row }">{{ openingStatusLabels[row.status] }} · v{{ row.version }}<small class="approval-caption">{{ approvalCaption(row) }}</small></template>
         <template #cell-actions="{ row }"><div class="row-actions">
+          <AppButton variant="text" :disabled="disabled" @click="openDocumentApproval({document_type:'SubledgerOpening',document_id:row.id,intent:'execute'})">单据审批</AppButton>
+          <AppButton v-if="['confirmed','reversed'].includes(row.status)" variant="text" :disabled="disabled" @click="openDocumentApproval({document_type:'SubledgerOpening',document_id:row.id,intent:'reverse'})">撤销审批</AppButton>
           <AppButton variant="text" :disabled="disabled" @click="inspect(row)">核对与审计</AppButton>
           <AppButton v-if="can('subledger_opening.create') && ['draft', 'rejected'].includes(row.status)" variant="text" :disabled="disabled || preparing" @click="edit(row)">编辑</AppButton>
           <AppButton v-for="action in actions(row)" :key="action" variant="text" :disabled="disabled" @click="ask(row, action)">{{ openingActionLabels[action] }}</AppButton>
@@ -217,7 +229,7 @@ async function savePayment(): Promise<void> {
         <p v-if="command">方案 {{ command.record.reference }} · 版本 {{ command.record.version }}。提交、审核与确认均须逐组合一致；建单、编辑或提交人员不能审核。</p>
         <p v-if="command?.action === 'reverse'">仅未过账且从未登记分户资金的期初可撤销，即使资金已冲销也不能重设历史。</p>
         <p v-if="reversal">原记录 {{ documentLabel(reversal) }} · {{ reversal.party_name }} · {{ reversal.document_reference }} · {{ reversal.amount }} 元。追加等额反向记录，保留原始记录；相应凭证更正仍须在凭证管理处理。</p>
-        <label>依据 / 原因<AppInput v-model.trim="reason" required maxlength="200" :disabled="disabled" /></label>
+        <label>依据 / 原因<AppInput v-model.trim="reason" :readonly="command?.action === 'reverse'" required maxlength="200" :disabled="disabled" /></label>
         <p v-if="operationError" role="alert">{{ operationError }}</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !reason">{{ busy ? '正在处理…' : command ? openingActionLabels[command.action] : '追加冲销记录' }}</AppButton>
       </form>
