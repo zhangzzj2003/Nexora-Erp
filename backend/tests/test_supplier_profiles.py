@@ -160,7 +160,7 @@ def test_v85_migration_preserves_supplier_ids_bindings_and_history(client):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 92
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert [tuple(item) for item in db.execute('SELECT * FROM supplier_changes')] == old_changes
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
     assert detail(client, row)['supplier_ids'] == ids

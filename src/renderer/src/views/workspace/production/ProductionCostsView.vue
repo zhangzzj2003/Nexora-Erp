@@ -8,12 +8,14 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NCollapse, NModal } from 'naive-ui'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
+import type { ProductionCostSettlement } from '../../../../../shared/erp-api'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
@@ -29,7 +31,7 @@ const {
   settlementReversalReasons,
   materialValuationForm,
   productionChargeForm,
-  costReversalReasons
+  costReversalReasons, user, server
 } = storeToRefs(store)
 const {
   can,
@@ -38,8 +40,30 @@ const {
   recordProductionCharge,
   reverseProductionCost,
   settleProductionCost,
-  reverseProductionSettlement
+  reverseProductionSettlement, openDocumentApproval, changeProductionSettlementStatus
 } = store
+// 普通确认保护业务与批准代次；切服、换账号或撤权立即关闭旧操作。
+const settlementCommand=ref<{row:ProductionCostSettlement;action:'post'|'cancel'}|null>(null)
+const settlementReason=ref('')
+watch(()=>`${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles.join('|')}:${user.value?.permissions.join('|')}`,()=>{
+  settlementCommand.value=null;showSettlementForm.value=false
+})
+function mayExecuteSettlement(row:ProductionCostSettlement,action:'post'|'cancel'):boolean {
+  return row.status==='draft' && can('production_cost.settle') && (action==='post' ? row.approval?.status==='approved' : !['submitted','approved'].includes(row.approval?.status??''))
+}
+function askSettlement(row:ProductionCostSettlement,action:'post'|'cancel'):void {
+  if(!mayExecuteSettlement(row,action))return
+  settlementCommand.value={row,action};settlementReason.value=''
+}
+async function confirmSettlement():Promise<void> {
+  if(!settlementCommand.value || busy.value || connectionLost.value)return
+  const {row,action}=settlementCommand.value,current=productionCostSettlements.value.find(item=>item.id===row.id)
+  if(!current || current.version!==row.version || current.approval?.version!==row.approval?.version || !mayExecuteSettlement(current,action)){
+    error.value='成本结算或批准已变化，请重新读取。';settlementCommand.value=null;return
+  }
+  await changeProductionSettlementStatus(current,action,settlementReason.value)
+  if(!error.value)settlementCommand.value=null
+}
 // 分别搜索工单与成本记录，不改变待核价及冲销金额的展示。
 const costQuery = ref('')
 const entryQuery = ref('')
@@ -177,7 +201,7 @@ const filteredEntries = computed(() =>
     >
       <form class="flex flex-col gap-4" @submit.prevent="submitSettlement">
         <p class="muted">
-          工单全部报工且不合格数量全部确认处置后，按所选规则分摊材料、人工、制造费用与返工携入成本。正常报废由合格品承担，独立报废列损失，返工携带来源成本。结算保存快照；更正来源前须先冲销下游及原结算。
+          工单全部报工且不合格数量全部确认处置后，按所选规则分摊材料、人工、制造费用与返工携入成本。正常报废由合格品承担，独立报废列损失，返工携带来源成本。先保存预计草稿，独立批准执行后才更新正式计价和锁定来源；更正来源前须先冲销下游及原结算。
         </p>
         <label
           >生产工单<WorkspaceSelect
@@ -217,7 +241,7 @@ const filteredEntries = computed(() =>
               connectionLost || !selectedOrder || !productionSettlementForm.reference.trim()
             "
             variant="primary"
-            >确认结算</AppButton
+            >保存结算草稿</AppButton
           >
         </div>
       </form>
@@ -363,10 +387,12 @@ const filteredEntries = computed(() =>
         </p>
       </template>
       <template #cell-status="{ row: item }"
-        ><span class="pill">{{ item.status === 'active' ? '有效' : '已冲销' }}</span></template
+        ><span class="pill">{{ item.status === 'active' ? '正式有效' : item.status === 'reversed' ? '已冲销' : item.status === 'cancelled' ? '已取消' : item.approval?.status === 'approved' ? '已批准待执行' : item.approval?.status === 'submitted' ? '审批中' : '预计草稿' }}</span></template
       >
       <template #cell-details="{ row: item }">
         <div class="workspace-record-lines">
+          <span v-if="item.status === 'draft'">预计分摊，尚未正式计价或锁定来源。</span>
+          <span>版本 {{ item.version }} · 实际执行 {{ item.executed_at ? localTime(item.executed_at) : '—' }}</span>
           <span>合格 {{ item.accepted_quantity }} · 总成本 ¥{{ item.total_amount }}</span>
           <span
             >材料 ¥{{ item.material_amount }} · 人工 ¥{{ item.labor_amount }} · 制造费用 ¥{{
@@ -405,26 +431,16 @@ const filteredEntries = computed(() =>
         </NCollapse>
       </template>
       <template #cell-actions="{ row: item }">
-        <form
-          v-if="item.status === 'active' && can('production_cost.reopen')"
-          class="flex flex-col gap-2"
-          @submit.prevent="reverseProductionSettlement(item.id)"
-        >
-          <label
-            >冲销原因<AppInput
-              v-model="settlementReversalReasons[item.id]"
-              :maxlength="200"
-              :disabled="busy"
-              placeholder="填写更正原因"
-          /></label>
-          <AppButton
-            type="submit"
-            size="small"
-            :disabled="busy || connectionLost || !settlementReversalReasons[item.id]?.trim()"
-            variant="secondary"
-            >冲销结算</AppButton
-          >
-        </form>
+        <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+          @click="openDocumentApproval({document_type:'ProductionCostSettlement',document_id:item.id,intent:'execute'})">结算审批</AppButton>
+        <AppButton v-if="mayExecuteSettlement(item,'post')" type="button" size="small" :disabled="busy || connectionLost"
+          @click="askSettlement(item,'post')">确认结算</AppButton>
+        <AppButton v-if="mayExecuteSettlement(item,'cancel')" type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+          @click="askSettlement(item,'cancel')">取消草稿</AppButton>
+        <AppButton v-if="['active','reversed'].includes(item.status)" type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+          @click="openDocumentApproval({document_type:'ProductionCostSettlement',document_id:item.id,intent:'reverse'})">{{item.status==='reversed'?'冲销记录':'冲销审批'}}</AppButton>
+        <AppButton v-if="item.status==='active' && item.reversal_approval?.status==='approved' && can('production_cost.reopen')" type="button" size="small" :disabled="busy || connectionLost"
+          @click="reverseProductionSettlement(item.id)">执行批准冲销</AppButton>
       </template>
     </WorkspaceTable>
     <!-- 成本金额与冲销记录复用共享表格，核价规则保持原样。 -->
@@ -499,5 +515,12 @@ const filteredEntries = computed(() =>
       </template>
       <template #empty>{{ entryQuery ? '没有匹配的记录。' : '暂无成本记录。' }}</template>
     </WorkspaceTable>
+    <NModal :show="!!settlementCommand" preset="card" :title="settlementCommand?.action==='post'?'确认正式结算':'取消预计草稿'"
+      :mask-closable="!busy" @update:show="value=>{if(!value)settlementCommand=null}" :style="{width:'min(600px,calc(100vw - 32px))'}">
+      <p class="muted">{{ settlementCommand ? documentLabel(settlementCommand.row) : '' }}。执行重新核对数量、成本来源与期间，草稿和批准本身不计价。</p>
+      <label>结算操作依据<AppInput v-model.trim="settlementReason" required maxlength="200" :disabled="busy" /></label>
+      <AppButton type="button" :disabled="busy || connectionLost || !settlementReason" @click="confirmSettlement">确认操作</AppButton>
+    </NModal>
+    <DocumentApprovalDialog />
   </section>
 </template>

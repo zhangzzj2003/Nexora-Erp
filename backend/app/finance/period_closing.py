@@ -10,6 +10,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.access.security import require
+from app.core.models import ProductionCostSettlement
 from app.core.models import AccountingPeriod, Journal, JournalLine, PaymentRecord, OrderSettlementTransfer, PeriodClosing, User
 from app.core.orm import add_model, model_data, orm_session
 from app.finance.journals import VersionInput
@@ -78,7 +79,7 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
     from app.core.models import QualityDisposition, QualityCostAllocation, ProductionSettlementReversal
     quality_records = list(db.scalars(select(QualityDisposition).where(QualityDisposition.status == 'posted',
         QualityDisposition.posted_at < period.end_date + ' 24:00:00').order_by(QualityDisposition.id)))
-    unallocated_quality = [record.id for record in quality_records if db.scalar(select(QualityCostAllocation.settlement_id).where(
+    unallocated_quality = [record.id for record in quality_records if db.scalar(select(QualityCostAllocation.settlement_id).join(ProductionCostSettlement,ProductionCostSettlement.id==QualityCostAllocation.settlement_id).where(ProductionCostSettlement.status=='active',
         QualityCostAllocation.disposition_id == record.id, ~select(ProductionSettlementReversal.id).where(
             ProductionSettlementReversal.settlement_id == QualityCostAllocation.settlement_id).exists())) is None]
     if unallocated_quality:
@@ -109,7 +110,7 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
         subledger=subledger_evidence,
         after_sales=archive_cases(db, period.end_date, valuation),
         quality=[dict(disposition=model_data(record), allocations=[model_data(value) for value in db.scalars(
-            select(QualityCostAllocation).where(QualityCostAllocation.disposition_id == record.id))]) for record in quality_records],
+            select(QualityCostAllocation).join(ProductionCostSettlement, ProductionCostSettlement.id == QualityCostAllocation.settlement_id).where(ProductionCostSettlement.status == 'active',QualityCostAllocation.disposition_id == record.id))]) for record in quality_records],
         auxiliary=dict(lines=auxiliary_lines, opening=auxiliary_opening, unassigned_count=unassigned_count,
             policies=selection_options(db)['auxiliary_policies']),
         opening_balance_id=opening.id if opening and opening.status == 'confirmed' else None,

@@ -14,7 +14,7 @@ from app.core.period_lock import ensure_movement_unlocked
 from app.core.orm import orm_session, model_data
 from app.core.models import (StockMovement, Material, InventoryCostInput, ReceiptOrderLink,
     PurchaseOrderLine, SalesReturnLine, MaterialReturnLine, User,
-    ProductionCostAllocation, ProductionSettlementDependency, ProductionSettlementReversal)
+    ProductionCostAllocation, ProductionSettlementDependency, ProductionSettlementReversal, ProductionCostSettlement)
 
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1/inventory/valuation")
 CENT = Decimal("0.01")
@@ -94,7 +94,8 @@ def calculate_valuation(session: Session, *, through_date: str | None = None) ->
         rates[row.movement_id] = (Decimal(row.unit_cost), row.id)
     order_prices = purchase_prices(session)
     linked = linked_source_lines(session)
-    allocations = {row.movement_id: model_data(row) for row in session.scalars(select(ProductionCostAllocation).where(
+    allocations = {row.movement_id: model_data(row) for row in session.scalars(select(ProductionCostAllocation).join(ProductionCostSettlement, ProductionCostSettlement.id == ProductionCostAllocation.settlement_id).where(
+        ProductionCostSettlement.status == 'active',
         ~select(ProductionSettlementReversal.id).where(
             ProductionSettlementReversal.settlement_id == ProductionCostAllocation.settlement_id).exists()))}
     settlement_dependencies: dict[int, set[tuple[str, int]]] = {}
@@ -235,10 +236,12 @@ def record_cost(payload: CostInput,
             raise HTTPException(409, "此流水的成本须沿用原单据或移动平均，不可人工核价")
         if payload.movement_id in purchase_prices(session):
             raise HTTPException(409, "采购订单已有单价，不能覆盖原始价格")
-        dependency = session.scalar(select(ProductionSettlementDependency.settlement_id).where(
+        dependency = session.scalar(select(ProductionSettlementDependency.settlement_id).join(ProductionCostSettlement, ProductionCostSettlement.id == ProductionSettlementDependency.settlement_id).where(
+            ProductionCostSettlement.status == 'active',
             ProductionSettlementDependency.kind == 'input', ProductionSettlementDependency.source_id == payload.movement_id,
             ~select(ProductionSettlementReversal.id).where(ProductionSettlementReversal.settlement_id == ProductionSettlementDependency.settlement_id).exists()).limit(1))
-        allocation = session.scalar(select(ProductionCostAllocation.settlement_id).where(
+        allocation = session.scalar(select(ProductionCostAllocation.settlement_id).join(ProductionCostSettlement, ProductionCostSettlement.id == ProductionCostAllocation.settlement_id).where(
+            ProductionCostSettlement.status == 'active',
             ProductionCostAllocation.movement_id == payload.movement_id,
             ~select(ProductionSettlementReversal.id).where(ProductionSettlementReversal.settlement_id == ProductionCostAllocation.settlement_id).exists()).limit(1))
         if dependency is not None or allocation is not None:

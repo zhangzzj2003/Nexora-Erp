@@ -1,3 +1,4 @@
+from approval_test_helpers import execute_production_settlement, approve_document
 """结账证据、并发、历史成本锁定及追加式跨期更正的真实风险。"""
 
 from concurrent.futures import ThreadPoolExecutor
@@ -108,7 +109,7 @@ def test_v42_upgrade_failure_does_not_leave_partial_closing_schema(journals, rem
         db.execute('DROP TRIGGER fail_closing_permissions')
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 92
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute('SELECT COUNT(*) FROM period_closings').fetchone()[0] == 0
 
 
@@ -132,7 +133,7 @@ def test_opening_is_locked_even_without_posted_journal(journals):
     assert client.post(f'/api/v1/finance/opening-balances/{record["id"]}/reverse',
         json=dict(version=record['version'], reason='回改期初')).status_code == 409
     command(client, version=2, name='reopen')
-    from approval_test_helpers import approve_document
+    from approval_test_helpers import execute_production_settlement, approve_document
     approve_document(client, None, 'OpeningBalance', record['id'], intent='reverse', reason='重新核对')
     assert client.post(f'/api/v1/finance/opening-balances/{record["id"]}/reverse',
         json=dict(version=record['version'], reason='重新核对')).status_code == 200
@@ -179,6 +180,7 @@ def test_production_allocations_cannot_reprice_closed_movements(erp, active):
     if active:
         settlement = api('POST', 'production-costs/settlements',
             dict(work_order_id=order['id'], reference='INITIAL'), 201)
+        settlement = execute_production_settlement(erp[0], erp[1], settlement)
     else:
         movement = next(item for item in api('GET','inventory/valuation')['movements']
             if item['source_type'] == 'production_completion')
@@ -195,6 +197,7 @@ def test_production_allocations_cannot_reprice_closed_movements(erp, active):
         api('POST','production-costs/settlements', dict(work_order_id=order['id'], reference='LATE'), 409)
     api('POST','finance/accounting-periods/1/reopen', dict(version=2, reason='补成本'))
     if active:
+        approve_document(erp[0], erp[1], 'ProductionCostSettlement', settlement['id'], intent='reverse', reason='重开更正')
         api('POST', f'production-costs/settlements/{settlement["id"]}/reverse', dict(reason='重开更正'))
     else:
         api('POST','production-costs/settlements', dict(work_order_id=order['id'], reference='LATE'), 201)
@@ -270,7 +273,7 @@ def test_explicit_read_and_write_permissions_and_v42_migration(journals, remove_
         db.execute('PRAGMA user_version=42')
     migrate(); migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 92
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute('SELECT COUNT(*) FROM period_closings').fetchone()[0] == 0
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='accounting_period.close'").fetchone()[0] == 2
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='accounting_period.reopen'").fetchone()[0] == 1

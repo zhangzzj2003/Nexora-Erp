@@ -72,3 +72,12 @@ def execute_order_settlement(client, author_headers, record, *, account_headers=
         json={'version': record['version'], 'reason': '核对后执行核销'})
     assert result.status_code == 200, result.text
     return result.json()
+
+
+def execute_production_settlement(client, author_headers, record, *, account_headers=None):
+    # 预计分摊先独立核对批准，再通过原写事务正式计价并锁定成本来源。
+    approve_document(client,author_headers,'ProductionCostSettlement',record['id'],reason='核对生产数量费用与分摊来源', account_headers=account_headers)
+    response=client.post(f'/api/v1/production-costs/settlements/{record["id"]}/post',headers=author_headers,
+        json={'version':record['version'],'reason':'独立批准后正式结算'})
+    assert response.status_code==200,response.text
+    return response.json()

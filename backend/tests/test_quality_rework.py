@@ -1,6 +1,6 @@
 """从质检隔离数量到报废、返工成本、凭证来源及更正的跨模块风险。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import execute_production_settlement, approve_document
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -95,8 +95,10 @@ def posted(api, actors, data):
     return action(api,row,'post')
 
 
-def settle(api, order_id, reference='SETTLE-Q', status=201):
-    return api('POST','production-costs/settlements',{'work_order_id':order_id,'reference':reference},status)
+def settle(quality_erp, order_id, reference='SETTLE-Q', status=201):
+    client, admin, _, api, *_ = quality_erp
+    row = api('POST','production-costs/settlements',{'work_order_id':order_id,'reference':reference},status)
+    return execute_production_settlement(client, admin, row) if status == 201 else row
 
 
 def test_mixed_loss_rework_costs_stock_and_dependency_chain(quality_erp):
@@ -117,23 +119,26 @@ def test_mixed_loss_rework_costs_stock_and_dependency_chain(quality_erp):
     api('POST',f'material-issues/{issue["id"]}/post')
     complete(child['id'],'3','3')
     api('POST','production-costs/charges',{'work_order_id':child['id'],'kind':'labor','amount':'3','reference':'REPAIR-LABOR'},201)
-    settle(api,child['id'],'EARLY',409)
+    settle(quality_erp,child['id'],'EARLY',409)
     unknown = next(row for row in api('GET','production-costs')['orders'] if row['work_order_id']==child['id'])
     assert unknown['rework_amount'] is None and unknown['total_amount'] is None and unknown['unpriced_rework']
-    parent = settle(api,original['id'])
+    parent = settle(quality_erp,original['id'])
     assert parent['total_amount'] == '20.00' and parent['allocations'][0]['amount'] == '12.00'
     values = {row['disposition_id']:row['amount'] for row in parent['quality_allocations']}
     assert values == {normal['id']:'0.00',loss['id']:'2.00',rework['id']:'6.00'}
     assert sum(Decimal(value) for value in values.values()) + Decimal(parent['allocations'][0]['amount']) == Decimal('20')
-    child_settlement = settle(api,child['id'],'CHILD')
+    child_settlement = settle(quality_erp,child['id'],'CHILD')
     assert child_settlement['rework_amount'] == '6.00' and child_settlement['total_amount'] == '11.00'
     assert child_settlement['rework_sources'][0]['origin_settlement_id'] == parent['id']
     stock = next(row for row in api('GET','inventory/valuation')['materials'] if row['id'] == product)
     assert stock['quantity'] == '7' and stock['amount'] == '23.00'
+    approve_document(quality_erp[0],quality_erp[1],'ProductionCostSettlement',parent['id'],intent='reverse',reason='重核原料')
     api('POST',f'production-costs/settlements/{parent["id"]}/reverse',{'reason':'重核原料'},409)
     source = next(row for row in api('GET','finance/business-journals') if row['key'] == f'quality_loss:{loss["id"]}')
     assert source['roles'] == {'quality_loss':'2.00','work_in_progress':'-2.00'}
+    approve_document(quality_erp[0],quality_erp[1],'ProductionCostSettlement',child_settlement['id'],intent='reverse',reason='先更正返工成本')
     api('POST',f'production-costs/settlements/{child_settlement["id"]}/reverse',{'reason':'先更正返工成本'})
+
     api('POST',f'production-costs/settlements/{parent["id"]}/reverse',{'reason':'重核原料'})
     assert next(row for row in api('GET','production-costs')['orders'] if row['work_order_id'] == child['id'])['total_amount'] is None
 
@@ -141,9 +146,9 @@ def test_mixed_loss_rework_costs_stock_and_dependency_chain(quality_erp):
 def test_all_rejected_scrap_can_settle_without_manufacturing_inventory(quality_erp):
     _,_,actors,api,_,product,order,_ = quality_erp
     original,completion = order('1','0')
-    settle(api,original['id'],status=409)
+    settle(quality_erp,original['id'],status=409)
     scrap = posted(api,actors,payload(completion))
-    result = settle(api,original['id'])
+    result = settle(quality_erp,original['id'])
     assert result['accepted_quantity'] == '0' and result['allocations'] == []
     assert result['quality_allocations'][0]['amount'] == '2.00'
     assert not any(row['source_type']=='production_completion' for row in api('GET','inventory/valuation')['movements'])
@@ -164,24 +169,31 @@ def test_posted_loss_journal_protects_settlement_until_reviewed_reversal(quality
     api('PUT','finance/business-journals/policy',dict(version=0,start_date='2026-01-01',mapping=mapping,reason='核对启用'))
     pending = next(row for row in api('GET','finance/business-journals') if row['key']==f'quality_loss:{loss["id"]}')
     assert pending['blockers']
-    settlement = settle(api,work['id'])
+    settlement = settle(quality_erp,work['id'])
     source = next(row for row in api('GET','finance/business-journals') if row['key']==pending['key'])
     journal = api('POST','finance/business-journals/generate',dict(source_key=source['key'],
         fingerprint=source['fingerprint'],policy_version=source['policy_version'],reference='QUALITY-LOSS',
         journal_date=source['minimum_date'],reason='按质量审批及结算'),201)
     def journal_post(row):
         path=f'finance/journals/{row["id"]}'
-        row=api('POST',path+'/submit',dict(version=row['version'],reason='核对来源'))
-        row=api('POST',path+'/approve',dict(version=row['version'],reason='独立审核'),actor=actors['reviewer'])
+        approve_document(quality_erp[0],quality_erp[1],'Journal',row['id'],reason='核对质量来源')
+        row=api('GET',path)
         return api('POST',path+'/post',dict(version=row['version'],reason='登记损失'))
     journal = journal_post(journal)
     assert journal['total_debit']=='2.00'
     reverse_path=f'production-costs/settlements/{settlement["id"]}/reverse'
+    approve_document(quality_erp[0],quality_erp[1],'ProductionCostSettlement',settlement['id'],intent='reverse',reason='更正来源')
     api('POST',reverse_path,{'reason':'更正来源'},409)
     reversal=api('POST',f'finance/journals/{journal["id"]}/reverse',dict(version=journal['version'],
         reference='QUALITY-LOSS-REV',journal_date=journal['journal_date'],reason='先冲销质量损失'),201)
+    state=api('GET',f'system/document-approvals/ProductionCostSettlement/{settlement["id"]}?intent=reverse')
+    api('POST',f'system/document-approvals/ProductionCostSettlement/{settlement["id"]}/withdraw',{'version':state['version'],'intent':'reverse','reason':'更正原因重新核对'})
+    approve_document(quality_erp[0],quality_erp[1],'ProductionCostSettlement',settlement['id'],intent='reverse',reason='冲销草稿不算过账')
     api('POST',reverse_path,{'reason':'冲销草稿不算过账'},409)
     journal_post(reversal)
+    state=api('GET',f'system/document-approvals/ProductionCostSettlement/{settlement["id"]}?intent=reverse')
+    api('POST',f'system/document-approvals/ProductionCostSettlement/{settlement["id"]}/withdraw',{'version':state['version'],'intent':'reverse','reason':'更正原因重新核对'})
+    approve_document(quality_erp[0],quality_erp[1],'ProductionCostSettlement',settlement['id'],intent='reverse',reason='冲销质量损失后更正来源')
     api('POST',reverse_path,{'reason':'冲销质量损失后更正来源'})
 
 
@@ -196,7 +208,7 @@ def test_period_check_archives_quality_allocations_and_locks_corrections(quality
     check=api('GET',path+'/closing-check')
     assert 'unsettled_quality' in {row['code'] for row in check['blockers']}
     api('POST',path+'/close',{'version':1,'reason':'来源尚未结算'},409)
-    settlement=settle(api,work['id'])
+    settlement=settle(quality_erp,work['id'])
     check=api('GET',path+'/closing-check')
     assert check['can_close'],check['blockers']
     api('POST',path+'/close',{'version':1,'reason':'核对已固定质量成本'})
@@ -212,12 +224,12 @@ def test_normal_loss_needs_accepted_output_and_explicit_correction(quality_erp):
     _,_,actors,api,_,_,order,_ = quality_erp
     original,completion = order('1','0')
     normal = posted(api,actors,payload(completion,treatment='absorb'))
-    settle(api,original['id'],status=409)
+    settle(quality_erp,original['id'],status=409)
     approve_document(quality_erp[0], quality_erp[1], 'QualityDisposition', normal['id'], intent='reverse', reason='复核质量依据')
     reversed_row = action(api,normal,'reverse')
     assert reversed_row['status'] == 'reversed'
     posted(api,actors,payload(completion,reference='ABNORMAL'))
-    assert settle(api,original['id'])['total_amount'] == '2.00'
+    assert settle(quality_erp,original['id'])['total_amount'] == '2.00'
 
 
 def test_labor_only_rework_reinspection_and_recursive_rejection(quality_erp):
@@ -230,8 +242,8 @@ def test_labor_only_rework_reinspection_and_recursive_rejection(quality_erp):
     assert child['status'] == 'in_progress' and child['lines'] == []
     child_completion = complete(child_id,'1','0')
     final_loss = posted(api,actors,payload(child_completion,reference='REINSPECTION-LOSS'))
-    settle(api,original['id'])
-    result = settle(api,child_id,'REPAIR-COST')
+    settle(quality_erp,original['id'])
+    result = settle(quality_erp,child_id,'REPAIR-COST')
     assert result['rework_amount'] == '2.00' and result['quality_allocations'][0]['amount'] == '2.00'
     assert result['quality_allocations'][0]['disposition_id'] == final_loss['id']
     assert not any(row['material_id']==product for row in api('GET','inventory/valuation')['movements'])
@@ -255,7 +267,7 @@ def test_independent_review_freeze_versions_permissions_and_cost_privacy(quality
     approved = action(api,submitted,'approve',actors['reviewer'])
     confirmed = action(api,approved,'post',actors['keeper'])
     original = api('GET',ROOT)['cases'][0]['work_order_id']
-    settle(api,original)
+    settle(quality_erp,original)
     private = api('GET',f'{ROOT}/dispositions/{row["id"]}',actor=actors['keeper'])
     assert private['cost_allocation']['amount'] is None and not private['cost_visible']
     assert api('GET',f'{ROOT}/dispositions/{row["id"]}')['cost_allocation']['amount'] == '4.00'
@@ -340,7 +352,7 @@ def test_v50_upgrade_preserves_records_and_static_models(quality_erp,remove_qual
         db.execute('PRAGMA user_version=50')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 92
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute('SELECT * FROM work_orders').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert len(Base.metadata.tables) == 192

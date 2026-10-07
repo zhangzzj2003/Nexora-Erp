@@ -1,6 +1,6 @@
 """验证采购、调拨、生产、销售与业务对账共用同一套物料和库存。"""
 
-from approval_test_helpers import approve_document, execute_payment
+from approval_test_helpers import execute_production_settlement, approve_document, execute_payment
 
 from decimal import Decimal
 
@@ -114,6 +114,7 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
         confirm(f"/production-completions/{completion}/post", warehouse)
         settlement = create('/production-costs/settlements', finance, {
             'work_order_id': work_order['id'], 'reference': 'SETTLE-CYCLE'})
+        settlement = execute_production_settlement(client, finance, settlement, account_headers=admin)
         assert settlement['total_amount'] == '14.00'
         assert settlement['allocations'][0]['amount'] == '14.00'
         produced = client.get(f"{base}/stock?warehouse_id={production_warehouse}", headers=warehouse).json()

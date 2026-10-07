@@ -226,6 +226,15 @@ def act_document_approval(document_type: str, identifier: int,
                 raise HTTPException(422, '资金审批依据必填，最多二百字')
             if action in ('submit', 'approve'):
                 validate_payment(db, source)
+        if document_type == 'ProductionCostSettlement':
+            permission = submit_permission(document_type,payload.intent,source) or rule.submit_permission
+            workflow.actor(db,user['id'],rule.review_permission if action in ('approve','reject') else permission)
+            workflow.check_version(row.version if row else 0,payload.version)
+            if action != 'withdraw' and (not payload.reason.strip() or len(payload.reason.strip())>200):
+                raise HTTPException(422,'结算审批依据必填，最多二百字')
+            if action in ('submit','approve') and payload.intent == 'execute':
+                from app.production.settlements import validate_settlement
+                validate_settlement(db,source)
         native = native_review_evidence(db, document_type, identifier)
         prior = native if row is None and payload.intent == 'execute' else None
         before = None

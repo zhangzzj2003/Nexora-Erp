@@ -1,6 +1,6 @@
 """验证库存成本传入生产、完工分摊精度、来源锁定和多级结算冲销。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import execute_production_settlement, approve_document
 
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
@@ -96,6 +96,7 @@ def test_inventory_costs_returns_allocations_and_sales_cost(erp):
     completed = [complete(order) for _ in range(3)]
     settlement = api('POST', 'production-costs/settlements', {
         'work_order_id': order['id'], 'reference': 'SETTLE-1'}, 201)
+    settlement = execute_production_settlement(erp[0], erp[1], settlement)
     assert settlement['total_amount'] == '7.70'
     assert [row['amount'] for row in settlement['allocations']] == ['2.57', '2.56', '2.57']
     assert sum(Decimal(row['amount']) for row in settlement['allocations']) == Decimal('7.70')
@@ -132,16 +133,23 @@ def test_settlement_reverse_history_reprice_and_dependencies(erp):
     complete(first)
     first_settlement = api('POST', 'production-costs/settlements', {
         'work_order_id': first['id'], 'reference': 'FIRST'}, 201)
+    first_settlement = execute_production_settlement(erp[0], erp[1], first_settlement)
     second, _ = work_order(semi, final)
     complete(second)
     second_settlement = api('POST', 'production-costs/settlements', {
         'work_order_id': second['id'], 'reference': 'SECOND'}, 201)
+    second_settlement = execute_production_settlement(erp[0], erp[1], second_settlement)
     assert second_settlement['material_amount'] == '10.00'
+    approve_document(erp[0], erp[1], 'ProductionCostSettlement', first_settlement['id'], intent='reverse', reason='更正')
     api('POST', f'production-costs/settlements/{first_settlement["id"]}/reverse', {'reason': '更正'}, 409)
     api('POST', 'inventory/valuation/inputs', {'movement_id': movement_id, 'unit_cost': '12',
         'reference': 'REPRICE', 'reason': '更正'}, 409)
     api('POST', f'production-costs/settlements/{second_settlement["id"]}/reverse', {'reason': ' '}, 422)
+    approve_document(erp[0], erp[1], 'ProductionCostSettlement', second_settlement['id'], intent='reverse', reason='成本复核')
     api('POST', f'production-costs/settlements/{second_settlement["id"]}/reverse', {'reason': '成本复核'})
+    state = api('GET', f'system/document-approvals/ProductionCostSettlement/{first_settlement["id"]}?intent=reverse')
+    api('POST', f'system/document-approvals/ProductionCostSettlement/{first_settlement["id"]}/withdraw', {'version':state['version'],'intent':'reverse','reason':'重新核对更正原因'})
+    approve_document(erp[0], erp[1], 'ProductionCostSettlement', first_settlement['id'], intent='reverse', reason='价格变更')
     api('POST', f'production-costs/settlements/{first_settlement["id"]}/reverse', {'reason': '价格变更'})
     api('POST', f'production-costs/settlements/{first_settlement["id"]}/reverse', {'reason': '重复'}, 409)
     api('POST', 'inventory/valuation/inputs', {'movement_id': movement_id, 'unit_cost': '12',
@@ -149,6 +157,7 @@ def test_settlement_reverse_history_reprice_and_dependencies(erp):
     api('POST', 'production-costs/settlements', {'work_order_id': first['id'], 'reference': 'FIRST'}, 409)
     updated = api('POST', 'production-costs/settlements', {
         'work_order_id': first['id'], 'reference': 'FIRST-NEW'}, 201)
+    updated = execute_production_settlement(erp[0], erp[1], updated)
     assert updated['total_amount'] == '12.00'
     history = api('GET', 'production-costs/settlements')
     original = next(row for row in history if row['id'] == first_settlement['id'])
@@ -173,12 +182,14 @@ def test_manual_fallback_and_settlement_preconditions(erp):
     api('POST', 'production-costs/settlements', {'work_order_id': order['id'], 'reference': ' '}, 422)
     settled = api('POST', 'production-costs/settlements', {
         'work_order_id': order['id'], 'reference': 'MANUAL'}, 201)
+    settled = execute_production_settlement(erp[0], erp[1], settled)
     assert settled['material_sources'][0]['cost_source'] == 'manual'
     assert settled['allocations'][0]['amount'] == '1.50'
     api('POST', 'inventory/valuation/inputs', {'movement_id': raw_movement,
         'unit_cost': '5', 'reference': 'LATE-PRICE', 'reason': '补原料价格'}, 409)
     api('POST', 'inventory/valuation/inputs', {'movement_id': settled['allocations'][0]['movement_id'],
         'unit_cost': '99', 'reference': 'OVERRIDE', 'reason': '修改'}, 409)
+    approve_document(erp[0], erp[1], 'ProductionCostSettlement', settled['id'], intent='reverse', reason='完工重报')
     api('POST', f'production-costs/settlements/{settled["id"]}/reverse', {'reason': '完工重报'})
     # 独立审批完成后，再验证原库存约束或失败回滚。
     approve_document(erp[0], erp[1], 'ProductionCompletion', completion_id, intent='reverse', reason='完工重报')
@@ -205,6 +216,7 @@ def test_orm_settlement_rolls_back_all_flushed_records_on_failure(erp, monkeypat
     assert api('GET', 'production-costs/settlements') == []
     # 回滚必须释放写锁，重试同一个依据编号可以完整成功。
     result = api('POST', 'production-costs/settlements', {'work_order_id': order['id'], 'reference': 'ROLLBACK'}, 201)
+    result = execute_production_settlement(erp[0], erp[1], result)
     assert len(result['allocations']) == 1 and len(result['material_sources']) == 1
 
 
@@ -255,7 +267,7 @@ def test_v38_upgrade_preserves_data_and_grants_settlement_permissions(monkeypatc
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 92
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute("SELECT name FROM materials WHERE sku = 'OLD'").fetchone()[0] == '旧物料'
         assert {row[0] for row in db.execute("SELECT role_code FROM role_permissions WHERE permission_code = 'production_cost.settle'")} == {'admin', 'finance'}
         assert db.execute('SELECT COUNT(*) FROM production_cost_settlements').fetchone()[0] == 0

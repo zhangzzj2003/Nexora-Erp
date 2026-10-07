@@ -12,6 +12,7 @@ def active_settlement(db: Session, order_id: int) -> dict | None:
         select(ProductionCostSettlement)
         .where(
             ProductionCostSettlement.work_order_id == order_id,
+            ProductionCostSettlement.status == 'active',
             ~select(ProductionSettlementReversal.id)
             .where(ProductionSettlementReversal.settlement_id == ProductionCostSettlement.id)
             .exists(),

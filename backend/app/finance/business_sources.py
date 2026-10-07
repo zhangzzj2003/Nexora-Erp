@@ -7,6 +7,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.models import ProductionCostSettlement
 from app.core.models import (PaymentRecord, ProductionCostEntry, ProductionCostReversal, Material, Warehouse,
     SubledgerPayment, SubledgerOpeningLine, QualityDisposition, QualityCostAllocation,
     ProductionSettlementReversal)
@@ -96,7 +97,7 @@ def business_sources(db: Session) -> dict[str, dict]:
             item['records'].extend((model_data(reversal), model_data(charges[reversal.entry_id])))
     for disposition in db.scalars(select(QualityDisposition).where(QualityDisposition.status == 'posted',
         QualityDisposition.loss_treatment == 'expense').order_by(QualityDisposition.id)):
-        allocation = db.scalar(select(QualityCostAllocation).where(
+        allocation = db.scalar(select(QualityCostAllocation).join(ProductionCostSettlement, ProductionCostSettlement.id == QualityCostAllocation.settlement_id).where(ProductionCostSettlement.status == 'active',
             QualityCostAllocation.disposition_id == disposition.id,
             ~select(ProductionSettlementReversal.id).where(
                 ProductionSettlementReversal.settlement_id == QualityCostAllocation.settlement_id).exists()))

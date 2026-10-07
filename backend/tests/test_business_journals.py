@@ -1,6 +1,6 @@
 """业务来源重算、独立审核、跨模块价格锁定和原子去重。"""
 
-from approval_test_helpers import approve_document, prepare_purchase_return, execute_payment
+from approval_test_helpers import execute_production_settlement, approve_document, prepare_purchase_return, execute_payment
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from threading import Barrier
@@ -310,9 +310,11 @@ def test_production_wip_and_charge_sources_are_priced_and_locked(business):
     request('POST', f'production-completions/{finished["id"]}/post')
     generate(client, f'production_completion:{finished["id"]}', 'COMPLETE', 409)
     settlement = request('POST', 'production-costs/settlements', dict(work_order_id=finished['work_order_id'], reference='COST'), 201)
+    settlement = execute_production_settlement(client, dict(client.headers), settlement)
     assert source(client, f'production_completion:{finished["id"]}')['roles'] == {'inventory': '14.00', 'work_in_progress': '-14.00'}
     post(client, generate(client, f'production_completion:{finished["id"]}', 'COMPLETE'), reviewer)
     # 结算冲销不能暗改已经进总账的完工成本。
+    approve_document(client, dict(client.headers), 'ProductionCostSettlement', settlement['id'], intent='reverse', reason='重结')
     request('POST', f'production-costs/settlements/{settlement["id"]}/reverse', dict(reason='重结'), 409)
 
 
@@ -368,5 +370,5 @@ def test_v43_upgrade_atomic_failure_and_idempotent_retry(business, remove_transf
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 92
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'business_journal.%'").fetchone()[0] == 3

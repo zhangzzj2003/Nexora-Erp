@@ -1050,6 +1050,15 @@ class ProductionCostSettlement(Base):
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
+    # 预计分摊仅供草稿审批；正式执行后才影响库存计价与来源锁定。
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    executed_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    executed_at: Mapped[str | None] = mapped_column(Text)
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    cancelled_at: Mapped[str | None] = mapped_column(Text)
+    cancellation_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+
 
 class ProductionSettlementReversal(Base):
     __tablename__ = 'production_settlement_reversals'

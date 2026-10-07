@@ -1,3 +1,4 @@
+import { validateProductionSettlementResponse } from '../shared/production-settlement-api.ts'
 import { validatePaymentRecordResponse } from '../shared/payment-record-api.ts'
 import { documentNumberingBody, validateDocumentNumbering, validateDocumentNumbers } from '../shared/document-numbering.ts'
 import { documentApprovalType, documentApprovalPolicyBody, validateDocumentApprovalPolicies, validateDocumentApprovalPolicy, documentApprovalTarget, documentApprovalActionBody, validateDocumentApprovalRecord, validateDocumentApprovalResponse } from '../shared/document-approval-api.ts'
@@ -1425,7 +1426,18 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     case 'productionCosts': return { method: 'GET', path: '/api/v1/production-costs' }
     case 'productionCostSettlements': return { method: 'GET', path: '/api/v1/production-costs/settlements' }
-    case 'settleProductionCost': return { method: 'POST', path: '/api/v1/production-costs/settlements', body: payload }
+    case 'settleProductionCost': {
+      const { work_order_id, reference, note } = payload as ErpOperations['settleProductionCost']['input']
+      return { method: 'POST', path: '/api/v1/production-costs/settlements', body: { work_order_id, reference, note } }
+    }
+    case 'changeProductionSettlementStatus': {
+      // 执行地址与正文均使用白名单，客户端不得伪造批准人员或分摊金额。
+      const row = payload as ErpOperations['changeProductionSettlementStatus']['input']
+      if (!['post','cancel'].includes(row.action) || !Number.isSafeInteger(row.version) || row.version < 1
+        || typeof row.reason !== 'string' || !row.reason.trim() || row.reason.trim().length > 200) throw Error('结算操作参数无效')
+      return { method:'POST',path:`/api/v1/production-costs/settlements/${positiveId(payload,'id')}/${row.action}`,
+        body:{version:row.version,reason:row.reason.trim()} }
+    }
     case 'reverseProductionSettlement': {
       const settlementId = positiveId(payload, 'settlementId')
       const fields = payload as ErpOperations['reverseProductionSettlement']['input']
@@ -1619,6 +1631,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   // 业务列表与执行响应同样校验审批状态，避免格式错误直接开放确认按钮。
   validateDocumentApprovalResponse(data)
   validatePaymentRecordResponse(data)
+  validateProductionSettlementResponse(data)
   if (action === 'login') {
     if (!data || typeof data !== 'object' || !('token' in data) || typeof data.token !== 'string'
       || !('user' in data) || !data.user) throw new Error('登录响应格式不匹配')

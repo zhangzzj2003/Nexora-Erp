@@ -22,6 +22,7 @@ from app.core.models import (
     Bom, WorkOrder, WorkOrderLine, MaterialIssue, MaterialIssueLine, MaterialIssueReversal,
     MaterialReturn, MaterialReturnLine, MaterialReturnReversal, ProductionCompletion, ProductionCompletionReversal,
     QualityDisposition, QualityDispositionChange, MrpPlan, MrpPlanChange, MrpConversion,
+    ProductionCostSettlement, ProductionSettlementReversal, ProductionCostEntry, ProductionSettlementCharge,
     Journal, JournalChange, JournalAttachment, JournalAttachmentReversal, OpeningBalance, OpeningBalanceChange, SubledgerOpening, SubledgerOpeningChange,
 )
 from app.core.approval_catalog import approval_type
@@ -509,6 +510,41 @@ def payment_snapshot(db: Session, identifier: int) -> dict:
             ('id', 'document_no', 'kind', 'order_id', 'action', 'amount', 'reference', 'executed_at')}}
 
 
+def settlement_snapshot(db: Session, identifier: int) -> dict:
+    import json
+    from app.production.settlements import saved_settlement_plan, build_settlement_plan, normalized_plan
+    source = document_source(db, 'ProductionCostSettlement', identifier)
+    plan = saved_settlement_plan(db, source)
+    case = db.scalar(select(DocumentApprovalCase).where(DocumentApprovalCase.document_type == 'ProductionCostSettlement',
+        DocumentApprovalCase.document_id == identifier, DocumentApprovalCase.intent == 'execute', DocumentApprovalCase.status == 'executed'))
+    # 执行后的经济来源锁定，读取原批准的复算依据；草稿的现场变动明确使正文不匹配。
+    if source.status != 'draft':
+        latest = json.loads(case.snapshot_json)['latest_basis'] if case else plan
+    else:
+        try:
+            latest = normalized_plan(build_settlement_plan(db, source.work_order_id))
+        except HTTPException as error:
+            latest = {'unavailable': str(error.detail)}
+    order = db.get(WorkOrder,source.work_order_id)
+    authors = {source.created_by, order.created_by}
+    authors.update(db.scalars(select(ProductionCostEntry.created_by).join(
+        ProductionSettlementCharge,
+        ProductionSettlementCharge.entry_id == ProductionCostEntry.id).where(
+        ProductionSettlementCharge.settlement_id == identifier)))
+    for row in plan['material_sources']:
+        line = db.get(MaterialIssueLine,row['material_issue_line_id']);issue = db.get(MaterialIssue,line.material_issue_id)
+        authors.add(issue.created_by)
+        if row['cost_entry_id'] is not None:
+            authors.add(db.get(ProductionCostEntry,row['cost_entry_id']).created_by)
+    if case:
+        authors = set(json.loads(case.snapshot_json)['source_author_ids'])
+    return {'work_order_id':source.work_order_id,'reference':source.reference,'note':source.note,
+        'plan':plan,'latest_basis':latest,'source_author_ids':sorted(authors),
+        'charge_evidence': [{field:getattr(row,field) for field in ('id','work_order_id','kind','amount','reference','created_by','created_at')} for row in db.scalars(
+            select(ProductionCostEntry).join(ProductionSettlementCharge,ProductionSettlementCharge.entry_id==ProductionCostEntry.id).where(
+            ProductionSettlementCharge.settlement_id==identifier).order_by(ProductionCostEntry.id))]}
+
+
 def order_settlement_snapshot(db: Session, identifier: int) -> dict:
     from app.core.models import OrderSettlementTransfer
     from app.finance.routes import party_data
@@ -706,14 +742,14 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'OrderSettlementTransfer': order_settlement_snapshot, 'SubledgerPayment': subledger_payment_snapshot, 'PaymentRecord': payment_snapshot, 'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+_SNAPSHOTS = {'ProductionCostSettlement': settlement_snapshot, 'OrderSettlementTransfer': order_settlement_snapshot, 'SubledgerPayment': subledger_payment_snapshot, 'PaymentRecord': payment_snapshot, 'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
               'SalesOrder': sales_order_snapshot, 'Shipment': shipment_snapshot, 'SalesReturn': sales_return_snapshot,
               'WorkOrder': work_order_snapshot, 'MaterialIssue': material_issue_snapshot,
               'MaterialReturn': material_return_snapshot, 'ProductionCompletion': completion_snapshot}
-_REVERSE = {'MaterialIssue': (MaterialIssueReversal, 'material_issue_id', 'material_issue.reverse'),
+_REVERSE = {'ProductionCostSettlement': (ProductionSettlementReversal, 'settlement_id', 'production_cost.reopen'), 'MaterialIssue': (MaterialIssueReversal, 'material_issue_id', 'material_issue.reverse'),
             'MaterialReturn': (MaterialReturnReversal, 'material_return_id', 'material_return.reverse'),
             'ProductionCompletion': (ProductionCompletionReversal, 'production_completion_id', 'production_completion.reverse'),
             'Shipment': (ShipmentReversal, 'shipment_id', 'shipment.reverse'),
@@ -769,7 +805,7 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         if reversal is None:
             raise HTTPException(422, '此类单据不支持独立冲销审批')
         model, field, _ = reversal
-        if source.status != 'posted' or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
+        if source.status != ('active' if document_type == 'ProductionCostSettlement' else 'posted') or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
     elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
                                if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening') else
@@ -811,6 +847,9 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
     if intent == 'reverse':
         if not reason.strip() or len(reason.strip()) > 200:
             raise HTTPException(422, '冲销原因必填，最多二百字')
+        if document_type == 'ProductionCostSettlement':
+            source = document_source(db,document_type,identifier)
+            content['source_author_ids'] = sorted(set(content['source_author_ids']) | ({source.executed_by} if source.executed_by is not None else set()))
         result = {'document': content, 'reversal_reason': reason.strip()}
         if document_type in ('OpeningBalance', 'SubledgerOpening'):
             source = db.get(approval_type(document_type).model, identifier)
@@ -844,6 +883,14 @@ def submit_permission(document_type: str, intent: str, source=None) -> str | Non
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'ProductionCostSettlement':
+        order = db.get(WorkOrder,content['work_order_id'])
+        return [{'label':label,'value':str(value)} for label,value in [
+            ('生产工单',order.document_no or f'#{order.id}'),('结算依据',content['reference']),('说明',content['note']),
+            ('材料成本',content['plan']['header']['material_amount']),('人工成本',content['plan']['header']['labor_amount']),
+            ('制造费用',content['plan']['header']['overhead_amount']),('返工携入',content['plan']['header']['rework_amount']),
+            ('总成本',content['plan']['header']['total_amount']),('合格数量',content['plan']['header']['accepted_quantity']),
+            ('完工分摊数',len(content['plan']['allocations'])),('材料来源数',len(content['plan']['material_sources']))]]
     if document_type == 'OrderSettlementTransfer':
         model = SalesOrder if content['kind'] == 'receivable' else PurchaseOrder
         source, target = db.get(model, content['from_order_id']), db.get(model, content['to_order_id'])

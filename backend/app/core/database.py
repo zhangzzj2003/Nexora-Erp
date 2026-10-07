@@ -41,7 +41,7 @@ def connection() -> Iterator[sqlite3.Connection]:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 92:
+        if version > 93:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 92:
             # 资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -2769,3 +2769,17 @@ def migrate() -> None:
             if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
                 raise RuntimeError('订单核销审批迁移发现无效关联，本次升级已回滚')
             db.execute('PRAGMA user_version = 92')
+
+        if version < 93:
+            # 保留旧结算全部分摊、费用、指纹及原执行事实，不造审批。
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='production_cost_settlements'").fetchone():
+                columns = {r[1] for r in db.execute('PRAGMA table_info(production_cost_settlements)')}
+                if 'status' not in columns:
+                    for column in ("status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('draft','active','cancelled'))",
+                                   'version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0)',
+                                   'executed_by INTEGER REFERENCES users(id)', 'executed_at TEXT',
+                                   'cancelled_by INTEGER REFERENCES users(id)', 'cancelled_at TEXT',
+                                   "cancellation_reason TEXT NOT NULL DEFAULT ''"):
+                        db.execute(f'ALTER TABLE production_cost_settlements ADD COLUMN {column}')
+                    db.execute('UPDATE production_cost_settlements SET executed_by=created_by,executed_at=created_at')
+            db.execute('PRAGMA user_version = 93')

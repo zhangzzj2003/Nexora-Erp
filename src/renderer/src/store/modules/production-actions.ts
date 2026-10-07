@@ -1,3 +1,6 @@
+import { watch } from 'vue'
+import type { ProductionCostSettlement } from '../../../../shared/erp-api'
+import { validateDocumentApprovalRecord } from '../../../../shared/document-approval-api.ts'
 import type { AppState } from '../state'
 import type { WorkspaceRouteKey } from '../../router/workspace-routes'
 import type {CompletionLotPartInput} from '../../../../shared/completion-lot-api'
@@ -361,22 +364,51 @@ export function createProductionActions(
       delete costReversalReasons.value[entryId]
     }, `成本记录 #${entryId} 已冲销，原记录仍可查询。`)
   }
+  // 结算草稿和正式执行均保护队列归属；切服/换账号后不能继续发送旧请求。
+  let settlementOwner = 0
+  watch(() => `${state.server?.value?.id}:${state.server?.value?.fingerprint}:${state.user?.value?.id}:${state.user?.value?.roles?.join('|')}:${state.user?.value?.permissions.join('|')}`,
+    () => { settlementOwner++ }, { flush:'sync' })
+  const settlementAvailable = (permission: string) => !!window.nexora && !state.connectionLost?.value
+    && !!state.user?.value?.permissions.includes(permission)
+  function settlementGuard(session: number,permission: string): void {
+    if (session!==settlementOwner || !settlementAvailable(permission)) throw Error('成本结算会话或授权已变化，请重新读取。')
+  }
   async function settleProductionCost(): Promise<void> {
-    if (!window.nexora) return
+    if (!settlementAvailable('production_cost.settle')) return
+    const session=settlementOwner,input={...productionSettlementForm.value}
     await perform(async () => {
-      await window.nexora!.callApi('settleProductionCost', { ...productionSettlementForm.value })
+      settlementGuard(session,'production_cost.settle')
+      await window.nexora!.callApi('settleProductionCost',input)
+      if(session!==settlementOwner)return
       productionSettlementForm.value = { work_order_id: 0, reference: '', note: '' }
-    }, '完工成本已结算，各批次分摊及来源快照已保存。')
+    }, '预计结算草稿已保存，独立批准执行后才计价并锁定成本来源。')
+  }
+
+  async function changeProductionSettlementStatus(row:ProductionCostSettlement,action:'post'|'cancel',reason:string):Promise<void> {
+    if (!settlementAvailable('production_cost.settle') || row.status!=='draft'
+      || action==='post' && row.approval?.status!=='approved'
+      || action==='cancel' && ['submitted','approved'].includes(row.approval?.status??''))return
+    const session=settlementOwner
+    await perform(async()=>{
+      settlementGuard(session,'production_cost.settle')
+      await window.nexora!.callApi('changeProductionSettlementStatus',{id:row.id,version:row.version,action,reason})
+    },action==='post'?'成本已批准执行，正式分摊与来源锁定已生效。':'结算草稿已取消，未改变库存成本。')
   }
 
   async function reverseProductionSettlement(settlementId: number): Promise<void> {
-    if (!window.nexora) return
-    const reason = settlementReversalReasons.value[settlementId]?.trim()
-    if (!reason) return
+    if (!settlementAvailable('production_cost.reopen')) return
+    const session=settlementOwner
     await perform(async () => {
-      await window.nexora!.callApi('reverseProductionSettlement', { settlementId, reason })
+      settlementGuard(session,'production_cost.reopen')
+      const approved=await window.nexora!.callApi('documentApproval',{document_type:'ProductionCostSettlement',document_id:settlementId,intent:'reverse'})
+      settlementGuard(session,'production_cost.reopen');validateDocumentApprovalRecord(approved)
+      if(approved.document_type!=='ProductionCostSettlement' || approved.document_id!==settlementId
+        || approved.intent!=='reverse' || approved.status!=='approved' || !approved.content_matches)throw Error('请先完成成本结算独立冲销审批。')
+      // 原因取自当次固定批准，不能把弹窗中新输入代替已批准的更正依据。
+      await window.nexora!.callApi('reverseProductionSettlement',{settlementId,reason:approved.reversal_reason})
+      if(session!==settlementOwner)return
       delete settlementReversalReasons.value[settlementId]
-    }, '成本结算已冲销，可更正来源后重新结算，原快照仍保留。')
+    }, '成本结算已独立批准冲销，可按新依据更正来源；原快照保留。')
   }
   return {
     createBom,
@@ -408,6 +440,7 @@ export function createProductionActions(
     recordProductionCharge,
     reverseProductionCost,
     settleProductionCost,
+    changeProductionSettlementStatus,
     reverseProductionSettlement
   }
 }

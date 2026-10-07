@@ -991,6 +991,15 @@ export interface ProductionMaterialSource {
   cost_entry_id: number | null
 }
 export interface ProductionCostSettlement extends NumberedDocument {
+  // 草稿中的金额及分摊为预计值，仅正式执行才计入库存成本。
+  version: number
+  approval?: DocumentApprovalState
+  reversal_approval?: DocumentApprovalState
+  executed_by: number | null
+  executed_at: string | null
+  cancelled_by: number | null
+  cancelled_at: string | null
+  cancellation_reason: string
   id: number
   work_order_id: number
   reference: string
@@ -1004,7 +1013,7 @@ export interface ProductionCostSettlement extends NumberedDocument {
   created_by: number
   created_by_name: string
   created_at: string
-  status: 'active' | 'reversed'
+  status: 'draft' | 'active' | 'cancelled' | 'reversed'
   reversal_id: number | null
   reversal_reason: string | null
   reversed_by_name: string | null
@@ -1503,6 +1512,7 @@ export interface ErpOperations extends DocumentApprovalOperations, DocumentNumbe
   productionCosts: { input: undefined; output: ProductionCostReport }
   productionCostSettlements: { input: undefined; output: ProductionCostSettlement[] }
   settleProductionCost: { input: { work_order_id: number; reference: string; note: string }; output: ProductionCostSettlement }
+  changeProductionSettlementStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: ProductionCostSettlement }
   reverseProductionSettlement: { input: { settlementId: number; reason: string }; output: ProductionCostSettlement }
   recordMaterialValuation: { input: { material_issue_line_id: number; unit_cost: string; reference: string; note: string }; output: ProductionCostEntry }
   recordProductionCharge: { input: { work_order_id: number; kind: 'labor' | 'overhead'; amount: string; reference: string; note: string }; output: ProductionCostEntry }

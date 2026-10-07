@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.models import ProductionCostSettlement
 from app.core.models import (Bom, Material, ProductionCompletion, ProductionCompletionReversal,
     QualityDisposition, QualityDispositionChange, QualityCostAllocation, ProductionSettlementReversal,
     User, Warehouse, WorkOrder)
@@ -86,7 +87,7 @@ def independent_reviewer(db: Session, record: QualityDisposition, user_id: int):
 
 
 def active_quality_allocations(db: Session, *, disposition_id: int | None = None):
-    statement = select(QualityCostAllocation).where(~select(ProductionSettlementReversal.id).where(
+    statement = select(QualityCostAllocation).join(ProductionCostSettlement, ProductionCostSettlement.id == QualityCostAllocation.settlement_id).where(ProductionCostSettlement.status == 'active',~select(ProductionSettlementReversal.id).where(
         ProductionSettlementReversal.settlement_id == QualityCostAllocation.settlement_id).exists())
     if disposition_id is not None:
         statement = statement.where(QualityCostAllocation.disposition_id == disposition_id)

@@ -19,7 +19,7 @@ const key = computed(() => target.value ? approvalTargetKey(target.value) : '')
 const labels = { draft: '未送审', submitted: '审批中', approved: '已批准，待执行', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
 const actions = { submit: '送审', approve: '批准', reject: '驳回', withdraw: '撤回', execute: '执行' }
 // 报价、售后及处置保留原必填依据，售后与处置意见最多二百字。
-const quoteReasonRequired = computed(() => ['CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer'].includes(target.value?.document_type ?? ''))
+const quoteReasonRequired = computed(() => ['CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'ProductionCostSettlement'].includes(target.value?.document_type ?? ''))
 const maintenance = computed(() => target.value?.document_type === 'MaintenanceJob')
 const evidenceMissing = computed(() => maintenance.value && !evidence.value[key.value]?.trim())
 const reversalSubmit = computed(() => target.value?.intent === 'reverse' && record.value?.can_submit)
@@ -59,8 +59,8 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
         <p v-if="record.reversal_evidence">送审验收更正依据：{{ record.reversal_evidence }}</p>
         <p v-if="record.reversal_reason">送审{{ ['OpeningBalance', 'SubledgerOpening'].includes(record.document_type) ? '撤销' : '冲销' }}原因：{{ record.reversal_reason }}</p>
         <label v-if="reversalSubmit || record.can_review || (quoteReasonRequired && record.can_submit)" class="approval-reason">
-          {{ reversalSubmit ? (['OpeningBalance', 'SubledgerOpening'].includes(record.document_type) ? '撤销原因（必填）' : '冲销原因（必填）') : quoteReasonRequired ? `${record.document_type === 'AfterSalesCase' ? '售后' : record.document_type === 'QualityDisposition' ? '处置' : record.document_type === 'MrpPlan' ? '计划' : record.document_type === 'MaintenanceJob' ? '维护' : record.document_type === 'Journal' ? '凭证' : record.document_type === 'OpeningBalance' ? '期初' : record.document_type === 'SubledgerOpening' ? '分户' : ['PaymentRecord','SubledgerPayment','OrderSettlementTransfer'].includes(record.document_type) ? '资金' : '报价'}操作依据（必填）` : '审批意见（驳回时必填）' }}
-          <AppInput v-model="reasons[key]" :maxlength="reversalSubmit || ['AfterSalesCase', 'QualityDisposition', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer'].includes(record.document_type) ? 200 : 500" :disabled="disabled" />
+          {{ reversalSubmit ? (['OpeningBalance', 'SubledgerOpening'].includes(record.document_type) ? '撤销原因（必填）' : '冲销原因（必填）') : quoteReasonRequired ? `${record.document_type === 'AfterSalesCase' ? '售后' : record.document_type === 'QualityDisposition' ? '处置' : record.document_type === 'MrpPlan' ? '计划' : record.document_type === 'MaintenanceJob' ? '维护' : record.document_type === 'Journal' ? '凭证' : record.document_type === 'OpeningBalance' ? '期初' : record.document_type === 'SubledgerOpening' ? '分户' : record.document_type === 'ProductionCostSettlement' ? '结算' : ['PaymentRecord','SubledgerPayment','OrderSettlementTransfer'].includes(record.document_type) ? '资金' : '报价'}操作依据（必填）` : '审批意见（驳回时必填）' }}
+          <AppInput v-model="reasons[key]" :maxlength="reversalSubmit || ['AfterSalesCase', 'QualityDisposition', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'ProductionCostSettlement'].includes(record.document_type) ? 200 : 500" :disabled="disabled" />
         </label>
         <!-- 现场依据保持原维护领域的独立字段，审核意见不覆盖更正执行依据。 -->
         <label v-if="maintenance && (record.can_submit || record.can_review)" class="approval-reason">现场依据（必填）
