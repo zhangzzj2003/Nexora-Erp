@@ -354,5 +354,5 @@ def test_permissions_input_and_migration_failure(profit, remove_transfer_schema)
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 89
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 90
         assert db.execute("SELECT count(*) FROM permissions WHERE code LIKE 'profit_transfer.%'").fetchone()[0] == 3

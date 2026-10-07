@@ -182,6 +182,8 @@ def source(db: Session, source_type: str, source_id: int) -> dict:
         row = db.get(PaymentRecord, source_id)
         if row is None:
             raise HTTPException(404, '收付款记录不存在')
+        if row.status != 'executed':
+            raise HTTPException(409, '只有已批准执行的资金可以勾对银行流水')
         kind = row.kind
         label = f'{"销售" if kind == "receivable" else "采购"}订单 #{row.order_id}'
     else:
@@ -195,7 +197,7 @@ def source(db: Session, source_type: str, source_id: int) -> dict:
     signed = Decimal(row.amount) * (1 if kind == 'receivable' else -1)
     return dict(source_type=source_type, source_id=row.id, label=label, kind=kind,
         action=row.action, bank_amount=money(signed), reference=row.reference,
-        created_at=row.created_at)
+        created_at=(row.executed_at or row.created_at) if isinstance(row, PaymentRecord) else row.created_at)
 
 
 def active_matches(db: Session) -> list[BankMatch]:
@@ -220,7 +222,8 @@ def overview_data(db: Session) -> dict:
         for item in db.scalars(select(BankStatementLine).order_by(BankStatementLine.id.desc()))]
     sources = [dict(**source(db, kind, item.id), match_id=by_source.get((kind, item.id)))
         for kind, model in (('order_payment', PaymentRecord), ('subledger_payment', SubledgerPayment))
-        for item in db.scalars(select(model).order_by(model.id.desc()))]
+        for item in db.scalars(select(model).where(model.status == 'executed').order_by(model.id.desc()) if model is PaymentRecord
+                              else select(model).order_by(model.id.desc()))]
     evidence = [dict(**model_data(item), created_by_name=users.get(item.created_by),
         reversal=(dict(**model_data(reversals[item.id]),
             created_by_name=users.get(reversals[item.id].created_by)) if item.id in reversals else None))

@@ -648,6 +648,15 @@ export interface FinanceAccount {
 }
 // 原收付款和冲销均为独立、不可编辑的记录，负金额表示退款或反向冲销。
 export interface PaymentRecord extends NumberedDocument {
+  // 草稿金额不进入余额，审批与业务执行版本分别校验。
+  status: 'draft' | 'executed' | 'cancelled'
+  version: number
+  approval?: DocumentApprovalState
+  executed_by: number | null
+  executed_at: string | null
+  cancelled_by: number | null
+  cancelled_at: string | null
+  cancellation_reason: string
   id: number
   kind: 'receivable' | 'payable'
   order_id: number
@@ -1447,6 +1456,7 @@ export interface ErpOperations extends DocumentApprovalOperations, DocumentNumbe
   decideBankBalanceReport: { input: { reportId: number; action: 'approve' | 'reject'; reason: string }; output: Omit<BankBalanceReport['decisions'][number], 'created_by_name'> }
   createPaymentRecord: { input: { kind: 'receivable' | 'payable'; order_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; note: string }; output: PaymentRecord }
   reversePaymentRecord: { input: { paymentId: number; reason: string }; output: PaymentRecord }
+  changePaymentRecordStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: PaymentRecord }
   createOrderSettlement: { input: { kind: 'receivable' | 'payable'; from_order_id: number; to_order_id: number; amount: string; reference: string; reason: string }; output: OrderSettlementTransfer }
   reverseOrderSettlement: { input: { transferId: number; reason: string }; output: OrderSettlementTransfer }
   boms: { input: undefined; output: Bom[] }

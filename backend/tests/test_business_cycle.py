@@ -1,6 +1,6 @@
 """验证采购、调拨、生产、销售与业务对账共用同一套物料和库存。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, execute_payment
 
 from decimal import Decimal
 
@@ -140,9 +140,11 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
         create("/finance/payment-records", finance, {"kind": "payable", "order_id": purchase,
                                                       "action": "settlement", "amount": "12",
                                                       "reference": "PAY-CYCLE"})
+        execute_payment(client,finance,next(row for row in client.get(f"{base}/finance/payment-records",headers=finance).json() if row["reference"]=="PAY-CYCLE"),account_headers=admin)
         create("/finance/payment-records", finance, {"kind": "receivable", "order_id": sale,
                                                       "action": "settlement", "amount": "20",
                                                       "reference": "RECEIVE-CYCLE"})
+        execute_payment(client,finance,next(row for row in client.get(f"{base}/finance/payment-records",headers=finance).json() if row["reference"]=="RECEIVE-CYCLE"),account_headers=admin)
         assert {item["outstanding_amount"] for item in client.get(
             f"{base}/finance/accounts", headers=finance).json()} == {"0.00"}
 

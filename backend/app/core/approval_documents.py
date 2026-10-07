@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.models import (
-    DocumentApprovalCase, DocumentApprovalAuthor, Material, PurchaseGoodsReceipt, PurchaseGoodsReceiptLine, PurchaseOrder, PurchaseOrderLine,
+    DocumentApprovalCase, DocumentApprovalAuthor, Material, PaymentRecord, PurchaseGoodsReceipt, PurchaseGoodsReceiptLine, PurchaseOrder, PurchaseOrderLine,
     PurchaseOrderRequestLink, Receipt, ReceiptLine, ReceiptOrderLink, ReceiptReversal,
     ReceiptWarehouse, Supplier, Warehouse, WarehouseInbound, WarehouseInboundLine,
     WarehouseInboundReversal, PurchaseReturn, PurchaseReturnLine, PurchaseReturnReversal,
@@ -496,6 +496,19 @@ def completion_snapshot(db: Session, identifier: int) -> dict:
                        'quantity': source.reported_quantity}]}
 
 
+def payment_snapshot(db: Session, identifier: int) -> dict:
+    from app.finance.routes import party_data
+    source = document_source(db, 'PaymentRecord', identifier)
+    original = db.get(PaymentRecord, source.reverses_id) if source.reverses_id else None
+    # 身份、金额与原资金执行事实固定；余额在审批及执行时重算，不固定易变化的余额。
+    return {field: getattr(source, field) for field in ('kind', 'order_id', 'action', 'amount', 'reference', 'note', 'reverses_id')} | {
+        'party_id': party_data(db, source.kind, source.order_id)['party_id'],
+        'source_author_ids': sorted({source.created_by, *([original.created_by] if original else []),
+            *([original.executed_by] if original and original.executed_by is not None else [])}),
+        'original': None if original is None else {field: getattr(original, field) for field in
+            ('id', 'document_no', 'kind', 'order_id', 'action', 'amount', 'reference', 'executed_at')}}
+
+
 def subledger_snapshot(db: Session, identifier: int) -> dict:
     from app.finance.subledger_openings import snapshot
     import json
@@ -660,7 +673,7 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+_SNAPSHOTS = {'PaymentRecord': payment_snapshot, 'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
@@ -777,7 +790,10 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
     return content
 
 
-def submit_permission(document_type: str, intent: str) -> str | None:
+def submit_permission(document_type: str, intent: str, source=None) -> str | None:
+    # 反向资金草稿独立送审，建单权限不能代替冲销权限。
+    if document_type == 'PaymentRecord' and source is not None and source.reverses_id is not None:
+        return 'finance.reverse'
     # 冲销送审/撤回沿用冲销权限，不能因为有建单权限而获得冲销权限。
     if intent == 'reverse' and document_type == 'SubledgerOpening':
         return 'subledger_opening.reverse'
@@ -795,6 +811,14 @@ def submit_permission(document_type: str, intent: str) -> str | None:
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'PaymentRecord':
+        return [{'label': label, 'value': str(content[field])} for label, field in (
+            ('订单内部编号', 'order_id'), ('往来对象内部编号', 'party_id'),
+            ('金额（元）', 'amount'), ('参考号', 'reference'), ('备注', 'note'))] + [
+            {'label': '往来类别', 'value': '客户应收' if content['kind'] == 'receivable' else '供应商应付'},
+            {'label': '资金动作', 'value': {'settlement': '收款 / 付款', 'refund': '退款 / 收退', 'reversal': '反向资金'}[content['action']]}] + (
+            [{'label': '原资金单号', 'value': content['original']['document_no'] or f"#{content['original']['id']}"}]
+            if content['original'] else [])
     if document_type == 'SubledgerOpening':
         from app.core.models import LedgerAccount
         from app.finance.auxiliary_rules import LABELS

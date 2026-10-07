@@ -1,6 +1,6 @@
 """编号贯穿实际采购、生产、销售和资金流程，来源与导出保持一致。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, execute_payment
 
 from test_business_orm import erp, receipt, completion
 from test_business_journals import business, generate, source
@@ -32,6 +32,7 @@ def test_numbered_purchase_production_sales_sources_and_exports(erp):
     request('POST', f'shipments/{shipment["id"]}/post')
     paid = request('POST', 'finance/payment-records', dict(kind='receivable', order_id=sale['id'],
         action='settlement', amount='8', reference='外部银行流水'), 201)
+    paid=execute_payment(client,None,paid)
     reverse = request('POST', f'finance/payment-records/{paid["id"]}/reverse', dict(reason='重新核对'), 201)
     assert paid['document_no'].startswith('PAY-') and reverse['document_no'] != paid['document_no']
     assert reverse['reverses_document_no'] == paid['document_no']

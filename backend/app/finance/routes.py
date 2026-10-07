@@ -16,6 +16,12 @@ from app.core.models import (User, Material, Customer, Supplier, SalesOrder, Sal
     PurchaseReturn, PurchaseReturnLine, PurchaseReturnReversal, PaymentRecord, OrderSettlementTransfer)
 from app.access.security import require
 from app.finance.subledger_rules import check_subledger
+from app.core import document_approval as approval
+from app.core.approval_documents import payment_snapshot
+from app.core.period_lock import ensure_date_unlocked
+from datetime import datetime, timezone
+from pydantic import ConfigDict
+from app.access.security import current_user
 
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
@@ -219,7 +225,7 @@ def account_data(db: Session, kind: str, order_id: int,
               if item["kind"] == kind and item["order_id"] == order_id and item["amount"] is not None]
     billed = sum((Decimal(item["amount"]) for item in source), Decimal(0))
     settled = sum((Decimal(value) for value in db.scalars(select(PaymentRecord.amount)
-        .where(PaymentRecord.kind == kind, PaymentRecord.order_id == order_id))), Decimal(0))
+        .where(PaymentRecord.kind == kind, PaymentRecord.order_id == order_id, PaymentRecord.status == 'executed'))), Decimal(0))
     credit_used = sum((Decimal(value) for value in db.scalars(select(OrderSettlementTransfer.amount)
         .where(OrderSettlementTransfer.kind == kind, OrderSettlementTransfer.from_order_id == order_id))), Decimal(0))
     debt_covered = sum((Decimal(value) for value in db.scalars(select(OrderSettlementTransfer.amount)
@@ -244,6 +250,7 @@ def payment_data(db: Session, payment_id: int) -> dict:
     if record is None:
         raise HTTPException(404, '收付款记录不存在')
     return {**model_data(record), 'created_by_name': db.get(User, record.created_by).username,
+            'approval': approval.case_data(approval.find_case(db, 'PaymentRecord', record.id)),
             **party_data(db, record.kind, record.order_id), 'currency': 'CNY'}
 
 
@@ -291,8 +298,9 @@ def create_payment_record(payload: PaymentInput, user: dict = Depends(require("f
         if payload.action == 'refund' and payload.amount > -outstanding:
             raise HTTPException(409, '退款金额超过订单贷方余额')
         signed = payload.amount if payload.action == 'settlement' else -payload.amount
-        record = PaymentRecord(kind=payload.kind, order_id=payload.order_id, action=payload.action,
+        record = PaymentRecord(status='draft', kind=payload.kind, order_id=payload.order_id, action=payload.action,
             amount=money(signed), reference=payload.reference, note=payload.note.strip(), created_by=user['id'])
+        validate_payment(db, record)
         try:
             db.add(record)
             db.flush()
@@ -309,14 +317,88 @@ def reverse_payment_record(payment_id: int, payload: ReversalInput,
         original = db.get(PaymentRecord, payment_id)
         if original is None:
             raise HTTPException(404, '收付款记录不存在')
-        if original.action == 'reversal':
+        if original.action == 'reversal' or original.status != 'executed':
             raise HTTPException(409, '冲销记录不能再次冲销')
-        if db.scalar(select(PaymentRecord.id).where(PaymentRecord.reverses_id == payment_id).limit(1)) is not None:
+        if db.scalar(select(PaymentRecord.id).where(PaymentRecord.reverses_id == payment_id,
+                PaymentRecord.status != 'cancelled').limit(1)) is not None:
             raise HTTPException(409, '此收付款记录已冲销')
         # 反向记录保留原编号、操作者与原因，不改写或删除历史金额。
-        record = PaymentRecord(kind=original.kind, order_id=original.order_id, action='reversal',
+        record = PaymentRecord(status='draft', kind=original.kind, order_id=original.order_id, action='reversal',
             amount=money(-Decimal(original.amount)), reference=f'冲销 #{payment_id}',
             note=payload.reason, reverses_id=payment_id, created_by=user['id'])
+        validate_payment(db, record)
         db.add(record)
         db.flush()
         return payment_data(db, record.id)
+
+
+def validate_payment(db: Session, record: PaymentRecord) -> None:
+    """审批不预占余额，真正执行在原写锁内重新核对方向、限额及原资金。"""
+    today = datetime.now(timezone.utc).date().isoformat()
+    check_subledger(db, today)
+    ensure_date_unlocked(db, today)
+    account = account_data(db, record.kind, record.order_id)
+    if not account['source_keys']:
+        raise HTTPException(409, '订单尚无已确认且已定价的业务单据')
+    amount = Decimal(record.amount)
+    if record.reverses_id is not None:
+        original = db.get(PaymentRecord, record.reverses_id)
+        if original is None or original.status != 'executed' or original.action == 'reversal':
+            raise HTTPException(409, '原资金尚未执行或本身是冲销')
+        if (original.kind, original.order_id, -Decimal(original.amount)) != (record.kind, record.order_id, amount):
+            raise HTTPException(409, '反向资金与原记录不一致')
+        ensure_date_unlocked(db, original.executed_at or original.created_at)
+        if db.scalar(select(PaymentRecord.id).where(PaymentRecord.reverses_id == original.id,
+                PaymentRecord.status != 'cancelled', PaymentRecord.id != record.id).limit(1)) is not None:
+            raise HTTPException(409, '原资金已有有效冲销草稿或记录')
+    else:
+        outstanding = Decimal(account['outstanding_amount'])
+        limit = outstanding if record.action == 'settlement' else -outstanding
+        if abs(amount) > limit:
+            raise HTTPException(409, '收付款金额超过订单最新未结金额或贷方余额')
+
+
+class PaymentExecutionInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    version: int = Field(gt=0, strict=True)
+    reason: str = Field(min_length=1, max_length=200)
+
+    @field_validator('reason')
+    @classmethod
+    def required_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError('资金执行或取消依据不能为空')
+        return value.strip()
+
+
+@router.post('/finance/payment-records/{payment_id}/{action}')
+def execute_payment_record(payment_id: int, action: str, payload: PaymentExecutionInput,
+                           user: dict = Depends(current_user)) -> dict:
+    if action not in ('post', 'cancel'):
+        raise HTTPException(404, '资金操作不存在')
+    with orm_session(write=True) as db:
+        record = db.get(PaymentRecord, payment_id)
+        if record is None:
+            raise HTTPException(404, '收付款记录不存在')
+        permission = 'finance.reverse' if record.reverses_id is not None else 'finance.record'
+        approval.actor(db, user['id'], permission)
+        if record.version != payload.version or record.status != 'draft':
+            raise HTTPException(409, '资金记录已变化或已处理，请重新读取')
+        case = approval.find_case(db, 'PaymentRecord', payment_id)
+        if action == 'cancel':
+            if case and case.status in ('submitted', 'approved'):
+                raise HTTPException(409, '请先撤回资金审批，再取消草稿')
+            record.status = 'cancelled'
+            record.cancelled_by, record.cancelled_at = user['id'], approval.now(db)
+            record.cancellation_reason = payload.reason
+        else:
+            case = approval.require_approved(db, 'PaymentRecord', payment_id,
+                payment_snapshot(db, payment_id), user['id'], permission=permission)
+            validate_payment(db, record)
+            record.status = 'executed'
+            record.executed_by, record.executed_at = user['id'], approval.now(db)
+            ensure_date_unlocked(db, record.executed_at)
+            approval.mark_executed(db, case, user['id'], permission=permission, reason=payload.reason)
+        record.version += 1
+        db.flush()
+        return payment_data(db, payment_id)

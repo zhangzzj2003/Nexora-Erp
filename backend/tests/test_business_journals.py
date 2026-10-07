@@ -1,6 +1,6 @@
 """业务来源重算、独立审核、跨模块价格锁定和原子去重。"""
 
-from approval_test_helpers import approve_document, prepare_purchase_return
+from approval_test_helpers import approve_document, prepare_purchase_return, execute_payment
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from threading import Barrier
@@ -101,9 +101,11 @@ def test_purchase_sales_and_payments_use_real_sources(business):
     assert sale_journal['total_debit'] == '20.25'
     payment = request('POST', 'finance/payment-records', dict(kind='receivable', order_id=sales['id'],
         action='settlement', amount='14', reference='P1'), 201)
+    payment=execute_payment(client,None,payment)
     assert source(client, f'payment_record:{payment["id"]}')['roles'] == {'cash': '14.00', 'receivable': '-14.00'}
     post(client, generate(client, f'payment_record:{payment["id"]}', 'PAY-1'), reviewer)
     reverse = request('POST', f'finance/payment-records/{payment["id"]}/reverse', dict(reason='登记更正'), 201)
+    reverse=execute_payment(client,None,reverse)
     assert source(client, f'payment_record:{reverse["id"]}')['roles'] == {'cash': '-14.00', 'receivable': '14.00'}
     post(client, generate(client, f'payment_record:{reverse["id"]}', 'PAY-REV'), reviewer)
     approve_document(client, dict(client.headers), 'Shipment', shipment['id'], intent='reverse', reason='出库更正')
@@ -366,5 +368,5 @@ def test_v43_upgrade_atomic_failure_and_idempotent_retry(business, remove_transf
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 89
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 90
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'business_journal.%'").fetchone()[0] == 3

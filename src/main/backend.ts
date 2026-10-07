@@ -1,3 +1,4 @@
+import { validatePaymentRecordResponse } from '../shared/payment-record-api.ts'
 import { documentNumberingBody, validateDocumentNumbering, validateDocumentNumbers } from '../shared/document-numbering.ts'
 import { documentApprovalType, documentApprovalPolicyBody, validateDocumentApprovalPolicies, validateDocumentApprovalPolicy, documentApprovalTarget, documentApprovalActionBody, validateDocumentApprovalRecord, validateDocumentApprovalResponse } from '../shared/document-approval-api.ts'
 import { supplierBody } from '../shared/supplier-api.ts'
@@ -1315,6 +1316,14 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'createBankBalanceReport': return { method: 'POST', path: '/api/v1/finance/bank-balance/reports', body: bankBalanceBody(payload, 'report') }
     case 'decideBankBalanceReport': return { method: 'POST', path: `/api/v1/finance/bank-balance/reports/${positiveId(payload, 'reportId')}/decision`, body: bankBalanceBody(payload, 'decision') }
     case 'createPaymentRecord': return { method: 'POST', path: '/api/v1/finance/payment-records', body: payload }
+    case 'changePaymentRecordStatus': {
+      // 只开放固定资金动作，不能用路径片段或客户端批准字段绕过服务端。
+      const row = payload as ErpOperations['changePaymentRecordStatus']['input']
+      if (!['post', 'cancel'].includes(row.action) || !Number.isSafeInteger(row.version) || row.version < 1
+        || typeof row.reason !== 'string' || !row.reason.trim() || row.reason.trim().length > 200) throw Error('资金操作参数无效')
+      return { method: 'POST', path: `/api/v1/finance/payment-records/${positiveId(payload, 'id')}/${row.action}`,
+        body: { version: row.version, reason: row.reason.trim() } }
+    }
     case 'reversePaymentRecord': return {
       method: 'POST', path: `/api/v1/finance/payment-records/${positiveId(payload, 'paymentId')}/reverse`,
       body: { reason: (payload as { reason: unknown }).reason }
@@ -1590,6 +1599,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   validateDocumentNumbers(data)
   // 业务列表与执行响应同样校验审批状态，避免格式错误直接开放确认按钮。
   validateDocumentApprovalResponse(data)
+  validatePaymentRecordResponse(data)
   if (action === 'login') {
     if (!data || typeof data !== 'object' || !('token' in data) || typeof data.token !== 'string'
       || !('user' in data) || !data.user) throw new Error('登录响应格式不匹配')

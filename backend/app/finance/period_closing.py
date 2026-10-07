@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Path
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.access.security import require
@@ -116,7 +116,7 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
         profit_transfer=transfer,
         ledger=dict(rows=rows, totals=totals), inventory=valuation, business_sources=business,
         payments=[model_data(item) for item in db.scalars(select(PaymentRecord).where(
-            PaymentRecord.created_at < period.end_date + ' 24:00:00').order_by(PaymentRecord.id))],
+            PaymentRecord.status == 'executed', func.coalesce(PaymentRecord.executed_at, PaymentRecord.created_at) < period.end_date + ' 24:00:00').order_by(PaymentRecord.id))],
         order_settlements=[model_data(item) for item in db.scalars(select(OrderSettlementTransfer).where(
             OrderSettlementTransfer.created_at < period.end_date + ' 24:00:00').order_by(OrderSettlementTransfer.id))],
         posted_journal_ids=list(db.scalars(select(Journal.id).where(

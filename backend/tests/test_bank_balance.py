@@ -81,7 +81,7 @@ def test_v71_upgrade_keeps_existing_bank_report_and_creates_opening_tables(journ
     assert overview['reports'][0]['id'] == report['id']
     assert overview['reports'][0]['stale'] is False
     with sqlite3.connect(database_path()) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 89
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 90
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
 
 
@@ -390,7 +390,7 @@ def test_v70_upgrade_keeps_bank_data_and_adds_reconciliation_schema(monkeypatch,
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 89
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 90
         assert {name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table'")} >= {
             'bank_opening_items', 'bank_opening_clearances',
             'bank_opening_clearance_members', 'bank_opening_clearance_reversals'}

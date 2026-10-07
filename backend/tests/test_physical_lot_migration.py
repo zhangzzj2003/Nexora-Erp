@@ -130,4 +130,4 @@ def test_failed_lot_upgrade_rolls_back_all_new_tables(monkeypatch, tmp_path, rem
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name LIKE 'physical_lot_%'").fetchone()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 89
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 90

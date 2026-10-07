@@ -134,7 +134,7 @@ def test_contract_migration_is_atomic_and_preserves_existing_orders(monkeypatch,
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 89
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 90
         assert db.execute('SELECT * FROM sales_orders').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
     assert len(Base.metadata.tables) == 192

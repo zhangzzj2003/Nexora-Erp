@@ -7,20 +7,46 @@ import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NModal } from 'naive-ui'
 import { matchesRecordQuery } from '../../../utils/workspace-records'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import { storeToRefs } from 'pinia'
 import { usePiniaAppStore } from '../../../store/app-store'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
+import type { PaymentRecord } from '../../../../../shared/erp-api'
 
 // 登记与冲销集中在记录页；切换页面保留 Pinia 中的付款草稿和冲销原因。
 const store = usePiniaAppStore()
 const { error, notice, busy, connectionLost, financeAccounts, paymentRecords, paymentForm, reversalReasons,
-  orderSettlements, orderSettlementForm, orderSettlementReversalReasons } = storeToRefs(store)
+  orderSettlements, orderSettlementForm, orderSettlementReversalReasons, user, server } = storeToRefs(store)
 const { can, localTime, createPaymentRecord, reversePaymentRecord, createOrderSettlement,
-  reverseOrderSettlement, paymentActionLabel } = store
+  reverseOrderSettlement, paymentActionLabel, openDocumentApproval, changePaymentRecordStatus } = store
+const command = ref<{ row: PaymentRecord; action: 'post' | 'cancel' } | null>(null)
+const commandReason = ref('')
+watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`, () => {
+  command.value = null; createOpen.value = transferOpen.value = false
+})
+function mayAct(row: PaymentRecord, action: 'post' | 'cancel'): boolean {
+  return row.status === 'draft' && can(row.reverses_id ? 'finance.reverse' : 'finance.record') && (
+    action === 'post' ? row.approval?.status === 'approved' : !['submitted', 'approved'].includes(row.approval?.status ?? ''))
+}
+function ask(row: PaymentRecord, action: 'post' | 'cancel'): void {
+  if (!mayAct(row, action)) return
+  command.value = { row, action }; commandReason.value = ''
+}
+async function confirmCommand(): Promise<void> {
+  if (!command.value || busy.value || connectionLost.value) return
+  const { row, action } = command.value
+  const current = paymentRecords.value.find(item => item.id === row.id)
+  // 弹窗中的旧批准不能跨业务版本或撤回继续执行，失败保留依据供重新核对。
+  if (!current || current.version !== row.version || !mayAct(current, action)) {
+    error.value = '资金记录或批准已变化，请重新读取。'; command.value = null; return
+  }
+  await changePaymentRecordStatus(current, action, commandReason.value)
+  if (!error.value) command.value = null
+}
 const createOpen = ref(false)
 const transferOpen = ref(false)
 async function submitCreate(): Promise<void> {
@@ -74,7 +100,7 @@ const transferColumns = [
       }"
     >
       <p class="muted">
-        选择订单后登记真实发生的收付款。退款只在退货产生贷方余额时允许；录错请在下方冲销并重新登记。
+        选择订单后保存收付款草稿，独立批准并执行后才计入余额。退款须有贷方余额；实际已执行的录错资金另建反向草稿。
       </p>
       <form @submit.prevent="submitCreate">
         <div class="form-grid">
@@ -144,7 +170,7 @@ const transferColumns = [
           :disabled="busy || connectionLost || !financeAccounts.length"
           variant="primary"
         >
-          登记收付款
+          保存收付款草稿
         </AppButton>
       </form>
     </NModal>
@@ -214,13 +240,22 @@ const transferColumns = [
             <span v-if="item.reverses_id">· 冲销记录 {{ relatedDocumentLabel(item, 'reverses') }}</span>
             <span v-if="item.note">· {{ item.note }}</span>
           </p>
+          <p class="muted">{{ item.status === 'draft' ? '待执行草稿' : item.status === 'cancelled' ? '已取消' : '已执行' }}
+            · {{ item.status === 'executed' && !item.approval?.version ? '历史执行记录（无统一审批记录）' : item.approval?.status === 'approved' ? '已批准待执行' : item.approval?.status === 'submitted' ? '审批中' : item.approval?.status === 'executed' ? '审批已执行' : '未批准' }}
+            <span v-if="item.executed_at"> · 执行时间 {{ localTime(item.executed_at) }}</span></p>
         </div>
       </template>
       <template #cell-actions="{ row: item }">
+        <AppButton type="button" size="small" :disabled="busy || connectionLost"
+          @click="openDocumentApproval({ document_type: 'PaymentRecord', document_id: item.id, intent: 'execute' })">单据审批</AppButton>
+        <AppButton v-if="mayAct(item, 'post')" type="button" size="small" :disabled="busy || connectionLost"
+          @click="ask(item, 'post')">确认资金</AppButton>
+        <AppButton v-if="mayAct(item, 'cancel')" type="button" size="small" :disabled="busy || connectionLost"
+          @click="ask(item, 'cancel')">取消草稿</AppButton>
         <form
           v-if="
-            item.action !== 'reversal' &&
-            !paymentRecords.some((entry) => entry.reverses_id === item.id) &&
+            item.status === 'executed' && item.action !== 'reversal' &&
+            !paymentRecords.some((entry) => entry.reverses_id === item.id && entry.status !== 'cancelled') &&
             can('finance.reverse')
           "
           class="inline-form"
@@ -235,7 +270,7 @@ const transferColumns = [
             :disabled="busy || connectionLost"
             variant="secondary"
             size="small"
-            >冲销此记录</AppButton
+            >建立反向草稿</AppButton
           >
         </form>
       </template>
@@ -264,5 +299,14 @@ const transferColumns = [
       </template>
       <template #empty>暂无订单间核销记录。</template>
     </WorkspaceTable>
+    <!-- 正常执行与取消使用业务版本，审批由共享弹窗独立保存审批版本。 -->
+    <NModal :show="!!command" preset="card" :title="command?.action === 'post' ? '确认资金' : '取消资金草稿'"
+      :mask-closable="!busy" @update:show="value => { if (!value) command = null }"
+      :style="{ width: 'min(600px, calc(100vw - 32px))' }">
+      <p class="muted">{{ command ? documentLabel(command.row) : '' }}。执行会重新核对最新余额及期间；草稿与批准本身不更新余额。</p>
+      <label>操作依据<AppInput v-model.trim="commandReason" required maxlength="200" :disabled="busy" /></label>
+      <AppButton type="button" :disabled="busy || connectionLost || !commandReason" @click="confirmCommand">确认操作</AppButton>
+    </NModal>
+    <DocumentApprovalDialog />
   </section>
 </template>

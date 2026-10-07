@@ -4,6 +4,7 @@ import { ref, toRaw } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import { createWorkspaceRouter, installWorkspaceAccessGuard } from '../src/renderer/src/router/index.ts'
 import { visibleRouteGroups, workspaceRoutes, permittedOpenedRoutes } from '../src/renderer/src/router/workspace-routes.ts'
+import { createAppState } from '../src/renderer/src/store/state.ts'
 import { createFinanceActions } from '../src/renderer/src/store/modules/finance-actions.ts'
 import { submitCreateDialog } from '../src/renderer/src/utils/create-dialog.ts'
 
@@ -44,7 +45,7 @@ test('登记页继续保留失败草稿，退款成功仅清空凭据字段，�
     calls.push([action, structuredClone(payload)])
     if (fail) throw new Error('服务端拒绝本次操作')
   } } }
-  const actions = createFinanceActions({ paymentForm, reversalReasons }, async (action, success) => {
+  const actions = createFinanceActions({ ...createAppState(), user: ref({id:1,permissions:['finance.record','finance.reverse']}), paymentForm, reversalReasons }, async (action, success) => {
     state.error.value = ''
     try { await action(); state.notice.value = success }
     catch (error) { state.error.value = error.message }
@@ -82,7 +83,7 @@ test('订单间核销失败保留依据，成功清空金额及凭据，撤销�
     if (fail) throw new Error('核销余额已变化')
   } } }
   const state = { busy: ref(false), error: ref(''), notice: ref('') }
-  const actions = createFinanceActions({ orderSettlementForm, orderSettlementReversalReasons },
+  const actions = createFinanceActions({ ...createAppState(), orderSettlementForm, orderSettlementReversalReasons },
     async (action, success) => {
       state.error.value = ''
       try { await action(); state.notice.value = success }
@@ -109,4 +110,19 @@ test('订单间核销失败保留依据，成功清空金额及凭据，撤销�
       amount: '6.00', reference: 'OFFSET-7', reason: '同一客户贷方抵扣' }],
     ['reverseOrderSettlement', { transferId: 3, reason: '原单关联错误' }]
   ])
+})
+
+// 批准本身不执行资金；排队时换服务端使原确认失效，不触发新的网络写入。
+test('资金确认保护批准状态与排队会话，失败不清除新账号草稿',async t=>{
+  const previous=globalThis.window;t.after(()=>{globalThis.window=previous})
+  const state=createAppState();state.user.value={id:1,roles:['finance'],permissions:['finance.record']}
+  state.server.value={id:'source',fingerprint:'source-ca'}
+  let resume;const pending=new Promise(resolve=>{resume=resolve}),calls=[]
+  globalThis.window={nexora:{callApi:async(...args)=>{calls.push(args)}}}
+  const actions=createFinanceActions(state,async fn=>{await pending;try{await fn()}catch(e){state.error.value=e.message}})
+  const row={id:1,version:1,status:'draft',reverses_id:null}
+  await actions.changePaymentRecordStatus(row,'post','提前执行');assert.equal(calls.length,0)
+  const run=actions.changePaymentRecordStatus({...row,approval:{status:'approved'}},'post','核对执行')
+  state.server.value={id:'destination',fingerprint:'destination-ca'};resume();await run
+  assert.equal(calls.length,0);assert.match(state.error.value,/会话或连接已变化/)
 })

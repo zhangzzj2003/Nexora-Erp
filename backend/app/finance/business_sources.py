@@ -73,9 +73,11 @@ def business_sources(db: Session) -> dict[str, dict]:
         item['business'].append({key: entry[key] for key in (
             'source_line_id', 'order_id', 'party_id', 'material_id', 'quantity', 'unit_price',
             'amount', 'kind', 'posted_at')})
-    for record in db.scalars(select(PaymentRecord).order_by(PaymentRecord.id)):
-        item = group('payment_record', record.id, record.created_at)
-        item['records'].append(model_data(record))
+    for record in db.scalars(select(PaymentRecord).where(PaymentRecord.status == 'executed').order_by(PaymentRecord.id)):
+        item = group('payment_record', record.id, record.executed_at or record.created_at)
+        # 审批元数据不进入旧资金的经济指纹，升级不能使已过账来源凭证失效。
+        item['records'].append({key: value for key, value in model_data(record).items() if key not in (
+            'status', 'version', 'executed_by', 'executed_at', 'cancelled_by', 'cancelled_at', 'cancellation_reason')})
     for record in db.scalars(select(SubledgerPayment).order_by(SubledgerPayment.id)):
         line = db.get(SubledgerOpeningLine, record.opening_line_id)
         item = group('subledger_payment', record.id, record.created_at)

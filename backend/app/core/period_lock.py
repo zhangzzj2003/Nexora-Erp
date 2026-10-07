@@ -43,6 +43,10 @@ def validate_appended_dates(db: Session, boundary: str | None, heads: dict) -> N
         return
     # 所有这些业务接口用服务端 UTC 时间追加记录；时钟回退也不能写入锁期。
     for model, head in heads.items():
-        if db.scalar(select(model.id).where(model.id > head,
-                    model.created_at < boundary + ' 24:00:00').limit(1)) is not None:
+        timestamp = func.coalesce(model.executed_at, model.created_at) if model is PaymentRecord else model.created_at
+        query = select(model.id).where(model.id > head, timestamp < boundary + ' 24:00:00')
+        if model is PaymentRecord:
+            # 待审草稿不属于资金事实；执行已有草稿的日期另在执行事务内核对。
+            query = query.where(model.status == 'executed')
+        if db.scalar(query.limit(1)) is not None:
             raise HTTPException(409, f'业务记录时间落入已结期间（锁定至 {boundary}），本次操作已回滚')

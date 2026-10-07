@@ -130,7 +130,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                 DocumentApprovalEvent.case_id == row.id,
                 DocumentApprovalEvent.generation == row.generation,
                 DocumentApprovalEvent.action == 'approve', DocumentApprovalEvent.actor_id == user_id)) is None)
-    permission = submit_permission(document_type, intent) or rule.submit_permission
+    permission = submit_permission(document_type, intent, source) or rule.submit_permission
     events = []
     if row is not None:
         # 仅返回审批记录的人员、时间和意见，不向通用入口暴露领域快照或其他客户信息。
@@ -212,6 +212,15 @@ def act_document_approval(document_type: str, identifier: int,
             json.loads(row.snapshot_json).get('reversal_evidence', '') if row else '')
         reason = payload.reason if action == 'submit' else (
             json.loads(row.snapshot_json).get('reversal_reason', '') if row else '')
+        if document_type == 'PaymentRecord':
+            from app.finance.routes import validate_payment
+            permission = submit_permission(document_type, payload.intent, source) or rule.submit_permission
+            workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else permission)
+            workflow.check_version(row.version if row else 0, payload.version)
+            if action != 'withdraw' and (not payload.reason.strip() or len(payload.reason.strip()) > 200):
+                raise HTTPException(422, '资金审批依据必填，最多二百字')
+            if action in ('submit', 'approve'):
+                validate_payment(db, source)
         native = native_review_evidence(db, document_type, identifier)
         prior = native if row is None and payload.intent == 'execute' else None
         before = None
@@ -248,7 +257,7 @@ def act_document_approval(document_type: str, identifier: int,
             from app.core.models import AfterSalesChange, QualityDispositionChange
             change_model = AfterSalesChange if document_type == 'AfterSalesCase' else QualityDispositionChange
             source_field = change_model.case_id if document_type == 'AfterSalesCase' else change_model.disposition_id
-            workflow.actor(db, user['id'], submit_permission(document_type, payload.intent))
+            workflow.actor(db, user['id'], submit_permission(document_type, payload.intent, source))
             workflow.check_version(row.version if row else 0, payload.version)
             document_pending(db, document_type, identifier, payload.intent)
             extra_authors = list(db.scalars(select(change_model.changed_by).where(
@@ -294,13 +303,13 @@ def act_document_approval(document_type: str, identifier: int,
                             authors=[*extra_authors, *original.get('source_author_ids', ()),
                                      *([native['submitted_by']] if native and native['submitted_by'] else [])],
                             prior_state=prior, reason=payload.reason, evidence=evidence,
-                            intent=payload.intent, permission=submit_permission(document_type, payload.intent))
+                            intent=payload.intent, permission=submit_permission(document_type, payload.intent, source))
         elif action in ('approve', 'reject'):
             result = workflow.review(db, document_type, identifier, content, payload.version, user['id'],
                             approve=action == 'approve', reason=payload.reason, intent=payload.intent, evidence=evidence)
         else:
             result = workflow.withdraw(db, document_type, identifier, payload.version, user['id'],
-                              intent=payload.intent, permission=submit_permission(document_type, payload.intent))
+                              intent=payload.intent, permission=submit_permission(document_type, payload.intent, source))
         if payload.intent == 'execute':
             if document_type == 'SubledgerOpening':
                 from app.finance.subledger_openings import sync_approval_action

@@ -280,7 +280,7 @@ def require_approved(db: Session, document_type: str, document_id: int, snapshot
 
 
 def mark_executed(db: Session, row: DocumentApprovalCase, user_id: int,
-                  *, permission: str | None = None) -> None:
+                  *, permission: str | None = None, reason: str = '') -> None:
     write_transaction(db)
     actor(db, user_id, permission or approval_type(row.document_type).execute_permission)
     if row.status != 'approved':
@@ -288,7 +288,7 @@ def mark_executed(db: Session, row: DocumentApprovalCase, user_id: int,
     # 此方法在领域执行成功后调用；领域失败时审批事件与主单一起回滚。
     row.status, row.version = 'executed', row.version + 1
     row.executed_by, row.executed_at = user_id, now(db)
-    append_event(db, row, 'execute', user_id, '', row.current_step)
+    append_event(db, row, 'execute', user_id, reason, row.current_step)
 
 
 def require_conversion_approved(db: Session, document_type: str, document_id: int,

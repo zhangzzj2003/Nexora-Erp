@@ -255,7 +255,7 @@ def test_v38_upgrade_preserves_data_and_grants_settlement_permissions(monkeypatc
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 89
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 90
         assert db.execute("SELECT name FROM materials WHERE sku = 'OLD'").fetchone()[0] == '旧物料'
         assert {row[0] for row in db.execute("SELECT role_code FROM role_permissions WHERE permission_code = 'production_cost.settle'")} == {'admin', 'finance'}
         assert db.execute('SELECT COUNT(*) FROM production_cost_settlements').fetchone()[0] == 0

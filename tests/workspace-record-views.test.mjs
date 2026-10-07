@@ -24,14 +24,14 @@ const storeModule = `
 import {ref} from 'vue'
 export const permissions = new Set()
 export const state = {
-  busy:ref(false), connectionLost:ref(false), error:ref(''), notice:ref(''), user:ref({id:1}), activeTab:ref('finance'),
+  busy:ref(false), connectionLost:ref(false), error:ref(''), notice:ref(''), server:ref(null), user:ref({id:1,permissions:[]}), activeTab:ref('finance'),
   roles:ref([{code:'admin',label:'管理员'}]), users:ref([{id:1,username:'当前账号',is_active:true,roles:['admin']},{id:2,username:'其他账号',is_active:true,roles:['admin']}]),
   roleDrafts:ref({1:['admin'],2:['admin']}), resetPasswords:ref({1:'sample-password-1',2:'sample-password-2'}), newUser:ref({roles:[]}),
   financeAccounts:ref([]), paymentForm:ref({kind:'receivable'}), reversalReasons:ref({}),
   orderSettlements:ref([]), orderSettlementForm:ref({kind:'receivable',from_order_id:0,to_order_id:0,
     amount:'',reference:'',reason:''}), orderSettlementReversalReasons:ref({}),
   receivablesPayables:ref({receivable_amount:'100',payable_amount:'0',unpriced_count:0,entries:[]}),
-  paymentRecords:ref([{id:1,action:'settlement',party_name:'客户A',amount:'100'},{id:2,action:'settlement',party_name:'客户B',amount:'20'},{id:3,action:'reversal',reverses_id:2,amount:'-20'}]),
+  paymentRecords:ref([{id:1,status:'executed',action:'settlement',party_name:'客户A',amount:'100'},{id:2,status:'executed',action:'settlement',party_name:'客户B',amount:'20'},{id:3,action:'reversal',reverses_id:2,amount:'-20'}]),
   workOrders:ref([]), completionForm:ref({}), selectedCompletionOrder:ref(null), completionReversalReasons:ref({}),
   productionCompletions:ref(['draft','inspected','posted','reversed','cancelled'].map((status,i)=>({id:i+1,status,product_name:'测试成品',reported_quantity:'5',accepted_quantity:status==='draft'?null:'4',rejected_quantity:status==='draft'?null:'1',physical_lots:[],approval:{status:status==='inspected'?'approved':'draft'},reversal_approval:{status:status==='posted'?'approved':'draft'}}))),
   inspectionDrafts:ref({1:{accepted_quantity:'4',qc_note:'测试质检'}}),
@@ -86,7 +86,7 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
   }
   const accountHtml = await render(financePages[0][0])
   assert.match(accountHtml, /业务应收净额/)
-  assert.doesNotMatch(accountHtml, /冲销此记录|登记收付款/)
+  assert.doesNotMatch(accountHtml, /建立反向草稿|登记收付款/)
   permissions.add('finance.record')
   const paymentHtml = await render(financePages[1][0])
   assert.match(paymentHtml, /登记收付款/)
@@ -96,12 +96,12 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
   permissions.delete('finance.record')
   const buttons = html => [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map(m=>({disabled:/(?:^|\s)disabled(?:\s|=|$)/.test(m[1]),label:m[2].replace(/<[^>]*>/g,'').trim()}))
   const finance='finance/PaymentRecordsView.vue'
-  assert.doesNotMatch(await render(finance),/冲销此记录/)
+  assert.doesNotMatch(await render(finance),/建立反向草稿/)
   permissions.add('finance.reverse')
-  assert.equal(buttons(await render(finance)).filter(b=>b.label==='冲销此记录').length,1)
+  assert.equal(buttons(await render(finance)).filter(b=>b.label==='建立反向草稿').length,1)
   // 已有反向记录时不允许再次冲销，判断依据始终是完整记录集。
   state.paymentRecords.value.push({id:4,action:'reversal',reverses_id:1})
-  assert.equal(buttons(await render(finance)).filter(b=>b.label==='冲销此记录').length,0)
+  assert.equal(buttons(await render(finance)).filter(b=>b.label==='建立反向草稿').length,0)
 
   const completions='production/ProductionCompletionsView.vue'
   assert.doesNotMatch(await render(completions),/记录质检结果|确认完工|执行已批准冲销/)

@@ -1653,6 +1653,14 @@ class PaymentRecord(Base):
     reverses_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('payment_records.id'), nullable=True)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    # 历史资金保留已执行事实；新入口显式创建草稿，批准执行才计入余额。
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'executed'"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    executed_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    executed_at: Mapped[str | None] = mapped_column(Text)
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    cancelled_at: Mapped[str | None] = mapped_column(Text)
+    cancellation_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
 
 
 class OrderSettlementTransfer(Base):

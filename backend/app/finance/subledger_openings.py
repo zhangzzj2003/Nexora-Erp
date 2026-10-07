@@ -171,7 +171,7 @@ def audit(db: Session, record: SubledgerOpening, before: dict | None,
 def ensure_initial(db: Session) -> None:
     ensure_no_posted_journals(db)
     from app.finance.routes import financial_entries
-    if financial_entries(db) or db.scalar(select(PaymentRecord.id).limit(1)) is not None:
+    if financial_entries(db) or db.scalar(select(PaymentRecord.id).where(PaymentRecord.status == 'executed').limit(1)) is not None:
         raise HTTPException(409, '已有业务往来或订单收付款，不能再导入首次分户期初，避免重复计入')
 
 

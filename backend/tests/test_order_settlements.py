@@ -1,6 +1,6 @@
 """订单间贷方核销的金额、归属、权限和追加式撤销。"""
 
-from approval_test_helpers import approve_document, prepare_purchase_return
+from approval_test_helpers import approve_document, prepare_purchase_return, execute_payment
 
 from datetime import datetime, timezone
 
@@ -64,9 +64,11 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
         target, _ = sale(customer)
         foreign, _ = sale(other_customer)
         payment_path = f'{base}/finance/payment-records'
-        assert client.post(payment_path, headers=finance, json={
+        paid=client.post(payment_path, headers=finance, json={
             'kind': 'receivable', 'order_id': source, 'action': 'settlement',
-            'amount': '20', 'reference': 'BANK-1'}).status_code == 201
+            'amount': '20', 'reference': 'BANK-1'})
+        assert paid.status_code == 201
+        execute_payment(client,finance,paid.json(),account_headers=admin)
         returned = client.post(f'{base}/sales-returns', headers=admin, json={
             'shipment_id': shipment['id'], 'warehouse_id': 1, 'reason': '退回一件',
             'lines': [{'shipment_line_id': shipment['lines'][0]['id'], 'quantity': '1'}]}).json()['id']
@@ -120,9 +122,11 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
             'reference': 'OFFSET-NEW'}).status_code == 201
 
         # 供应商应付沿用同一规则，订单编号相同也不能跨应收、应付类别抵扣。
-        assert client.post(payment_path, headers=finance, json={
+        paid=client.post(payment_path, headers=finance, json={
             'kind': 'payable', 'order_id': purchase, 'action': 'settlement',
-            'amount': '24', 'reference': 'PAY-SUP'}).status_code == 201
+            'amount': '24', 'reference': 'PAY-SUP'})
+        assert paid.status_code == 201
+        execute_payment(client,finance,paid.json(),account_headers=admin)
         purchase_return = client.post(f'{base}/purchase-returns', headers=admin, json={
             'receipt_id': receipt, 'reason': '退一件',
             'lines': [{'receipt_line_id': receipt_doc['lines'][0]['id'], 'quantity': '1'}]}).json()['id']
@@ -160,4 +164,4 @@ def test_order_credit_settlement_and_reversal(monkeypatch, tmp_path):
             headers=finance, json={'reason': '锁期撤销'})
         assert locked_reverse.status_code == 409 and '锁定' in locked_reverse.json()['detail']
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 89
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 90
