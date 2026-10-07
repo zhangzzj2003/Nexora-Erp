@@ -8,6 +8,7 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import ProductionAssociationDialog from '../../../components/workspace/ProductionAssociationDialog.vue'
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
@@ -47,6 +48,7 @@ const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '
 <template>
   <section class="stack">
     <DocumentApprovalDialog />
+    <ProductionAssociationDialog />
     <NModal title="新建生产工单"
       v-if="can('work_order.create')"
       v-model:show="createOpen"
@@ -184,6 +186,9 @@ const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '
         </div>
       </template>
       <template #cell-actions="{ row: item }">
+        <!-- 关联查询保留已取消和冲销历史，不需要登记实物批次才能查看。 -->
+        <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+          @click="store.openProductionAssociations({kind:'work_order',id:item.id})">关联单据</AppButton>
         <div class="form-actions">
           <AppButton type="button" size="small" :disabled="busy || connectionLost"
             @click="store.openDocumentApproval({ document_type: 'WorkOrder', document_id: item.id, intent: 'execute' })">单据审批</AppButton>

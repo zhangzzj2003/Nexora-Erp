@@ -11,6 +11,7 @@ test('生产四类先独立审批，完工保留质检，普通执行无需批�
   const storeModule = `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';
     export const calls=[];export const usePiniaAppStore=defineStore('production-approval-view',()=>{
       const state=createAppState();const actions={can:()=>true,localTime:v=>v,
+        async openProductionAssociations(target){calls.push(['associations',target]);return true},
         async openDocumentApproval(target){calls.push(['approval',target]);state.documentApprovalTarget.value=target;
           state.documentApprovalRecord.value={status:'approved',reversal_reason:'已批准原因'};return true},
         closeDocumentApproval(){state.documentApprovalTarget.value=null}};
@@ -26,7 +27,7 @@ test('生产四类先独立审批，完工保留质检，普通执行无需批�
     name: 'production-approval-fixture', enforce: 'pre', resolveId(id, importer) {
       if (importer?.includes('/views/workspace/') && id.endsWith('/store/app-store')) return '\0production-approval-store'
       if (id.endsWith('/AppButton.vue')) return '\0production-approval-button'
-      if (id.endsWith('/DocumentApprovalDialog.vue')) return '\0production-approval-dialog'
+      if (id.endsWith('/DocumentApprovalDialog.vue') || id.endsWith('/ProductionAssociationDialog.vue')) return '\0production-approval-dialog'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0production-approval-table'
     }, load(id) {
       if (id === '\0production-approval-store') return storeModule
@@ -68,6 +69,12 @@ test('生产四类先独立审批，完工保留质检，普通执行无需批�
       assert.ok(!buttons.some(b => b.label === '指定实物批次（可选）'))
       await buttons.find(b => b.label === label).click()
       assert.deepEqual(calls[0], [operation, 1])
+    }
+    if (['WorkOrder','ProductionCompletion'].includes(kind)) {
+      store[state]=[{...record,status:businessStatus}]
+      await render(); calls.length=0
+      await buttons.find(button=>button.label==='关联单据').click()
+      assert.deepEqual(calls[0],['associations',{kind:kind==='WorkOrder'?'work_order':'completion',id:1}])
     }
     for (const approval of [undefined, { status: 'draft' }, { status: 'submitted' }]) {
       store[state] = [{ ...record, status: businessStatus, approval }]

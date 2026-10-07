@@ -1,3 +1,4 @@
+import { productionAssociationInput, validateProductionAssociations } from '../shared/production-association-api.ts'
 import { validateProductionSettlementResponse } from '../shared/production-settlement-api.ts'
 import { validatePaymentRecordResponse } from '../shared/payment-record-api.ts'
 import { documentNumberingBody, validateDocumentNumbering, validateDocumentNumbers } from '../shared/document-numbering.ts'
@@ -1424,6 +1425,11 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: `/api/v1/production-completions/${completionId}/reverse`,
         body: { reason: fields.reason } }
     }
+    case 'productionAssociations': {
+      // 类型与编号只能选择两个固定只读地址，参考记录默认不加载。
+      const row = productionAssociationInput(payload)
+      return { method:'GET', path:`/api/v1/${row.kind === 'work_order' ? 'work-orders' : 'production-completions'}/${row.id}/associations?include_references=${row.include_references}` }
+    }
     case 'productionCosts': return { method: 'GET', path: '/api/v1/production-costs' }
     case 'productionCostSettlements': return { method: 'GET', path: '/api/v1/production-costs/settlements' }
     case 'settleProductionCost': {
@@ -1632,6 +1638,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   validateDocumentApprovalResponse(data)
   validatePaymentRecordResponse(data)
   validateProductionSettlementResponse(data)
+  if (action === 'productionAssociations') validateProductionAssociations(data)
   if (action === 'login') {
     if (!data || typeof data !== 'object' || !('token' in data) || typeof data.token !== 'string'
       || !('user' in data) || !data.user) throw new Error('登录响应格式不匹配')

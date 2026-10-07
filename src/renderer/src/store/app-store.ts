@@ -1,3 +1,4 @@
+import { createProductionAssociationActions } from './modules/production-association-actions'
 import type { DocumentNumberingInput } from '../../../shared/document-numbering'
 import { createDocumentApprovalCaseActions } from './modules/document-approval-case-actions'
 import { createDocumentApprovalActions } from './modules/document-approval-actions'
@@ -403,6 +404,7 @@ function createAppStore() {
     ...valuationActions,
     ...salesActions,
     ...productionActions,
+    ...createProductionAssociationActions(state),
     ...accessActions,
     ...menuActions,
     can,

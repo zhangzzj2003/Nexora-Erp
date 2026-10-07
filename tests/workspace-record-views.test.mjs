@@ -57,7 +57,7 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
       // 批次表的公共封装也引用 WorkspaceTable，继续展开同一份表格绘制替身。
       if(id.endsWith('/WorkspaceTable.vue')) return '\0record-view-table'
       // 本夹具检查页面状态和权限；共用审批弹窗已有真实 Pinia 与接口专项测试。
-      if(id.endsWith('/DocumentApprovalDialog.vue')) return '\0record-view-approval'
+      if(id.endsWith('/DocumentApprovalDialog.vue') || id.endsWith('/ProductionAssociationDialog.vue')) return '\0record-view-approval'
       if(!importer?.includes('/views/workspace/')) return
       if(id.endsWith('/store/app-store')) return '\0record-view-store'
     },

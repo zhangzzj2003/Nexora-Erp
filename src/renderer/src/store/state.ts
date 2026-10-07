@@ -1,3 +1,4 @@
+import type { ProductionAssociationTarget, ProductionAssociations } from '../../../shared/production-association-api'
 import type { DocumentNumberingConfig } from '../../../shared/document-numbering'
 import type { DocumentApprovalPolicy, DocumentApprovalPolicyInput, DocumentApprovalType, DocumentApprovalTarget, DocumentApprovalRecord } from '../../../shared/document-approval-api'
 import type {InventoryWarningOverview,InventoryWarningDetail,InventoryWarningEventPage,InventoryWarningInput} from '../../../shared/inventory-warning-api'
@@ -117,6 +118,11 @@ export function createAppState() {
   // 模板和草稿属于当前账号、服务端实例；失败或切换页面保留同一实例的草稿。
   // 当前审批弹窗与意见草稿由 Pinia 保存；换账号/实例时统一失效。
   const documentApprovalTarget = ref<DocumentApprovalTarget | null>(null)
+  // 工单与完工共用只读查询，页面切换不另建重复服务端快照。
+  const productionAssociationTarget = ref<ProductionAssociationTarget | null>(null)
+  const productionAssociationRecord = ref<ProductionAssociations | null>(null)
+  const productionAssociationLoading = ref(false)
+  const productionAssociationError = ref('')
   const documentApprovalRecord = ref<DocumentApprovalRecord | null>(null)
   const documentApprovalReasons = ref<Record<string, string>>({})
   // 维护现场依据单独保存，失败或同实例断线时与意见草稿一起保留。
@@ -552,6 +558,7 @@ export function createAppState() {
 
   return {
     documentNumbering,
+    productionAssociationTarget, productionAssociationRecord, productionAssociationLoading, productionAssociationError,
     documentApprovalTarget, documentApprovalRecord, documentApprovalReasons, documentApprovalEvidence, documentApprovalLoading, documentApprovalError,
     approvalPolicies, approvalPolicyDrafts, approvalPolicyLoading, approvalPolicyError,
     lotOverview,lotHistory,lotUnallocated,lotLoading,lotError,lotWarehouseId,lotMaterialId,

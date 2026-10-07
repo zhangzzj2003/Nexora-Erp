@@ -8,6 +8,7 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import ProductionAssociationDialog from '../../../components/workspace/ProductionAssociationDialog.vue'
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
@@ -97,6 +98,7 @@ const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '
 <template>
   <section class="stack">
     <DocumentApprovalDialog />
+    <ProductionAssociationDialog />
     <NModal title="新建完工报工单"
       v-if="can('production_completion.create')"
       v-model:show="createOpen"
@@ -239,6 +241,9 @@ const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '
         </div>
       </template>
       <template #cell-actions="{ row: item }">
+        <!-- 关联查询保留已取消和冲销历史，不需要登记实物批次才能查看。 -->
+        <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
+          @click="store.openProductionAssociations({kind:'completion',id:item.id})">关联单据</AppButton>
         <RouterLink v-if="item.status === 'posted' && !item.reversal_id && Number(item.rejected_quantity) > 0 && can('quality.view')" to="/workspace/production-quality">处理不合格品</RouterLink>
         <div class="form-actions">
           <AppButton type="button" size="small" :disabled="busy || connectionLost"
