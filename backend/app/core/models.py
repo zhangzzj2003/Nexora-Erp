@@ -690,6 +690,55 @@ class Material(Base):
     compliance: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     notes: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    # 结构化规格保存字段身份及当时含义；重新分类不能丢弃旧类别的参数。
+    spec_values_json: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'[]'"))
+    extra_attributes_json: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'[]'"))
+    spec_template_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
+
+
+class MaterialCategory(Base):
+    # 短码一经建立即固定，删除仅作标记，防止历史前缀被另一类别复用。
+    __tablename__ = 'material_categories'
+    code: Mapped[str] = mapped_column(Text, primary_key=True)
+    parent_code: Mapped[str | None] = mapped_column(Text, ForeignKey('material_categories.code'))
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('1'))
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('0'))
+    used: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('0'))
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
+    notes: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    template_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+
+
+class MaterialSpecField(Base):
+    # 已经使用的字段身份、类型和单位固定；名称、必填和常用选项可以修订。
+    __tablename__ = 'material_spec_fields'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category_code: Mapped[str] = mapped_column(Text, ForeignKey('material_categories.code'), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    unit: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    options_json: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'[]'"))
+    allow_custom: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('0'))
+    required: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('0'))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('1'))
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('0'))
+    used: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('0'))
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
+
+
+class MaterialCategoryChange(Base):
+    # 分类与模板共用递增版本和前后快照，类别移除后仍可以核对审计。
+    __tablename__ = 'material_category_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category_code: Mapped[str] = mapped_column(Text, ForeignKey('material_categories.code'), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
 class MaterialUnit(Base):

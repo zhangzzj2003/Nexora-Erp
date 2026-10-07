@@ -6,10 +6,13 @@ import os
 from pathlib import Path
 
 from sqlalchemy import select
+from fastapi import HTTPException
 
 from app.access.security import user_details
 from app.catalog.material_rules import DETAIL_FIELDS, allocate_material_code, record_material_change
 from app.catalog.routes import MaterialInput
+from app.catalog.categories import validate_selection
+from app.catalog.specifications import save_specifications
 from app.core.models import Material, ServerIdentity
 from app.core.orm import orm_session
 from app.service.backup import create_backup
@@ -64,6 +67,14 @@ def import_materials(rows: list[MaterialInput], actor_id: int, instance_id: str)
                 continue
             material = Material(sku=allocate_material_code(db, row.category_code), name=row.name,
                 unit=row.unit, **{key: getattr(row, key) for key in DETAIL_FIELDS}, version=1)
+            # 本机导入与界面共用动态分类和规格约束，不能绕过停用或必填规则。
+            material.spec_values_json, material.extra_attributes_json, material.spec_template_version = '[]', '[]', 0
+            try:
+                validate_selection(db, row.category_code)
+                save_specifications(db, material, row.spec_values, row.spec_template_version,
+                                    row.extra_attributes, validate_required=True)
+            except HTTPException as error:
+                raise ValueError(str(error.detail)) from None
             db.add(material)
             db.flush()
             record_material_change(db, material, 'create', None, actor,

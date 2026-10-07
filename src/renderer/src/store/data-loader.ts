@@ -79,7 +79,7 @@ export function createDataLoader(
     if (!window.nexora || !user.value) return
     // 每次写操作后重新读取服务端权限；角色变化立即反映到当前页面。
     user.value = await window.nexora.callApi('me', undefined)
-    if (!can('inventory.view')) materialUnits.value = []
+    if (!can('inventory.view')) {materialUnits.value = []; materialCategories.value = []; materials.value = []}
     // 先清理已撤销查看授权的数据，避免其他模块读取失败留下旧的财务快照。
     if (!can('ledger_account.view')) ledgerAccounts.value = []
     if (!can('journal.view')) journals.value = []

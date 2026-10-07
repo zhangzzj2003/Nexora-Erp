@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
-from app.core.models import Material, MaterialChange, MaterialCodeSequence, ServerIdentity, User
+from app.core.models import Material, MaterialCategory, MaterialSpecField, MaterialChange, MaterialCodeSequence, ServerIdentity, User
 from app.core.orm import orm_session
 from app.main import app
 
@@ -72,6 +72,23 @@ def test_duplicate_input_rejected(tmp_path):
     path.write_text(json.dumps(raw), encoding='utf-8')
     with pytest.raises(ValueError, match='料号重复'):
         demo.load_materials(path)
+
+
+@pytest.mark.parametrize('constraint', ['disabled', 'required'])
+def test_import_respects_dynamic_category_and_spec_rules(target, constraint):
+    # 在整批末项施加新约束，验证前面已分配的编码和档案也一起回滚。
+    code = target[-1].category_code
+    with orm_session(write=True) as db:
+        if constraint == 'disabled':
+            db.get(MaterialCategory, code).enabled = False
+        else:
+            db.add(MaterialSpecField(category_code=code, name='客户必填参数', kind='text', required=True))
+    with pytest.raises(ValueError):
+        demo.import_materials(target, 1, instance_id())
+    with orm_session() as db:
+        assert list(db.scalars(select(Material))) == []
+        assert list(db.scalars(select(MaterialChange))) == []
+        assert list(db.scalars(select(MaterialCodeSequence))) == []
 
 
 def test_wrong_instance_and_disabled_actor_do_not_write(target):

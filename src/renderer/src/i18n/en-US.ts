@@ -95,7 +95,7 @@ export const englishCopy: Readonly<Record<string, string>> = {
   '工作台': 'Workspace', '工作台首页': 'Workspace home', '仓库管理': 'Warehouse management', '其他入库': 'Other receipts', '仓库出库': 'Warehouse issues',
   '库存总览': 'Inventory overview', '库存预警': 'Inventory alerts', '实物批次': 'Physical lots', '库存台账': 'Inventory ledger', '仓库调拨': 'Warehouse transfers',
   '库存调整': 'Inventory adjustments', '库存报表': 'Inventory reports', '库存盘点': 'Stocktakes', '基础资料': 'Master data', '物料管理': 'Materials',
-  '供应商管理': 'Suppliers', '单位管理': 'Units', '客户资料': 'Customers', '采购管理': 'Purchasing', '采购申请': 'Purchase requests', '采购订单': 'Purchase orders', '采购收货': 'Goods receiving',
+  '供应商管理': 'Suppliers', '单位管理': 'Units', '物料分类与规格': 'Material categories and specifications', '客户资料': 'Customers', '采购管理': 'Purchasing', '采购申请': 'Purchase requests', '采购订单': 'Purchase orders', '采购收货': 'Goods receiving',
   '采购入库': 'Purchase receipts', '采购报表': 'Purchase reports', '采购退货': 'Purchase returns', '销售管理': 'Sales', '客户关系与报价': 'CRM and quotations',
   '售后退换修': 'After-sales service', '销售订单': 'Sales orders', '销售出库': 'Sales shipments', '销售退货': 'Sales returns', '财务管理': 'Finance',
   '总账凭证': 'Journal entries', '期初余额': 'Opening balances', '分户期初': 'Subledger openings', '总账报表': 'Ledger reports', '财务报表': 'Financial statements',

@@ -4,9 +4,11 @@ import json
 import re
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
+from app.catalog.specifications import specification_data
+from app.catalog.categories import category_directory
 
-from app.core.models import Material, MaterialCodeSequence, MaterialChange
+from app.core.models import Material, MaterialCategory, MaterialCodeSequence, MaterialChange
 
 
 # 分类代码同时作为编码前缀；名称可以调整，已分配的编码不会随分类改动。
@@ -48,15 +50,18 @@ MATERIAL_FIELDS = ('id', 'sku', 'name', 'unit', *DETAIL_FIELDS, 'version')
 
 
 def material_data(material: Material) -> dict:
-    return {key: getattr(material, key) for key in MATERIAL_FIELDS}
+    return {**{key: getattr(material, key) for key in MATERIAL_FIELDS}, **specification_data(material)}
 
 
 def material_choice_data(material: Material) -> dict:
     # 业务选料只附带辨认资料，不带编辑版本、供应商联系方式或业务价格。
     result = {key: getattr(material, key) for key in ('id', 'sku', 'name', 'unit', *DETAIL_FIELDS)}
-    result['category_name'] = next((f"{group['name']} / {child['name']}"
-        for group in MATERIAL_CATEGORIES for child in group['children']
-        if child['code'] == material.category_code), '未分类')
+    db = object_session(material)
+    directory = category_directory(db) if db is not None else {}
+    child = directory.get(material.category_code)
+    parent = directory.get(child['parent_code']) if child else None
+    result['category_name'] = f"{parent['name']} / {child['name']}" if child and parent else '未分类'
+    result.update(specification_data(material))
     return result
 
 
@@ -75,8 +80,10 @@ def allocate_material_code(db: Session, category: str) -> str:
 
 def reserve_legacy_code(db: Session, sku: str) -> None:
     # 旧客户端手工编码若与系统格式相同，也登记流水，删除后不重复分配。
-    match = re.fullmatch(r'([A-Z]{2}-[A-Z]{2})-(\d{6})', sku)
-    if match and match[1] in CATEGORY_CODES:
+    match = re.fullmatch(r'([A-Z]{2,4}-[A-Z]{2,4})-(\d{6})', sku)
+    if match and match[1] in category_directory(db):
+        # 旧客户端占用了该前缀的流水，也视为已使用类别，不能随后移除。
+        db.get(MaterialCategory, match[1]).used = True
         sequence = db.get(MaterialCodeSequence, match[1])
         if sequence is None:
             db.add(MaterialCodeSequence(prefix=match[1], last_number=int(match[2])))

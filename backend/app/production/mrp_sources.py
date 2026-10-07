@@ -33,7 +33,10 @@ def collect(db: Session, exclude_plan_id: int | None = None) -> dict:
     own_orders = {row.work_order_id for row in conversions if row.plan_id == exclude_plan_id}
     request_dates = {row.purchase_request_id: row.due_date for row in conversions if row.purchase_request_id}
     work_dates = {row.work_order_id: row.due_date for row in conversions if row.work_order_id}
-    materials = [model_data(row) for row in db.scalars(select(Material).order_by(Material.id))]
+    # 规格存储列不参与旧计划的计算指纹；选项接口另行丰富当前资料，迁移不能使原批准计划失效。
+    materials = [{key: value for key, value in model_data(row).items()
+                  if key not in ('spec_values_json', 'extra_attributes_json', 'spec_template_version')}
+                 for row in db.scalars(select(Material).order_by(Material.id))]
     if len(materials) > 2000:
         raise HTTPException(422, '当前计划支持最多 2000 个物料，请先调整计划范围设计')
     stored = {row.material_id: row for row in db.scalars(select(MrpPolicy))}

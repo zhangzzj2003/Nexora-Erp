@@ -20,6 +20,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   catalog: '按类别自动生成物料编码，分别维护规格与生产参数；同一物料可绑定多家供应商。',
   customers: '集中查询和新增客户资料，销售订单使用同一份客户名单。',
   suppliers: '选择“供货物料”管理供应商与现有物料的绑定。',
+  materialCategoryManagement: '自定义两级物料类别和规格字段；修改保留版本与依据，停用不清除历史物料及参数。',
   materialUnits: '维护物料可选单位；停用后保留原物料单位和历史数量。',
   menuManagement: '为导航分组和页面选择图标；保存后当前侧栏立即更新，其他客户端重新登录或刷新数据后生效。',
   roles: '新增职务后可按模块、单据和操作分别授权；内置职务仅供查看。',

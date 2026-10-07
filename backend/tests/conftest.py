@@ -108,6 +108,13 @@ def remove_inventory_warning_schema(remove_physical_lot_schema):
 def remove_material_schema(remove_inventory_warning_schema):
     def remove(db):
         remove_inventory_warning_schema(db)
+        # 回退旧库时同时移除 v94 的目录和规格列，保证迁移用例确实从旧结构开始。
+        for table in ('material_category_changes', 'material_spec_fields', 'material_categories'):
+            db.execute(f'DROP TABLE IF EXISTS {table}')
+        existing = {row[1] for row in db.execute('PRAGMA table_info(materials)')}
+        for field in ('spec_values_json', 'extra_attributes_json', 'spec_template_version'):
+            if field in existing:
+                db.execute(f'ALTER TABLE materials DROP COLUMN {field}')
         db.execute('DROP TABLE IF EXISTS material_changes')
         db.execute('DROP TABLE IF EXISTS material_code_sequences')
         from app.catalog.material_rules import DETAIL_FIELDS

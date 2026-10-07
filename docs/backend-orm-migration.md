@@ -41,3 +41,6 @@
 `backend/tests/test_orm_boundary.py` 自动扫描整个 `backend/app`，新功能目录也在范围内。检查覆盖直接 SQL、字符串变量及简单别名、SQLAlchemy 文本构造器和底层驱动导入，保留基于模型的 `select`、`update`、`delete` 等 ORM 会话操作。模型声明的 `server_default=text(...)` 只允许在默认值位置；备份只允许固定的 `PRAGMA integrity_check`；事务模块只允许现有固定 SQLite 配置与事务开始语句。不能把这些文件作为业务 SQL 的整体豁免。此静态检查不代替接口的权限、精度、并发及回滚测试，也不声称能识别所有运行时动态生成的代码。
 
 每个转换模块必须核对旧接口字段、错误状态、权限、金额精度、来源审计和并发行为。只读会话使用同一快照；写会话在业务核对前取得 SQLite 写锁，异常回滚并释放连接。后续数据库支持需另外实现对应驱动与迁移，不因引入 ORM 就声称 MySQL 已可用。
+
+
+物料目录与规格在第 94 版追加三张静态模型表：`MaterialCategory`、`MaterialSpecField`、`MaterialCategoryChange`，当前总计 195 张。物料的结构化值以经过模板严格验证的 JSON 快照保存，不解析旧描述、不重编码、不改业务外键；业务 CRUD 继续使用 ORM，版本化结构和初始目录仅在迁移层处理。旧库夹具与模型/迁移一致性断言同时更新到 v94，仍保留列、主键和存储类型核对。

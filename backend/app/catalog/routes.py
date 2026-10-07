@@ -1,6 +1,7 @@
 """供应商与物料基础资料接口。"""
 
 import json
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -12,12 +13,14 @@ from sqlalchemy.orm import Session
 from app.access.security import require
 from app.core.models import Material, Supplier, SupplierChange, SupplierMaterial, User
 from app.core.orm import orm_session, model_data
-from app.catalog.material_rules import (CATEGORY_CODES, MATERIAL_CATEGORIES, DETAIL_FIELDS,
+from app.catalog.material_rules import (DETAIL_FIELDS,
     allocate_material_code, reserve_legacy_code, material_data, material_choice_data, record_material_change)
 
 from app.catalog.supplier_profiles import (PROFILE_FIELDS, SupplierInput, SupplierBindingInput,
     supplier_data, record_supplier_change, material_supplier_ids, save_material_suppliers)
 from app.catalog.units import resolve_material_unit
+from app.catalog.categories import validate_selection
+from app.catalog.specifications import SpecValueInput, ExtraAttributeInput, save_specifications
 
 router = APIRouter(prefix="/api/v1")
 
@@ -32,6 +35,9 @@ def supplier_change_data(change: SupplierChange, username: str) -> dict:
 
 class MaterialInput(BaseModel):
     # 未传供货关系时兼容旧客户端；显式空列表表示解除所有绑定。
+    spec_values: list[SpecValueInput] | None = Field(default=None, max_length=50)
+    spec_template_version: int | None = Field(default=None, ge=1, strict=True)
+    extra_attributes: list[ExtraAttributeInput] | None = Field(default=None, max_length=20)
     suppliers: list[SupplierBindingInput] | None = Field(default=None, max_length=20)
     # 编码留空时由类别分配；无分类的旧客户端仍可提交原有手工编码。
     sku: str = Field(default="", max_length=40)
@@ -63,8 +69,9 @@ class MaterialInput(BaseModel):
     def validate_material(self):
         if not self.name or not self.unit:
             raise ValueError('名称和单位不能为空')
-        if self.category_code and self.category_code not in CATEGORY_CODES:
-            raise ValueError('请选择有效的物料子类')
+        # 分类存在性由当前数据库目录核对；边界仍拒绝非法层级或编码格式。
+        if self.category_code and not re.fullmatch(r'[A-Z]{2,4}-[A-Z]{2,4}', self.category_code):
+            raise ValueError('物料子类编码格式不正确')
         return self
 
 
@@ -145,12 +152,6 @@ def create_supplier(payload: SupplierInput, actor: dict = Depends(require("catal
         return supplier_data(supplier)
 
 
-@router.get("/material-categories")
-def material_categories(_: dict = Depends(require("inventory.view"))) -> list[dict]:
-    # 分类与编码前缀以服务端目录为准，客户端只展示中文名称并提交固定子类代码。
-    return MATERIAL_CATEGORIES
-
-
 @router.get("/materials")
 def list_materials(_: dict = Depends(require("inventory.view"))) -> list[dict]:
     with orm_session() as db:
@@ -179,12 +180,16 @@ def create_material(payload: MaterialInput, actor: dict = Depends(require("catal
     if payload.category_code and payload.sku:
         raise HTTPException(422, '分类物料的编码由系统自动生成，请勿手工填写')
     with orm_session(write=True) as db:
+        validate_selection(db, payload.category_code)
         resolve_material_unit(db, payload.unit, payload.unit_id, actor)
         sku = allocate_material_code(db, payload.category_code) if payload.category_code else payload.sku
         if not payload.category_code:
             reserve_legacy_code(db, sku)
         material = Material(sku=sku, name=payload.name, unit=payload.unit,
                             **{key: getattr(payload, key) for key in DETAIL_FIELDS}, version=1)
+        material.spec_values_json, material.extra_attributes_json, material.spec_template_version = '[]', '[]', 0
+        save_specifications(db, material, payload.spec_values, payload.spec_template_version,
+                            payload.extra_attributes, validate_required=True)
         db.add(material)
         flush_catalog(db, "物料编码已存在")
         ids = save_material_suppliers(db, material, payload.suppliers, actor) if payload.suppliers is not None else None
@@ -203,6 +208,9 @@ def update_material(material_id: int, payload: MaterialInput,
             raise HTTPException(409, '物料资料已更新或未提供版本，请重新加载后编辑')
         if payload.sku and payload.sku != material.sku:
             raise HTTPException(409, '物料编码建立后不可修改')
+        new_category = payload.category_code if 'category_code' in payload.model_fields_set else material.category_code
+        validate_selection(db, new_category, material.category_code)
+        changed_category = new_category != material.category_code
         resolve_material_unit(db, payload.unit, payload.unit_id, actor, material.unit)
         before = material_data(material)
         if payload.suppliers is not None:
@@ -212,6 +220,8 @@ def update_material(material_id: int, payload: MaterialInput,
         for key in DETAIL_FIELDS:
             if key in payload.model_fields_set:
                 setattr(material, key, getattr(payload, key))
+        save_specifications(db, material, payload.spec_values, payload.spec_template_version,
+                            payload.extra_attributes, validate_required=changed_category or payload.spec_values is not None)
         material.version += 1
         ids = save_material_suppliers(db, material, payload.suppliers, actor) if payload.suppliers is not None else None
         record_material_change(db, material, 'update', before, actor, payload.reason or '修改物料资料', supplier_ids=ids)

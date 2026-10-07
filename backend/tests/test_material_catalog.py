@@ -39,7 +39,13 @@ def create(client, payload=None):
 
 
 def test_full_details_roundtrip_and_independent_category_codes(client):
-    assert client.get('/api/v1/material-categories').json() == MATERIAL_CATEGORIES
+    directory = client.get('/api/v1/material-categories').json()
+    # 原短码及名称保留，新版允许额外类别与字段，不再把目录当作固定枚举。
+    for group in MATERIAL_CATEGORIES:
+        current = next(row for row in directory if row['code'] == group['code'])
+        assert current['name'] == group['name']
+        assert all(child in [{'code': c['code'], 'name': c['name']} for c in current['children']] for child in group['children'])
+        assert current['version'] == 1
     first = create(client, {key: f' {value} ' for key, value in input_data().items()})
     assert first == dict(id=first['id'], sku='EL-SR-000001', version=1, **input_data())
     assert create(client)['sku'] == 'EL-SR-000002'
@@ -134,7 +140,7 @@ def test_old_database_upgrade_preserves_references_and_initializes_sequence(clie
     assert client.delete(f"/api/v1/materials/{row['id']}").status_code == 204
     assert create(client)['sku'] == 'EL-SR-000016'
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 93
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 94
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
 
 

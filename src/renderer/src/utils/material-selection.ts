@@ -23,12 +23,18 @@ export function materialChoiceCategory(item: MaterialChoice, categories: readonl
   return '分类资料暂不可用'
 }
 export function hasMaterialDetails(item: MaterialChoice): boolean {
-  return detailKeys.some(key => typeof item[key] === 'string')
+  return !!item.spec_values?.length || detailKeys.some(key => typeof item[key] === 'string')
 }
 export function materialChoiceFacts(item: MaterialChoice, categories: readonly MaterialCategory[], technical = false) {
-  return (technical ? materialTechnicalFields : materialCoreFields).map(([key, label]) => ({
+  const facts: {key: string; label: string; value: string}[] = (technical ? materialTechnicalFields : materialCoreFields).map(([key, label]) => ({
     key, label, value: (key === 'category_name' ? materialChoiceCategory(item, categories) : item[key])?.trim() || '未填写'
   }))
+  if (technical) {
+    for (const entry of item.spec_values ?? []) facts.push({key:`spec:${entry.field_id}`, label:`${entry.name}${entry.historical ? '（历史）' : ''}`,
+      value: entry.status === 'filled' ? `${typeof entry.value === 'boolean' ? entry.value ? '是' : '否' : entry.value}${entry.unit}` : ({unknown:'未知',not_applicable:'不适用',pending:'待确认'} as const)[entry.status]})
+    for (const [index, entry] of (item.extra_attributes ?? []).entries()) facts.push({key:`extra:${index}`,label:entry.name,value:entry.value + entry.unit})
+  } else if (item.spec_summary) facts.push({key:'spec_summary', label:'分类规格', value:item.spec_summary})
+  return facts
 }
 export interface MaterialSelectOption<T extends number | null> extends WorkspaceSelectOption<T> {
   description: string
@@ -42,10 +48,10 @@ export function materialSelectOptions<T extends number | null>(options: readonly
     const item = option.value === null ? undefined : indexed.get(option.value)
     return { ...option,
       label: item ? `${item.sku} · ${item.name}` : option.label,
-      description: item ? [item.specification, item.package, item.brand, item.manufacturer_part_number]
+      description: item ? [item.spec_summary, item.specification, item.package, item.brand, item.manufacturer_part_number]
         .filter(value => value?.trim()).join(' · ') || (hasMaterialDetails(item) ? '规格、封装、品牌和料号未填写' : '详细资料暂不可用') : '',
       searchText: [option.label, item?.sku, item?.name, item?.unit,
-        ...(item ? [materialChoiceCategory(item, categories), ...detailKeys.map(key => item[key])] : [])]
+        ...(item ? [item.spec_summary, ...(item.spec_values ?? []).flatMap(entry => [entry.name, entry.value, entry.unit]), ...(item.extra_attributes ?? []).flatMap(entry => [entry.name, entry.value, entry.unit]), materialChoiceCategory(item, categories), ...detailKeys.map(key => item[key])] : [])]
         .filter(value => typeof value === 'string').join(' ').toLowerCase()
     }
   })

@@ -16,6 +16,7 @@ import type {AdjustmentLotLineInput,AdjustmentLotOptions} from './adjustment-lot
 import type {SalesReturnLotLineInput,SalesReturnLotOptions} from './sales-return-lot-api'
 import type {CompletionLotPartInput,CompletionPhysicalLot} from './completion-lot-api'
 import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
+import type { MaterialCategoryNode, MaterialCategoryInput, MaterialCategoryRevision, MaterialSpecFieldInput, MaterialCategoryChange } from './material-api'
 import type { MaterialUnit, MaterialUnitInput, MaterialUnitChange } from './material-unit-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
 import type { MenuIconKey, MenuIconSetting } from './menu-icons'
@@ -1348,6 +1349,13 @@ export interface ErpOperations extends ProductionAssociationOperations, Document
   customerImportPreview: { input: { names: string[] }; output: CustomerImportPreview }
   importCustomers: { input: { names: string[]; reason: string; allow_similar: boolean }; output: CustomerImportResult }
   createCustomer: { input: { name: string }; output: Customer }
+  createMaterialCategory: {input: MaterialCategoryInput; output: MaterialCategoryNode}
+  updateMaterialCategory: {input: MaterialCategoryInput & {version: number; reason: string}; output: MaterialCategoryNode}
+  deleteMaterialCategory: {input: MaterialCategoryRevision; output: MaterialCategoryNode}
+  materialCategoryChanges: {input: {code: string}; output: MaterialCategoryChange[]}
+  createMaterialSpecField: {input: MaterialSpecFieldInput & {code: string}; output: MaterialCategoryNode}
+  updateMaterialSpecField: {input: MaterialSpecFieldInput & {code: string; field_id: number}; output: MaterialCategoryNode}
+  deleteMaterialSpecField: {input: MaterialCategoryRevision & {field_id: number}; output: MaterialCategoryNode}
   materialCategories: { input: undefined; output: MaterialCategory[] }
   materialUnits: { input: undefined; output: MaterialUnit[] }
   materialUnitDetail: { input: { id: number }; output: MaterialUnit }

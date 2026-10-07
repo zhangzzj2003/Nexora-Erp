@@ -84,3 +84,6 @@ Run `npm run docs:build` to generate a local HTML website and bilingual guide. T
 Material management now includes production details, fixed categories and server-generated category codes. See [material catalog rules (Chinese)](docs/material-catalog.md). Upgrade both client and server.
 
 Production BOM is listed under Master data and uses the shared document dialog for product details and editable component rows. Its existing URL, production permissions and fixed work-order version references are preserved.
+
+
+Material master data includes custom two-level categories, editable category-specific specification templates (text, exact decimal numbers with units, options, booleans and dates), dynamic forms, supplemental attributes, version checks and change history. Existing codes and business references are preserved. See the [material catalog rules (Chinese)](docs/material-catalog.md#自定义分类与结构化规格数据库-v94). Client and service must be upgraded together; merging a PR does not update an installed service.

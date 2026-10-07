@@ -12,18 +12,14 @@ import { useLocalPagination } from '../../../composables/use-local-pagination'
 import { usePiniaAppStore } from '../../../store/app-store'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import MaterialEditor from './MaterialEditor.vue'
-import { materialDraft, materialInput, materialCategoryLabel, matchesMaterial } from './material-form'
+import { materialDraft, materialInput, prepareMaterialSpecs, materialCategoryLabel, matchesMaterial } from './material-form'
 import { defaultMaterialUnit } from './unit-options'
 import './catalog.css'
 
 const store = usePiniaAppStore()
-const { busy, error, connectionLost, materials, materialCategories, materialUnits, suppliers, supplierMaterials } = storeToRefs(store)
+const { busy, error, connectionLost, materials, materialCategories, materialUnits, suppliers, supplierMaterials, materialEditorDraft: form, materialEditingId: editingId, materialEditorOpen: showForm } = storeToRefs(store)
 const { can, loadMaterial, saveMaterial, deleteMaterial } = store
 const query = ref('')
-const editingId = ref<number | undefined>()
-const showForm = ref(false)
-// 草稿不引用表格行，取消编辑或保存失败都不会改动共享物料快照。
-const form = ref(materialDraft())
 const categoryFilter = ref('')
 const categoryOptions = computed(() => [
   { value: '', label: '全部分类' }, { value: 'unclassified', label: '未分类' },
@@ -53,13 +49,14 @@ async function edit(item?: Material): Promise<void> {
   if (item && !latest) return
   editingId.value = latest?.id
   form.value = materialDraft(latest)
+  prepareMaterialSpecs(form.value, materialCategories.value)
   if (!latest) form.value.unit = defaultMaterialUnit(materialUnits.value)
   showForm.value = true
 }
 async function save(): Promise<void> {
   // 目录刷新导致选择失效时保留草稿，并显示可操作的错误提示。
   try {
-    if (await saveMaterial(materialInput(form.value, !!editingId.value, materialUnits.value), editingId.value)) showForm.value = false
+    if (await saveMaterial(materialInput(form.value, !!editingId.value, materialUnits.value), editingId.value)) {showForm.value = false; editingId.value = undefined; form.value = materialDraft()}
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '物料保存失败' }
 }
 function supplierNames(id: number): string {
@@ -90,6 +87,7 @@ function supplierNames(id: number): string {
       :min-table-width="1280"
     >
       <template #actions>
+        <AppButton v-if="can('catalog.manage') && (form.name || editingId) && !showForm" :disabled="busy || connectionLost" @click="showForm = true" variant="secondary" type="button">继续未保存草稿</AppButton>
         <AppButton
           v-if="can('catalog.manage')"
           :disabled="busy || connectionLost"
@@ -130,7 +128,7 @@ function supplierNames(id: number): string {
         </NModal>
       </template>
       <template #cell-category="{ row }">{{ materialCategoryLabel(row.category_code, materialCategories) }}</template>
-      <template #cell-specification="{ row }"><div>{{ row.specification || '未填写' }}</div><span class="material-hint">{{ row.package }}</span></template>
+      <template #cell-specification="{ row }"><div>{{ row.spec_summary || row.specification || '未填写' }}</div><span class="material-hint">{{ row.package }}</span></template>
       <template #cell-brand="{ row }"><div>{{ row.brand || '未填写' }}</div><span class="material-hint">{{ row.manufacturer_part_number }}</span></template>
       <template #cell-suppliers="{ row }">{{ supplierNames(row.id) }}</template>
       <template #cell-actions="{ row }">

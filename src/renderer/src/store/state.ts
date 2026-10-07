@@ -3,7 +3,9 @@ import type { DocumentNumberingConfig } from '../../../shared/document-numbering
 import type { DocumentApprovalPolicy, DocumentApprovalPolicyInput, DocumentApprovalType, DocumentApprovalTarget, DocumentApprovalRecord } from '../../../shared/document-approval-api'
 import type {InventoryWarningOverview,InventoryWarningDetail,InventoryWarningEventPage,InventoryWarningInput} from '../../../shared/inventory-warning-api'
 import type {PhysicalLotOverview,PhysicalLotHistory,PhysicalLotUnallocatedList} from '../../../shared/physical-lot-api'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { materialDraft } from '../utils/material-form.ts'
+import type { MaterialCategoryInput, MaterialSpecFieldInput, MaterialCategoryChange } from '../../../shared/material-api'
 import type { MaterialUnit } from '../../../shared/material-unit-api'
 import type {EquipmentOverview,EquipmentDetail,EquipmentForms,EquipmentEntity} from '../../../shared/equipment-api'
 import type {DashboardPeriod, DashboardResult} from '../../../shared/dashboard-api'
@@ -199,6 +201,17 @@ export function createAppState() {
   // 分类目录与物料快照一同读取，供各页面复用。
   const materialCategories = ref<MaterialCategory[]>([])
   const materialUnits = ref<MaterialUnit[]>([])
+  // 弹窗关闭或跨页后草稿仍在 Pinia，保存成功才清除；身份改变则同步失效。
+  const materialEditorDraft = ref(materialDraft())
+  const materialEditingId = ref<number | undefined>()
+  const materialEditorOpen = ref(false)
+  const materialCategoryDraft = ref<MaterialCategoryInput>({code: '', parent_code: null, name: '', enabled: true, sort_order: 0, notes: '', reason: ''})
+  const materialCategoryEditing = ref(false)
+  const materialCategoryEditorOpen = ref(false)
+  const materialFieldDraft = ref<MaterialSpecFieldInput & {code: string; field_id?: number}>({code: '', name: '', kind: 'text', unit: '', options: [], allow_custom: false, required: false, enabled: true, sort_order: 0, version: 0, reason: ''})
+  const materialFieldEditorOpen = ref(false)
+  const materialCategoryChanges = ref<MaterialCategoryChange[]>([])
+
   const materials = ref<Material[]>([])
   const supplierMaterials = ref<SupplierMaterial[]>([])
   const suppliers = ref<Supplier[]>([])
@@ -556,6 +569,14 @@ export function createAppState() {
     )
   )
 
+  // 同名连接指向不同实例时也丢弃旧草稿，避免跨数据库使用相同字段编号。
+  watch(() => JSON.stringify([user.value?.id, server.value?.id, server.value?.fingerprint,
+    user.value?.permissions?.includes('catalog.manage'), user.value?.permissions?.includes('inventory.view')]), () => {
+    materialEditorDraft.value = materialDraft(); materialEditingId.value = undefined; materialEditorOpen.value = false
+    materialCategoryEditorOpen.value = false; materialFieldEditorOpen.value = false; materialCategoryChanges.value = []
+    materialCategoryDraft.value = {code: '', parent_code: null, name: '', enabled: true, sort_order: 0, notes: '', reason: ''}
+    materialFieldDraft.value = {code: '', name: '', kind: 'text', unit: '', options: [], allow_custom: false, required: false, enabled: true, sort_order: 0, version: 0, reason: ''}
+  }, {flush: 'sync'})
   return {
     documentNumbering,
     productionAssociationTarget, productionAssociationRecord, productionAssociationLoading, productionAssociationError,
@@ -583,6 +604,9 @@ export function createAppState() {
     materials,
     materialCategories,
     materialUnits,
+    materialEditorDraft, materialEditingId, materialEditorOpen,
+    materialCategoryDraft, materialCategoryEditing, materialCategoryEditorOpen,
+    materialFieldDraft, materialFieldEditorOpen, materialCategoryChanges,
     suppliers,
     supplierMaterials,
     stock,

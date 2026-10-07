@@ -1,6 +1,7 @@
 """本地 SQLite 连接与版本迁移。"""
 
 import os
+import json
 import re
 import sqlite3
 import uuid
@@ -80,7 +81,7 @@ def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_recor
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 93:
+        if version > 94:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 92:
             # 资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -2819,3 +2820,58 @@ def migrate() -> None:
                         db.execute(f'ALTER TABLE production_cost_settlements ADD COLUMN {column}')
                     db.execute('UPDATE production_cost_settlements SET executed_by=created_by,executed_at=created_at')
             db.execute('PRAGMA user_version = 93')
+
+
+        if version < 94:
+            # 固定结构迁移保留原编码、自由文本和流水；仅收录初始目录及空规格列。
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            statements = """
+                CREATE TABLE IF NOT EXISTS material_categories (
+                    code TEXT PRIMARY KEY, parent_code TEXT REFERENCES material_categories(code), name TEXT NOT NULL,
+                    enabled BOOLEAN NOT NULL DEFAULT 1, deleted BOOLEAN NOT NULL DEFAULT 0, used BOOLEAN NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '',
+                    version INTEGER NOT NULL DEFAULT 1, template_version INTEGER NOT NULL DEFAULT 1);
+                CREATE TABLE IF NOT EXISTS material_spec_fields (
+                    id INTEGER PRIMARY KEY, category_code TEXT NOT NULL REFERENCES material_categories(code),
+                    name TEXT NOT NULL, kind TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '', options_json TEXT NOT NULL DEFAULT '[]',
+                    allow_custom BOOLEAN NOT NULL DEFAULT 0, required BOOLEAN NOT NULL DEFAULT 0,
+                    enabled BOOLEAN NOT NULL DEFAULT 1, deleted BOOLEAN NOT NULL DEFAULT 0,
+                    used BOOLEAN NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS material_category_changes (
+                    id INTEGER PRIMARY KEY, category_code TEXT NOT NULL REFERENCES material_categories(code),
+                    action TEXT NOT NULL, before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+                    changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            """
+            for statement in statements.split(';'):
+                if statement.strip():
+                    db.execute(statement)
+            from app.catalog.material_rules import MATERIAL_CATEGORIES
+            from app.catalog.category_seed import initial_fields
+            directory = [*MATERIAL_CATEGORIES, {'code': 'WR', 'name': '线材类', 'children': [
+                {'code': 'WR-WI', 'name': '单芯线材'}, {'code': 'WR-CA', 'name': '多芯电缆'},
+                {'code': 'WR-RB', 'name': '排线'}, {'code': 'WR-HS', 'name': '成品线束'}, {'code': 'WR-OT', 'name': '其他线材'}]}]
+            for order, group in enumerate(directory):
+                db.execute('INSERT OR IGNORE INTO material_categories(code,name,sort_order) VALUES (?,?,?)', (group['code'], group['name'], order))
+                children = [*group['children']]
+                if group['code'] == 'PL':
+                    children.append({'code': 'PL-RM', 'name': '塑料原料 / 树脂'})
+                for child_order, child in enumerate(children):
+                    db.execute('INSERT OR IGNORE INTO material_categories(code,parent_code,name,sort_order) VALUES (?,?,?,?)',
+                               (child['code'], group['code'], child['name'], child_order))
+                    initial = initial_fields(child['code']) if not db.execute('SELECT 1 FROM material_spec_fields WHERE category_code=?', (child['code'],)).fetchone() else []
+                    for field_order, entry in enumerate(initial):
+                        db.execute('INSERT INTO material_spec_fields(category_code,name,kind,unit,options_json,allow_custom,sort_order) VALUES (?,?,?,?,?,?,?)',
+                                   (child['code'], entry['name'], entry['kind'], entry['unit'], json.dumps(entry['options'], ensure_ascii=False), entry['allow_custom'], field_order))
+            tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'materials' in tables:
+                columns = {r[1] for r in db.execute('PRAGMA table_info(materials)')}
+                for name, definition in (("spec_values_json", "TEXT NOT NULL DEFAULT '[]'"),
+                                         ("extra_attributes_json", "TEXT NOT NULL DEFAULT '[]'"),
+                                         ("spec_template_version", "INTEGER NOT NULL DEFAULT 0")):
+                    if name not in columns:
+                        db.execute(f'ALTER TABLE materials ADD COLUMN {name} {definition}')
+                db.execute('UPDATE material_categories SET used=1 WHERE code IN (SELECT category_code FROM materials)')
+            if 'material_code_sequences' in tables:
+                db.execute('UPDATE material_categories SET used=1 WHERE code IN (SELECT prefix FROM material_code_sequences)')
+            db.execute('PRAGMA user_version = 94')

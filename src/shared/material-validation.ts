@@ -1,3 +1,4 @@
+import { materialSpecBody, validateMaterialSpecs } from './material-category-validation.ts'
 // 输入和响应都在主进程边界核验；资料为空与响应漏字段不能混为一谈。
 const lengths: Record<string, number> = {
   sku: 40, name: 120, unit: 20, category_code: 10, specification: 200,
@@ -44,7 +45,7 @@ export function materialBody(payload: unknown, editing: boolean): Record<string,
     if (!positiveVersion(input.version)) throw new Error('物料版本无效，请重新加载')
     body.version = input.version
   }
-  return body
+  return {...body, ...materialSpecBody(input)}
 }
 export function validateMaterialResult(action: string, data: unknown): void {
   if (action === 'materialCategories') {
@@ -52,13 +53,13 @@ export function validateMaterialResult(action: string, data: unknown): void {
     const codes = new Set<string>()
     for (const raw of data) {
       const group = object(raw)
-      if (typeof group.code !== 'string' || !/^[A-Z]{2}$/.test(group.code)
+      if (typeof group.code !== 'string' || !/^[A-Z]{2,4}$/.test(group.code)
         || typeof group.name !== 'string' || !group.name || !Array.isArray(group.children)) {
         throw new Error('物料分类响应格式无效')
       }
       for (const rawChild of group.children) {
         const child = object(rawChild)
-        if (typeof child.code !== 'string' || !new RegExp(`^${group.code}-[A-Z]{2}$`).test(child.code)
+        if (typeof child.code !== 'string' || !new RegExp(`^${group.code}-[A-Z]{2,4}$`).test(child.code)
           || codes.has(child.code) || typeof child.name !== 'string' || !child.name) {
           throw new Error('物料分类响应格式无效')
         }
@@ -71,6 +72,7 @@ export function validateMaterialResult(action: string, data: unknown): void {
   if (action === 'materials' && !Array.isArray(data)) throw new Error('物料响应格式无效')
   for (const raw of action === 'materials' ? data as unknown[] : [data]) {
     const row = object(raw)
+    validateMaterialSpecs(row)
     if (!positiveVersion(row.id) || !positiveVersion(row.version)) throw new Error('物料响应版本或编号无效，请升级服务端')
     // 中文分类仅用于展示，不加入可写字段白名单；旧列表没有此字段时仍兼容。
     if (row.category_name !== undefined && (typeof row.category_name !== 'string' || row.category_name.length > 200)) {

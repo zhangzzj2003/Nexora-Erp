@@ -1,3 +1,4 @@
+import { materialCategoryCode, materialCategoryRevision, materialCategoryBody, materialSpecFieldBody, validateMaterialCategoryResult } from '../shared/material-category-validation.ts'
 import { productionAssociationInput, validateProductionAssociations } from '../shared/production-association-api.ts'
 import { validateProductionSettlementResponse } from '../shared/production-settlement-api.ts'
 import { validatePaymentRecordResponse } from '../shared/payment-record-api.ts'
@@ -999,6 +1000,13 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     // 只允许固定分类目录地址，客户端不能指定外部资源。
     case 'materialCategories': return { method: 'GET', path: '/api/v1/material-categories' }
     // 地址固定在主进程，渲染层只能通过有类型的操作维护单位。
+    case 'createMaterialCategory': return {method: 'POST', path: '/api/v1/material-categories', body: materialCategoryBody(payload, false)}
+    case 'updateMaterialCategory': return {method: 'PUT', path: `/api/v1/material-categories/${materialCategoryCode(payload)}`, body: materialCategoryBody(payload, true)}
+    case 'deleteMaterialCategory': return {method: 'DELETE', path: `/api/v1/material-categories/${materialCategoryCode(payload)}`, body: materialCategoryRevision(payload)}
+    case 'materialCategoryChanges': return {method: 'GET', path: `/api/v1/material-categories/${materialCategoryCode(payload)}/changes`}
+    case 'createMaterialSpecField': return {method: 'POST', path: `/api/v1/material-categories/${materialCategoryCode(payload)}/fields`, body: materialSpecFieldBody(payload)}
+    case 'updateMaterialSpecField': return {method: 'PUT', path: `/api/v1/material-categories/${materialCategoryCode(payload)}/fields/${positiveId(payload, 'field_id')}`, body: materialSpecFieldBody(payload)}
+    case 'deleteMaterialSpecField': return {method: 'DELETE', path: `/api/v1/material-categories/${materialCategoryCode(payload)}/fields/${positiveId(payload, 'field_id')}`, body: materialCategoryRevision(payload)}
     case 'materialUnits': return { method: 'GET', path: '/api/v1/material-units' }
     case 'materialUnitDetail': return { method: 'GET', path: `/api/v1/material-units/${positiveId(payload, 'id')}` }
     case 'materialUnitChanges': return { method: 'GET', path: `/api/v1/material-units/${positiveId(payload, 'id')}/changes` }
@@ -1754,6 +1762,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   validateInventoryWarningResult(action,data)
   validatePhysicalLotResult(action,data)
   validateEquipmentResult(action,data)
+  validateMaterialCategoryResult(action, data)
   validateMaterialResult(action, data)
   validateMaterialChoiceResult(action, data)
   validateMaterialUnitResult(action, data)

@@ -130,6 +130,10 @@ export const workspaceRouteGroups = [
       },
       // 单位目录与物料共用查看权限，新增和编辑仍单独检查资料管理权限。
       {
+        key: 'materialCategoryManagement', path: '/workspace/material-categories',
+        label: '物料分类与规格', permission: 'inventory.view', icon: 'catalog'
+      },
+      {
         key: 'materialUnits',
         path: '/workspace/material-units',
         label: '单位管理',

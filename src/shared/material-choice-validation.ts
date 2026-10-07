@@ -1,3 +1,4 @@
+import { validateMaterialSpecs } from './material-category-validation.ts'
 // 各业务仍按自己的权限读取选料资料；新增展示字段在主进程统一校验。
 const fieldLimits: Record<string, number> = {
   sku: 40, name: 120, unit: 20, category_code: 10, category_name: 200,
@@ -15,6 +16,7 @@ export function validateMaterialChoiceResult(action: string, data: unknown): voi
   for (const raw of rows) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('业务物料资料格式无效')
     const row = raw as Record<string, unknown>
+    validateMaterialSpecs(row)
     if (typeof row.id !== 'number' || !Number.isSafeInteger(row.id) || row.id <= 0 || ids.has(row.id)) {
       throw new Error('业务物料编号无效或重复')
     }

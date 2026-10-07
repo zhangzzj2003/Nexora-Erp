@@ -11,8 +11,9 @@
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，确认时登记多批实物来源并按原批次冲销 |
 | `warehouse/` | `WarehouseTransfersView.vue` | 建立调拨草稿、逐行选择实物批次确认及按原批次冲销 |
 | `warehouse/` | `InventoryStocktakesView.vue` | 建立库存盘点，逐行核对盘盈/盘亏实物批次并确认，沿原批次冲销 |
-| `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，`material-form.ts` 管理草稿与搜索；展示关联供应商；沿用 `/workspace/catalog` 地址 |
+| `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，`utils/material-form.ts` 管理共享草稿与搜索，`MaterialSpecificationsEditor.vue` 按模板维护动态规格与扩展属性；展示关联供应商；沿用 `/workspace/catalog` 地址 |
 | `catalog/` | `SuppliersView.vue` | 供应商增删改查及供货物料绑定、解绑 |
+| `catalog/` | `MaterialCategoriesView.vue` | 自定义两级物料类别与子类规格模板；版本编辑、启停、未使用项移除和变更快照，草稿保存在 Pinia |
 | `catalog/` | `UnitsView.vue` | 独立单位表的搜索、分页、新增、版本编辑、启停和变更记录；物料弹窗从单位目录选择 |
 | `catalog/` | `ProductionBomsView.vue` | 生产 BOM 基础资料；复用公共单据弹窗编辑成品与组件用量，`bom-form.ts` 校验重复、自引用及数量；保留原地址、权限和 Pinia 草稿 |
 | `catalog/` | `CustomersView.vue` | 客户搜索、新增相似名称核对及单列 CSV 预检和批量导入；销售查看权限可浏览，客户管理权限可写入 |

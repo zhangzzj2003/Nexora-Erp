@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MaterialSpecificationsEditor from './MaterialSpecificationsEditor.vue'
 import { computed } from 'vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
@@ -15,12 +16,12 @@ const props = defineProps<{
   units?: MaterialUnit[]; suppliers?: Supplier[]; form: MaterialDraft; categories: MaterialCategory[]; editing: boolean; busy: boolean; disconnected: boolean
 }>()
 const emit = defineEmits<{ save: []; cancel: [] }>()
-const groups = computed(() => props.categories.map(group => ({ value: group.code, label: group.name })))
+const groups = computed(() => props.categories.map(group => ({ value: group.code, label: group.enabled === false ? `${group.name}（已停用）` : group.name, disabled: group.enabled === false && group.code !== props.form.original_category.split('-')[0] })))
 const unitOptions = computed(() => materialUnitOptions(props.units ?? [], props.form.original_unit, props.editing))
 const children = computed(() => [
   ...(props.editing ? [{ value: '', label: '未分类（保留旧资料）' }] : []),
   ...(props.categories.find(group => group.code === props.form.group_code)?.children ?? [])
-    .map(child => ({ value: child.code, label: child.name }))
+    .map(child => ({ value: child.code, label: child.enabled === false ? `${child.name}（已停用）` : child.name, disabled: (child.enabled === false || props.categories.find(group => group.code === props.form.group_code)?.enabled === false) && child.code !== props.form.original_category }))
 ])
 const electronics = computed(() => props.form.group_code === 'EL')
 function changeGroup(): void {
@@ -65,6 +66,7 @@ function submit(): void {
       </label>
       <p class="material-hint">最多绑定 20 家供应商。搜索选择已有档案，或输入新名称后按 Enter 添加；新供应商将在保存物料时创建为“待完善供应商”，后续到供应商管理补齐资料。</p>
     </fieldset>
+    <MaterialSpecificationsEditor :form="form" :categories="categories" :disabled="busy || disconnected" />
     <fieldset v-if="electronics" :disabled="busy || disconnected" class="material-section">
       <legend>电子参数（选填）</legend>
       <div class="form-grid">

@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.catalog.material_rules import MATERIAL_CATEGORIES
+from app.catalog.material_rules import material_choice_data
 from app.core.models import (Material, MrpConversion, MrpPlan, MrpPlanChange, MrpPolicy,
     MrpPolicyChange, PurchaseRequest, User, Warehouse, WorkOrder)
 from app.core.orm import model_data, orm_session
@@ -226,11 +226,9 @@ def options(_: dict = Depends(require('mrp.view'))) -> dict:
     with orm_session() as db:
         source = collect(db)
         # 分类名称只丰富选料响应，不写入计算来源或改变历史快照指纹。
-        category_names = {item['code']: f"{group['name']} / {item['name']}"
-            for group in MATERIAL_CATEGORIES for item in group['children']}
+        choices = {row.id: material_choice_data(row) for row in db.scalars(select(Material))}
         return {key: source[key] for key in ('materials','policies','boms','demands','supplies','reservations')} | {
-            'materials': [{**row, 'category_name': category_names.get(row['category_code'], '未分类')}
-                for row in source['materials']],
+            'materials': [{**row, **choices[row['id']]} for row in source['materials']],
             'fingerprint': fingerprint(source), 'today': today(),
             'warehouses': [model_data(row) for row in db.scalars(select(Warehouse).order_by(Warehouse.id))]}
 

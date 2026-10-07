@@ -4,6 +4,8 @@ import { supplierBody } from '../../../../shared/supplier-api.ts'
 import { materialUnitBody } from '../../../../shared/material-unit-api.ts'
 import type { MaterialUnitInput } from '../../../../shared/material-unit-api'
 import { displayError } from '../../utils/formatters.ts'
+import { materialCategoryBody, materialCategoryRevision, materialSpecFieldBody } from '../../../../shared/material-category-validation.ts'
+import type { MaterialCategoryInput, MaterialCategoryRevision, MaterialSpecFieldInput } from '../../../../shared/material-api'
 
 // 基础资料操作独立维护；写入后由统一入口刷新服务端快照。
 export function createCatalogActions(
@@ -117,5 +119,66 @@ export function createCatalogActions(
     return saved
   }
 
-  return { loadMaterial, createMaterial, createSupplier, saveMaterial, deleteMaterial, saveSupplier, deleteSupplier, setSupplierMaterial, saveMaterialUnit }
+  async function reloadMaterialCategories(): Promise<boolean> {
+    if (!window.nexora || !state.user.value || state.busy.value || state.connectionLost.value) return false
+    const user = state.user.value, server = state.server.value
+    state.busy.value = true
+    try {
+      const rows = await window.nexora.callApi('materialCategories', undefined)
+      if (state.user.value !== user || state.server.value !== server || state.connectionLost.value) return false
+      state.materialCategories.value = rows
+      return true
+    } catch (cause) {state.error.value = displayError(cause); return false}
+    finally {state.busy.value = false}
+  }
+
+  async function saveMaterialCategory(data: MaterialCategoryInput, editing: boolean): Promise<boolean> {
+    if (!window.nexora) return false
+    let saved = false
+    await perform(async () => {
+      const body = materialCategoryBody(data, editing) as unknown as MaterialCategoryInput & {version: number; reason: string}
+      if (editing) await window.nexora!.callApi('updateMaterialCategory', body)
+      else await window.nexora!.callApi('createMaterialCategory', body)
+      saved = true
+    }, '物料类别已保存。')
+    return saved
+  }
+  async function saveMaterialSpecField(data: MaterialSpecFieldInput & {code: string; field_id?: number}): Promise<boolean> {
+    if (!window.nexora) return false
+    let saved = false
+    await perform(async () => {
+      // 选项经过白名单复制，响应式数组不会直接发送到 Electron。
+      const body = {...materialSpecFieldBody(data), code: data.code} as unknown as MaterialSpecFieldInput & {code: string}
+      if (data.field_id) await window.nexora!.callApi('updateMaterialSpecField', {...body, field_id:data.field_id})
+      else await window.nexora!.callApi('createMaterialSpecField', body)
+      saved = true
+    }, '规格字段已保存。')
+    return saved
+  }
+  async function removeMaterialCategory(data: MaterialCategoryRevision, field_id?: number): Promise<boolean> {
+    if (!window.nexora) return false
+    let saved = false
+    await perform(async () => {
+      const body = {code:data.code, ...materialCategoryRevision(data)}
+      if (field_id) await window.nexora!.callApi('deleteMaterialSpecField', {...body, field_id})
+      else await window.nexora!.callApi('deleteMaterialCategory', body)
+      saved = true
+    }, field_id ? '未使用规格字段已移除。' : '未使用类别已移除。')
+    return saved
+  }
+  async function loadMaterialCategoryChanges(code: string): Promise<boolean> {
+    if (!window.nexora || !state.user.value || state.busy.value || state.connectionLost.value) return false
+    const user = state.user.value, server = state.server.value
+    state.busy.value = true
+    try {
+      const rows = await window.nexora.callApi('materialCategoryChanges', {code})
+      if (state.user.value !== user || state.server.value !== server || state.connectionLost.value) return false
+      state.materialCategoryChanges.value = rows
+      return true
+    } catch (cause) {state.error.value = displayError(cause); return false}
+    finally {state.busy.value = false}
+  }
+
+  return { loadMaterial, createMaterial, createSupplier, saveMaterial, deleteMaterial, saveSupplier, deleteSupplier, setSupplierMaterial, saveMaterialUnit,
+    reloadMaterialCategories, saveMaterialCategory, saveMaterialSpecField, removeMaterialCategory, loadMaterialCategoryChanges }
 }
