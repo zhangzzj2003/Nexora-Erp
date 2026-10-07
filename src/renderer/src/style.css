@@ -44,6 +44,10 @@ body { margin: 0; min-width: 320px; }
   background: color-mix(in srgb, var(--n-color-modal) 94%, var(--workspace-field-text) 6%);
   border-bottom: 1px solid var(--workspace-field-border);
 }
+/* 新增、详情和批次弹窗共用标题字体与换行规则，仅统一标题，不改变各自正文布局。 */
+.n-modal.n-card > .n-card-header .n-card-header__main {
+  min-width: 0; font-size: 18px; line-height: 1.45; font-weight: 600; overflow-wrap: anywhere;
+}
 .n-modal.n-card > .n-card-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: 20px; }
 .n-modal.n-card > .n-card__footer, .n-modal.n-card > .n-card__action { flex-shrink: 0; }
 button, input, select { font: inherit; }

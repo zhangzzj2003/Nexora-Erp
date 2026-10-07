@@ -97,9 +97,9 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
     </div>
     <p class="muted">按人民币核对银行对账单与已确认期初、已过账总账。绑定时可迁入带依据的期初未达项，后续用到账流水或已过账凭证核销；未达项分别调节两侧余额。文件和期初凭据仍需人工核实。</p>
 
-    <NModal v-if="can('bank_reconciliation.account')" v-model:show="bindingOpen" preset="card"
+    <NModal title="绑定银行账户与总账科目" v-if="can('bank_reconciliation.account')" v-model:show="bindingOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(720px, calc(100vw - 32px))' }">
-      <h2>绑定银行账户与总账科目</h2>
+      <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
       <p class="muted">启用日须与已确认总账期初一致。银行和总账期初可因未达项不同，但登记的两侧明细调节后必须相符。请按启用日前原始银行凭据和总账逐笔登记；保存后未达明细不可改写。</p>
       <form @submit.prevent="submitBinding">
         <div class="form-grid">

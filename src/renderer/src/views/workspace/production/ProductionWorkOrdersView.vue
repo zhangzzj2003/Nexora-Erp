@@ -56,7 +56,7 @@ const filteredRecords = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal
+    <NModal title="新建生产工单"
       v-if="can('work_order.create')"
       v-model:show="createOpen"
       preset="card"
@@ -67,13 +67,8 @@ const filteredRecords = computed(() =>
         overflowY: 'auto'
       }"
     >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">PRODUCTION ORDERS</p>
-          <h2>新建生产工单</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
+      <!-- 状态保留在公共标题栏，正文不再重复显示标题。 -->
+      <template #header-extra><span class="pill">草稿</span></template>
       <p class="muted">
         选择已启用的 BOM
         和目标产量。建单时会固定本次组件需求；仓库用于后续完工入库，目前不会改变库存。

@@ -11,11 +11,13 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
 // 单据统一使用固定关闭区、基础信息和物料明细表格。
 import { documentRows } from '../../../utils/document-rows'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+// 全部批次单据共享标题、固定操作区与数量核对表。
+import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
+import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import {displayError} from '../../../utils/formatters.ts'
@@ -328,41 +330,26 @@ const otherOutboundFormColumns = [
       >
       <template #empty>{{ query ? '没有匹配的出库单。' : '暂无仓库出库单。' }}</template>
     </WorkspaceTable>
-    <NModal :show="!!activeOutbound" @update:show="value=>{if(!value) closeLotPost()}" preset="card"
-      :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
-        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
-      <form v-if="activeOutbound && can('other_outbound.post')" class="stack" @submit.prevent="confirmLotPost">
-        <h2>{{ activeOutbound.source_kind === 'purchase_return' ? '采购退货出库' : '其他出库' }} {{ documentLabel(activeOutbound) }} · 指定实物批次</h2>
-        <p>从 {{ activeOutbound.warehouse_name }} 的实际可用批次逐行选择；历史未识别期初会明确标记，不能当作真实来料批号。</p>
-        <p v-if="lotLoading">正在读取可用批次…</p>
-        <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>
-        <section v-for="line in lotDrafts" :key="line.outbound_line_id" class="stack outbound-lot-line">
-          <h3>{{ activeOutbound.lines.find(item=>item.id===line.outbound_line_id)?.sku }} · {{ activeOutbound.lines.find(item=>item.id===line.outbound_line_id)?.material_name }} · {{ activeOutbound.lines.find(item=>item.id===line.outbound_line_id)?.quantity }} {{ activeOutbound.lines.find(item=>item.id===line.outbound_line_id)?.unit }}</h3>
-          <div v-for="(part,index) in line.lots" :key="index" class="outbound-lot-grid">
-            <label>实物批次<WorkspaceSelect v-model="part.lot_id" required :disabled="busy"
-              :options="[{label:'选择批次',value:0,disabled:true},
+    <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
+    <WorkspaceLotDialog v-if="activeOutbound && can('other_outbound.post')" :show="true"
+      :title="activeOutbound.source_kind === 'purchase_return' ? '采购退货出库 · 批次选择' : '其他出库 · 批次选择'" :document-number="documentLabel(activeOutbound)"
+      :hint="'从 ' + activeOutbound.warehouse_name + ' 的实际可用批次逐行选择；历史未识别期初会明确标记，不能当作真实来料批号。'"
+      :busy="busy" :disabled="connectionLost" :issue="lotIssue" submit-label="确认出库"
+      :loading="lotLoading" :load-error="lotLoadError"
+      @update:show="value => { if (!value) closeLotPost() }" @submit="confirmLotPost">
+      <WorkspaceLotLineEditor v-for="line in lotDrafts" :key="line.outbound_line_id" :lots="line.lots"
+        :sku="activeOutbound.lines.find(item => item.id === line.outbound_line_id)?.sku" :material-name="activeOutbound.lines.find(item => item.id === line.outbound_line_id)?.material_name"
+        :unit="activeOutbound.lines.find(item => item.id === line.outbound_line_id)?.unit" :expected="activeOutbound.lines.find(item => item.id === line.outbound_line_id)?.quantity ?? ''"
+        expected-label="应出库" quantity-label="出库数量" :selectable="true"
+        :options="[{label:'选择批次',value:0,disabled:true},
                 ...(lotOptions?.lines.find(item=>item.outbound_line_id===line.outbound_line_id)?.lots ?? []).map(lot=>({
                   label:`${lot.code} · ${physicalLotKindLabel(lot.source_kind)} · 可用 ${lot.quantity}`,
-                  value:lot.lot_id}))]" /></label>
-            <label>出库数量<AppInput v-model.trim="part.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="busy" /></label>
-            <AppButton v-if="line.lots.length>1" type="button" :disabled="busy" @click="line.lots.splice(index,1)">移除批次</AppButton>
-          </div>
-          <AppButton type="button" :disabled="busy || line.lots.length>=20" @click="addLot(line)">添加一个批次</AppButton>
-        </section>
-        <p v-if="lotIssue && !lotLoading" role="alert">{{ lotIssue }}</p>
-        <div class="form-actions">
-          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">确认出库并固定批次</AppButton>
-          <AppButton type="button" :disabled="busy" @click="closeLotPost">取消</AppButton>
-        </div>
-      </form>
-    </NModal>
+                  value:lot.lot_id}))]"
+        :disabled="busy || connectionLost || lotLoading" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)" />
+    </WorkspaceLotDialog>
   </section>
 </template>
 
 <style scoped>
-.outbound-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
-.outbound-lot-line h3{margin:0}
-.outbound-lot-grid{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:12px;align-items:end}
 .outbound-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
-@media(max-width:550px){.outbound-lot-grid{grid-template-columns:1fr}}
 </style>

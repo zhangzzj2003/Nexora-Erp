@@ -8,12 +8,14 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+// 全部批次单据共享标题、固定操作区与数量核对表。
+import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
+import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
-import { NDatePicker,NModal } from 'naive-ui'
+import { NModal } from 'naive-ui'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
-import {datePickerString,vDateField} from '../../../utils/date-field'
 import {completionLotDate,completionLotMilli} from '../../../../../shared/completion-lot-api.ts'
 import type {CompletionLotPartInput} from '../../../../../shared/completion-lot-api'
 import type {ProductionCompletion} from '../../../../../shared/erp-api'
@@ -98,7 +100,7 @@ const filteredRecords = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal
+    <NModal title="新建完工报工单"
       v-if="can('production_completion.create')"
       v-model:show="createOpen"
       preset="card"
@@ -109,13 +111,8 @@ const filteredRecords = computed(() =>
         overflowY: 'auto'
       }"
     >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">PRODUCTION COMPLETION</p>
-          <h2>新建完工报工单</h2>
-        </div>
-        <span class="pill">草稿</span>
-      </div>
+      <!-- 状态保留在公共标题栏，正文不再重复显示标题。 -->
+      <template #header-extra><span class="pill">草稿</span></template>
       <p class="muted">
         按工单目标产量分批报工。报工数包含待质检的合格与不合格产品；质检并确认后，只有合格数进入工单目标仓库。
       </p>
@@ -329,32 +326,19 @@ const filteredRecords = computed(() =>
         </span>
       </template>
     </WorkspaceTable>
-    <NModal :show="!!activeCompletion" @update:show="value=>{if(!value) activeCompletionId=0}"
-      preset="card" :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
-        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
-      <form v-if="activeCompletion && can('production_completion.post')" class="stack"
-        @submit.prevent="confirmLotPost">
-        <h2>完工单 {{ documentLabel(activeCompletion) }} · 合格品实物批次</h2>
-        <p>按实际分开的成品批次登记，数量之和须等于合格入库量。系统生成独立内部编号供实物标识；缺少日期时留空。</p>
-        <p>{{ activeCompletion.product_name }} · {{ activeCompletion.warehouse_name }} · 合格 {{ activeCompletion.accepted_quantity }} {{ activeCompletion.product_unit }}</p>
-        <div v-for="(part,index) in lotDrafts" :key="index" class="completion-lot-grid">
-          <label>批次数量<AppInput v-model="part.quantity" inputmode="decimal" required :disabled="busy" /></label>
-          <label>生产日期<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="part.manufactured_on" :disabled="busy" @update:formatted-value="value=>part.manufactured_on=datePickerString(value)||null" /></label>
-          <label>失效日期<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="part.expires_on" :disabled="busy" @update:formatted-value="value=>part.expires_on=datePickerString(value)||null" /></label>
-          <AppButton v-if="lotDrafts.length>1" type="button" :disabled="busy" @click="lotDrafts.splice(index,1)">移除批次</AppButton>
-        </div>
-        <AppButton type="button" :disabled="busy || lotDrafts.length>=20" @click="addLot">添加一个批次</AppButton>
-        <p v-if="lotIssue" role="alert">{{ lotIssue }}</p>
-        <div class="form-actions">
-          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">确认合格品入库并固定批次</AppButton>
-          <AppButton type="button" :disabled="busy" @click="activeCompletionId=0">取消</AppButton>
-        </div>
-      </form>
-    </NModal>
+    <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
+    <WorkspaceLotDialog v-if="activeCompletion && can('production_completion.post')" :show="true"
+      title="完工入库 · 成品批次" :document-number="documentLabel(activeCompletion)"
+      hint="按实际分开的成品批次登记，数量之和须等于合格入库量。系统生成独立内部编号供实物标识；缺少日期时留空。"
+      :busy="busy" :disabled="connectionLost" :issue="lotIssue" submit-label="确认合格品入库"
+      @update:show="value => { if (!value) activeCompletionId = 0 }" @submit="confirmLotPost">
+      <WorkspaceLotLineEditor :lots="lotDrafts" :material-name="activeCompletion.product_name"
+        :unit="activeCompletion.product_unit" :expected="activeCompletion.accepted_quantity ?? ''"
+        expected-label="应入库" :show-source="false" :disabled="busy || connectionLost"
+        @add="addLot" @remove="index => lotDrafts.splice(index, 1)" />
+    </WorkspaceLotDialog>
   </section>
 </template>
 
 <style scoped>
-.completion-lot-grid{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:12px;align-items:end}
-@media(max-width:700px){.completion-lot-grid{grid-template-columns:1fr}}
 </style>

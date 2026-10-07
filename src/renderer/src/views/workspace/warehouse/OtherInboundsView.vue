@@ -11,13 +11,14 @@ import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMate
 import { computed, nextTick, ref } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NDatePicker, NModal } from 'naive-ui'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+// 全部批次单据共享标题、固定操作区与数量核对表。
+import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
+import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import { appendDocumentMaterialRow, documentMaterialDisabled, documentMaterialIssue, documentMaterialLimit } from '../../../utils/document-material-lines'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
-import {datePickerString,vDateField} from '../../../utils/date-field'
 import {receiptLotDate,receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
 import type {InboundLotLineInput} from '../../../../../shared/receipt-lot-api'
 import type {OtherInbound} from '../../../../../shared/erp-api'
@@ -305,31 +306,18 @@ async function confirmLotPost(): Promise<void> {
         <span v-if="!row.physical_lots?.length">{{ detailInbound.status === 'posted' ? '未登记实物批次，数量在批次核对页显示为差额。' : '尚未登记实物批次' }}</span>
       </template>
     </WorkspaceDocumentDialog>
-    <NModal :show="!!activeInbound" @update:show="value=>{if(!value) activeInboundId=0}" preset="card"
-      :mask-closable="!busy" :style="{width:'min(1000px,calc(100vw - 32px))',
-        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
-      <form v-if="activeInbound && can('other_inbound.post')" class="stack inbound-lot-editor"
-        @submit.prevent="confirmLotPost">
-        <h2>其他入库 {{ documentLabel(activeInbound) }} · 实物批次</h2>
-        <p>按实际入库逐行登记批次，数量之和须等于入库量。来源批号和日期缺失时留空，系统会保留独立的入库来源编号。</p>
-        <section v-for="line in lotDrafts" :key="line.inbound_line_id" class="stack inbound-lot-line">
-          <h3>{{ activeInbound.lines.find(item=>item.id===line.inbound_line_id)?.sku }} · {{ activeInbound.lines.find(item=>item.id===line.inbound_line_id)?.material_name }} · {{ activeInbound.lines.find(item=>item.id===line.inbound_line_id)?.quantity }} {{ activeInbound.lines.find(item=>item.id===line.inbound_line_id)?.unit }}</h3>
-          <div v-for="(part,index) in line.lots" :key="index" class="inbound-lot-grid">
-            <label>批次数量<AppInput v-model="part.quantity" inputmode="decimal" required :disabled="busy" /></label>
-            <label>来源批号<AppInput v-model.trim="part.supplier_lot" maxlength="100" placeholder="未提供则留空" :disabled="busy" /></label>
-            <label>生产日期<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="part.manufactured_on" :disabled="busy" @update:formatted-value="value=>part.manufactured_on=datePickerString(value)||null" /></label>
-            <label>失效日期<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="part.expires_on" :disabled="busy" @update:formatted-value="value=>part.expires_on=datePickerString(value)||null" /></label>
-            <AppButton v-if="line.lots.length>1" type="button" :disabled="busy" @click="line.lots.splice(index,1)">移除批次</AppButton>
-          </div>
-          <AppButton type="button" :disabled="busy || line.lots.length>=20" @click="addLot(line)">添加一个批次</AppButton>
-        </section>
-        <p v-if="lotIssue" role="alert">{{ lotIssue }}</p>
-        <div class="form-actions">
-          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">确认入库并固定批次</AppButton>
-          <AppButton type="button" :disabled="busy" @click="activeInboundId=0">取消</AppButton>
-        </div>
-      </form>
-    </NModal>
+    <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
+    <WorkspaceLotDialog v-if="activeInbound && can('other_inbound.post')" :show="true"
+      title="其他入库 · 批次登记" :document-number="documentLabel(activeInbound)"
+      hint="按实际入库逐行登记批次，数量之和须等于入库量。来源批号和日期缺失时留空，系统会保留独立的入库来源编号。"
+      :busy="busy" :disabled="connectionLost" :issue="lotIssue" submit-label="确认入库"
+      @update:show="value => { if (!value) activeInboundId = 0 }" @submit="confirmLotPost">
+      <WorkspaceLotLineEditor v-for="line in lotDrafts" :key="line.inbound_line_id" :lots="line.lots"
+        :sku="activeInbound.lines.find(item => item.id === line.inbound_line_id)?.sku" :material-name="activeInbound.lines.find(item => item.id === line.inbound_line_id)?.material_name"
+        :unit="activeInbound.lines.find(item => item.id === line.inbound_line_id)?.unit" :expected="activeInbound.lines.find(item => item.id === line.inbound_line_id)?.quantity ?? ''"
+        expected-label="应入库" quantity-label="批次数量"
+        :disabled="busy || connectionLost" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)" />
+    </WorkspaceLotDialog>
   </section>
 </template>
 
@@ -339,12 +327,7 @@ async function confirmLotPost(): Promise<void> {
 .inbound-detail-field span { color: var(--workspace-field-muted); font-size: 12px; }
 .inbound-detail-field strong { font-weight: 500; overflow-wrap: anywhere; white-space: pre-wrap; }
 .inbound-detail-lot + .inbound-detail-lot { margin-top: 12px; }
-.inbound-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
-.inbound-lot-line h3{margin:0}
-.inbound-lot-grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;align-items:end}
 .inbound-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
-@media(max-width:950px){.inbound-lot-grid{grid-template-columns:repeat(2,minmax(150px,1fr))}}
-@media(max-width:550px){.inbound-lot-grid{grid-template-columns:1fr}}
 </style>
 
 <style scoped>

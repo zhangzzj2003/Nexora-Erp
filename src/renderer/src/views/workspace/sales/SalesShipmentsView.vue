@@ -13,9 +13,11 @@ import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMate
 import { documentRows } from '../../../utils/document-rows'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+// 全部批次单据共享标题、固定操作区与数量核对表。
+import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
+import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
-import { NModal } from 'naive-ui'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import {displayError} from '../../../utils/formatters.ts'
@@ -368,41 +370,26 @@ const shipmentFormColumns = [
         </span>
       </template>
     </WorkspaceTable>
-    <NModal :show="!!activeShipment" @update:show="value=>{if(!value) closeLotPost()}" preset="card"
-      :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
-        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
-      <form v-if="activeShipment && can('shipment.post')" class="stack" @submit.prevent="confirmLotPost">
-        <h2>销售出库 {{ documentLabel(activeShipment) }} · 指定实物批次</h2>
-        <p>从 {{ activeShipment.warehouse_name }} 的实际可用批次逐行选择；历史未识别期初会明确标记，不能当作真实来料批号。</p>
-        <p v-if="lotLoading">正在读取可用批次…</p>
-        <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>
-        <section v-for="line in lotDrafts" :key="line.shipment_line_id" class="stack shipment-lot-line">
-          <h3>{{ activeShipment.lines.find(item=>item.id===line.shipment_line_id)?.sku }} · {{ activeShipment.lines.find(item=>item.id===line.shipment_line_id)?.material_name }} · {{ activeShipment.lines.find(item=>item.id===line.shipment_line_id)?.quantity }} {{ activeShipment.lines.find(item=>item.id===line.shipment_line_id)?.unit }}</h3>
-          <div v-for="(part,index) in line.lots" :key="index" class="shipment-lot-grid">
-            <label>实物批次<WorkspaceSelect v-model="part.lot_id" required :disabled="busy"
-              :options="[{label:'选择批次',value:0,disabled:true},
+    <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
+    <WorkspaceLotDialog v-if="activeShipment && can('shipment.post')" :show="true"
+      title="销售出库 · 批次选择" :document-number="documentLabel(activeShipment)"
+      :hint="'从 ' + activeShipment.warehouse_name + ' 的实际可用批次逐行选择；历史未识别期初会明确标记，不能当作真实来料批号。'"
+      :busy="busy" :disabled="connectionLost" :issue="lotIssue" submit-label="确认出库"
+      :loading="lotLoading" :load-error="lotLoadError"
+      @update:show="value => { if (!value) closeLotPost() }" @submit="confirmLotPost">
+      <WorkspaceLotLineEditor v-for="line in lotDrafts" :key="line.shipment_line_id" :lots="line.lots"
+        :sku="activeShipment.lines.find(item => item.id === line.shipment_line_id)?.sku" :material-name="activeShipment.lines.find(item => item.id === line.shipment_line_id)?.material_name"
+        :unit="activeShipment.lines.find(item => item.id === line.shipment_line_id)?.unit" :expected="activeShipment.lines.find(item => item.id === line.shipment_line_id)?.quantity ?? ''"
+        expected-label="应出库" quantity-label="出库数量" :selectable="true"
+        :options="[{label:'选择批次',value:0,disabled:true},
                 ...(lotOptions?.lines.find(item=>item.shipment_line_id===line.shipment_line_id)?.lots ?? []).map(lot=>({
                   label:`${lot.code} · ${physicalLotKindLabel(lot.source_kind)} · 可用 ${lot.quantity}`,
-                  value:lot.lot_id}))]" /></label>
-            <label>出库数量<AppInput v-model.trim="part.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="busy" /></label>
-            <AppButton v-if="line.lots.length>1" type="button" :disabled="busy" @click="line.lots.splice(index,1)">移除批次</AppButton>
-          </div>
-          <AppButton type="button" :disabled="busy || line.lots.length>=20" @click="addLot(line)">添加一个批次</AppButton>
-        </section>
-        <p v-if="lotIssue && !lotLoading" role="alert">{{ lotIssue }}</p>
-        <div class="form-actions">
-          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">确认出库并固定批次</AppButton>
-          <AppButton type="button" :disabled="busy" @click="closeLotPost">取消</AppButton>
-        </div>
-      </form>
-    </NModal>
+                  value:lot.lot_id}))]"
+        :disabled="busy || connectionLost || lotLoading" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)" />
+    </WorkspaceLotDialog>
   </section>
 </template>
 
 <style scoped>
-.shipment-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
-.shipment-lot-line h3{margin:0}
-.shipment-lot-grid{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:12px;align-items:end}
 .shipment-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
-@media(max-width:550px){.shipment-lot-grid{grid-template-columns:1fr}}
 </style>

@@ -62,7 +62,7 @@ const transferColumns = [
 
 <template>
   <section class="stack">
-    <NModal
+    <NModal title="登记收付款"
       v-if="can('finance.record')"
       v-model:show="createOpen"
       preset="card"
@@ -73,12 +73,6 @@ const transferColumns = [
         overflowY: 'auto'
       }"
     >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">PAYMENT RECORD</p>
-          <h2>登记收付款</h2>
-        </div>
-      </div>
       <p class="muted">
         选择订单后登记真实发生的收付款。退款只在退货产生贷方余额时允许；录错请在下方冲销并重新登记。
       </p>
@@ -154,14 +148,13 @@ const transferColumns = [
         </AppButton>
       </form>
     </NModal>
-    <NModal
+    <NModal title="订单间核销"
       v-if="can('finance.record')"
       v-model:show="transferOpen"
       preset="card"
       :mask-closable="!busy"
       :style="{ width: 'min(820px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }"
     >
-      <div class="section-heading"><div><p class="eyebrow">ORDER SETTLEMENT</p><h2>订单间核销</h2></div></div>
       <p class="muted">将同一客户或供应商订单的可用贷方余额核销到另一张未结订单。此操作不登记新的收付款。</p>
       <form @submit.prevent="submitTransfer">
         <div class="form-grid">

@@ -54,9 +54,10 @@ test('财务冲销、生产质检与账号操作在表格迁移后保留原权�
   const server = await createServer({configFile:false,plugins:[{
     name:'record-view-fixtures', enforce:'pre',
     resolveId(id,importer) {
+      // 批次表的公共封装也引用 WorkspaceTable，继续展开同一份表格绘制替身。
+      if(id.endsWith('/WorkspaceTable.vue')) return '\0record-view-table'
       if(!importer?.includes('/views/workspace/')) return
       if(id.endsWith('/store/app-store')) return '\0record-view-store'
-      if(id.endsWith('/WorkspaceTable.vue')) return '\0record-view-table'
     },
     load(id) {
       if(id==='\0record-view-store') return storeModule

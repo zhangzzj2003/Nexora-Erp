@@ -11,14 +11,15 @@ import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { documentRows } from '../../../utils/document-rows'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+// 全部批次单据共享标题、固定操作区与数量核对表。
+import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
+import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NDatePicker, NModal } from 'naive-ui'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import {displayError} from '../../../utils/formatters.ts'
-import {datePickerString,vDateField} from '../../../utils/date-field'
 import {receiptLotDate,receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
 import {physicalLotKindLabel} from '../../../../../shared/physical-lot-api.ts'
 import type {SalesReturnLotLineInput,SalesReturnLotOptions,SalesReturnLotPartInput} from '../../../../../shared/sales-return-lot-api'
@@ -390,53 +391,28 @@ const salesReturnFormColumns = [
         </span>
       </template>
     </WorkspaceTable>
-    <NModal :show="!!activeReturn" @update:show="value=>{if(!value) closeLotPost()}" preset="card"
-      :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
-        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
-      <form v-if="activeReturn && can('sales_return.post')" class="stack" @submit.prevent="confirmLotPost">
-        <h2>销售退货 {{ documentLabel(activeReturn) }} · 回仓实物批次</h2>
-        <p>可归回原出库已记录的批次，数量不得超过该批次剩余可退量；实物不属于原批次或原出库未记录批次时，登记“退货新批次”。退回仓库为 {{ activeReturn.warehouse_name }}。</p>
-        <p v-if="lotLoading">正在读取原出库批次…</p>
-        <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>
-        <section v-for="line in lotDrafts" :key="line.return_line_id" class="stack return-lot-line">
-          <h3>{{ activeReturn.lines.find(item=>item.id===line.return_line_id)?.sku }} · 退货量 {{ activeReturn.lines.find(item=>item.id===line.return_line_id)?.quantity }}</h3>
-          <p v-if="!lotOptions?.lines.find(item=>item.return_line_id===line.return_line_id)?.lots.length" class="muted">原出库未登记可退批次，须登记退货新批次；旧单据仍可在批次核对页追踪差额。</p>
-          <div v-for="(part,index) in line.lots" :key="index" class="return-lot-grid">
-            <label>回仓批次<WorkspaceSelect v-model="part.lot_id" required :disabled="busy"
-              :options="[{label:'登记退货新批次',value:null},
+    <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
+    <WorkspaceLotDialog v-if="activeReturn && can('sales_return.post')" :show="true"
+      title="销售退货 · 回仓批次" :document-number="documentLabel(activeReturn)"
+      :hint="'可归回原出库已记录的批次，数量不得超过该批次剩余可退量；实物不属于原批次或原出库未记录批次时，登记“退货新批次”。退回仓库为 ' + activeReturn.warehouse_name + '。'"
+      :busy="busy" :disabled="connectionLost" :issue="lotIssue" submit-label="确认退货"
+      :loading="lotLoading" :load-error="lotLoadError" loading-text="正在读取原出库批次…"
+      @update:show="value => { if (!value) closeLotPost() }" @submit="confirmLotPost">
+      <WorkspaceLotLineEditor v-for="line in lotDrafts" :key="line.return_line_id" :lots="line.lots"
+        :sku="activeReturn.lines.find(item => item.id === line.return_line_id)?.sku" :material-name="activeReturn.lines.find(item => item.id === line.return_line_id)?.material_name"
+        :unit="activeReturn.lines.find(item => item.id === line.return_line_id)?.unit" :expected="activeReturn.lines.find(item => item.id === line.return_line_id)?.quantity ?? ''"
+        expected-label="应退货" quantity-label="批次数量" :selectable="true" :new-lot-value="null"
+        :options="[{label:'登记退货新批次',value:null},
                 ...(lotOptions?.lines.find(item=>item.return_line_id===line.return_line_id)?.lots ?? [])
                   .map(lot=>({label:`${lot.code} · ${physicalLotKindLabel(lot.source_kind)} · 剩余可退 ${lot.quantity}`,
-                    value:lot.lot_id}))]" /></label>
-            <label>批次数量<AppInput v-model.trim="part.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="busy" /></label>
-            <template v-if="part.lot_id === null">
-              <label>实物标签来源批号（可选）<AppInput v-model.trim="part.supplier_lot" maxlength="100" placeholder="未看到则留空" :disabled="busy" /></label>
-              <label>生产日期（可选）<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body"
-                type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd"
-                :formatted-value="part.manufactured_on" :disabled="busy"
-                @update:formatted-value="value=>part.manufactured_on=datePickerString(value)||null" /></label>
-              <label>失效日期（可选）<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body"
-                type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd"
-                :formatted-value="part.expires_on" :disabled="busy"
-                @update:formatted-value="value=>part.expires_on=datePickerString(value)||null" /></label>
-            </template>
-            <AppButton v-if="line.lots.length>1" type="button" :disabled="busy" @click="line.lots.splice(index,1)">移除批次</AppButton>
-          </div>
-          <AppButton type="button" :disabled="busy || line.lots.length>=20" @click="addLot(line)">添加一个批次</AppButton>
-        </section>
-        <p v-if="lotIssue && !lotLoading" role="alert">{{ lotIssue }}</p>
-        <div class="form-actions">
-          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">确认退货并固定批次</AppButton>
-          <AppButton type="button" :disabled="busy" @click="closeLotPost">取消</AppButton>
-        </div>
-      </form>
-    </NModal>
+                    value:lot.lot_id}))]"
+        :disabled="busy || connectionLost || lotLoading" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)">
+        <span v-if="!lotOptions?.lines.find(item=>item.return_line_id===line.return_line_id)?.lots.length">原出库未登记可退批次，须登记退货新批次；旧单据仍可在批次核对页追踪差额。</span>
+      </WorkspaceLotLineEditor>
+    </WorkspaceLotDialog>
   </section>
 </template>
 
 <style scoped>
-.return-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
-.return-lot-line h3{margin:0}
-.return-lot-grid{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:12px;align-items:end}
 .return-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
-@media(max-width:550px){.return-lot-grid{grid-template-columns:1fr}}
 </style>

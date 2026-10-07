@@ -14,7 +14,9 @@ import { computed, ref } from 'vue'
 import { documentRows } from '../../../utils/document-rows'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
-import { NModal } from 'naive-ui'
+// 全部批次单据共享标题、固定操作区与数量核对表。
+import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
+import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import {displayError} from '../../../utils/formatters.ts'
@@ -321,41 +323,26 @@ const transferFormColumns = [
         }}</span>
       </template>
     </WorkspaceTable>
-    <NModal :show="!!activeTransfer" @update:show="value=>{if(!value) closeLotPost()}" preset="card"
-      :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
-        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
-      <form v-if="activeTransfer && can('transfer.post')" class="stack" @submit.prevent="confirmLotPost">
-        <h2>调拨单 {{ documentLabel(activeTransfer) }} · 指定实物批次</h2>
-        <p>从 {{ activeTransfer.from_warehouse_name }} 的实际可用批次逐行选择，批次编号随实物进入 {{ activeTransfer.to_warehouse_name }}。历史未识别期初不能当作真实来料批号。</p>
-        <p v-if="lotLoading">正在读取可用批次…</p>
-        <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>
-        <section v-for="line in lotDrafts" :key="line.transfer_line_id" class="stack transfer-lot-line">
-          <h3>{{ activeTransfer.lines.find(item=>item.id===line.transfer_line_id)?.sku }} · {{ activeTransfer.lines.find(item=>item.id===line.transfer_line_id)?.material_name }} · {{ activeTransfer.lines.find(item=>item.id===line.transfer_line_id)?.quantity }} {{ activeTransfer.lines.find(item=>item.id===line.transfer_line_id)?.unit }}</h3>
-          <div v-for="(part,index) in line.lots" :key="index" class="transfer-lot-grid">
-            <label>实物批次<WorkspaceSelect v-model="part.lot_id" required :disabled="busy"
-              :options="[{label:'选择批次',value:0,disabled:true},
+    <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
+    <WorkspaceLotDialog v-if="activeTransfer && can('transfer.post')" :show="true"
+      title="仓库调拨 · 批次选择" :document-number="documentLabel(activeTransfer)"
+      :hint="'从 ' + activeTransfer.from_warehouse_name + ' 的实际可用批次逐行选择，批次编号随实物进入 ' + activeTransfer.to_warehouse_name + '。历史未识别期初不能当作真实来料批号。'"
+      :busy="busy" :disabled="connectionLost" :issue="lotIssue" submit-label="确认调拨"
+      :loading="lotLoading" :load-error="lotLoadError"
+      @update:show="value => { if (!value) closeLotPost() }" @submit="confirmLotPost">
+      <WorkspaceLotLineEditor v-for="line in lotDrafts" :key="line.transfer_line_id" :lots="line.lots"
+        :sku="activeTransfer.lines.find(item => item.id === line.transfer_line_id)?.sku" :material-name="activeTransfer.lines.find(item => item.id === line.transfer_line_id)?.material_name"
+        :unit="activeTransfer.lines.find(item => item.id === line.transfer_line_id)?.unit" :expected="activeTransfer.lines.find(item => item.id === line.transfer_line_id)?.quantity ?? ''"
+        expected-label="应调拨" quantity-label="调拨数量" :selectable="true"
+        :options="[{label:'选择批次',value:0,disabled:true},
                 ...(lotOptions?.lines.find(item=>item.transfer_line_id===line.transfer_line_id)?.lots ?? []).map(lot=>({
                   label:`${lot.code} · ${physicalLotKindLabel(lot.source_kind)} · 可用 ${lot.quantity}`,
-                  value:lot.lot_id}))]" /></label>
-            <label>调拨数量<AppInput v-model.trim="part.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="busy" /></label>
-            <AppButton v-if="line.lots.length>1" type="button" :disabled="busy" @click="line.lots.splice(index,1)">移除批次</AppButton>
-          </div>
-          <AppButton type="button" :disabled="busy || line.lots.length>=20" @click="addLot(line)">添加一个批次</AppButton>
-        </section>
-        <p v-if="lotIssue && !lotLoading" role="alert">{{ lotIssue }}</p>
-        <div class="form-actions">
-          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">确认调拨并固定批次</AppButton>
-          <AppButton type="button" :disabled="busy" @click="closeLotPost">取消</AppButton>
-        </div>
-      </form>
-    </NModal>
+                  value:lot.lot_id}))]"
+        :disabled="busy || connectionLost || lotLoading" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)" />
+    </WorkspaceLotDialog>
   </section>
 </template>
 
 <style scoped>
-.transfer-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
-.transfer-lot-line h3{margin:0}
-.transfer-lot-grid{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:12px;align-items:end}
 .transfer-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
-@media(max-width:550px){.transfer-lot-grid{grid-template-columns:1fr}}
 </style>

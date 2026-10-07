@@ -14,11 +14,12 @@ import { computed, ref } from 'vue'
 import { documentRows } from '../../../utils/document-rows'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
-import { NDatePicker, NModal } from 'naive-ui'
+// 全部批次单据共享标题、固定操作区与数量核对表。
+import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
+import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import { useAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import {displayError} from '../../../utils/formatters.ts'
-import {datePickerString, vDateField} from '../../../utils/date-field'
 import {receiptLotDate, receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
 import {physicalLotKindLabel} from '../../../../../shared/physical-lot-api.ts'
 import {signedStocktakeMilli} from '../../../../../shared/stocktake-lot-api.ts'
@@ -364,57 +365,31 @@ const stocktakeFormColumns = [
         }}</span>
       </template>
     </WorkspaceTable>
-    <NModal :show="!!activeStocktake" @update:show="value=>{if(!value) closeLotPost()}" preset="card"
-      :mask-closable="!busy" :style="{width:'min(900px,calc(100vw - 32px))',
-        maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
-      <form v-if="activeStocktake && can('stocktake.post')" class="stack" @submit.prevent="confirmLotPost">
-        <h2>盘点单 {{ documentLabel(activeStocktake) }} · 差异批次归属</h2>
-        <p>盘亏选择本仓实际减少的已有批次；盘盈可补入已有批次，或登记明确标为“盘点发现”的新批次。仅填写实物标签上实际可见的来源批号与日期。</p>
-        <p v-if="lotLoading">正在读取批次…</p>
-        <p v-if="lotLoadError" role="alert">{{ lotLoadError }}</p>
-        <p v-if="lotOptions && !lotDrafts.length">这张盘点单没有数量差异，确认时不会生成库存或批次流水。</p>
-        <section v-for="line in lotDrafts" :key="line.stocktake_line_id" class="stack stocktake-lot-line">
-          <h3>{{ activeStocktake.lines.find(item=>item.id===line.stocktake_line_id)?.sku }} · 差异 {{ activeStocktake.lines.find(item=>item.id===line.stocktake_line_id)?.difference }}</h3>
-          <div v-for="(part,index) in line.lots" :key="index" class="stocktake-lot-grid">
-            <label>实物批次<WorkspaceSelect v-model="part.lot_id" required :disabled="busy"
-              :options="[{label:'选择批次',value:0,disabled:true},
+    <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
+    <WorkspaceLotDialog v-if="activeStocktake && can('stocktake.post')" :show="true"
+      title="库存盘点 · 差异批次" :document-number="documentLabel(activeStocktake)"
+      hint="盘亏选择本仓实际减少的已有批次；盘盈可补入已有批次，或登记明确标为“盘点发现”的新批次。仅填写实物标签上实际可见的来源批号与日期。"
+      :busy="busy" :disabled="connectionLost" :issue="lotIssue" submit-label="确认盘点"
+      :loading="lotLoading" :load-error="lotLoadError"
+      @update:show="value => { if (!value) closeLotPost() }" @submit="confirmLotPost">
+      <p v-if="lotOptions && !lotDrafts.length">这张盘点单没有数量差异，确认时不会生成库存或批次流水。</p>
+      <WorkspaceLotLineEditor v-for="line in lotDrafts" :key="line.stocktake_line_id" :lots="line.lots"
+        :sku="activeStocktake.lines.find(item => item.id === line.stocktake_line_id)?.sku" :material-name="activeStocktake.lines.find(item => item.id === line.stocktake_line_id)?.material_name"
+        :unit="activeStocktake.lines.find(item => item.id === line.stocktake_line_id)?.unit" :expected="activeStocktake.lines.find(item => item.id === line.stocktake_line_id)?.difference ?? ''"
+        :expected-label="differenceMilli(activeStocktake.lines.find(item => item.id === line.stocktake_line_id)?.difference ?? '0') > 0n ? '盘盈应分配' : '盘亏应分配'" quantity-label="差异数量" :selectable="true" :new-lot-value="-1"
+        :options="[{label:'选择批次',value:0,disabled:true},
                 ...(differenceMilli(activeStocktake?.lines.find(item=>item.id===line.stocktake_line_id)?.difference ?? '0') > 0n
                   ? [{label:'登记盘点发现的新批次',value:-1}] : []),
                 ...(lotOptions?.lines.find(item=>item.stocktake_line_id===line.stocktake_line_id)?.lots ?? [])
                   .filter(lot=>differenceMilli(activeStocktake?.lines.find(item=>item.id===line.stocktake_line_id)?.difference ?? '0') > 0n
                     || (signedStocktakeMilli(lot.quantity) ?? 0n) > 0n)
                   .map(lot=>({label:`${lot.code} · ${physicalLotKindLabel(lot.source_kind)} · 本仓 ${lot.quantity}`,
-                    value:lot.lot_id}))]" /></label>
-            <label>差异数量<AppInput v-model.trim="part.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="busy" /></label>
-            <template v-if="part.lot_id === -1">
-              <label>实物标签来源批号（可选）<AppInput v-model.trim="part.supplier_lot" maxlength="100" placeholder="未看到则留空" :disabled="busy" /></label>
-              <label>生产日期（可选）<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body"
-                type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd"
-                :formatted-value="part.manufactured_on" :disabled="busy"
-                @update:formatted-value="value=>part.manufactured_on=datePickerString(value)||null" /></label>
-              <label>失效日期（可选）<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body"
-                type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd"
-                :formatted-value="part.expires_on" :disabled="busy"
-                @update:formatted-value="value=>part.expires_on=datePickerString(value)||null" /></label>
-            </template>
-            <AppButton v-if="line.lots.length>1" type="button" :disabled="busy" @click="line.lots.splice(index,1)">移除批次</AppButton>
-          </div>
-          <AppButton type="button" :disabled="busy || line.lots.length>=20" @click="addLot(line)">添加一个批次</AppButton>
-        </section>
-        <p v-if="lotIssue && !lotLoading" role="alert">{{ lotIssue }}</p>
-        <div class="form-actions">
-          <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !!lotIssue">确认盘点并固定批次</AppButton>
-          <AppButton type="button" :disabled="busy" @click="closeLotPost">取消</AppButton>
-        </div>
-      </form>
-    </NModal>
+                    value:lot.lot_id}))]"
+        :disabled="busy || connectionLost || lotLoading" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)" />
+    </WorkspaceLotDialog>
   </section>
 </template>
 
 <style scoped>
-.stocktake-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
-.stocktake-lot-line h3{margin:0}
-.stocktake-lot-grid{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:12px;align-items:end}
 .stocktake-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
-@media(max-width:550px){.stocktake-lot-grid{grid-template-columns:1fr}}
 </style>

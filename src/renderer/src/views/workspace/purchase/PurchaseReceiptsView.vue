@@ -6,9 +6,10 @@ import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+// 全部批次单据共享标题、固定操作区与数量核对表。
+import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
+import WorkspaceLotLineEditor from '../../../components/workspace/WorkspaceLotLineEditor.vue'
 import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
-import {datePickerString,vDateField} from '../../../utils/date-field'
-import {NDatePicker} from 'naive-ui'
 import type {Receipt} from '../../../../../shared/erp-api'
 import type {ReceiptLotLineInput} from '../../../../../shared/receipt-lot-api'
 import {receiptLotDate,receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
@@ -16,7 +17,7 @@ import { computed, ref } from 'vue'
 import { useAppStore } from '../../../store/app-store'
 
 // 入库确认沿用原单据接口；新建采购入库草稿由采购收货确认时自动完成。
-const { busy, receipts, receiptReversalReasons, can, localTime, postReceipt, reverseReceipt } =
+const { busy, connectionLost, receipts, receiptReversalReasons, can, localTime, postReceipt, reverseReceipt } =
   useAppStore()
 // 只筛选当前列表快照，原有单据状态与跨页面草稿保持不变。
 const recordQuery = ref('')
@@ -56,7 +57,8 @@ const lotIssue = computed(() => {
   return ''
 })
 async function confirmLotPost(): Promise<void> {
-  if (!activeReceipt.value || lotIssue.value || busy.value) return
+  // 与其他单据一致，断线时保留批次草稿，连接恢复后再确认。
+  if (!activeReceipt.value || lotIssue.value || busy.value || connectionLost.value) return
   await postReceipt(activeReceipt.value.id, lotDrafts.value.map(line => ({
     receipt_line_id: line.receipt_line_id,
     lots: line.lots.map(part => ({quantity: part.quantity, supplier_lot: part.supplier_lot?.trim() || null,
@@ -167,33 +169,21 @@ const filteredRecords = computed(() =>
         </span>
       </template>
     </WorkspaceTable>
-    <form v-if="activeReceipt && can('receipt.post')" class="stack receipt-lot-editor" @submit.prevent="confirmLotPost">
-      <div class="receipt-lot-heading"><h2>入库单 {{ documentLabel(activeReceipt) }} · 实物批次</h2>
-        <AppButton type="button" :disabled="busy" @click="activeReceiptId=0">返回列表</AppButton></div>
-      <p>按实际收货情况逐行登记批次，批次数量之和须等于入库数量。供应商批号和日期缺失时留空，系统会保留独立的入库来源编号。</p>
-      <section v-for="line in lotDrafts" :key="line.receipt_line_id" class="stack receipt-lot-line">
-        <h3>{{ activeReceipt.lines.find(item=>item.id===line.receipt_line_id)?.sku }} · {{ activeReceipt.lines.find(item=>item.id===line.receipt_line_id)?.material_name }} · {{ activeReceipt.lines.find(item=>item.id===line.receipt_line_id)?.quantity }} {{ activeReceipt.lines.find(item=>item.id===line.receipt_line_id)?.unit }}</h3>
-        <div v-for="(part,index) in line.lots" :key="index" class="receipt-lot-grid">
-          <label>批次数量<AppInput v-model="part.quantity" inputmode="decimal" required :disabled="busy" /></label>
-          <label>供应商批号<AppInput v-model.trim="part.supplier_lot" maxlength="100" placeholder="未提供则留空" :disabled="busy" /></label>
-          <label>生产日期<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="part.manufactured_on" :disabled="busy" @update:formatted-value="value=>part.manufactured_on=datePickerString(value)||null" /></label>
-          <label>失效日期<NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="part.expires_on" :disabled="busy" @update:formatted-value="value=>part.expires_on=datePickerString(value)||null" /></label>
-          <AppButton v-if="line.lots.length>1" type="button" :disabled="busy" @click="line.lots.splice(index,1)">移除批次</AppButton>
-        </div>
-        <AppButton type="button" :disabled="busy || line.lots.length>=20" @click="addLot(line)">添加一个批次</AppButton>
-      </section>
-      <p v-if="lotIssue" role="alert">{{ lotIssue }}</p>
-      <AppButton type="submit" variant="primary" :disabled="busy || !!lotIssue">确认入库并固定批次</AppButton>
-    </form>
+    <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
+    <WorkspaceLotDialog v-if="activeReceipt && can('receipt.post')" :show="true"
+      title="采购入库 · 批次登记" :document-number="documentLabel(activeReceipt)"
+      hint="按实际收货情况逐行登记批次，批次数量之和须等于入库数量。供应商批号和日期缺失时留空，系统会保留独立的入库来源编号。"
+      :busy="busy" :disabled="connectionLost" :issue="lotIssue" submit-label="确认入库"
+      @update:show="value => { if (!value) activeReceiptId = 0 }" @submit="confirmLotPost">
+      <WorkspaceLotLineEditor v-for="line in lotDrafts" :key="line.receipt_line_id" :lots="line.lots"
+        :sku="activeReceipt.lines.find(item => item.id === line.receipt_line_id)?.sku" :material-name="activeReceipt.lines.find(item => item.id === line.receipt_line_id)?.material_name"
+        :unit="activeReceipt.lines.find(item => item.id === line.receipt_line_id)?.unit" :expected="activeReceipt.lines.find(item => item.id === line.receipt_line_id)?.quantity ?? ''"
+        expected-label="应入库" source-label="供应商批号" quantity-label="批次数量"
+        :disabled="busy || connectionLost" @add="addLot(line)" @remove="index => line.lots.splice(index, 1)" />
+    </WorkspaceLotDialog>
   </section>
 </template>
 
 <style scoped>
-.receipt-lot-editor{padding:18px;border:1px solid var(--workspace-field-border);border-radius:12px}
-.receipt-lot-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.receipt-lot-heading h2{margin:0}
-.receipt-lot-line{padding:12px;border:1px solid var(--workspace-field-border);border-radius:8px}
-.receipt-lot-line h3{margin:0}.receipt-lot-grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;align-items:end}
 .receipt-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
-@media(max-width:950px){.receipt-lot-grid{grid-template-columns:repeat(2,minmax(150px,1fr))}}
-@media(max-width:550px){.receipt-lot-grid{grid-template-columns:1fr}}
 </style>

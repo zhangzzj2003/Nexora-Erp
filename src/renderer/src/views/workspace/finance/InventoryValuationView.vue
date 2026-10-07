@@ -116,7 +116,7 @@ async function submitPrice(): Promise<void> {
             <span>核价修订记录</span><strong>{{ inventoryCostInputs.length }}</strong>
           </div>
         </div>
-        <NModal
+        <NModal title="登记库存核价"
           v-model:show="showForm"
           preset="card"
           :mask-closable="!busy"
@@ -127,7 +127,7 @@ async function submitPrice(): Promise<void> {
             class="stack"
             @submit.prevent="submitPrice"
           >
-            <h3>登记库存核价</h3>
+            <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
             <p class="muted">每次修订都会保留原核价、依据、原因与操作人，并重算后续库存金额。</p>
             <div class="form-grid">
               <label

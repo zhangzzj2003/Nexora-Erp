@@ -115,9 +115,9 @@ const importColumns = [{ key: 'document', title: '导入文件' }]
       <div>待勾对收付款：{{ unmatchedSources.length }} 笔</div>
     </div>
 
-    <NModal v-if="can('bank_reconciliation.account')" v-model:show="accountOpen" preset="card"
+    <NModal title="登记银行账户" v-if="can('bank_reconciliation.account')" v-model:show="accountOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(640px, calc(100vw - 32px))' }">
-      <h2>登记银行账户</h2>
+      <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
       <form @submit.prevent="submitAccount">
         <div class="form-grid">
           <label>账户编码<AppInput v-model.trim="bankAccountForm.code" required maxlength="32" pattern="[A-Z0-9][A-Z0-9_-]*" /></label>
@@ -127,9 +127,9 @@ const importColumns = [{ key: 'document', title: '导入文件' }]
       </form>
     </NModal>
 
-    <NModal v-if="can('bank_reconciliation.record')" v-model:show="csvOpen" preset="card"
+    <NModal title="导入银行 CSV" v-if="can('bank_reconciliation.record')" v-model:show="csvOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(800px, calc(100vw - 32px))' }">
-      <h2>导入银行 CSV</h2>
+      <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
       <p class="muted">表头固定为 transaction_id,occurred_on,amount,counterparty,note。日期使用 YYYY-MM-DD，入账金额为正，出账为负；最多 500 笔、1 MiB。预检后再确认整批导入。</p>
       <div class="form-grid">
         <label>银行账户<WorkspaceSelect v-model="bankCsvForm.account_id" required
@@ -150,9 +150,9 @@ const importColumns = [{ key: 'document', title: '导入文件' }]
       </div>
     </NModal>
 
-    <NModal v-if="can('bank_reconciliation.record')" v-model:show="lineOpen" preset="card"
+    <NModal title="登记银行流水" v-if="can('bank_reconciliation.record')" v-model:show="lineOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(800px, calc(100vw - 32px))' }">
-      <h2>登记银行流水</h2>
+      <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
       <form @submit.prevent="submitLine">
         <div class="form-grid">
           <label>银行账户<WorkspaceSelect v-model="bankLineForm.account_id" required
@@ -167,9 +167,9 @@ const importColumns = [{ key: 'document', title: '导入文件' }]
       </form>
     </NModal>
 
-    <NModal v-if="can('bank_reconciliation.match')" v-model:show="matchOpen" preset="card"
+    <NModal title="逐笔勾对" v-if="can('bank_reconciliation.match')" v-model:show="matchOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(800px, calc(100vw - 32px))' }">
-      <h2>逐笔勾对</h2>
+      <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
       <p class="muted">银行流水 #{{ selectedLine?.id }} · {{ selectedLine?.account_code }} · ¥{{ selectedLine?.amount }}</p>
       <form @submit.prevent="submitMatch">
         <div class="form-grid">
