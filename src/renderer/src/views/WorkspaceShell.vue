@@ -72,7 +72,7 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
           <span v-if="isAuthScreen" class="auth-header-mark" aria-hidden="true">
             <img :src="nexoraLogo" alt="" />
           </span>
-          <div>
+          <div class="workspace-page-title">
             <p class="eyebrow">NEXORA WORKSPACE</p>
             <h1>
               {{
@@ -89,6 +89,8 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
               {{ workspacePageDescriptions[activeTab] }}
             </p>
           </div>
+          <!-- 页面把统计控件放到标题右侧，筛选状态仍归业务页面管理；卸载时自动移除。 -->
+          <div v-if="screen === 'app' && activeRouteAllowed" id="workspace-page-summary" class="workspace-page-summary" />
           <div v-if="user" class="account">
             <!-- 侧栏在窄窗口收起时，顶部保留账号和退出操作。 -->
             <span class="account-identity"
@@ -119,6 +121,12 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
 </template>
 
 <style scoped>
+/* 仅有统计内容时调整标题布局；其他页面与登录页保持原有头部行为。 */
+.topbar:has(.workspace-page-summary:not(:empty)) { flex-wrap: wrap; }
+.topbar:has(.workspace-page-summary:not(:empty)) .workspace-page-title { flex: 1 1 400px; min-width: 0; }
+.workspace-page-summary { flex: 0 1 650px; min-width: 0; max-width: 100%; margin-left: auto; container-type: inline-size; }
+.workspace-page-summary:empty { display: none; }
+
 /* 桌面工作台缩小左右留白，让标题和业务卡片共用更宽的内容区；窄屏沿用原间距。 */
 @media (min-width: 761px) {
   .has-sidebar .content-body { padding-inline: clamp(24px, 2vw, 32px); }

@@ -249,6 +249,29 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  assert.equal(store.otherInbounds.length,40)
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
  store.initialDetailId=3
+ // 概览按钮驱动真实页面筛选，关键词保留，计数不随列表过滤而减少。
+ store.initialDetailId=0
+ store.otherInbounds=[structuredClone(inbound),{...inbound,id:4,status:'posted'},
+  {...inbound,id:5,status:'cancelled'},{...inbound,id:6,status:'posted',reversal_id:8}]
+ await render()
+ const overview=vnode.component.setupState
+ assert.deepEqual(overview.summary,{all:4,pending:1,processed:1,cancelled:1,reversed:1})
+ const summaryButton=label=>buttons.find(button=>button.attrs['aria-label']===label)
+ summaryButton('已处理，1 条').attrs.onClick()
+ assert.equal(overview.statusFilter,'processed')
+ assert.deepEqual(overview.filtered.map(item=>item.id),[4])
+ overview.query='不匹配'
+ assert.equal(overview.filtered.length,0)
+ assert.equal(overview.summary.all,4)
+ // SSR 卸载后子组件 props 不再刷新；回到全部的事件交互由公共组件和浏览器验证。
+ overview.statusFilter='all'
+ assert.equal(overview.statusFilter,'all')
+ assert.equal(overview.query,'不匹配')
+ overview.query=''
+ summaryButton('已冲销，1 条').attrs.onClick()
+ assert.deepEqual(overview.filtered.map(item=>item.id),[6])
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ store.initialDetailId=3
  // 详情操作复用真实按钮和入口，验证目标 ID、最新快照及失败后草稿隔离。
  assert.deepEqual(store.calls, [])
  store.busy=false

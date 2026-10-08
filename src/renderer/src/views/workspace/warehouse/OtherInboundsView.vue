@@ -13,6 +13,10 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+// 标题概览复用公共组件，业务状态分组仍由本页定义。
+import WorkspaceSummaryFilters from '../../../components/workspace/WorkspaceSummaryFilters.vue'
+import type { WorkspaceSummaryFilterOption } from '../../../components/workspace/WorkspaceSummaryFilters.vue'
+import { otherInboundGroup, otherInboundSummary, type OtherInboundFilter } from './other-inbound-summary'
 import { useLocalPagination } from '../../../composables/use-local-pagination'
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
@@ -120,11 +124,24 @@ const lotDrafts = ref<InboundLotLineInput[]>([])
 const activeInbound = computed(() => otherInbounds.value.find(item =>
   item.id === activeInboundId.value && item.status === 'draft' && item.approval?.status === 'approved') ?? null)
 const query = ref('')
-const filtered = computed(() => otherInbounds.value.filter((item) =>
+const statusFilter = ref<OtherInboundFilter>('all')
+const searched = computed(() => otherInbounds.value.filter((item) =>
   [documentSearch(item), item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
     .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
+// 概览不受搜索或分页影响；列表按所选分类和关键词取交集。
+const summary = computed(() => otherInboundSummary(otherInbounds.value))
+const summaryOptions = computed<WorkspaceSummaryFilterOption<OtherInboundFilter>[]>(() => [
+  { key: 'all', label: '全部单据', count: summary.value.all, hint: '全部可见入库单据；点击清除状态筛选' },
+  { key: 'pending', label: '未处理', count: summary.value.pending, hint: '尚未完成入库，包含待送审、审批中、已批准、已驳回和已撤回', tone: 'pending' },
+  { key: 'processed', label: '已处理', count: summary.value.processed, hint: '已确认入库且未冲销', tone: 'success' },
+  { key: 'cancelled', label: '已取消', count: summary.value.cancelled, hint: '已取消的入库单据', tone: 'neutral' },
+  { key: 'reversed', label: '已冲销', count: summary.value.reversed, hint: '已入库后完成冲销的单据', tone: 'reversed' }
+])
+const filtered = computed(() => searched.value.filter(item => statusFilter.value === 'all' || otherInboundGroup(item) === statusFilter.value))
+// 关键词和状态共同决定分页身份，任一筛选变化均回到首页。
+const paginationFilter = computed(() => JSON.stringify([query.value, statusFilter.value]))
 // 仅对筛选后的展示数据分页，完整入库快照和详情、重开草稿保持独立。
-const { rows, total, page, pageSize, changePage } = useLocalPagination(filtered, query)
+const { rows, total, page, pageSize, changePage } = useLocalPagination(filtered, paginationFilter)
 // 列表保持两行摘要，批次证据放入悬停说明，完整物料与批次仍由详情展示。
 function materialPreviewTitle(inbound: OtherInbound, line: OtherInbound['lines'][number]): string {
   const summary = `${line.material_name} × ${line.quantity} ${line.unit}`
@@ -229,6 +246,10 @@ async function reverseApproved(identifier: number): Promise<void> {
 
 <template>
   <section class="stack">
+    <!-- 延后解析外壳目标，直接复用本页筛选状态；切换路由不会留下旧统计。 -->
+    <Teleport defer to="#workspace-page-summary">
+      <WorkspaceSummaryFilters v-model="statusFilter" :options="summaryOptions" />
+    </Teleport>
     <WorkspaceTable
       :show-title="false"
       :data="rows"
@@ -334,7 +355,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           :disabled="busy || connectionLost || !!pendingActionId" @action="action => handleInboundAction(item.id, action)" />
         <small v-if="item.reversal_reason">冲销：{{ item.reversal_reason }}</small>
       </template>
-      <template #empty>{{ query ? '没有匹配的入库单。' : '暂无其他入库单。' }}</template>
+      <template #empty>{{ query || statusFilter !== 'all' ? '没有匹配的入库单。' : '暂无其他入库单。' }}</template>
     </WorkspaceTable>
     <WorkspaceDocumentDialog v-if="detailInbound" :show="true" read-only
       :title="`其他入库详情 · ${documentLabel(detailInbound)}`"
