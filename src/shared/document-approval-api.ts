@@ -1,11 +1,11 @@
-// 类型白名单与后端 29 类编号/审批范围一致，页面不能提供任意表名或请求路径。
+// 类型白名单与后端 30 类编号/审批范围一致，页面不能提供任意表名或请求路径。
 export const documentApprovalTypes = [
   'PurchaseRequest', 'PurchaseOrder', 'PurchaseGoodsReceipt', 'Receipt', 'PurchaseReturn',
   'WarehouseInbound', 'WarehouseOutbound', 'Transfer', 'Stocktake', 'StockAdjustment',
   'CrmQuote', 'SalesOrder', 'Shipment', 'SalesReturn', 'AfterSalesCase',
   'WorkOrder', 'MaterialIssue', 'MaterialReturn', 'ProductionCompletion', 'QualityDisposition',
   'MrpPlan', 'ProductionCostSettlement', 'MaintenanceJob', 'Journal', 'OpeningBalance',
-  'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer'
+  'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement'
 ] as const
 export type DocumentApprovalType = typeof documentApprovalTypes[number]
 export type DocumentApprovalStepAction = 'review' | 'verify' | 'approve'
@@ -140,7 +140,7 @@ export function documentApprovalActionBody(value: unknown): { version: number; i
       || typeof row.reason !== 'string' || row.reason.trim().length > 500
       || row.action === 'reject' && !row.reason.trim()) throw Error('审批动作、版本或意见无效')
   // 仅维护保留独立现场依据；其他类型不能夹带此字段。
-  if (['Journal', 'OpeningBalance', 'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'ProductionCostSettlement'].includes(target.document_type) && row.action !== 'withdraw' && (!row.reason.trim() || row.reason.trim().length > 200)) throw Error('单据审批依据必填，最多二百字')
+  if (['Journal', 'OpeningBalance', 'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement', 'ProductionCostSettlement'].includes(target.document_type) && row.action !== 'withdraw' && (!row.reason.trim() || row.reason.trim().length > 200)) throw Error('单据审批依据必填，最多二百字')
   if (target.document_type === 'MaintenanceJob') {
     if (row.reason.trim().length > 200 || row.action !== 'withdraw' && (!row.reason.trim()
         || typeof row.evidence !== 'string' || !row.evidence.trim())

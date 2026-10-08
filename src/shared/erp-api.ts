@@ -302,10 +302,21 @@ export interface SubledgerPayment extends NumberedDocument {
   kind: SubledgerKind; account_id: number; party_id: number; party_name: string; document_reference: string; auxiliary: AuxiliarySnapshot[]
 }
 export interface SubledgerQuery { to_date: string; kind: SubledgerKind | null; party_id: number | null }
-export interface SubledgerBalanceRow extends SubledgerLine { settled_amount: string; outstanding_amount: string; payments: SubledgerPayment[] }
+export interface SubledgerSettlementInput { from_line_id: number; to_line_id: number; amount: string; reference: string; reason: string }
+export interface SubledgerSettlement extends SubledgerSettlementInput, NumberedDocument {
+  id: number; reverses_id: number | null; status: 'draft' | 'executed' | 'cancelled'; version: number; approval?: DocumentApprovalState
+  opening_id: number; kind: SubledgerKind; account_id: number; account_code: string; party_id: number; party_name: string
+  auxiliary: AuxiliarySnapshot[]; from_document_reference: string; to_document_reference: string; currency: 'CNY'
+  created_by: number; created_by_name: string; created_at: string; executed_by: number | null; executed_at: string | null
+  cancelled_by: number | null; cancelled_at: string | null; cancellation_reason: string
+}
+export interface SubledgerBalanceRow extends SubledgerLine {
+  settled_amount: string; offset_amount: string; outstanding_amount: string
+  payments: SubledgerPayment[]; settlements: SubledgerSettlement[]
+}
 export interface SubledgerReport {
   currency: 'CNY'; time_basis: 'UTC'; to_date: string; rows: SubledgerBalanceRow[]; opening: SubledgerOpening | null
-  totals: Record<SubledgerKind, { opening_amount: string; settled_amount: string; outstanding_amount: string }>
+  totals: Record<SubledgerKind, { opening_amount: string; settled_amount: string; offset_amount: string; outstanding_amount: string }>
   csv: string; generated_at: string
 }
 export interface LedgerReportQuery {
@@ -1437,6 +1448,10 @@ export interface ErpOperations extends ProductionAssociationOperations, Document
   changeSubledgerStatus: { input: { id: number; version: number; action: OpeningBalanceAction; reason: string }; output: SubledgerOpening }
   querySubledger: { input: SubledgerQuery; output: SubledgerReport }
   subledgerPayments: { input: undefined; output: SubledgerPayment[] }
+  subledgerSettlements: { input: undefined; output: SubledgerSettlement[] }
+  createSubledgerSettlement: { input: SubledgerSettlementInput; output: SubledgerSettlement }
+  changeSubledgerSettlementStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: SubledgerSettlement }
+  reverseSubledgerSettlement: { input: { id: number; reason: string }; output: SubledgerSettlement }
   createSubledgerPayment: { input: SubledgerPaymentInput; output: SubledgerPayment }
   changeSubledgerPaymentStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: SubledgerPayment }
   reverseSubledgerPayment: { input: { id: number; reason: string }; output: SubledgerPayment }

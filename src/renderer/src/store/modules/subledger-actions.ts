@@ -1,5 +1,6 @@
 import { watch } from 'vue'
 import type { OpeningBalanceAction, SubledgerOpening, SubledgerPaymentInput, SubledgerPayment } from '../../../../shared/erp-api'
+import type { SubledgerSettlement, SubledgerSettlementInput } from '../../../../shared/erp-api'
 import type { AppState } from '../state'
 import { displayError } from '../../utils/formatters.ts'
 
@@ -21,6 +22,7 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
   watch(state.subledgerQuery, clearReport, { deep: true, flush: 'sync' })
   watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`, () => {
     owner++; invalidateReads(); state.subledgerOpenings.value = []; state.subledgerPayments.value = []
+    state.subledgerSettlements.value = []
     state.subledgerOptions.value = null; state.subledgerForm.value = emptyForm()
   }, { flush: 'sync' })
   // 网络波动只失效读取结果；同账号的未保存明细与档案标签继续保留。
@@ -30,13 +32,16 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
     if (!can('subledger_opening.view') || !connected()) return false
     const ticket = ++readTicket; const session = owner; const activity = ++loadingTicket
     clearReport(); state.subledgerLoading.value = true; state.subledgerOpenings.value = []; state.subledgerPayments.value = []
+    state.subledgerSettlements.value = []
     try {
-      const [records, payments, options] = await Promise.all([
+      const [records, payments, options, settlements] = await Promise.all([
         window.nexora!.callApi('subledgerOpenings', undefined), window.nexora!.callApi('subledgerPayments', undefined),
-        can('subledger_opening.create') ? window.nexora!.callApi('subledgerOptions', undefined) : Promise.resolve(null)
+        can('subledger_opening.create') ? window.nexora!.callApi('subledgerOptions', undefined) : Promise.resolve(null),
+        window.nexora!.callApi('subledgerSettlements', undefined)
       ])
       if (ticket !== readTicket || session !== owner || !can('subledger_opening.view')) return false
       state.subledgerOpenings.value = records; state.subledgerPayments.value = payments; state.subledgerOptions.value = options
+      state.subledgerSettlements.value = settlements
       return true
     } catch (error) {
       if (ticket === readTicket && session === owner) state.subledgerError.value = displayError(error)
@@ -133,6 +138,17 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
     } catch (error) { if (session === owner) state.subledgerError.value = displayError(error) }
   }
   return { loadSubledger, refreshSubledgerApproval, querySubledger, editSubledger, saveSubledger, changeSubledgerStatus, loadSubledgerDetail, clearSubledgerDetail, exportSubledger,
+    createSubledgerSettlement: (input: SubledgerSettlementInput) => write('finance.record',
+      () => window.nexora!.callApi('createSubledgerSettlement', { ...input }), '历史原单核销草稿已保存，批准执行后更新余额。'),
+    changeSubledgerSettlementStatus: (item: SubledgerSettlement, action: 'post' | 'cancel', reason: string) => {
+      if (item.status !== 'draft' || action === 'post' && item.approval?.status !== 'approved'
+        || action === 'cancel' && ['submitted', 'approved'].includes(item.approval?.status ?? '')) return Promise.resolve(false)
+      return write(item.reverses_id ? 'finance.reverse' : 'finance.record',
+        () => window.nexora!.callApi('changeSubledgerSettlementStatus', { id: item.id, version: item.version, action, reason }),
+        action === 'post' ? '历史原单核销已执行。' : '历史核销草稿已取消。')
+    },
+    reverseSubledgerSettlement: (id: number, reason: string) => write('finance.reverse',
+      () => window.nexora!.callApi('reverseSubledgerSettlement', { id, reason }), '反向核销草稿已保存，批准执行后恢复双方余额。'),
     createSubledgerPayment: (input: SubledgerPaymentInput) => write('finance.record',
       () => window.nexora!.callApi('createSubledgerPayment', { ...input }), '分户资金草稿已保存，独立批准后执行才更新余额。'),
     changeSubledgerPaymentStatus: (item: SubledgerPayment, action: 'post' | 'cancel', reason: string) => {

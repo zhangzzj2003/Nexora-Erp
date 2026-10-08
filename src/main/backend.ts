@@ -1221,6 +1221,24 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'subledgerOpenings': return { method: 'GET', path: '/api/v1/finance/subledger-openings' }
     case 'subledgerOptions': return { method: 'GET', path: '/api/v1/finance/subledger-openings/options' }
     case 'subledgerPayments': return { method: 'GET', path: '/api/v1/finance/subledger-openings/payments' }
+    case 'subledgerSettlements': return { method: 'GET', path: '/api/v1/finance/subledger-settlements' }
+    case 'createSubledgerSettlement': {
+      const row = payload as ErpOperations['createSubledgerSettlement']['input']
+      return { method: 'POST', path: '/api/v1/finance/subledger-settlements', body: {
+        from_line_id: positiveId(row, 'from_line_id'), to_line_id: positiveId(row, 'to_line_id'),
+        amount: row.amount, reference: row.reference, reason: row.reason } }
+    }
+    case 'changeSubledgerSettlementStatus': {
+      const row = payload as ErpOperations['changeSubledgerSettlementStatus']['input']
+      if (!['post', 'cancel'].includes(row.action) || typeof row.reason !== 'string' || !row.reason.trim()
+          || row.reason.trim().length > 200) throw Error('历史核销执行参数无效')
+      return { method: 'POST', path: `/api/v1/finance/subledger-settlements/${positiveId(row, 'id')}/${row.action}`,
+        body: { version: positiveId(row, 'version'), reason: row.reason.trim() } }
+    }
+    case 'reverseSubledgerSettlement': {
+      const row = payload as ErpOperations['reverseSubledgerSettlement']['input']
+      return { method: 'POST', path: `/api/v1/finance/subledger-settlements/${positiveId(row, 'id')}/reverse`, body: { reason: row.reason } }
+    }
     case 'subledgerChanges': return { method: 'GET', path: `/api/v1/finance/subledger-openings/${positiveId(payload, 'id')}/changes` }
     case 'subledgerCheck': return { method: 'GET', path: `/api/v1/finance/subledger-openings/${positiveId(payload, 'id')}/check` }
     case 'createSubledgerOpening':

@@ -47,10 +47,10 @@ def test_three_steps_freeze_plan_and_allow_authorized_people(erp):
     state=api('GET',path(row))
     assert state['content_matches'] and state['policy_version']==2
     assert state['summary'][0]['value']=='售后客户'
-    assert api('GET', f'system/document-approvals/AfterSalesCase/{row['id']}?intent=execute', actor='admin')['can_review']
+    assert api('GET', f'system/document-approvals/AfterSalesCase/{row["id"]}?intent=execute', actor='admin')['can_review']
     row=action(api,row,'approve',actor='reviewer')
     assert row['status']=='submitted'
-    assert api('GET', f'system/document-approvals/AfterSalesCase/{row['id']}?intent=execute', actor='reviewer')['can_review']
+    assert api('GET', f'system/document-approvals/AfterSalesCase/{row["id"]}?intent=execute', actor='reviewer')['can_review']
     action(api,row,'process',status=409)
     for name in ('after_check','after_authorize'):
         row=action(api,row,'approve',actor=new_actor(erp,name))
@@ -68,7 +68,7 @@ def test_attachments_freeze_plan_but_allow_later_work_evidence(erp):
     author=new_actor(erp,'after_plan_attachment_author')
     item=upload(api,row,actor=author)
     row=action(api,row,'submit')
-    assert api('GET', f'system/document-approvals/AfterSalesCase/{row['id']}?intent=execute', actor=author)['can_review']
+    assert api('GET', f'system/document-approvals/AfterSalesCase/{row["id"]}?intent=execute', actor=author)['can_review']
     assert not api('GET',f'{ROOT}/{row["id"]}/attachments')['can_modify']
     api('POST',f'{ROOT}/{row["id"]}/attachments/{item["id"]}/reverse',{'reason':'不能替换待审证据'},status=409)
     row=action(api,row,'approve',actor=new_actor(erp,'after_independent'))

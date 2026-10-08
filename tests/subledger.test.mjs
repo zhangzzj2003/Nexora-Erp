@@ -118,10 +118,10 @@ test('详情关闭或切换后迟到审计不会重新出现，已撤销方案�
 test('只读用户加载方案和资金历史，无权读取建单选项或写入',async t=>{
   const calls=[];const {state,actions}=fixture(t,async(action)=>{calls.push(action);return []})
   state.user.value={id:1,permissions:['subledger_opening.view']}
-  assert.equal(await actions.loadSubledger(),true);assert.deepEqual(calls,['subledgerOpenings','subledgerPayments'])
+  assert.equal(await actions.loadSubledger(),true);assert.deepEqual(calls,['subledgerOpenings','subledgerPayments','subledgerSettlements'])
   assert.equal(state.subledgerOptions.value,null)
   assert.equal(await actions.saveSubledger(),false);assert.equal(await actions.createSubledgerPayment({line_id:1}),false)
-  assert.equal(calls.length,2)
+  assert.equal(calls.length,3)
 })
 
 // 排队期间切换服务端，原方案的批准不能用于新服务端上的同号记录。
@@ -160,6 +160,6 @@ test('分户审批刷新同步资金列表并恢复同截止日核对',async t=>
   const {state,actions}=fixture(t,async action=>{calls.push(action);if(action==='subledgerPayments')return [{id:1,status:'draft',approval:{status:'approved'}}];if(action==='querySubledger')return {to_date:'2026-10-01',csv:'当前快照'};return []})
   state.subledgerReport.value={to_date:'2026-10-01',csv:'旧快照'}
   await actions.refreshSubledgerApproval()
-  assert.deepEqual(calls,['subledgerOpenings','subledgerPayments','subledgerOptions','querySubledger'])
+  assert.deepEqual(calls,['subledgerOpenings','subledgerPayments','subledgerOptions','subledgerSettlements','querySubledger'])
   assert.equal(state.subledgerPayments.value[0].approval.status,'approved');assert.equal(state.subledgerReport.value.csv,'当前快照')
 })

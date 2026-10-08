@@ -561,6 +561,21 @@ def order_settlement_snapshot(db: Session, identifier: int) -> dict:
             ('id', 'document_no', 'kind', 'party_id', 'from_order_id', 'to_order_id', 'amount', 'reference', 'executed_at')}}
 
 
+def subledger_settlement_snapshot(db: Session, identifier: int) -> dict:
+    from app.core.models import SubledgerSettlement, SubledgerOpeningLine
+    from app.core.orm import model_data
+    source = document_source(db, 'SubledgerSettlement', identifier)
+    original = db.get(SubledgerSettlement, source.reverses_id) if source.reverses_id else None
+    return {field: getattr(source, field) for field in
+            ('from_line_id', 'to_line_id', 'amount', 'reference', 'reason', 'reverses_id')} | {
+        'from_line': model_data(db.get(SubledgerOpeningLine, source.from_line_id)),
+        'to_line': model_data(db.get(SubledgerOpeningLine, source.to_line_id)),
+        'source_author_ids': sorted({source.created_by, *([original.created_by] if original else []),
+            *([original.executed_by] if original and original.executed_by is not None else [])}),
+        'original': None if original is None else {field: getattr(original, field) for field in
+            ('id', 'document_no', 'from_line_id', 'to_line_id', 'amount', 'reference', 'executed_at')}}
+
+
 def subledger_payment_snapshot(db: Session, identifier: int) -> dict:
     from app.core.models import SubledgerPayment, SubledgerOpeningLine
     from app.core.orm import model_data
@@ -742,7 +757,7 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'ProductionCostSettlement': settlement_snapshot, 'OrderSettlementTransfer': order_settlement_snapshot, 'SubledgerPayment': subledger_payment_snapshot, 'PaymentRecord': payment_snapshot, 'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+_SNAPSHOTS = {'SubledgerSettlement': subledger_settlement_snapshot, 'ProductionCostSettlement': settlement_snapshot, 'OrderSettlementTransfer': order_settlement_snapshot, 'SubledgerPayment': subledger_payment_snapshot, 'PaymentRecord': payment_snapshot, 'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
@@ -864,7 +879,7 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
 
 def submit_permission(document_type: str, intent: str, source=None) -> str | None:
     # 反向资金草稿独立送审，建单权限不能代替冲销权限。
-    if document_type in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer') and source is not None and source.reverses_id is not None:
+    if document_type in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement') and source is not None and source.reverses_id is not None:
         return 'finance.reverse'
     # 冲销送审/撤回沿用冲销权限，不能因为有建单权限而获得冲销权限。
     if intent == 'reverse' and document_type == 'SubledgerOpening':
@@ -883,6 +898,16 @@ def submit_permission(document_type: str, intent: str, source=None) -> str | Non
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'SubledgerSettlement':
+        import json
+        line = content['from_line']
+        return [{'label': label, 'value': str(value)} for label, value in [
+            ('往来类别', '客户应收' if line['kind'] == 'receivable' else '供应商应付'),
+            ('贷方原单', line['document_reference']), ('待结原单', content['to_line']['document_reference']),
+            ('控制科目', line['account_code']),
+            ('完整辅助归属', ' / '.join(item['name'] for item in json.loads(line['auxiliary_json']))),
+            ('核销金额（元）', content['amount']), ('参考号', content['reference']), ('依据', content['reason'])]] + (
+            [{'label': '原核销单号', 'value': content['original']['document_no'] or f"#{content['original']['id']}"}] if content['original'] else [])
     if document_type == 'ProductionCostSettlement':
         order = db.get(WorkOrder,content['work_order_id'])
         return [{'label':label,'value':str(value)} for label,value in [

@@ -205,4 +205,12 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.doesNotMatch(html.replace(/<!--[\s\S]*?-->/g, ''), /data-table|物料明细|此单据暂无物料明细/)
   assert.match(html, /电阻 × 100 个/)
 
+  // 历史原单核销在送审时即要求二百字内依据，空输入不能触发请求。
+  store.documentApprovalTarget={document_type:'SubledgerSettlement',document_id:1,intent:'execute'}
+  store.documentApprovalRecord={...store.documentApprovalRecord,document_type:'SubledgerSettlement',status:'draft',can_submit:true,can_review:false}
+  store.documentApprovalReasons={}
+  html=await render();assert.match(html,/核销操作依据（必填）/);assert.match(html,/maxlength="200"/)
+  assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
+  store.documentApprovalReasons['SubledgerSettlement:1:execute']='原单核对依据'
+  assert.doesNotMatch(await render(),/<button[^>]*disabled[^>]*>提交审批/)
 })

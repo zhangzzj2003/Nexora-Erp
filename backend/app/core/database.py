@@ -81,7 +81,7 @@ def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_recor
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 95:
+        if version > 96:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 92:
             # 资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -2899,3 +2899,31 @@ def migrate() -> None:
                             SELECT role_code, ? FROM role_permissions WHERE permission_code=?""",
                                    (code, rule.review_permission))
             db.execute('PRAGMA user_version = 95')
+
+        if version < 96:
+            # 仅新增历史原单内部核销结构，不修改期初、资金或总账金额。
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS subledger_settlements (
+                id INTEGER PRIMARY KEY, document_no TEXT,
+                from_line_id INTEGER NOT NULL REFERENCES subledger_opening_lines(id),
+                to_line_id INTEGER NOT NULL REFERENCES subledger_opening_lines(id),
+                amount TEXT NOT NULL, reference TEXT NOT NULL, reason TEXT NOT NULL,
+                reverses_id INTEGER REFERENCES subledger_settlements(id),
+                status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','executed','cancelled')),
+                version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                executed_by INTEGER REFERENCES users(id), executed_at TEXT,
+                cancelled_by INTEGER REFERENCES users(id), cancelled_at TEXT,
+                cancellation_reason TEXT NOT NULL DEFAULT '', CHECK(from_line_id != to_line_id))''')
+            db.execute('CREATE UNIQUE INDEX IF NOT EXISTS subledger_settlements_document_no ON subledger_settlements(document_no)')
+            db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS subledger_settlement_reference
+                ON subledger_settlements(from_line_id,to_line_id,reference)
+                WHERE reverses_id IS NULL AND status != 'cancelled' ''')
+            db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS subledger_settlement_reversal
+                ON subledger_settlements(reverses_id) WHERE status != 'cancelled' ''')
+            # 沿用旧版迁移对最小结构诊断库的兼容，不为缺失审批基础的夹具补造历史。
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_approval_policies'").fetchone():
+                db.execute('''INSERT OR IGNORE INTO document_approval_policies(document_type,version,steps_json)
+                    VALUES ('SubledgerSettlement',1,'[{"name":"批准","role":null}]')''')
+            db.execute('PRAGMA user_version = 96')

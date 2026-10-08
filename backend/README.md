@@ -60,7 +60,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 其他入库已接入 `GET /api/v1/system/document-approvals/WarehouseInbound/{id}` 和 `POST /{id}/submit|approve|reject|withdraw`，携带 `version`、`intent: execute|reverse` 及意见或冲销原因。查看、建单送审、独立审核、冲销送审分别沿用 `other_inbound.view`、`other_inbound.create`、`other_inbound.review`、`other_inbound.reverse`。普通确认和可选实物批次均须完成全部步骤，确认与审批执行事件在同一库存事务内提交；冲销单独审批固定原因，原批准不可复用。旧客户端直接确认未批准草稿返回 409。历史已执行单据保留原记录。
 
-采购订单 `PurchaseOrder`、收货 `PurchaseGoodsReceipt`、入库 `Receipt` 已接入同一单据审批入口；原 `confirm`/`post` 写事务内核对批准正文并追加执行记录。三阶段分别送审，不继承上游批准；收货只生成未送审入库草稿。查看权限沿用 `inventory.view` / `purchase_receiving.view`，审核分别使用 `purchase_order.review` / `purchase_receiving.review` / `receipt.review`；采购入库冲销按 `receipt.reverse` 单独送审固定原因。批准后普通入库无需批次请求体，可选批次仍守恒并在失败时整体回滚。其余领域仍在需求分支接入，不代表 29 类全部完成。
+采购订单 `PurchaseOrder`、收货 `PurchaseGoodsReceipt`、入库 `Receipt` 已接入同一单据审批入口；原 `confirm`/`post` 写事务内核对批准正文并追加执行记录。三阶段分别送审，不继承上游批准；收货只生成未送审入库草稿。查看权限沿用 `inventory.view` / `purchase_receiving.view`，审核分别使用 `purchase_order.review` / `purchase_receiving.review` / `receipt.review`；采购入库冲销按 `receipt.reverse` 单独送审固定原因。批准后普通入库无需批次请求体，可选批次仍守恒并在失败时整体回滚。其余领域已进入主线，v96 历史原单核销另接入同一审批基础。
 
 采购退货 `PurchaseReturn` 与仓库出库 `WarehouseOutbound` 已接入独立审批。退货 `submit` 在批准后生成出库草稿、记录父单执行；出库另行批准后才扣库存。旧退货 `post` 不再自动生成并确认子单；父单批准与转单、子单批准及父子正文一致性均须满足。升级前尚未执行的出库草稿可在父单重新批准后复用，但子单待审或批准时必须先撤回以记录转单人员。维护、售后耗材子单保留原方案作者溯源，按当前步骤按钮权限审批。普通出库无需批次请求体，可选批次仍逐行守恒；采购退货和其他出库冲销各自单独审批固定原因，库存与执行事件在原事务内提交或回滚。取消退货时同时检查父子审批进度。
 
@@ -68,11 +68,11 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 销售订单 `SalesOrder`、销售出库 `Shipment` 与销售退货 `SalesReturn` 已分别接入统一审批，沿用 `sales.view` 及原客户归属检查，审核使用各自独立权限。订单固定价格、保修与合同正文/附件指纹；草稿审批期间修改合同依据返回 409，已确认订单仍保留原追加合同证据能力。报价转单和售后派生退货/换货草稿送审时从原审计恢复编制人员，禁止原方案作者审核下游。出库、退货保留原剩余数量、售后占用、库存与实物分配检查，执行和冲销与审批事件原子提交；两者均支持批准后的普通确认和可选实物批次，冲销另行批准固定原因。
 
-**当前处于需求分支开发阶段，29 类业务入口已接入，整体交付仍待完成。** 生产关联查询与全量验收仍待完成，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
+**当前 30 类业务入口与生产关联查询已接入。** 安装服务的部署及真实设备验收单独核对，详见 [实施与验收清单](../docs/document-approval-and-links.md)。
 
 采购申请 `PurchaseRequest` 已接入统一步骤；旧无版本审批入口不能绕过按钮权限、步骤或并发约束。转订单在原事务重核批准正文及剩余额度，第一次成功转换记录执行，后续合法拆单不重复追加执行事件。派生申请及子订单从 MRP、维护和申请编制审计恢复作者溯源人员，每张订单仍独立审批。
 
-工单 `WorkOrder`、领料 `MaterialIssue`、退料 `MaterialReturn` 和完工 `ProductionCompletion` 已接入统一审批。工单批准后才下达；领退料批准后在原事务内重核净领料、余额和可选批次。完工必须先质检，再独立批准；质检人持有当前步骤按钮权限时可审批自己填写的结果，确认时仍重核目标产量与净领料。MRP 和返工生成的工单独立送审，从原计划/处置审计恢复编制、提交和转换人员，不能因换人转单而洗掉作者身份。领退料及完工冲销另行批准固定原因；普通操作不要求批次，选择批次时仍沿原分配校验、执行或回滚。当前 29 类审批入口已接入，生产关联查询及全量验收尚未完成。
+工单 `WorkOrder`、领料 `MaterialIssue`、退料 `MaterialReturn` 和完工 `ProductionCompletion` 已接入统一审批。工单批准后才下达；领退料批准后在原事务内重核净领料、余额和可选批次。完工必须先质检，再独立批准；质检人持有当前步骤按钮权限时可审批自己填写的结果，确认时仍重核目标产量与净领料。MRP 和返工生成的工单独立送审，从原计划/处置审计恢复编制、提交和转换人员，不能因换人转单而洗掉作者身份。领退料及完工冲销另行批准固定原因；普通操作不要求批次，选择批次时仍沿原分配校验、执行或回滚。当前 30 类审批入口已接入，生产关联查询已提供，安装服务验收单独核对。
 
 ## 基础资料与供货关系
 
@@ -346,3 +346,8 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 
 第 95 版将统一审批拆分为审核、核准、批准三项按钮权限，沿用各单据权限分组，管理员可在职务与权限中逐项分配。服务端按当前固定步骤读取实时授权，允许建单人自审及同一人办理多个已授权步骤；旧模板指定职务不再排除其他持有权限的角色。原审核角色迁移时补齐核准和批准以保留旧能力，未授权角色不自动扩权；模板、作者、业务记录、固定快照与不可改写事件原样保留。字段与兼容规则见 [单据审批](../docs/document-approval-and-links.md)。
+
+
+## 历史原单核销
+
+第 96 版新增 `SubledgerSettlement` 静态 ORM 模型及审批模板，当前共 196 张模型表、30 类编号及审批单据。`app/finance/subledger_settlements.py` 按同方案、同往来对象、同控制科目及完整辅助组合核销历史贷方与待结原单；草稿/批准不改变余额，执行时在写锁内重核双方限额并追加审批事件。等额反向草稿独立批准执行，锁期及历史期初保护继续生效，不生成银行资金或总账来源。`subledger_openings.py` 在截至余额、CSV、来源详情及期间证据分别保留资金与核销净额。接口、桌面入口、权限和升级边界见 [历史原单核销](../docs/subledger-openings.md#历史原单核销数据库-v96)。

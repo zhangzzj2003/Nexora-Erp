@@ -42,14 +42,14 @@ def test_three_steps_fixed_template_authors_and_no_early_confirmation(journals):
         json={'version': policy['version'], 'steps': steps}).status_code == 200
     row = create(journals)
     submitted = operate(client, row['id'], 'submit', 0)
-    assert client.get(f'/api/v1/system/document-approvals/OpeningBalance/{row['id']}', headers=None, params={'intent': 'execute'}).json()['can_review']
+    assert client.get(f'/api/v1/system/document-approvals/OpeningBalance/{row["id"]}', headers=None, params={'intent': 'execute'}).json()['can_review']
     assert client.post(f'{BASE}/{row["id"]}/confirm', json={'version': 2, 'reason': '提前确认'}).status_code == 409
     assert client.post(f'{BASE}/{row["id"]}/cancel', json={'version': 2, 'reason': '绕过撤回'}).status_code == 409
     newer = client.get('/api/v1/system/document-approvals/OpeningBalance').json()
     assert client.put('/api/v1/system/document-approvals/OpeningBalance',
         json={'version': newer['version'], 'steps': [{'name': '新流程', 'role': None}]}).status_code == 200
     first = operate(client, row['id'], 'approve', submitted['version'], person)
-    assert client.get(f'/api/v1/system/document-approvals/OpeningBalance/{row['id']}', headers=person, params={'intent': 'execute'}).json()['can_review']
+    assert client.get(f'/api/v1/system/document-approvals/OpeningBalance/{row["id"]}', headers=person, params={'intent': 'execute'}).json()['can_review']
     second = operate(client, row['id'], 'approve', first['version'], reviewer(client, 'opening_second'))
     assert second['status'] == 'submitted'
     third = operate(client, row['id'], 'approve', second['version'], reviewer(client, 'opening_third'))
@@ -67,7 +67,7 @@ def test_reverse_independent_fixed_reason_original_authors_and_confirmation(jour
     assert client.post(f'{BASE}/{row["id"]}/reverse', json={'version': row['version'], 'reason': '直接撤销'}).status_code == 409
     # 确认人员有按钮权限即可审批自己提出的撤销；原期初批准仍为已执行。
     pending = operate(client, row['id'], 'submit', 0, intent='reverse', reason='原试算表更正')
-    assert client.get(f'/api/v1/system/document-approvals/OpeningBalance/{row['id']}', headers=None, params={'intent': 'reverse'}).json()['can_review']
+    assert client.get(f'/api/v1/system/document-approvals/OpeningBalance/{row["id"]}', headers=None, params={'intent': 'reverse'}).json()['can_review']
     approved = operate(client, row['id'], 'approve', pending['version'], reviewer(client, 'opening_reverse'),
         intent='reverse', reason='独立核对撤销')
     assert approved['status'] == 'approved'

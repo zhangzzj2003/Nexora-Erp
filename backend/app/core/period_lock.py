@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.models import (
-    AccountingPeriod, InventoryCostInput, PaymentRecord, OrderSettlementTransfer, ProductionCostEntry,
+    AccountingPeriod, InventoryCostInput, PaymentRecord, OrderSettlementTransfer, SubledgerSettlement, ProductionCostEntry,
     ProductionCostReversal, ProductionCostSettlement, ProductionSettlementReversal,
     StockMovement, SubledgerPayment, QualityDispositionChange, AfterSalesChange, AfterSalesCustody,
     AfterSalesLabor, AfterSalesLaborCost, AfterSalesResponsibility,
@@ -31,7 +31,7 @@ def ensure_movement_unlocked(db: Session, movement_id: int) -> None:
 
 def write_boundary(db: Session) -> tuple[str | None, dict]:
     boundary = closed_through(db)
-    models = (StockMovement, PaymentRecord, OrderSettlementTransfer, SubledgerPayment, InventoryCostInput, ProductionCostEntry,
+    models = (StockMovement, PaymentRecord, OrderSettlementTransfer, SubledgerSettlement, SubledgerPayment, InventoryCostInput, ProductionCostEntry,
               ProductionCostReversal, ProductionCostSettlement, ProductionSettlementReversal, QualityDispositionChange,
               AfterSalesChange, AfterSalesCustody, AfterSalesLabor, AfterSalesLaborCost, AfterSalesResponsibility)
     return boundary, ({model: db.scalar(select(func.max(model.id))) or 0 for model in models}
@@ -43,9 +43,9 @@ def validate_appended_dates(db: Session, boundary: str | None, heads: dict) -> N
         return
     # 所有这些业务接口用服务端 UTC 时间追加记录；时钟回退也不能写入锁期。
     for model, head in heads.items():
-        timestamp = func.coalesce(model.executed_at, model.created_at) if model in (PaymentRecord, SubledgerPayment, OrderSettlementTransfer, ProductionCostSettlement) else model.created_at
+        timestamp = func.coalesce(model.executed_at, model.created_at) if model in (PaymentRecord, SubledgerPayment, OrderSettlementTransfer, SubledgerSettlement, ProductionCostSettlement) else model.created_at
         query = select(model.id).where(model.id > head, timestamp < boundary + ' 24:00:00')
-        if model in (PaymentRecord, SubledgerPayment, OrderSettlementTransfer):
+        if model in (PaymentRecord, SubledgerPayment, OrderSettlementTransfer, SubledgerSettlement):
             # 待审草稿不属于资金事实；执行已有草稿的日期另在执行事务内核对。
             query = query.where(model.status == 'executed')
         if model is ProductionCostSettlement:

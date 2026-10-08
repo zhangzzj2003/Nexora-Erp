@@ -315,7 +315,7 @@ function createAppStore() {
       if (target.document_type === 'CrmQuote') await crmActions.refreshCrmApproval(target.document_id)
       if (target.document_type === 'AfterSalesCase') await afterSalesActions.refreshAfterSalesApproval(target.document_id)
       if (target.document_type === 'MaintenanceJob') await equipmentActions.refreshEquipmentApproval(target.document_id)
-      if (['SubledgerOpening','SubledgerPayment'].includes(target.document_type)) await subledgerActions.refreshSubledgerApproval()
+      if (['SubledgerOpening','SubledgerPayment','SubledgerSettlement'].includes(target.document_type)) await subledgerActions.refreshSubledgerApproval()
       if (target.document_type === 'MrpPlan') await mrpActions.refreshMrpApproval(target.document_id)
       if (target.document_type === 'QualityDisposition') await qualityActions.refreshQualityApproval(target.document_id)
     }) }

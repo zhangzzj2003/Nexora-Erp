@@ -31,4 +31,5 @@ DOCUMENT_TYPES = (
     ('PaymentRecord', 'payment_records', 'SKFK', 'PAY'),
     ('SubledgerPayment', 'subledger_payments', 'LSSKFK', 'SLP'),
     ('OrderSettlementTransfer', 'order_settlement_transfers', 'DDHX', 'OSL'),
+    ('SubledgerSettlement', 'subledger_settlements', 'LSHX', 'SLS'),
 )

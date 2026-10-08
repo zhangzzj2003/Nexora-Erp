@@ -16,7 +16,7 @@ test('分户方案统一审批与独立撤销保护启用入口及失效确认�
       if(importer?.includes('/SubledgerOpeningsView.vue') && id.endsWith('/store/app-store'))return '\0journal-store'
       if(id.endsWith('/WorkspaceTable.vue'))return '\0journal-table'
       if(id.endsWith('/AppButton.vue'))return '\0journal-button'
-      for(const file of ['SubledgerEditor.vue','SubledgerEvidence.vue',
+      for(const file of ['SubledgerEditor.vue','SubledgerEvidence.vue','SubledgerSettlements.vue',
         'ProfitTransferPanel.vue','ProfitTransferEvidence.vue','AuxiliarySelector.vue','AppCollapseItem.vue',
         'DocumentApprovalDialog.vue','WorkspaceSelect.vue','AppInput.vue'])if(id.endsWith('/'+file))return '\0journal-stub'
     },load(id){

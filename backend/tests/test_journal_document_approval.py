@@ -49,7 +49,7 @@ def test_three_fixed_steps_no_self_cancel_or_early_post(journals):
     record = create(client)
     submitted = operate(client, record['id'], 'submit', 0)
     assert client.put(rule, json={'version': 2, 'steps': [{'name': '新规则', 'role': None}]}).status_code == 200
-    assert client.get(f'/api/v1/system/document-approvals/Journal/{record['id']}', headers=None, params={'intent': 'execute'}).json()['can_review']
+    assert client.get(f'/api/v1/system/document-approvals/Journal/{record["id"]}', headers=None, params={'intent': 'execute'}).json()['can_review']
     assert client.post(f'{PATH}/{record["id"]}/cancel', json={'version': 2, 'reason': '绕过撤回'}).status_code == 409
     for index, person in enumerate((first, second, third)):
         current = client.get(f'{PATH}/{record["id"]}').json()
@@ -57,7 +57,7 @@ def test_three_fixed_steps_no_self_cancel_or_early_post(journals):
         submitted = operate(client, record['id'], 'approve', submitted['version'], person)
         assert [row['name'] for row in submitted['steps']] == ['审核', '核准', '批准']
         if index == 0:
-            assert client.get(f'/api/v1/system/document-approvals/Journal/{record['id']}', headers=person, params={'intent': 'execute'}).json()['can_review']
+            assert client.get(f'/api/v1/system/document-approvals/Journal/{record["id"]}', headers=person, params={'intent': 'execute'}).json()['can_review']
     posted = action(client, client.get(f'{PATH}/{record["id"]}').json(), 'post')
     assert posted['approval']['status'] == 'executed'
     assert [row['action'] for row in state(client, record['id'])['events']] == ['submit', 'approve', 'approve', 'approve', 'execute']
@@ -73,7 +73,7 @@ def test_attachment_authors_fixed_during_approval_and_posting(journals):
     record = create(client)
     original = client.post(attachment_path(record['id']), json=attachment_input(), headers=person).json()
     submitted = operate(client, record['id'], 'submit', 0)
-    assert client.get(f'/api/v1/system/document-approvals/Journal/{record['id']}', headers=person, params={'intent': 'execute'}).json()['can_review']
+    assert client.get(f'/api/v1/system/document-approvals/Journal/{record["id"]}', headers=person, params={'intent': 'execute'}).json()['can_review']
     assert client.post(attachment_path(record['id']), json=attachment_input(PDF + b'new')).status_code == 409
     assert client.post(f'{attachment_path(record["id"])}/{original["id"]}/reverse', json={'reason': '替换票据'}).status_code == 409
     assert not client.get(attachment_path(record['id'])).json()['can_modify']
@@ -103,7 +103,7 @@ def test_withdraw_edit_authors_and_required_opinion(journals):
     edited = client.put(f'{PATH}/{record["id"]}', headers=person,
         json={**payload(), 'version': record['version'], 'note': '审核人员改编原单'}).json()
     submitted = operate(client, record['id'], 'submit', withdrawn['version'])
-    assert client.get(f'/api/v1/system/document-approvals/Journal/{record['id']}', headers=person, params={'intent': 'execute'}).json()['can_review']
+    assert client.get(f'/api/v1/system/document-approvals/Journal/{record["id"]}', headers=person, params={'intent': 'execute'}).json()['can_review']
     assert edited['status'] == 'draft'
 
 

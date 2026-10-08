@@ -23,7 +23,7 @@ PATH_TYPES = {
     'production/mrp/plans': 'MrpPlan', 'production-costs/settlements': 'ProductionCostSettlement',
     'equipment/jobs': 'MaintenanceJob', 'finance/journals': 'Journal',
     'finance/opening-balances': 'OpeningBalance', 'finance/subledger-openings': 'SubledgerOpening',
-    'payment-records': 'PaymentRecord', 'finance/payment-records': 'PaymentRecord', 'finance/order-settlements': 'OrderSettlementTransfer',
+    'payment-records': 'PaymentRecord', 'finance/payment-records': 'PaymentRecord', 'finance/order-settlements': 'OrderSettlementTransfer', 'finance/subledger-settlements': 'SubledgerSettlement',
 }
 COLLECTION_TYPES = {
     'quotes': 'CrmQuote', 'dispositions': 'QualityDisposition', 'jobs': 'MaintenanceJob',
@@ -115,7 +115,7 @@ def enrich_numbers(db, value, primary: str | None, path: str):
             if order_type:
                 for field in ('order', 'from_order', 'to_order'):
                     add(node, field + '_document_no', order_type, node.get(field + '_id'))
-            if kind in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer'):
+            if kind in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement'):
                 add(node, 'reverses_document_no', kind, node.get('reverses_id'))
             source = node.get('source_type') or node.get('kind')
             if isinstance(source, str):
@@ -136,6 +136,8 @@ def enrich_numbers(db, value, primary: str | None, path: str):
                         child = 'OrderSettlementTransfer'
                     if key == 'payments' and path.startswith('/api/v1/finance/subledger-openings'):
                         child = 'SubledgerPayment'
+                    if key == 'settlements' and path.startswith('/api/v1/finance/subledger-openings'):
+                        child = 'SubledgerSettlement'
                     if key == 'cases' and path.startswith('/api/v1/production-quality'):
                         child = 'ProductionCompletion'
                     if key == 'cases' and path.startswith('/api/v1/after-sales'):

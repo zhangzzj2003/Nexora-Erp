@@ -95,10 +95,10 @@ def test_complete_lifecycle_snapshots_and_exact_subledger_balances(subledger):
     record = action(subledger, action(subledger, record, 'approve',True), 'confirm')
     assert record['evidence'] == check
     report = query(subledger)
-    assert report['totals'] == dict(receivable=dict(opening_amount='120.00',settled_amount='0.00',outstanding_amount='120.00'),
-        payable=dict(opening_amount='80.00',settled_amount='0.00',outstanding_amount='80.00'))
+    assert report['totals'] == dict(receivable=dict(opening_amount='120.00',settled_amount='0.00',offset_amount='0.00',outstanding_amount='120.00'),
+        payable=dict(opening_amount='80.00',settled_amount='0.00',offset_amount='0.00',outstanding_amount='80.00'))
     csv_rows = list(csv.reader(StringIO(report['csv'])))
-    assert len(csv_rows) == 5 and csv_rows[1][-3:] == ['100.00','0.00','100.00']
+    assert len(csv_rows) == 5 and csv_rows[1][-4:] == ['100.00','0.00','0.00','100.00']
     assert [row['action'] for row in api('GET',f'finance/subledger-openings/{record["id"]}/changes')] == ['create','submit','approve','confirm']
     assert api('GET','finance/overview')['accounts'] == []
     # 导入只扩充分户依据，不再往总账增加一遍期初金额。
@@ -361,7 +361,7 @@ def test_v47_upgrade_is_atomic_and_keeps_old_amounts(subledger, remove_subledger
     monkeypatch.setattr(database,'connection',original_connection)
     migrate(); migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 95
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 96
         assert [tuple(row) for row in db.execute('SELECT * FROM opening_balance_lines ORDER BY id')] == original
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
     assert api('GET','finance/subledger-openings') == []

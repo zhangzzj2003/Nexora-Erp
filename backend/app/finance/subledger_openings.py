@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.access.security import current_user, require
 from app.core.models import (BusinessJournalPolicy, LedgerAccount, OpeningBalance,
     OpeningBalanceLine, PaymentRecord, SubledgerOpening, SubledgerOpeningChange,
-    SubledgerOpeningLine, SubledgerPayment, User)
+    SubledgerOpeningLine, SubledgerPayment, SubledgerSettlement, User)
 from app.core.orm import add_model, model_data, orm_session
 from app.core.period_lock import ensure_date_unlocked
 from app.finance.auxiliary_rules import (AuxiliaryReference, combination,
@@ -340,6 +340,10 @@ def validate_reversal(db: Session, record: SubledgerOpening) -> None:
     # 真实资金记录即使已冲销也必须保留历史期初，独立批准不能绕过该限制。
     ensure_no_posted_journals(db)
     ensure_date_unlocked(db, record.effective_date)
+    if db.scalar(select(SubledgerSettlement.id).join(SubledgerOpeningLine,
+            SubledgerOpeningLine.id == SubledgerSettlement.from_line_id).where(
+            SubledgerSettlement.status != 'cancelled', SubledgerOpeningLine.opening_id == record.id).limit(1)) is not None:
+        raise HTTPException(409, '期初已有核销草稿或执行记录，不能重设历史期初')
     if db.scalar(select(SubledgerPayment.id).join(SubledgerOpeningLine,
             SubledgerOpeningLine.id == SubledgerPayment.opening_line_id).where(SubledgerPayment.status == 'executed')
             .where(SubledgerOpeningLine.opening_id == record.id).limit(1)) is not None:
@@ -431,10 +435,16 @@ def balance(db: Session, line: SubledgerOpeningLine, to_date: str | None = None)
     if to_date:
         statement = statement.where(func.coalesce(SubledgerPayment.executed_at, SubledgerPayment.created_at) < to_date + ' 24:00:00')
     payments = [payment_data(db, row) for row in db.scalars(statement)]
+    from app.finance.subledger_settlements import settlements_for
+    settlements = settlements_for(db, line.id, to_date)
     settled = sum((Decimal(row['amount']) for row in payments), ZERO)
+    offset = sum((Decimal(row['amount']) * (-1 if row['from_line_id'] == line.id else 1)
+                  for row in settlements), ZERO)
     result = line_data(line)
     return dict(**result, settled_amount=f'{settled:.2f}',
-        outstanding_amount=f'{Decimal(result["opening_amount"]) - settled:.2f}', payments=payments)
+        offset_amount=f'{offset:.2f}',
+        outstanding_amount=f'{Decimal(result["opening_amount"]) - settled - offset:.2f}',
+        payments=payments, settlements=settlements)
 
 
 @router.get('/payments')
@@ -553,15 +563,16 @@ def query(data: BalanceQuery, _: dict = Depends(require('subledger_opening.view'
             and (data.party_id is None or data.party_id == (line.customer_id or line.supplier_id))]
         totals = {kind: dict(opening_amount=f'{sum((Decimal(row["opening_amount"]) for row in rows if row["kind"] == kind), ZERO):.2f}',
             settled_amount=f'{sum((Decimal(row["settled_amount"]) for row in rows if row["kind"] == kind), ZERO):.2f}',
+            offset_amount=f'{sum((Decimal(row["offset_amount"]) for row in rows if row["kind"] == kind), ZERO):.2f}',
             outstanding_amount=f'{sum((Decimal(row["outstanding_amount"]) for row in rows if row["kind"] == kind), ZERO):.2f}')
             for kind in ('receivable','payable')}
         output = StringIO(newline='')
         writer = csv.writer(output)
-        writer.writerow(['类别','往来对象','原始单据','原单日期','科目','辅助归属','期初未结','已结净额','当前未结'])
+        writer.writerow(['类别','往来对象','原始单据','原单日期','科目','辅助归属','期初未结','资金净额','核销净额','当前未结'])
         for row in rows:
             writer.writerow([csv_value(value) for value in (row['kind'], row['party_name'], row['document_reference'],
                 row['document_date'], row['account_code'], ' / '.join(item['name'] for item in row['auxiliary']),
-                row['opening_amount'], row['settled_amount'], row['outstanding_amount'])])
+                row['opening_amount'], row['settled_amount'], row['offset_amount'], row['outstanding_amount'])])
         return dict(currency='CNY', time_basis='UTC', to_date=data.to_date, rows=rows, totals=totals,
             opening=view(db, record) if record else None, csv=output.getvalue(),
             generated_at=datetime.now(timezone.utc).isoformat())

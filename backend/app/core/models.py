@@ -1760,6 +1760,36 @@ class OrderSettlementTransfer(Base):
                             sqlite_where=status != 'cancelled'))
 
 
+class SubledgerSettlement(Base):
+    """历史分户内部抵销；反向记录追加保存，不改变原资金事实。"""
+    __tablename__ = 'subledger_settlements'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
+    from_line_id: Mapped[int] = mapped_column(ForeignKey('subledger_opening_lines.id'), nullable=False)
+    to_line_id: Mapped[int] = mapped_column(ForeignKey('subledger_opening_lines.id'), nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reverses_id: Mapped[int | None] = mapped_column(ForeignKey('subledger_settlements.id'))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'draft'"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    executed_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    executed_at: Mapped[str | None] = mapped_column(Text)
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    cancelled_at: Mapped[str | None] = mapped_column(Text)
+    cancellation_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    __table_args__ = (
+        CheckConstraint('from_line_id != to_line_id'),
+        CheckConstraint("status IN ('draft','executed','cancelled')"),
+        CheckConstraint('version > 0'),
+        Index('subledger_settlement_reference', 'from_line_id', 'to_line_id', 'reference', unique=True,
+              sqlite_where=reverses_id.is_(None) & (status != 'cancelled')),
+        Index('subledger_settlement_reversal', 'reverses_id', unique=True, sqlite_where=status != 'cancelled'),
+    )
+
+
 class BankAccount(Base):
     __tablename__ = 'bank_accounts'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

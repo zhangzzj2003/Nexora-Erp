@@ -335,7 +335,7 @@ def test_migration_replay_keeps_numbers_and_does_not_invent_approvals(context):
     with orm_session() as db:
         assert db.get(WarehouseInbound, identifier).document_no == context[2]['document_no']
         assert db.scalar(select(func.count()).select_from(DocumentApprovalCase)) == 0
-        assert db.scalar(select(func.count()).select_from(DocumentApprovalPolicy)) == 29
+        assert db.scalar(select(func.count()).select_from(DocumentApprovalPolicy)) == len(APPROVAL_TYPES)
     send(identifier)
     approve(identifier)
     migrate()

@@ -114,7 +114,7 @@ def test_v95_migration_preserves_fixed_snapshots_and_only_extends_existing_revie
         db.execute('PRAGMA user_version = 94')
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 95
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 96
         assert [tuple(row) for row in db.execute('SELECT * FROM document_approval_events')] == events
         assert [tuple(row) for row in db.execute('SELECT * FROM document_approval_cases')] == cases
         granted = {row[0] for row in db.execute("SELECT permission_code FROM role_permissions WHERE role_code='button_legacy'")}

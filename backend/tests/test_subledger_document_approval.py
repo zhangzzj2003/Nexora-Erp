@@ -36,12 +36,12 @@ def test_three_steps_fixed_template_authors_no_early_enable_and_withdraw(subledg
     api('PUT','system/document-approvals/SubledgerOpening',{'version':1,'steps':steps})
     row=create(subledger)
     submitted=operate(client,row['id'],'submit',0)
-    assert client.get(f'/api/v1/system/document-approvals/SubledgerOpening/{row['id']}', headers=None, params={'intent': 'execute'}).json()['can_review']
+    assert client.get(f'/api/v1/system/document-approvals/SubledgerOpening/{row["id"]}', headers=None, params={'intent': 'execute'}).json()['can_review']
     assert client.post(f'{BASE}/{row["id"]}/confirm',json={'version':2,'reason':'提前启用'}).status_code==409
     assert client.post(f'{BASE}/{row["id"]}/cancel',json={'version':2,'reason':'绕过撤回'}).status_code==409
     api('PUT','system/document-approvals/SubledgerOpening',{'version':2,'steps':[{'name':'新规则','role':None}]})
     first=operate(client,row['id'],'approve',submitted['version'],person)
-    assert client.get(f'/api/v1/system/document-approvals/SubledgerOpening/{row['id']}', headers=person, params={'intent': 'execute'}).json()['can_review']
+    assert client.get(f'/api/v1/system/document-approvals/SubledgerOpening/{row["id"]}', headers=person, params={'intent': 'execute'}).json()['can_review']
     second=operate(client,row['id'],'approve',first['version'],reviewer(client,'subledger_second'))
     assert second['status']=='submitted'
     third=operate(client,row['id'],'approve',second['version'],reviewer(client,'subledger_third'))

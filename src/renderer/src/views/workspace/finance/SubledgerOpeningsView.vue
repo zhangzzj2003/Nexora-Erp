@@ -17,6 +17,7 @@ import { openingActionLabels, openingStatusLabels } from './opening-display'
 import { subledgerActions, subledgerKindLabels } from './subledger-display'
 import SubledgerEditor from './SubledgerEditor.vue'
 import SubledgerEvidence from './SubledgerEvidence.vue'
+import SubledgerSettlements from './SubledgerSettlements.vue'
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import './ledger-metadata.css'
 import './journals.css'
@@ -28,7 +29,7 @@ const { subledgerOpenings: records, subledgerPayments: payments, subledgerQuery:
   subledgerError: error, error: operationError, busy, connectionLost, user, server } = storeToRefs(store)
 const { can, openDocumentApproval, loadSubledger, querySubledger, exportSubledger, editSubledger, loadSubledgerDetail,
   clearSubledgerDetail, changeSubledgerStatus, createSubledgerPayment, reverseSubledgerPayment, changeSubledgerPaymentStatus } = store
-const mode = ref<'balances' | 'plans' | 'payments'>('balances')
+const mode = ref<'balances' | 'plans' | 'payments' | 'settlements'>('balances')
 const editing = ref(false)
 const preparing = ref(false)
 const detail = ref<SubledgerOpening | null>(null)
@@ -56,7 +57,7 @@ const partyOptions = computed(() => {
 const balances = [{ key: 'kind', title: '类别' }, { key: 'party_name', title: '往来对象', width: '200' },
   { key: 'document_reference', title: '原单编号', width: '170' }, { key: 'document_date', title: '原单日期' },
   { key: 'auxiliary', title: '完整辅助快照', width: '300' }, { key: 'opening_amount', title: '期初（元）' },
-  { key: 'settled_amount', title: '资金净额（元）' }, { key: 'outstanding_amount', title: '未结（元）' }, { key: 'actions', title: '核对 / 登记', width: '190' }]
+  { key: 'settled_amount', title: '资金净额（元）' }, { key: 'offset_amount', title: '核销净额（元）' }, { key: 'outstanding_amount', title: '未结（元）' }, { key: 'actions', title: '核对 / 登记', width: '190' }]
 // 方案与资金记录沿用参考号检索，同时支持稳定业务单号和内部 ID。
 const documentQuery = ref('')
 const matchesDocument = (row: object) => [documentSearch(row), ...Object.values(row).filter(value => typeof value === 'string' || typeof value === 'number')].join(' ').toLowerCase().includes(documentQuery.value.trim().toLowerCase())
@@ -168,6 +169,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
       <AppButton :variant="mode === 'balances' ? 'primary' : 'secondary'" @click="mode = 'balances'">未结余额</AppButton>
       <AppButton :variant="mode === 'plans' ? 'primary' : 'secondary'" @click="mode = 'plans'">分户方案</AppButton>
       <AppButton :variant="mode === 'payments' ? 'primary' : 'secondary'" @click="mode = 'payments'">资金记录</AppButton>
+      <AppButton :variant="mode === 'settlements' ? 'primary' : 'secondary'" @click="mode = 'settlements'">原单核销</AppButton>
       <AppButton :disabled="disabled" @click="reload">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
     </div>
     <label v-if="mode !== 'balances'">搜索单据<AppInput v-model.trim="documentQuery" placeholder="单号、参考号或原 ID" /></label>
@@ -218,6 +220,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
         <template #empty>暂无分户方案。请先独立审核并确认总账期初，再建立历史未结明细。</template>
       </WorkspaceTable>
     </template>
+    <SubledgerSettlements v-else-if="mode === 'settlements'" :search="documentQuery" />
     <template v-else>
       <p>历史资金草稿与反向记录全部保留；独立批准后执行才更新未结余额，时间显示为本地时间。退款为负，反向草稿关联原资金。</p>
       <AppButton v-if="can('journal.view') && can('business_journal.view')" :disabled="disabled" @click="store.navigateToRoute('journals')">到凭证管理生成业务凭证</AppButton>
@@ -247,7 +250,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
       <div v-if="source" class="ledger-editor">
         <p>{{ subledgerKindLabels[source.kind] }} · {{ source.party_name }} · 原单 {{ source.document_reference }} · {{ source.document_date }}</p>
         <p>控制科目 {{ source.account_code }} · {{ source.account_name }}；{{ auxiliaryText(source.auxiliary) }}</p>
-        <p>截至 {{ report?.to_date }}（UTC）：期初 {{ source.opening_amount }}；资金净额 {{ source.settled_amount }}；未结 {{ source.outstanding_amount }} 元。</p>
+        <p>截至 {{ report?.to_date }}（UTC）：期初 {{ source.opening_amount }}；资金净额 {{ source.settled_amount }}；核销净额 {{ source.offset_amount }}；未结 {{ source.outstanding_amount }} 元。</p>
         <WorkspaceTable title="截止日内资金记录" :columns="funds.filter(item => item.key !== 'actions')" :data="source.payments" :min-table-width="1250">
           <template #cell-kind="{ row }">{{ subledgerKindLabels[row.kind] }}</template>
           <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
@@ -255,6 +258,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
           <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
           <template #empty>截至所选 UTC 日期没有资金登记。</template>
         </WorkspaceTable>
+        <p v-for="row in source.settlements" :key="`settlement-${row.id}`">核销 {{ documentLabel(row) }} · {{ row.from_document_reference }} → {{ row.to_document_reference }} · {{ row.amount }} 元 · 依据：{{ row.reason }} · {{ localTime(row.executed_at!) }}</p>
         <p v-for="row in source.payments" :key="row.id">资金 {{ documentLabel(row) }} · 依据：{{ row.note }} · {{ auxiliaryText(row.auxiliary) }}</p>
       </div>
     </NModal>
