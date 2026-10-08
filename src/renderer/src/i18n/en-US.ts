@@ -32,7 +32,8 @@ export const englishCopy: Readonly<Record<string, string>> = {
   "正在读取编号规则…": "Loading numbering policy…",
   "管理员尚未设置单据编号规则，当前业务只可查看。": "An administrator must configure document numbering. Business data is currently read-only.",
 
-  '打开设置': 'Open settings', '关闭设置': 'Close settings', '设置': 'Settings',
+  // 收起按钮与侧栏向右退出的图标保持同一语义。
+  '打开设置': 'Open settings', '关闭设置': 'Close settings', '收起设置': 'Collapse settings', '设置': 'Settings',
   '让工作台更适合你的习惯': 'Make your workspace feel like yours',
   '外观': 'Appearance', '选择你喜欢的主题': 'Choose your preferred theme',
   '主题色': 'Accent color', '为按钮和导航选择强调色': 'Choose an accent for buttons and navigation',

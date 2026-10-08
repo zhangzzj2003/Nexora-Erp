@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { NDrawer, NDrawerContent } from 'naive-ui'
-import IconCloseLine from '~icons/ri/close-line'
+import IconArrowRightSLine from '~icons/ri/arrow-right-s-line'
 import IconSunLine from '~icons/ri/sun-line'
 import IconMoonLine from '~icons/ri/moon-line'
 import IconCheckLine from '~icons/ri/check-line'
@@ -30,8 +30,9 @@ const drawerStyle = typeof window !== 'undefined' && window.nexora?.platform ===
       <template #header>
         <div class="app-settings-heading">
           <div><h2>{{ t('设置') }}</h2><p>{{ t('让工作台更适合你的习惯') }}</p></div>
-          <AppButton type="button" size="small" quaternary circle :aria-label="t('关闭设置')" :title="t('关闭设置')" @click="closeSettings">
-            <template #icon><IconCloseLine aria-hidden="true" /></template>
+          <!-- 向右箭头与侧栏退出方向一致，按钮和辅助文案都表达收起设置。 -->
+          <AppButton type="button" size="small" quaternary circle :aria-label="t('收起设置')" :title="t('收起设置')" @click="closeSettings">
+            <template #icon><IconArrowRightSLine aria-hidden="true" /></template>
           </AppButton>
         </div>
       </template>
@@ -79,6 +80,8 @@ const drawerStyle = typeof window !== 'undefined' && window.nexora?.platform ===
 </template>
 
 <style scoped>
+/* 抽屉传送到 body 后不带局部样式属性，按唯一面板 ID 排除 Electron 拖动，覆盖按钮全部命中区域。 */
+:global(#app-settings-panel) { -webkit-app-region: no-drag; }
 /* 抽屉使用根主题变量，窄窗口按可用宽度显示，不挤压登录表单。 */
 .app-settings-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; }
 .app-settings-heading h2 { margin: 0; font-size: 20px; color: var(--workspace-field-text); }

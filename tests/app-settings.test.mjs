@@ -81,8 +81,55 @@ test('Windows 设置面板避开原生标题栏，Mac、Linux 与浏览器保留
     assert.match(panel, /width:min\(400px, 100vw\)/)
     if (platform === 'win32') assert.match(panel, /top:48px/)
     else assert.doesNotMatch(panel, /top:48px/)
-    assert.match(content, /aria-label="关闭设置"/)
+    assert.match(content, /aria-label="收起设置"/)
   }
+})
+
+test('真实设置侧栏使用向右收起图标，中英文按钮文案与方向一致', async () => {
+  const { default: SettingsDrawer } = await server.ssrLoadModule('/src/renderer/src/components/app/AppSettingsDrawer.vue')
+  const { default: ArrowRight } = await server.ssrLoadModule('~icons/ri/arrow-right-s-line')
+  // 比较真实图标路径，防止只改文案却仍然渲染关闭图标。
+  const arrowHtml = await renderToString(createSSRApp({ render: () => h(ArrowRight) }))
+  const arrowPath = arrowHtml.match(/<path[^>]*d="([^"]+)"/)?.[1]
+  assert.ok(arrowPath)
+  for (const [locale, label] of [['zh-CN', '收起设置'], ['en-US', 'Collapse settings']]) {
+    const pinia = createPinia(), settings = useSettingsStore(pinia)
+    settings.setLocale(locale); settings.openSettings()
+    const app = createSSRApp({ render: () => h(SettingsDrawer) }).use(pinia)
+    setupSsrStyles(app)
+    const context = {}
+    await renderToString(app, context)
+    const content = Object.values(context.teleports ?? {}).join('')
+    const button = content.match(new RegExp(`<button(?=[^>]*aria-label="${label}")[^>]*>[\\s\\S]*?</button>`))?.[0]
+    assert.ok(button)
+    assert.ok(button.includes(`d="${arrowPath}"`))
+    assert.match(button, /type="button"/)
+    assert.ok(button.includes(`title="${label}"`))
+  }
+})
+
+test('设置浮层的不可拖动样式作用于真实面板，覆盖与标题栏重叠的按钮区域', async () => {
+  const source = readFileSync(new URL('../src/renderer/src/components/app/AppSettingsDrawer.vue', import.meta.url), 'utf8')
+  const { descriptor } = parse(source)
+  const { code, errors } = compileStyle({ source: descriptor.styles[0].content, filename: 'AppSettingsDrawer.vue', id: 'data-v-hit-test', scoped: true })
+  assert.deepEqual(errors, [])
+  // CSS 命中真实抽屉根节点，不能只排除图标或按钮中心，也不能取消整条标题栏的拖动。
+  const css = code.replace(/\/\*[\s\S]*?\*\//g, '')
+  const rule = [...css.matchAll(/([^{}]+)\{([^{}]+)\}/g)].find(([, selector]) => selector.includes('#app-settings-panel'))
+  assert.ok(rule)
+  assert.match(rule[2], /-webkit-app-region:\s*no-drag/)
+  // Teleport 面板不带父组件的局部属性，选择器必须能独立命中唯一 ID。
+  assert.equal(rule[1].trim(), '#app-settings-panel')
+  const { default: SettingsDrawer } = await server.ssrLoadModule('/src/renderer/src/components/app/AppSettingsDrawer.vue')
+  const pinia = createPinia(); useSettingsStore(pinia).openSettings()
+  const app = createSSRApp({ render: () => h(SettingsDrawer) }).use(pinia)
+  setupSsrStyles(app)
+  const context = {}
+  await renderToString(app, context)
+  const content = Object.values(context.teleports ?? {}).join('')
+  const panel = content.match(/<div(?=[^>]*\bid="app-settings-panel")[^>]*>/)?.[0]
+  assert.ok(panel)
+  assert.match(panel, /class="[^"]*\bn-drawer\b/)
 })
 
 test('语言偏好只接受支持的值，缺失、损坏和存储失败时使用中文', () => {
