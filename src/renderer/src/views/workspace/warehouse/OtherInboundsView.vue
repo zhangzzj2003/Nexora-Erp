@@ -312,15 +312,17 @@ async function reverseApproved(identifier: number): Promise<void> {
         <small class="inbound-note" :title="item.note">{{ item.note }}</small>
       </template>
       <template #cell-lines="{ row: item }">
-        <!-- 每条物料占一行，余量提示放在第二行末尾，避免把摘要撑成第三行。 -->
-        <ul class="inbound-material-preview">
-          <li v-for="(line, index) in item.lines.slice(0, 2)" :key="line.id">
-            <span class="inbound-material-text" :title="materialPreviewTitle(item, line)">{{ line.material_name }} × {{ line.quantity }} {{ line.unit }}</span>
-            <span v-if="index === 1 && item.lines.length > 2" class="inbound-material-more"
-              :title="item.lines.slice(2).map(line => materialPreviewTitle(item, line)).join('\n')"
-              :aria-label="`另有 ${item.lines.length - 2} 项物料`">+{{ item.lines.length - 2 }} 项</span>
-          </li>
-        </ul>
+        <!-- 标签与整块摘要并排，使其相对两行物料垂直居中，不再附属于第二行。 -->
+        <div class="inbound-material-summary">
+          <ul class="inbound-material-preview">
+            <li v-for="line in item.lines.slice(0, 2)" :key="line.id">
+              <span class="inbound-material-text" :title="materialPreviewTitle(item, line)">{{ line.material_name }} × {{ line.quantity }} {{ line.unit }}</span>
+            </li>
+          </ul>
+          <span v-if="item.lines.length > 2" class="inbound-material-more"
+            :title="item.lines.slice(2).map(line => materialPreviewTitle(item, line)).join('\n')"
+            :aria-label="`另有 ${item.lines.length - 2} 项物料`">+{{ item.lines.length - 2 }} 项</span>
+        </div>
       </template>
       <template #cell-actions="{ row: item }">
         <OtherInboundActions compact :inbound="item" :permissions="inboundPermissions"
@@ -386,7 +388,8 @@ async function reverseApproved(identifier: number): Promise<void> {
 /* 列表说明只占一行，完整内容保留在悬停提示和详情中，不截断原始数据。 */
 .inbound-note { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 摘要保持两行，右侧余量标签独立留位，避免被误读为物料数量的乘数。 */
-.inbound-material-preview { list-style: none; margin: 0; padding: 0; }
+.inbound-material-summary { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.inbound-material-preview { flex: 1; min-width: 0; list-style: none; margin: 0; padding: 0; }
 .inbound-material-preview li { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.7; }
 .inbound-material-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inbound-material-more { flex: none; padding: 0 6px; border-radius: 6px; background: color-mix(in srgb, var(--workspace-field-muted) 12%, transparent); color: var(--workspace-field-muted); white-space: nowrap; font-size: 12px; line-height: 20px; }
