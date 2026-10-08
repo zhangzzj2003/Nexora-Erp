@@ -121,6 +121,15 @@ const query = ref('')
 const filtered = computed(() => otherInbounds.value.filter((item) =>
   [documentSearch(item), item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
     .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
+// 列表保持两行摘要，批次证据放入悬停说明，完整物料与批次仍由详情展示。
+function materialPreviewTitle(inbound: OtherInbound, line: OtherInbound['lines'][number]): string {
+  const summary = `${line.material_name} × ${line.quantity} ${line.unit}`
+  if (inbound.status !== 'posted') return summary
+  const proof = line.physical_lots?.length
+    ? `实物批次：${line.physical_lots.map(lot => `${lot.code}（${lot.quantity}；来源批号 ${lot.supplier_lot || '未提供'}）`).join('、')}`
+    : '普通入库，未登记实物批次。'
+  return `${summary}\n${proof}`
+}
 const reasonName = { opening: '期初补录', gift: '赠品', other: '其他' }
 // 详情按 ID 读取当前快照，与新建草稿、批次登记各自独立；刷新后不展示过期对象。
 const detailInboundId = ref(0)
@@ -233,7 +242,7 @@ async function reverseApproved(identifier: number): Promise<void> {
         >
       </template>
       <template #filters>
-        <label>搜索入库单<AppInput v-model="query" placeholder="单号、仓库或物料" /></label>
+        <label>搜索入库单<AppInput v-model="query" placeholder="单号、参考号、仓库或物料" /></label>
       </template>
       <template #beforeTable>
         <WorkspaceDocumentDialog
@@ -295,19 +304,22 @@ async function reverseApproved(identifier: number): Promise<void> {
         <AppStatusTag :label="inboundStatus(item)" :tone="inboundStatusTone(item)" />
       </template>
       <template #cell-operator="{ row: item }">{{ item.created_by_name }}</template>
-      <template #cell-source="{ row: item }"
-        >{{ item.warehouse_name }} · {{ reasonName[item.reason] }}<small class="inbound-note" :title="item.note">{{ item.note }}</small
-        ><small v-if="item.reference">{{ item.reference }}</small></template
-      >
-      <template #cell-lines="{ row: item }"
-        ><div v-for="line in item.lines" :key="line.id">
-          {{ line.material_name }} × {{ line.quantity }} {{ line.unit }}
-          <small v-if="item.status === 'posted' && line.physical_lots?.length" class="inbound-lot-proof">
-            实物批次：{{ line.physical_lots?.map(lot => `${lot.code}（${lot.quantity}；来源批号 ${lot.supplier_lot || '未提供'}）`).join('、') }}
-          </small>
-          <small v-else-if="item.status === 'posted'" class="inbound-lot-proof">普通入库，未登记实物批次。</small>
-        </div></template
-      >
+      <template #cell-source="{ row: item }">
+        {{ item.warehouse_name }} · {{ reasonName[item.reason] }}
+        <!-- 参考号只在详情显示，筛选继续使用完整记录中的参考号。 -->
+        <small class="inbound-note" :title="item.note">{{ item.note }}</small>
+      </template>
+      <template #cell-lines="{ row: item }">
+        <!-- 每条物料占一行，余量提示放在第二行末尾，避免把摘要撑成第三行。 -->
+        <ul class="inbound-material-preview">
+          <li v-for="(line, index) in item.lines.slice(0, 2)" :key="line.id">
+            <span class="inbound-material-text" :title="materialPreviewTitle(item, line)">{{ line.material_name }} × {{ line.quantity }} {{ line.unit }}</span>
+            <span v-if="index === 1 && item.lines.length > 2" class="inbound-material-more"
+              :title="`另有 ${item.lines.length - 2} 项物料，点击单据号查看完整明细`"
+              :aria-label="`另有 ${item.lines.length - 2} 项物料`">…… × {{ item.lines.length - 2 }}</span>
+          </li>
+        </ul>
+      </template>
       <template #cell-actions="{ row: item }">
         <OtherInboundActions compact :inbound="item" :permissions="inboundPermissions"
           :disabled="busy || connectionLost || !!pendingActionId" @action="action => handleInboundAction(item.id, action)" />
@@ -371,12 +383,16 @@ async function reverseApproved(identifier: number): Promise<void> {
 <style scoped>
 /* 列表说明只占一行，完整内容保留在悬停提示和详情中，不截断原始数据。 */
 .inbound-note { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 长物料名不换行；余量提示不收缩，确保任何列宽下都能读到剩余条数。 */
+.inbound-material-preview { list-style: none; margin: 0; padding: 0; }
+.inbound-material-preview li { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.7; }
+.inbound-material-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbound-material-more { flex: none; color: var(--workspace-field-muted); white-space: nowrap; font-size: 12px; }
 /* 详情展示历史单据字段，使用可选中复制的文本，并兼容长说明和窄窗口。 */
 .inbound-detail-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .inbound-detail-field > span:first-child { color: var(--workspace-field-muted); font-size: 12px; }
 .inbound-detail-field strong { font-weight: 500; overflow-wrap: anywhere; white-space: pre-wrap; }
 .inbound-detail-lot + .inbound-detail-lot { margin-top: 12px; }
-.inbound-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}
 </style>
 
 <style scoped>

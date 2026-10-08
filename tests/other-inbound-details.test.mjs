@@ -105,6 +105,41 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  assertStatus('待送审','pending')
  assert.equal(cell('operator'),'建单人')
  assert.doesNotMatch(cell('actions'),/查看详情/)
+ // 外侧隐藏参考号但仍可搜索；两条摘要不丢失隐藏物料的检索及详情内容。
+ store.initialDetailId=0
+ const many={...structuredClone(inbound),reference:'HIDDEN-REF',lines:Array.from({length:4},(_,i)=>({
+  ...inbound.lines[0],id:70+i,material_name:`明细物料${i+1}`
+ }))}
+ store.otherInbounds=[many]
+ html=await render()
+ assert.doesNotMatch(cell('source'),/HIDDEN-REF/)
+ assert.equal((cell('lines').match(/<li\b/g)??[]).length,2)
+ assert.match(cell('lines'),/明细物料1/)
+ assert.match(cell('lines'),/明细物料2/)
+ assert.match(cell('lines'),/…… × 2/)
+ assert.doesNotMatch(cell('lines'),/明细物料3|明细物料4/)
+ const setup=vnode.component.setupState
+ for(const query of ['HIDDEN-REF','明细物料4']) {
+  setup.query=query
+  assert.equal(setup.filtered.length,1)
+  assert.equal(setup.filtered[0].id,many.id)
+ }
+ setup.query='不存在的参考号'
+ assert.equal(setup.filtered.length,0)
+ for(const length of [0,1,2,3]) {
+  store.otherInbounds=[{...many,lines:many.lines.slice(0,length)}]
+  html=await render()
+  assert.equal((cell('lines').match(/<li\b/g)??[]).length,Math.min(length,2))
+  if(length<=2)assert.doesNotMatch(cell('lines'),/inbound-material-more/)
+  else assert.match(cell('lines'),/…… × 1/)
+ }
+ store.initialDetailId=3
+ store.otherInbounds=[many]
+ html=await render()
+ for(const value of ['HIDDEN-REF','明细物料3','明细物料4'])assert.ok(html.includes(value))
+ store.initialDetailId=0
+ store.otherInbounds=[structuredClone(inbound)]
+ html=await render()
  const view=buttons.find(b=>text(b.content)===inbound.document_no)
  assert.equal(view.props.type,'button')
  assert.equal(view.props.variant,'text')
