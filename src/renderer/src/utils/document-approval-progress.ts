@@ -58,3 +58,54 @@ export function documentApprovalProgress(record: DocumentApprovalRecord) {
         : interrupted ? '本次审批已中止，重新送审后重新审批。' : '提交后进入审批流程。'
   return { label: statusLabels[record.status], summary, completed: record.current_step, nodes }
 }
+
+
+export function documentApprovalEventLabel(event: DocumentApprovalEvent): string {
+  return event.action === 'approve' ? event.step_name || '批准'
+    : { submit: '送审', reject: '驳回', withdraw: '撤回', execute: '执行' }[event.action]
+}
+
+export function documentApprovalGenerations(record: DocumentApprovalRecord): number[] {
+  // 按轮次归档，不丢失早期送审；草稿保留零轮入口，但不虚构历史轮次。
+  return [...new Set([record.generation, ...record.events.map(event => event.generation)])].sort((a, b) => b - a)
+}
+
+export function documentApprovalRound(record: DocumentApprovalRecord, generation: number) {
+  const events = record.events.filter(event => event.generation === generation)
+  const isCurrent = generation === record.generation
+  const nodes: ApprovalProgressNode[] = []
+  // 旧轮次没有完整模板字段，只根据事件中的步骤和名称绘制，不能套用最新模板补造未办理步骤。
+  if (!isCurrent) {
+    for (const event of events) {
+      const key = event.action === 'approve' || event.action === 'reject' ? `step-${event.step}`
+        : event.action === 'withdraw' ? 'withdraw' : event.action
+      if (nodes.some(node => node.key === key)) continue
+      nodes.push({ key, name: key.startsWith('step-') ? event.step_name || `审批步骤 ${event.step + 1}`
+        : key === 'execute' ? '业务执行' : documentApprovalEventLabel(event), role: null, event,
+        state: event.action === 'reject' ? 'rejected' : event.action === 'withdraw' ? 'withdrawn' : 'completed',
+        caption: event.action === 'reject' ? '已驳回' : event.action === 'withdraw' ? '已撤回' : '已完成' })
+    }
+  }
+  const last = events.at(-1)
+  const previousLabel = last?.action === 'withdraw' ? '已撤回' : last?.action === 'reject' ? '已驳回'
+    : last?.action === 'execute' ? '已执行' : '历史记录'
+  const progress = isCurrent ? documentApprovalProgress(record) : {
+    nodes, label: previousLabel, completed: events.filter(event => event.action === 'approve').length,
+    summary: '仅展示当时实际发生的节点；下方单据正文为当前送审内容。'
+  }
+  return { ...progress, generation, isCurrent, events,
+    nodes: progress.nodes.map(node => ({ ...node, events: events.filter(event => {
+      if (event.action === 'submit') return node.key === 'submit'
+      if (event.action === 'execute') return node.key === 'execute'
+      if (event.action === 'withdraw') {
+        // 本轮撤回关联中止位置；旧轮次缺少当时完整模板，使用独立撤回节点保留事实。
+        return node.key === (isCurrent ? event.step < record.steps.length ? `step-${event.step}` : 'execute' : 'withdraw')
+      }
+      return node.key === `step-${event.step}`
+    }) })) }
+}
+
+export function documentApprovalDefaultNode(round: ReturnType<typeof documentApprovalRound>): string {
+  return round.nodes.find(node => node.state === 'current' || node.state === 'rejected' || node.state === 'withdrawn')?.key
+    ?? round.nodes.at(-1)?.key ?? ''
+}
