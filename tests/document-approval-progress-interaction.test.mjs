@@ -4,13 +4,14 @@ import { resolve } from 'node:path'
 import { test } from 'node:test'
 import { createRenderer, h, nextTick, reactive } from 'vue'
 import { compileScript, parse } from '@vue/compiler-sfc'
-import { createServer } from 'vite'
+import { createServer, normalizePath } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 // 实际组件在 Vue 内存渲染器运行，触发真实按钮回调；过渡外壳替换为普通容器，动画另在浏览器验证。
 test('点击节点及历次送审联动意见和依据，刷新及换单正确复位且不修改源记录', async t => {
   const filename = resolve('src/renderer/src/components/workspace/DocumentApprovalProgress.vue')
-  const id = filename + '.client.ts'
+  // Vite 在 Windows 上将反斜杠转为正斜杠，虚拟模块标识须同步归一化才能匹配加载器。
+  const id = normalizePath(filename) + '.client.ts'
   const source = readFileSync(filename, 'utf8').replace('<Transition name="approval-record" mode="out-in">', '<div>').replace('</Transition>', '</div>')
   const { descriptor } = parse(source, { filename })
   const compiled = compileScript(descriptor, { id: 'approval-interaction', inlineTemplate: true }).content
