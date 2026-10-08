@@ -9,6 +9,7 @@ VxeUI.setLanguage('zh-CN')
 
 <script setup lang="ts" generic="TRow extends object">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { NDropdown } from 'naive-ui'
 import VxeColumn from 'vxe-table/es/column'
 import VxeTable from 'vxe-table/es/table'
 import 'vxe-table/es/table/style.css'
@@ -63,6 +64,7 @@ const usesTableScroll = computed(() => props.stretchColumns || hasFixedColumns.v
 const defaultColumnWidth = computed(() => Math.ceil(props.minTableWidth / Math.max(1, props.columns.length)))
 const savedColumnWidths = ref<TableColumnWidths>({})
 const hasCustomColumnWidths = computed(() => Object.keys(savedColumnWidths.value).length > 0)
+const settingsMenuOpen = ref(false)
 const layoutColumns = computed(() => resolveTableColumnWidths(resolvedColumns.value, savedColumnWidths.value,
   props.stretchColumns, defaultColumnWidth.value))
 const pageScope = typeof window === 'undefined' ? '' : (window.location.hash || window.location.pathname).split('?')[0]
@@ -146,13 +148,23 @@ function saveColumnWidth({ column, resizeWidth }: { column: { field: string }; r
 }
 
 function resetColumnWidths(): void {
+  settingsMenuOpen.value = false
   clearTableColumnWidths(tableWidthStorage(), columnStorageKey.value)
   savedColumnWidths.value = {}
   void applyColumnWidths()
 }
 
+// 布局设置独立于业务操作；默认状态可打开菜单查看入口，但不重复执行无效恢复。
+const settingsOptions = computed(() => [{ key: 'reset-widths', label: '恢复默认列宽',
+  disabled: !hasCustomColumnWidths.value || resizingColumn.value }])
+function selectTableSetting(key: string | number): void {
+  settingsMenuOpen.value = false
+  if (key === 'reset-widths' && hasCustomColumnWidths.value && !resizingColumn.value) resetColumnWidths()
+}
+
 // 字段或表格身份变化时读取对应设置，不能把上一张表的宽度带入当前页面。
 watch(columnStorageKey, key => {
+  settingsMenuOpen.value = false
   cancelColumnResize?.()
   savedColumnWidths.value = readTableColumnWidths(tableWidthStorage(), key, props.columns.map(column => column.key))
   void applyColumnWidths()
@@ -223,16 +235,15 @@ defineSlots<{
 
 <template>
   <section class="card workspace-table">
-    <header v-if="showTitle || description || $slots.heading || (($slots.actions || hasCustomColumnWidths) && !$slots.filters && !$slots.filterActions)" class="workspace-table-heading">
+    <header v-if="showTitle || description || $slots.heading || ($slots.actions && !$slots.filters && !$slots.filterActions)" class="workspace-table-heading">
       <div v-if="showTitle || description || $slots.heading">
         <slot name="heading">
           <h2 v-if="showTitle">{{ title }}</h2>
           <p v-if="description" class="muted">{{ description }}</p>
         </slot>
       </div>
-      <div v-if="($slots.actions || hasCustomColumnWidths) && !$slots.filters && !$slots.filterActions" class="workspace-table-actions">
+      <div v-if="$slots.actions && !$slots.filters && !$slots.filterActions" class="workspace-table-actions">
         <slot name="actions" />
-        <AppButton v-if="hasCustomColumnWidths" size="small" variant="text" @click="resetColumnWidths">恢复默认列宽</AppButton>
       </div>
     </header>
     <!-- 条件与操作共用工具栏，避免单个新建或导出按钮独占一行。 -->
@@ -240,10 +251,9 @@ defineSlots<{
       <div v-if="$slots.filters" class="workspace-table-filters">
         <slot name="filters" />
       </div>
-      <div v-if="$slots.filterActions || $slots.actions || hasCustomColumnWidths" class="workspace-table-toolbar-actions">
+      <div v-if="$slots.filterActions || $slots.actions" class="workspace-table-toolbar-actions">
         <slot name="filterActions" />
         <slot name="actions" />
-        <AppButton v-if="hasCustomColumnWidths" size="small" variant="text" @click="resetColumnWidths">恢复默认列宽</AppButton>
       </div>
     </div>
     <div v-if="$slots.beforeTable" class="workspace-table-before">
@@ -286,9 +296,24 @@ defineSlots<{
     </div>
     <input v-if="scrollMax > 0" class="workspace-table-scrollbar" type="range" min="0" :max="scrollMax" :value="scrollPosition"
       :style="{ '--scroll-thumb-width': `${scrollThumbWidth}px` }" :aria-label="`${title}表格横向滚动`" @input="scrollFromControl" />
-    <footer v-if="pagination || $slots.footer" class="workspace-table-footer">
-      <WorkspacePagination v-if="pagination" v-bind="pagination" :disabled="loading || pagination.disabled" @change="(page, size) => emit('pageChange', page, size)" />
-      <slot name="footer" />
+    <footer v-if="pagination || $slots.footer || columns.length" class="workspace-table-footer">
+      <div v-if="pagination || $slots.footer" class="workspace-table-footer-content">
+        <WorkspacePagination v-if="pagination" v-bind="pagination" :disabled="loading || pagination.disabled" @change="(page, size) => emit('pageChange', page, size)" />
+        <slot name="footer" />
+      </div>
+      <!-- 表格设置固定在右下角，恢复列宽不再混入新建、查询等业务按钮组。 -->
+      <NDropdown v-if="columns.length" v-model:show="settingsMenuOpen" trigger="click" placement="top-end"
+        :options="settingsOptions" @select="selectTableSetting">
+        <AppButton class="workspace-table-settings" type="button" size="small" quaternary circle
+          aria-label="表格设置" title="表格设置" aria-haspopup="menu" :aria-expanded="settingsMenuOpen">
+          <template #icon>
+            <!-- 沿用现有 Remix 设置图标，避免把表格布局入口误认成业务操作。 -->
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path fill="currentColor" d="M3.34 17a10 10 0 0 1-.979-2.326a3 3 0 0 0 .003-5.347a10 10 0 0 1 2.5-4.337a3 3 0 0 0 4.632-2.674a10 10 0 0 1 5.007.003a3 3 0 0 0 4.632 2.671a10.06 10.06 0 0 1 2.503 4.336a3 3 0 0 0-.002 5.347a10 10 0 0 1-2.501 4.337a3 3 0 0 0-4.632 2.674a10 10 0 0 1-5.007-.002a3 3 0 0 0-4.631-2.672A10 10 0 0 1 3.339 17m5.66.196a5 5 0 0 1 2.25 2.77q.75.07 1.499.002a5 5 0 0 1 2.25-2.772a5 5 0 0 1 3.526-.564q.435-.614.748-1.298A5 5 0 0 1 18 12c0-1.26.47-2.437 1.273-3.334a8 8 0 0 0-.75-1.298A5 5 0 0 1 15 6.804a5 5 0 0 1-2.25-2.77q-.75-.071-1.5-.001A5 5 0 0 1 9 6.804a5 5 0 0 1-3.526.564q-.436.614-.747 1.298A5 5 0 0 1 6 12c0 1.26-.471 2.437-1.273 3.334a8 8 0 0 0 .75 1.298A5 5 0 0 1 9 17.196M12 15a3 3 0 1 1 0-6a3 3 0 0 1 0 6m0-2a1 1 0 1 0 0-2a1 1 0 0 0 0 2" />
+            </svg>
+          </template>
+        </AppButton>
+      </NDropdown>
     </footer>
   </section>
 </template>
@@ -310,7 +335,10 @@ defineSlots<{
 :root[data-theme='dark'] .workspace-table-toolbar { border-color: #30445b; background: #192a40; }
 .workspace-table-before { margin-bottom: 20px; }
 .workspace-table-before:empty { display: none; }
-.workspace-table-footer { margin-top: 16px; }
+/* 分页与页面补充内容保留原区域，设置图标独立靠右；窄窗口允许自然换行。 */
+.workspace-table-footer { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-top: 10px; }
+.workspace-table-footer-content { flex: 1 1 320px; min-width: 0; }
+.workspace-table-settings { flex: none; margin-left: auto; color: var(--workspace-field-muted); }
 .workspace-table-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .workspace-table-loading { padding: 20px; color: var(--vxe-ui-font-color); text-align: center; }
 .workspace-table-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 180px; padding: 22px; color: #607289; text-align: center; }
