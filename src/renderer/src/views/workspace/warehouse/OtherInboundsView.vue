@@ -248,7 +248,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       </template>
       <template #cell-operator="{ row: item }">{{ item.created_by_name }}</template>
       <template #cell-source="{ row: item }"
-        >{{ item.warehouse_name }} · {{ reasonName[item.reason] }}<small>{{ item.note }}</small
+        >{{ item.warehouse_name }} · {{ reasonName[item.reason] }}<small class="inbound-note" :title="item.note">{{ item.note }}</small
         ><small v-if="item.reference">{{ item.reference }}</small></template
       >
       <template #cell-lines="{ row: item }"
@@ -347,6 +347,8 @@ async function reverseApproved(identifier: number): Promise<void> {
 </template>
 
 <style scoped>
+/* 列表说明只占一行，完整内容保留在悬停提示和详情中，不截断原始数据。 */
+.inbound-note { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 详情展示历史单据字段，使用可选中复制的文本，并兼容长说明和窄窗口。 */
 .inbound-detail-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .inbound-detail-field > span:first-child { color: var(--workspace-field-muted); font-size: 12px; }
