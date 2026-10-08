@@ -43,7 +43,7 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   store.documentApprovalRecord = { document_type: 'WarehouseInbound', document_no: 'QTRK-20261007-000001', intent: 'execute', business_status: 'draft',
     summary: [{label:'仓库',value:'主仓库'},{label:'用途',value:'赠品'},{label:'入库说明',value:'完整说明'.repeat(40)},
       {label:'参考号',value:'REF-1'},{label:'入库明细',value:'电阻 × 100 个'}], content_matches: true,
-    version: 1, status: 'submitted', current_step: 0, steps: [{ name: '审核', role: 'admin' }, { name: '批准', role: null }],
+    version: 1, generation: 1, status: 'submitted', current_step: 0, steps: [{ name: '审核', role: 'admin' }, { name: '批准', role: null }],
     can_submit: false, can_review: false, can_withdraw: true, reversal_reason: '', events: [] }
   let html = await render()
   assert.match(html, /由有审核权限的人员处理/); assert.doesNotMatch(html, /不能自审|指定角色/); assert.match(html, /同一人员可完成多个已授权步骤/)
@@ -55,9 +55,10 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.match(html, /document-basic--readonly/)
   assert.match(html, /min\(1280px/)
   assert.ok(html.indexOf('主仓库') < html.indexOf('物料明细'))
-  // 顶部流程先于基础信息和物料明细，历史仍保留在正文下方。
+  // 顶部流程与节点记录先于正文；底部保留意见，避免两处重复记录。
   assert.ok(html.indexOf('审批进度') < html.indexOf('主仓库'))
-  assert.ok(html.indexOf('电阻 × 100 个') < html.indexOf('审批记录'))
+  assert.ok(html.indexOf('审批记录') < html.indexOf('主仓库'))
+  assert.doesNotMatch(html, /class="approval-history"/)
   assert.match(html, /aria-current="step"/)
   assert.match(html, /当前待办：审核/)
   // 图形节点保持有序语义与键盘可滚动入口，状态不再退化为纯数字列表。
@@ -101,11 +102,12 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   html = await render()
   assert.doesNotMatch(html, /<button[^>]*disabled[^>]*>驳回/)
   store.documentApprovalRecord = { ...store.documentApprovalRecord, status: 'approved', current_step: 2, can_review: false,
-    events: [{ id: 1, generation: 1, action: 'approve', step_name: '审核', actor_name: '独立审核人', created_at: '2026-10-07', reason: '核对明细' }] }
+    events: [{ id: 1, generation: 1, action: 'approve', step: 0, step_name: '审核', actor_name: '独立审核人', created_at: '2026-10-07', reason: '核对明细' }] }
   html = await render()
   assert.match(html, /已批准，待执行/)
-  assert.match(html, /审核 · 独立审核人/)
-  assert.match(html, /核对明细/)
+  assert.match(html, /查看最近记录 · 审核/)
+  assert.match(html, /等待业务执行，尚无处理记录/)
+  assert.doesNotMatch(html, /核对明细/)
   assert.doesNotMatch(html, /<button[^>]*>批准<|<button[^>]*>执行<|<button[^>]*>确认入库</)
   // 已确认订单允许追加合同依据，查看原执行快照时不能提示无法完成的撤回操作。
   store.documentApprovalRecord = { ...store.documentApprovalRecord, status: 'executed', content_matches: false, can_withdraw: false }
@@ -189,7 +191,8 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
   store.documentApprovalEvidence['MaintenanceJob:1:execute']='现场独立依据'
   assert.doesNotMatch(await render(),/<button[^>]*disabled[^>]*>提交审批/)
-  store.documentApprovalRecord.events=[{id:1,action:'submit',actor_name:'编制人',generation:1,created_at:'2026-10-07',reason:'方案意见',evidence:'现场独立依据'}]
+  store.documentApprovalRecord.generation=1
+  store.documentApprovalRecord.events=[{id:1,step:0,action:'submit',actor_name:'编制人',generation:1,created_at:'2026-10-07',reason:'方案意见',evidence:'现场独立依据'}]
   assert.match(await render(),/现场依据：现场独立依据/)
 
   // 凭证保留原二百字必填依据，统一弹窗不能显示原五百字默认限制。

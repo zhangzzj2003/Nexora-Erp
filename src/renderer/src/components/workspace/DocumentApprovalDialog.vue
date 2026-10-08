@@ -27,7 +27,6 @@ const reviewLabel = computed(() => {
   const step = record.value?.steps[record.value.current_step]
   return step ? documentApprovalStepLabels[documentApprovalStepAction(step)] : '批准'
 })
-const actions = { submit: '送审', approve: '批准', reject: '驳回', withdraw: '撤回', execute: '执行' }
 // 报价、售后及处置保留原必填依据，售后与处置意见最多二百字。
 const quoteReasonRequired = computed(() => ['CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'ProductionCostSettlement'].includes(target.value?.document_type ?? ''))
 const maintenance = computed(() => target.value?.document_type === 'MaintenanceJob')
@@ -61,7 +60,7 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
     <template #cell-label="{ row }"><strong class="approval-value">{{ row.label }}</strong></template>
     <template #cell-value="{ row }"><span class="approval-value">{{ row.value }}</span></template>
     <template #afterLines>
-      <section v-if="record" class="approval-content" aria-label="审批意见与记录">
+      <section v-if="record" class="approval-content" aria-label="审批意见">
         <!-- 完工的质检前置由服务端约束；这里说明不能送审的实际原因。 -->
         <p v-if="record.document_type === 'ProductionCompletion' && record.intent === 'execute' && record.business_status === 'draft'">请先记录质检结果，完成后再提交本单审批。</p>
         <p v-if="record.reversal_evidence">送审验收更正依据：{{ record.reversal_evidence }}</p>
@@ -74,15 +73,6 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
         <label v-if="maintenance && (record.can_submit || record.can_review)" class="approval-reason">现场依据（必填）
           <AppInput v-model="evidence[key]" maxlength="600" :disabled="disabled" />
         </label>
-        <h3>审批记录</h3>
-        <p v-if="!record.events.length" class="approval-hint">尚无审批记录。</p>
-        <ol class="approval-history">
-          <li v-for="event in record.events" :key="event.id">
-            <strong>{{ event.action === 'approve' ? event.step_name || '批准' : actions[event.action] }} · {{ event.actor_name }}</strong>
-            <small>{{ store.localTime(event.created_at) }} · 第 {{ event.generation }} 次送审</small>
-            <p v-if="event.reason">{{ event.reason }}</p><p v-if="event.evidence">现场依据：{{ event.evidence }}</p>
-          </li>
-        </ol>
       </section>
     </template>
     <template #footer>
@@ -103,17 +93,12 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
 </template>
 
 <style scoped>
-/* 进度在顶部独立展示，正文下方保留意见与完整历史，页脚仍由公共组件固定。 */
+/* 节点记录与顶部流程联动，正文下方只保留意见输入，页脚仍由公共组件固定。 */
 .approval-content { margin-top: 24px; overflow-wrap: anywhere; }
-.approval-content h3 { font-size: 15px; margin: 20px 0 12px; }
 .approval-value { white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval-hint { color: var(--workspace-field-muted); line-height: 1.7; }
 .approval-error { color: #b94438; }
 :root[data-theme='dark'] .approval-error { color: #ffaaa2; }
-.approval-history { list-style: none; padding: 0; display: grid; gap: 10px; }
-.approval-history small { display: block; color: var(--workspace-field-muted); font-size: 12px; }
 .approval-reason { display: grid; gap: 8px; }
-.approval-history li { padding: 10px 0; border-bottom: 1px solid var(--workspace-field-border); }
-.approval-history p { margin: 6px 0 0; white-space: pre-wrap; }
 .approval-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; width: 100%; }
 </style>
