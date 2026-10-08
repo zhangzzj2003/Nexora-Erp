@@ -13,6 +13,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import { useLocalPagination } from '../../../composables/use-local-pagination'
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import WorkspaceLotDialog from '../../../components/workspace/WorkspaceLotDialog.vue'
@@ -122,6 +123,8 @@ const query = ref('')
 const filtered = computed(() => otherInbounds.value.filter((item) =>
   [documentSearch(item), item.id, item.reference, item.warehouse_name, item.note, ...item.lines.map((line) => line.material_name)]
     .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
+// 仅对筛选后的展示数据分页，完整入库快照和详情、重开草稿保持独立。
+const { rows, total, page, pageSize, changePage } = useLocalPagination(filtered, query)
 // 列表保持两行摘要，批次证据放入悬停说明，完整物料与批次仍由详情展示。
 function materialPreviewTitle(inbound: OtherInbound, line: OtherInbound['lines'][number]): string {
   const summary = `${line.material_name} × ${line.quantity} ${line.unit}`
@@ -228,7 +231,9 @@ async function reverseApproved(identifier: number): Promise<void> {
   <section class="stack">
     <WorkspaceTable
       :show-title="false"
-      :data="filtered"
+      :data="rows"
+      :pagination="{ page, pageSize, total }"
+      @page-change="changePage"
       title="其他入库"
       :columns="columns"
       :min-table-width="1410"

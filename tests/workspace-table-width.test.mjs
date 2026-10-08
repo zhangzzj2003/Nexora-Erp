@@ -14,14 +14,12 @@ test('公共表格默认分配剩余宽度，同时保留窄窗最小列宽及�
         .replace("'vxe-table/es/table'", "'virtual:table-width-table'")
         .replace("'vxe-table/es/column'", "'virtual:table-width-column'")
         .replace("'../../utils/table-column-widths'", "'virtual:table-width-preferences'")
-        .replace("'naive-ui'", "'virtual:table-width-settings'")
         .replace("'../app/AppButton.vue'", "'virtual:table-width-button'")
     },
     resolveId(id) {
       if (id === 'virtual:table-width-table') return '\0table-width-table'
       if (id === 'virtual:table-width-column') return '\0table-width-column'
       if (id === 'virtual:table-width-preferences') return '\0table-width-preferences'
-      if (id === 'virtual:table-width-settings') return '\0table-width-settings'
       if (id === 'virtual:table-width-button') return '\0table-width-button'
     },
     load(id) {
@@ -35,11 +33,8 @@ test('公共表格默认分配剩余宽度，同时保留窄窗最小列宽及�
       if (id === '\0table-width-preferences') return `export * from '/src/renderer/src/utils/table-column-widths.ts';
         export const values=new Map();export function tableWidthStorage(){return {getItem:key=>values.get(key)??null,
           setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)}}`
-      if (id === '\0table-width-settings') return `import {defineComponent,h} from 'vue';export const captured={};
-        export const NDropdown=defineComponent({props:['options','show','trigger','placement'],setup(p,{slots,attrs}){
-          Object.assign(captured,{props:p,attrs});return()=>h('div',slots.default?.())}})`
-      if (id === '\0table-width-button') return `import {defineComponent,h} from 'vue';
-        export default defineComponent({setup(p,{slots,attrs}){return()=>h('button',attrs,[slots.icon?.(),slots.default?.()])}})`
+      if (id === '\0table-width-button') return `import {defineComponent,h} from 'vue';export const captured={};
+        export default defineComponent({setup(p,{slots,attrs}){Object.assign(captured,{attrs});return()=>h('button',attrs,slots.default?.())}})`
     }
   }, vue()], optimizeDeps: { noDiscovery: true, include: [] },
   server: { middlewareMode: true, hmr: false }, appType: 'custom' })
@@ -48,7 +43,7 @@ test('公共表格默认分配剩余宽度，同时保留窄窗最小列宽及�
   const { captured: table } = await server.ssrLoadModule('\0table-width-table')
   const { captured: columns } = await server.ssrLoadModule('\0table-width-column')
   const { values } = await server.ssrLoadModule('\0table-width-preferences')
-  const { captured: settings } = await server.ssrLoadModule('\0table-width-settings')
+  const { captured: button } = await server.ssrLoadModule('\0table-width-button')
   let vnode
   const render = async (props, slots) => {
     columns.length = 0
@@ -123,52 +118,38 @@ test('公共表格默认分配剩余宽度，同时保留窄窗最小列宽及�
     assert.equal(columns[1].minWidth, '100')
   })
 
-  await t.test('布局恢复收进右下角设置菜单，默认置灰且只清除当前表格偏好', async () => {
+  await t.test('仅自定义列宽时右下角显示恢复入口，并只清除当前表格偏好', async () => {
     values.clear()
     const source = [{ key: 'name', title: '名称', width: '200' }, { key: 'unit', title: '单位', width: '100' }]
     const props = { showTitle: false, columns: source, columnLayoutKey: 'layout-a' }
     const slots = { filters: () => h('label', '搜索'), actions: () => h('button', '新建资料') }
     let html = await render(props, slots)
-    // 设置入口必须跟在表格后，顶部只保留业务按钮；无自定义列宽也能找到菜单。
-    assert.ok(html.indexOf('aria-label="表格设置"') > html.indexOf('<footer'))
-    assert.doesNotMatch(html.slice(0, html.indexOf('<footer')), /表格设置|恢复默认列宽/)
+    assert.doesNotMatch(html, /表格设置|恢复默认列宽|<footer/)
     assert.match(html, /新建资料/)
-    assert.deepEqual(settings.props.options, [{ key: 'reset-widths', label: '恢复默认列宽', disabled: true }])
-    assert.equal(settings.props.trigger, 'click')
-    assert.equal(settings.props.placement, 'top-end')
-    settings.attrs.onSelect('reset-widths')
-    assert.equal(values.size, 0)
-
     table.attrs.onColumnResizableChange({ column: { field: 'name' }, resizeWidth: 180 })
     await render({ ...props, columnLayoutKey: 'layout-b' })
     table.attrs.onColumnResizableChange({ column: { field: 'unit' }, resizeWidth: 160 })
-    await render(props, slots)
+    html = await render(props, slots)
     assert.equal(values.size, 2)
-    assert.equal(settings.props.options[0].disabled, false)
-    const select = settings.attrs.onSelect
-    vnode.component.setupState.settingsMenuOpen = true
-    select('unknown')
-    assert.equal(values.size, 2)
-    assert.equal(vnode.component.setupState.settingsMenuOpen, false)
-    // 拖动未结束时不能用旧菜单回调打断调整并清空已保存的布局。
+    assert.ok(html.indexOf('恢复默认列宽') > html.indexOf('<footer'))
+    assert.doesNotMatch(html.slice(0, html.indexOf('<footer')), /恢复默认列宽/)
+    const restore = button.attrs.onClick
+    // 未结束的拖动不能被恢复操作打断；重复恢复也不影响其他表格。
     vnode.component.setupState.resizingColumn = true
-    select('reset-widths')
+    restore()
     assert.equal(values.size, 2)
     vnode.component.setupState.resizingColumn = false
-    select('reset-widths')
+    restore()
+    restore()
     assert.equal(values.size, 1)
     html = await render(props)
     assert.equal(columns[0].width, undefined)
     assert.equal(columns[0].minWidth, '200')
-    assert.equal(settings.props.options[0].disabled, true)
-    assert.doesNotMatch(html, /workspace-table-heading/)
-    assert.match(html, /aria-label="表格设置"/)
+    assert.doesNotMatch(html, /workspace-table-heading|恢复默认列宽|<footer/)
     await render({ ...props, columnLayoutKey: 'layout-b' })
     assert.equal(columns[1].width, 160)
-
-    // 没有列的容器不产生空设置入口；原页脚插槽仍保留。
     html = await render({ columns: [] }, { footer: () => h('p', '页脚说明') })
     assert.match(html, /页脚说明/)
-    assert.doesNotMatch(html, /aria-label="表格设置"/)
+    assert.doesNotMatch(html, /恢复默认列宽/)
   })
 })

@@ -47,7 +47,8 @@ export const usePiniaAppStore=defineStore('inbound-details-test',()=>{
 })`
 
 const tableSource = `import {defineComponent,h} from 'vue'
-export default defineComponent({props:['data','columns','emptyText'],setup(p,{slots}){return()=>h('section',[
+export const tables=[]
+export default defineComponent({props:['data','columns','emptyText','pagination'],setup(p,{slots,attrs}){tables.push({props:p,attrs});return()=>h('section',[
  slots.heading?.(),slots.actions?.(),slots.filters?.(),slots.beforeTable?.(),
  h('header',p.columns.map(c=>h('span',{'data-column':c.key},c.title))),
  ...p.data.map(row=>h('article',{'data-row':row.id},p.columns.map(c=>h('div',{'data-cell':c.key},slots['cell-'+c.key]?.({row}))))),p.data.length?null:h('p',p.emptyText)
@@ -98,8 +99,9 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  const pinia=createPinia(),store=usePiniaAppStore(pinia)
  const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/OtherInboundsView.vue')
  const {buttons}=await server.ssrLoadModule('\0inbound-detail-button')
+ const {tables}=await server.ssrLoadModule('\0inbound-detail-table')
  let vnode
- const render=()=>{buttons.length=0;vnode=h(View);return renderToString(createSSRApp({render:()=>vnode}).use(pinia))}
+ const render=()=>{tables.length=0;buttons.length=0;vnode=h(View);return renderToString(createSSRApp({render:()=>vnode}).use(pinia))}
  store.otherInbounds=[structuredClone(inbound)]
  const draft=JSON.stringify(store.otherInboundForm)
  store.connectionLost=true
@@ -221,6 +223,32 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  assert.equal(vnode.component.setupState.detailInbound,null)
  assert.doesNotMatch(await render(),/data-modal=/)
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ // 主列表真正绑定分页，搜索覆盖完整快照；切页不动详情和新建草稿。
+ store.initialDetailId=0
+ store.otherInbounds=Array.from({length:45},(_,i)=>({...structuredClone(inbound),id:i+1,document_no:`分页单-${i+1}`}))
+ await render()
+ const pagination=vnode.component.setupState
+ assert.equal(pagination.rows.length,20)
+ assert.equal(pagination.total,45)
+ assert.deepEqual(tables[0].props.pagination,{page:1,pageSize:20,total:45})
+ tables[0].attrs.onPageChange(3,20)
+ assert.deepEqual(pagination.rows.map(item=>item.id),[41,42,43,44,45])
+ pagination.query='分页单-45'
+ assert.equal(pagination.total,1)
+ // SSR 结束会停止组件 watcher；搜索及删末页自动回退由 local-pagination 测试验证。
+ pagination.changePage(1,20)
+ assert.deepEqual(pagination.rows.map(item=>item.id),[45])
+ pagination.query=''
+ pagination.changePage(2,10)
+ assert.equal(pagination.page,1)
+ assert.equal(pagination.rows.length,10)
+ pagination.changePage(5,10)
+ store.otherInbounds=store.otherInbounds.slice(0,40)
+ pagination.changePage(5,10)
+ assert.equal(pagination.page,4)
+ assert.equal(store.otherInbounds.length,40)
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ store.initialDetailId=3
  // 详情操作复用真实按钮和入口，验证目标 ID、最新快照及失败后草稿隔离。
  assert.deepEqual(store.calls, [])
  store.busy=false
