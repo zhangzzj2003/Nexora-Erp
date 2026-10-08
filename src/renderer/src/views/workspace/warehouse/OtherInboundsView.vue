@@ -5,6 +5,7 @@ import { documentSearch, documentLabel } from '../../../../../shared/document-nu
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
+import AppStatusTag, { type AppStatusTone } from '../../../components/app/AppStatusTag.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
@@ -90,12 +91,12 @@ function inboundStatus(inbound: OtherInbound): string {
     rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }[inbound.approval?.status ?? 'draft']) : inbound.status === 'cancelled' ? '已取消'
     : inbound.reversal_id ? '已冲销' : '已入库'
 }
-function inboundStatusTone(inbound: OtherInbound): string {
+function inboundStatusTone(inbound: OtherInbound): AppStatusTone {
   // 先判断仓库终态，避免已取消或已冲销的单据仍沿用旧审批记录的成功颜色。
   if (inbound.status === 'cancelled') return 'neutral'
   if (inbound.status === 'posted') return inbound.reversal_id ? 'reversed' : 'success'
-  return { draft: 'pending', submitted: 'info', approved: 'ready', rejected: 'danger',
-    withdrawn: 'neutral', executed: 'success' }[inbound.approval?.status ?? 'draft']
+  return ({ draft: 'pending', submitted: 'info', approved: 'ready', rejected: 'danger',
+    withdrawn: 'neutral', executed: 'success' } as const)[inbound.approval?.status ?? 'draft']
 }
 const columns = [
   // 单号与审计信息分列，列宽保证长单号和时间完整展示，窄窗口沿用公共表格横向滚动。
@@ -243,10 +244,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       <!-- 时间、处理人沿用原单据中的创建记录，避免改变历史字段含义。 -->
       <template #cell-time="{ row: item }">{{ localTime(item.created_at) }}</template>
       <template #cell-status="{ row: item }">
-        <!-- 标签保留完整状态文案，颜色和装饰圆点仅辅助识别，不作为唯一信息。 -->
-        <span class="inbound-status" :class="`inbound-status--${inboundStatusTone(item)}`">
-          <span class="inbound-status-dot" aria-hidden="true"></span>{{ inboundStatus(item) }}
-        </span>
+        <AppStatusTag :label="inboundStatus(item)" :tone="inboundStatusTone(item)" />
       </template>
       <template #cell-operator="{ row: item }">{{ item.created_by_name }}</template>
       <template #cell-source="{ row: item }"
@@ -307,7 +305,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       @update:show="value => { if (!value) detailInboundId = 0 }">
       <template #basicInfo>
         <div class="inbound-detail-field"><span>单号</span><strong>{{ documentLabel(detailInbound) }}</strong></div>
-        <div class="inbound-detail-field"><span>状态</span><strong>{{ inboundStatus(detailInbound) }}</strong></div>
+        <div class="inbound-detail-field"><span>状态</span><AppStatusTag :label="inboundStatus(detailInbound)" :tone="inboundStatusTone(detailInbound)" /></div>
         <div class="inbound-detail-field"><span>仓库</span><strong>{{ detailInbound.warehouse_name }}</strong></div>
         <div class="inbound-detail-field"><span>用途</span><strong>{{ reasonName[detailInbound.reason] }}</strong></div>
         <div class="inbound-detail-field"><span>参考号</span><strong>{{ detailInbound.reference || '—' }}</strong></div>
@@ -349,36 +347,9 @@ async function reverseApproved(identifier: number): Promise<void> {
 </template>
 
 <style scoped>
-/* 状态使用轻底色胶囊和同色圆点突出，静态展示避免业务列表持续闪动。 */
-.inbound-status {
-  display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 3px 9px;
-  border: 1px solid color-mix(in srgb, var(--inbound-status-color) 30%, transparent);
-  border-radius: 999px; color: var(--inbound-status-color);
-  background: color-mix(in srgb, var(--inbound-status-color) 11%, transparent);
-  font-size: 12px; font-weight: 600; line-height: 18px; white-space: nowrap;
-}
-.inbound-status-dot {
-  width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: currentColor;
-  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 12%, transparent);
-}
-.inbound-status--success { --inbound-status-color: #16734d; }
-.inbound-status--pending { --inbound-status-color: #946000; }
-.inbound-status--info { --inbound-status-color: #2963b6; }
-.inbound-status--ready { --inbound-status-color: #087684; }
-.inbound-status--danger { --inbound-status-color: #bb3650; }
-.inbound-status--neutral { --inbound-status-color: #626d7e; }
-.inbound-status--reversed { --inbound-status-color: #7851ad; }
-/* 深色主题提升文字亮度，底色与边框仍由同一状态色生成，保证两种主题语义一致。 */
-:root[data-theme='dark'] .inbound-status--success { --inbound-status-color: #69d8aa; }
-:root[data-theme='dark'] .inbound-status--pending { --inbound-status-color: #efc16a; }
-:root[data-theme='dark'] .inbound-status--info { --inbound-status-color: #8bbcff; }
-:root[data-theme='dark'] .inbound-status--ready { --inbound-status-color: #75d3df; }
-:root[data-theme='dark'] .inbound-status--danger { --inbound-status-color: #ff9baf; }
-:root[data-theme='dark'] .inbound-status--neutral { --inbound-status-color: #b1bccd; }
-:root[data-theme='dark'] .inbound-status--reversed { --inbound-status-color: #c2a4ef; }
 /* 详情展示历史单据字段，使用可选中复制的文本，并兼容长说明和窄窗口。 */
 .inbound-detail-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.inbound-detail-field span { color: var(--workspace-field-muted); font-size: 12px; }
+.inbound-detail-field > span:first-child { color: var(--workspace-field-muted); font-size: 12px; }
 .inbound-detail-field strong { font-weight: 500; overflow-wrap: anywhere; white-space: pre-wrap; }
 .inbound-detail-lot + .inbound-detail-lot { margin-top: 12px; }
 .inbound-lot-proof{display:block;color:var(--workspace-field-muted);overflow-wrap:anywhere}

@@ -36,20 +36,46 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
-/* 弹窗卡片自身不滚动：顶部关闭按钮始终可见，仅正文独立滚动。
-   覆盖旧页面的行内 overflowY，clip 也阻止输入聚焦时卡片被浏览器暗中滚动。 */
-.n-modal.n-card { max-height: calc(100dvh - 48px); overflow: clip !important; }
+/* 公共卡片弹窗跟随工作台主题，统一圆角和层级，避免组件库默认灰色割裂界面。 */
+:root {
+  --app-modal-background: #ffffff;
+  --app-modal-surface: #f5f8fc;
+  --app-modal-shadow: 0 24px 80px #17213b26, 0 4px 16px #17213b12;
+}
+:root[data-theme='dark'] {
+  --app-modal-background: #111e31;
+  --app-modal-surface: #17273d;
+  --app-modal-shadow: 0 28px 90px #0008, 0 4px 18px #0004;
+}
+/* 卡片自身不滚动，圆角裁切标题和正文；只让正文滚动以保留顶部关闭入口。 */
+:root .n-modal.n-card {
+  max-height: calc(100dvh - 48px); overflow: clip !important;
+  border: 1px solid var(--workspace-field-border); border-radius: 20px;
+  background: var(--app-modal-background); color: var(--workspace-field-text);
+  box-shadow: var(--app-modal-shadow);
+}
 .n-modal.n-card > .n-card-header {
-  flex-shrink: 0; min-height: 56px; padding: 16px var(--n-padding-left);
-  background: color-mix(in srgb, var(--n-color-modal) 94%, var(--workspace-field-text) 6%);
-  border-bottom: 1px solid var(--workspace-field-border);
+  flex-shrink: 0; min-height: 68px; padding: 20px 24px;
+  background: var(--app-modal-surface); border-bottom: 1px solid var(--workspace-field-border);
 }
-/* 新增、详情和批次弹窗共用标题字体与换行规则，仅统一标题，不改变各自正文布局。 */
 .n-modal.n-card > .n-card-header .n-card-header__main {
-  min-width: 0; font-size: 18px; line-height: 1.45; font-weight: 600; overflow-wrap: anywhere;
+  min-width: 0; color: var(--workspace-field-text); font-size: 18px;
+  line-height: 1.45; font-weight: 600; overflow-wrap: anywhere;
 }
-.n-modal.n-card > .n-card-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-top: 20px; }
+/* 扩大关闭热区，保留组件库的键盘、焦点与保存中禁用逻辑。 */
+.n-modal.n-card > .n-card-header .n-card-header__close {
+  width: 32px; height: 32px; margin-left: 16px; border-radius: 10px;
+  color: var(--workspace-field-muted); background: var(--app-modal-background);
+}
+.n-modal.n-card > .n-card-content {
+  min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px;
+}
 .n-modal.n-card > .n-card__footer, .n-modal.n-card > .n-card__action { flex-shrink: 0; }
+@media (max-width: 650px) {
+  :root .n-modal.n-card { border-radius: 16px; }
+  .n-modal.n-card > .n-card-header { padding: 16px; }
+  .n-modal.n-card > .n-card-content { padding: 16px; }
+}
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: .5; cursor: not-allowed; }

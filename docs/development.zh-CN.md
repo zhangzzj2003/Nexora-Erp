@@ -68,6 +68,10 @@ Vue 页面 → Pinia 状态与操作 → 受限 preload → Electron 主进程
 
 页面放在 `views/workspace/` 对应业务域，仅本页使用的数据和样式与页面同目录。共享组件按 `app/`、`feedback/`、`workspace/` 分类；组件级逻辑放 `composables/`，辅助函数放 `utils/`。见 [引导目录](../src/renderer/src/views/onboarding/README.md)、[工作台目录](../src/renderer/src/views/workspace/README.md)。
 
+状态标签统一复用 `components/app/AppStatusTag.vue`，传入 `label` 和可选 `tone`（默认 `neutral`）。色调包括 `success`（完成）、`pending`（待处理）、`info`（进行中）、`ready`（已批准待执行）、`danger`（失败/驳回）、`neutral`（取消/撤回）、`reversed`（冲销）。业务状态和文案映射留在各页面，组件负责明暗主题、胶囊底色及装饰圆点；目前已接入其他入库列表与详情，新增状态展示沿用此组件。
+
+卡片型公共弹窗在全局样式统一圆角、标题栏和主题色；`WorkspaceDocumentDialog` 保持正文滚动、底部操作固定，只读基础信息在宽屏使用三列，窄窗口自动收为两列或一列。编辑模式继续保留原有表单布局和草稿行为。
+
 会话、主题、服务快照与业务操作统一由 Pinia 管理，每个窗口独立实例。新增模块用 `storeToRefs` 解构状态，操作方法直接取自 store。保留现有 `useAppStore()` 的 `ref` 兼容入口，不新建 `provide/inject` store。根组件统一装配消息/主题和生命周期，释放订阅。
 
 Vue Router 使用 Hash 地址。新增入口同步 `workspace-routes.ts`、`router/index.ts`、页面目录与路由测试；页面和查看权限以 [路由表](workspace-routing.md) 为准。

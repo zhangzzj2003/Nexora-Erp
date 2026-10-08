@@ -83,8 +83,8 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  const assertStatus=(label,tone)=>{
   const content=cell('status')
   assert.equal(content.replace(/<[^>]*>/g,'').trim(),label)
-  assert.ok(content.includes(`inbound-status--${tone}`))
-  assert.match(content,/class="inbound-status-dot" aria-hidden="true"/)
+  assert.ok(content.includes(`app-status-tag--${tone}`))
+  assert.match(content,/class="app-status-tag__dot" aria-hidden="true"/)
  }
  assertStatus('待送审','pending')
  assert.equal(cell('operator'),'建单人')
@@ -101,6 +101,8 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  store.initialDetailId=3
  html=await render()
  for(const value of ['其他入库详情','QTRK-20261007-000003','OLD-SKU','历史物料名称','2.125','历史说明','REF-3','建单人','待送审','尚未登记实物批次'])assert.ok(html.includes(value),value + ': ' + html)
+ // 列表与详情使用同一个公共标签，防止详情退回无高亮文本。
+ assert.equal((html.match(/app-status-tag--pending/g) ?? []).length, 2)
  assert.doesNotMatch(html,/添加物料|保存草稿|登记批次并确认|type="submit"/)
  const close=buttons.find(b=>text(b.content)==='关闭')
  assert.equal(close.props.disabled,false)

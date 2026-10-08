@@ -59,7 +59,7 @@ function submit(): void {
       <div class="document-body">
         <!-- 详情插槽使用纯文本，不禁用整个字段集，保留表格滚动和分页等查看交互。 -->
         <fieldset :disabled="busy || disabled" class="document-fields">
-          <section class="document-basic" aria-label="基础信息">
+          <section class="document-basic" :class="{ 'document-basic--readonly': readOnly }" aria-label="基础信息">
             <h3>基础信息</h3>
             <div class="form-grid document-basic-grid"><slot name="basicInfo" /></div>
           </section>
@@ -94,23 +94,33 @@ function submit(): void {
 
 <style scoped>
 /* 只让内容区滚动，长明细和窄窗口下仍能直接访问保存、收起按钮。 */
-.document-form { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 168px); }
+.document-form { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 172px); }
 .document-body { min-height: 0; overflow-y: auto; }
 .document-basic-grid :deep(> .document-basic-extra) { grid-column: 1 / -1; }
 .document-fields { display: block; min-width: 0; margin: 0; padding: 0; border: 0; }
 .document-basic h3, .document-lines h3 { margin: 0 0 18px; font-size: 15px; }
-.document-basic { padding: 4px 0 8px; }
-.document-divider { margin: 24px 0; border: 0; border-top: 1px solid var(--workspace-field-border); }
+/* 基础信息独立成柔和面板，详情使用三列提高密度，编辑表单保留原两列。 */
+.document-basic { padding: 20px; border: 1px solid var(--workspace-field-border);
+  border-radius: 14px; background: var(--app-modal-surface); }
+.document-basic--readonly .document-basic-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 24px; }
+.document-basic h3 { display: flex; align-items: center; gap: 9px; }
+.document-basic h3::before { content: ''; width: 3px; height: 14px; border-radius: 3px; background: var(--workspace-field-accent); }
+.document-divider { margin: 22px 0; border: 0; }
 .document-lines { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 /* 覆盖旧版暗色卡片背景，保持标题区与弹窗底色一致，表格仍使用自己的主题。 */
 :root[data-theme='dark'] .document-lines { background: transparent; box-shadow: none; }
 .document-lines h3 { margin: 0; }
-.document-count { margin-left: 8px; color: var(--workspace-field-muted); font-size: 12px; font-weight: 400; }
+.document-count { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 7px;
+  color: var(--workspace-field-accent); background: var(--app-accent-tint); font-size: 12px; font-weight: 500; }
 .document-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 18px;
   margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--workspace-field-border); }
 .document-footer p { margin: 0; font-size: 12px; line-height: 1.6; }
 .document-actions { display: flex; justify-content: flex-end; gap: 10px; margin-left: auto; }
+@media (max-width: 850px) {
+  .document-basic--readonly .document-basic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 650px) {
+  .document-basic { padding: 16px; }
   .document-basic .form-grid { grid-template-columns: 1fr; }
   .document-footer { flex-direction: column; align-items: stretch; gap: 12px; }
   .document-actions { margin-left: 0; }
