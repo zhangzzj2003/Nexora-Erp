@@ -12,7 +12,7 @@ test('公共 Naive UI 分页保持受控页码、条数重置和失败路径保�
     transform(code, id) { if (id.endsWith('/WorkspacePagination.vue')) return code.replace("'naive-ui'", "'virtual:pagination'") },
     resolveId(id) { if (id === 'virtual:pagination') return '\0pagination' },
     load(id) { if (id === '\0pagination') return `import {defineComponent,h} from 'vue';export const captured={};
-      export const NPagination=defineComponent({props:['page','pageSize','pageCount','pageSlot','pageSizes','showSizePicker','disabled','label'],
+      export const NPagination=defineComponent({props:['page','pageSize','pageCount','pageSlot','pageSizes','showSizePicker','disabled','label','themeOverrides'],
         setup(p,{attrs,slots}){Object.assign(captured,{props:p,attrs});return()=>h('div',[slots.prev?.(),slots.next?.()])}})` }
   }, vue()], server: { middlewareMode: true, hmr: false }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
   t.after(() => server.close())
@@ -30,6 +30,11 @@ test('公共 Naive UI 分页保持受控页码、条数重置和失败路径保�
   assert.equal(captured.props.pageCount, 3)
   assert.equal(captured.props.showSizePicker, '')
   assert.deepEqual(captured.props.pageSizes, [10, 20, 30, 40, 50, 100])
+  // 圆角必须传到真实分页主题及下拉的两个内部组件，不能仅覆盖页面上可见的一层边框。
+  const theme = captured.props.themeOverrides
+  assert.equal(theme.itemBorderRadius, '10px')
+  assert.equal(theme.peers.Select.peers.InternalSelection.borderRadius, theme.itemBorderRadius)
+  assert.equal(theme.peers.Select.peers.InternalSelectMenu.borderRadius, '12px')
   captured.attrs['onUpdate:page'](3)
   captured.attrs['onUpdate:pageSize'](10)
   assert.deepEqual(calls, [[3, 20], [1, 10]])

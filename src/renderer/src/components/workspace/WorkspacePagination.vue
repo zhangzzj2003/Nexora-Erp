@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, h } from 'vue'
 import { NPagination } from 'naive-ui'
-import type { PaginationRenderLabel } from 'naive-ui'
+import type { GlobalThemeOverrides, PaginationRenderLabel } from 'naive-ui'
 
 // 公共分页只发送查询意图，不截取业务数据；已有本地和服务端分页都沿用 change 接口。
 const props = defineProps<{ page: number; pageSize: number; total: number; disabled?: boolean }>()
@@ -9,6 +9,16 @@ const emit = defineEmits<{ change: [page: number, pageSize: number] }>()
 const pageCount = computed(() => Math.max(1, Math.ceil(props.total / props.pageSize)))
 // 补充 30/40 条，同时保留已有列表的 50/100 条选项。
 const pageSizes = [10, 20, 30, 40, 50, 100]
+// 分页项与条数选择框沿用公共小按钮的 10px 圆角，传送到 body 的菜单也通过主题保持一致。
+const paginationTheme: NonNullable<GlobalThemeOverrides['Pagination']> = {
+  itemBorderRadius: '10px',
+  peers: {
+    Select: { peers: {
+      InternalSelection: { borderRadius: '10px' },
+      InternalSelectMenu: { borderRadius: '12px' }
+    } }
+  }
+}
 function changePage(page: number): void {
   if (props.disabled || !Number.isInteger(page) || page < 1 || page > pageCount.value || page === props.page) return
   emit('change', page, props.pageSize)
@@ -32,7 +42,7 @@ const renderLabel: PaginationRenderLabel = info => h('button', {
     <!-- 空列表仍显示总数；有数据的单页列表也显示页码，保持底部布局一致。 -->
     <NPagination v-if="total > 0" class="pagination-controls" :page="page" :page-size="pageSize"
       :page-count="pageCount" :page-slot="5" :page-sizes="pageSizes" show-size-picker
-      :disabled="disabled" :select-props="{ inputProps: { 'aria-label': '每页条数' } }" :label="renderLabel" @update:page="changePage" @update:page-size="resize">
+      :disabled="disabled" :theme-overrides="paginationTheme" :select-props="{ inputProps: { 'aria-label': '每页条数' } }" :label="renderLabel" @update:page="changePage" @update:page-size="resize">
       <template #prev>
         <button class="pagination-page-label" type="button" aria-label="上一页" :disabled="disabled || page <= 1">‹</button>
       </template>
@@ -49,8 +59,8 @@ const renderLabel: PaginationRenderLabel = info => h('button', {
 .pagination-total { white-space: nowrap; }
 .pagination-total strong { color: #40566e; font-weight: 600; }
 .pagination-controls { justify-content: center; flex-wrap: wrap; }
-:deep(.pagination-page-label) { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: inherit; }
-:deep(.pagination-page-label:focus-visible) { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 3px; }
+:deep(.pagination-page-label) { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: inherit; border-radius: inherit; }
+:deep(.pagination-page-label:focus-visible) { outline: 2px solid currentColor; outline-offset: 2px; }
 :root[data-theme='dark'] .workspace-pagination { color: #9cb0c7; }
 :root[data-theme='dark'] .pagination-total strong { color: #dce8f5; }
 </style>

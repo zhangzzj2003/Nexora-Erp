@@ -45,7 +45,8 @@ function select(key: TKey): void {
 <style scoped>
 /* 统计与标题共用工作台表面，数字色调对应业务状态；选中项通过边框与浅底强调。 */
 .workspace-summary-filters { display: grid; grid-template-columns: repeat(var(--summary-columns), minmax(0, 1fr)); gap: 8px; }
-.summary-filter { --summary-tone: var(--workspace-field-accent); width: 100%; min-width: 0; height: auto; padding: 14px 16px; border: 1px solid var(--workspace-field-border); border-radius: 10px; background: var(--workspace-field-background); text-align: left; }
+/* 概览卡片沿用工作台指标的 14px 圆角，背景、边框与选中描边共享同一轮廓。 */
+.summary-filter { --summary-tone: var(--workspace-field-accent); width: 100%; min-width: 0; height: auto; padding: 14px 16px; border: 1px solid var(--workspace-field-border); border-radius: 14px; background: var(--workspace-field-background); text-align: left; }
 .summary-filter :deep(.n-button__content) { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .summary-filter-label { color: var(--workspace-field-muted); font-size: 12px; font-weight: 500; }
 .summary-filter-count { color: var(--summary-tone); font-size: 27px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
