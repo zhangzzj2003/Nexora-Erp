@@ -30,7 +30,8 @@ const props = withDefaults(defineProps<{
   // 开启分页时只展示当前页数据，不在组件内切割完整数组。
   pagination?: { page: number; pageSize: number; total: number; disabled?: boolean }
   minTableWidth?: number
-  // 单据弹窗加宽时将列宽作为最小值，让明细均分剩余空间。
+  // 默认将列宽作为最小值并均分剩余空间，缩小配置宽度后列表仍铺满容器。
+  // 显式设为 false 时保留固定列宽；窄窗口仍按最小列宽横向滚动。
   stretchColumns?: boolean
 }>(), {
   showTitle: true,
@@ -41,7 +42,7 @@ const props = withDefaults(defineProps<{
   error: '',
   loading: false,
   minTableWidth: 580,
-  stretchColumns: false
+  stretchColumns: true
 })
 
 const emit = defineEmits<{ pageChange: [page: number, pageSize: number] }>()
@@ -49,7 +50,8 @@ const emit = defineEmits<{ pageChange: [page: number, pageSize: number] }>()
 const tableRef = ref<VxeTableInstance<TRow> | null>(null)
 const resolvedColumns = computed(() => resolveTableColumns(props.columns))
 const hasFixedColumns = computed(() => resolvedColumns.value.some(column => column.fixed))
-// 固定列由 VXE 自身布局，外壳保持视口宽度，不能再把整张表撑宽后滚动。
+// 铺满模式和固定列都由 VXE 自身布局与滚动，避免外层裁切隐藏溢出的列。
+const usesTableScroll = computed(() => props.stretchColumns || hasFixedColumns.value)
 const defaultColumnWidth = computed(() => Math.ceil(props.minTableWidth / Math.max(1, props.columns.length)))
 const scrollContainer = ref<HTMLElement | null>(null)
 const scrollMax = ref(0)
@@ -60,7 +62,7 @@ let resizeObserver: ResizeObserver | null = null
 function updateScrollbar(): void {
   const container = scrollContainer.value
   if (!container) return
-  const viewport = hasFixedColumns.value ? tableRef.value?.getScrollData() : container
+  const viewport = usesTableScroll.value ? tableRef.value?.getScrollData() : container
   if (!viewport) return
   const metrics = tableScrollbarMetrics(viewport.clientWidth, viewport.scrollWidth)
   scrollMax.value = metrics.max
@@ -71,12 +73,12 @@ function updateScrollbar(): void {
 function scrollFromControl(event: Event): void {
   const container = scrollContainer.value
   const position = Number((event.target as HTMLInputElement).value)
-  if (hasFixedColumns.value) void tableRef.value?.scrollTo(position)
+  if (usesTableScroll.value) void tableRef.value?.scrollTo(position)
   else if (container) container.scrollLeft = position
 }
 
 function syncScrollPosition(): void {
-  scrollPosition.value = hasFixedColumns.value
+  scrollPosition.value = usesTableScroll.value
     ? tableRef.value?.getScrollData().scrollLeft ?? 0
     : scrollContainer.value?.scrollLeft ?? 0
 }
@@ -96,10 +98,10 @@ onUnmounted(() => resizeObserver?.disconnect())
 async function refreshScrollbar(): Promise<void> {
   await nextTick()
   // 等列宽和数据行完成重排后读取真实范围，窗口缩放或筛选后不会残留过期位置。
-  if (hasFixedColumns.value) await tableRef.value?.recalculate()
+  await tableRef.value?.recalculate()
   updateScrollbar()
 }
-watch(() => [props.minTableWidth, props.columns, props.data.length, props.error], () => {
+watch(() => [props.minTableWidth, props.stretchColumns, props.columns, props.data.length, props.error], () => {
   void refreshScrollbar()
 }, { deep: true })
 
@@ -146,10 +148,10 @@ defineSlots<{
     <div v-if="$slots.beforeTable" class="workspace-table-before">
       <slot name="beforeTable" />
     </div>
-    <div ref="scrollContainer" class="table-wrap" :class="{ 'has-fixed-columns': hasFixedColumns }" @scroll.passive="syncScrollPosition">
+    <div ref="scrollContainer" class="table-wrap" :class="{ 'has-table-scroll': usesTableScroll }" @scroll.passive="syncScrollPosition">
       <span v-if="loading" class="workspace-table-status" role="status">正在加载…</span>
-      <VxeTable ref="tableRef" class="workspace-vxe-table" @scroll="syncScrollPosition" :aria-label="title" :aria-busy="loading" :data="error ? [] : data" :loading="loading" :style="hasFixedColumns ? undefined : { minWidth: `${minTableWidth}px` }"
-        :fit="stretchColumns || undefined" :scrollbar-config="hasFixedColumns ? { x: { visible: false } } : undefined">
+      <VxeTable ref="tableRef" class="workspace-vxe-table" @scroll="syncScrollPosition" :aria-label="title" :aria-busy="loading" :data="error ? [] : data" :loading="loading" :style="usesTableScroll ? undefined : { minWidth: `${minTableWidth}px` }"
+        :fit="stretchColumns || undefined" :scrollbar-config="usesTableScroll ? { x: { visible: false } } : undefined">
         <VxeColumn v-for="column in resolvedColumns" :key="column.key" :field="column.key" :title="column.title"
           :align="column.align" :header-align="column.align"
           :fixed="column.fixed || undefined" :width="stretchColumns ? undefined : column.width || (hasFixedColumns ? defaultColumnWidth : undefined)"
@@ -218,7 +220,7 @@ defineSlots<{
 .workspace-table-empty.is-error .workspace-table-empty-icon { border-color: #f1d8d5; background: #fff1ef; color: #c45a53; }
 .workspace-table-empty.is-error .workspace-table-empty-copy strong { color: #9e3934; }
 .table-wrap { overflow-x: auto; overflow-y: hidden; border-radius: 11px; scrollbar-width: none; }
-.table-wrap.has-fixed-columns { overflow: clip; }
+.table-wrap.has-table-scroll { overflow: clip; }
 .table-wrap::-webkit-scrollbar { display: none; }
 .workspace-table-scrollbar { display: block; appearance: none; width: 100%; min-height: 14px; height: 14px; margin: 10px 0 0; padding: 2px; border: 1px solid #d2dde5; border-radius: 8px; background: #e4ebf0; cursor: ew-resize; }
 .workspace-table-scrollbar::-webkit-slider-thumb { appearance: none; width: var(--scroll-thumb-width); height: 10px; border: 0; border-radius: 6px; background: #61869c; box-shadow: 0 1px 2px #28465b38; }
@@ -254,7 +256,7 @@ defineSlots<{
 /* 表格实际滚动仍由 VXE 的表体容器和共享横向滚动条处理。 */
 .workspace-vxe-table .vxe-table--viewport-wrapper { overflow: clip; }
 /* clip 不会像 hidden 自动缩小 flex 子项，显式归零最小宽度才能由 VXE 识别横向溢出。 */
-.has-fixed-columns .vxe-table--viewport-wrapper { min-width: 0; }
+.has-table-scroll .vxe-table--viewport-wrapper { min-width: 0; }
 .workspace-vxe-table :is(th, td) { padding: 0; border-bottom: 0; vertical-align: middle; }
 /* 表头与内容共用列内边距，首列再多留一点空间，避免标题贴住表格边框。 */
 .workspace-vxe-table :is(.vxe-header--column, .vxe-body--column) > .vxe-cell { padding-inline: 14px; }

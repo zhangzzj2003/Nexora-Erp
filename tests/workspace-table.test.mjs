@@ -48,7 +48,8 @@ test('公共表格加载真实 vxe 组件并渲染功能区、加载和空状态
     return renderToString(app)
   }
 
-  const populated = await render({ data: [{ name: '物料 A' }], minTableWidth: 360 })
+  // 显式固定宽度模式保留原有外层最小宽度；默认铺满模式由 VXE 负责布局。
+  const populated = await render({ data: [{ name: '物料 A' }], minTableWidth: 360, stretchColumns: false })
   assert.match(populated, /aria-label="资料列表"/)
   assert.match(populated, /min-width:360px/)
   assert.match(populated, /workspace-vxe-table/)

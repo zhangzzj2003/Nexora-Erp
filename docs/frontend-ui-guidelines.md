@@ -67,6 +67,7 @@ const keyword = ref('')
 ## 业务列表与标题层级
 
 - 仓库、基础资料、采购、销售、财务、生产和系统列表复用 `components/workspace/WorkspaceTable.vue`，不再为单据单独堆叠卡片。筛选面板、行间距、按钮换行、空状态和明暗主题由共享组件维护。
+- 公共表格默认将配置列宽作为最小值，均分容器剩余空间；缩小列宽后表头和数据行仍铺满。窄窗口保留最小列宽、横向滚动及原固定列；确需固定宽度时可显式设置 `stretchColumns=false`。
 - 页面外部标题由 `WorkspaceShell.vue` 展示；页面说明集中在 `utils/workspace-page-copy.ts`，紧随大标题。主列表使用 `showTitle=false`，避免卡片再重复页面名称；辅助列表保留有意义的分区标题。
 - 业务单元格保留原有状态、权限、表单约束和事件参数。可见字段搜索使用 `utils/workspace-records.ts`，不得把密码等隐藏草稿加入搜索。权限树与设置表单保持适合自身功能的布局。
 
