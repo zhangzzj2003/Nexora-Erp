@@ -431,6 +431,9 @@ def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> 
             check_journal_opening(db, record.journal_date)
         if action == "post":
             from app.finance.business_journals import validate_source
+            if record.reversal_of_id is not None:
+                from app.finance.subledger_order_settlements import protect_journal
+                protect_journal(db, record.reversal_of_id)
             validate_source(db, record)
             from app.finance.profit_transfers import validate_source as validate_transfer
             validate_transfer(db, record)
@@ -513,6 +516,8 @@ def reverse(
             original = get_journal(db, journal_id, data.version)
             if original.status != "posted" or original.reversal_of_id is not None:
                 raise HTTPException(409, "仅已过账的原始凭证可建立冲销")
+            from app.finance.subledger_order_settlements import protect_journal
+            protect_journal(db, original.id)
             if data.journal_date < original.journal_date:
                 raise HTTPException(409, "冲销日期不能早于原凭证日期")
             transfer = db.scalar(select(ProfitTransfer).where(ProfitTransfer.journal_id == original.id))

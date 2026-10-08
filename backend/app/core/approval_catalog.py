@@ -61,6 +61,7 @@ _RULES = (
     ('SubledgerPayment', '历史分户收付款', 'subledger_opening.view', 'finance.record', 'finance.review', 'finance.record', False),
     ('OrderSettlementTransfer', '订单间核销', 'finance.view', 'finance.record', 'finance.review', 'finance.record', False),
     ('SubledgerSettlement', '历史分户核销', 'subledger_opening.view', 'finance.record', 'finance.review', 'finance.record', False),
+    ('SubledgerOrderSettlement', '历史与订单核销', 'subledger_order_settlement.view', 'finance.record', 'finance.review', 'finance.record', False),
 )
 APPROVAL_TYPES = {rule[0]: ApprovalType(*rule) for rule in _RULES}
 

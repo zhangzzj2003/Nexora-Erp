@@ -167,7 +167,7 @@ v95 迁移只增加权限目录和旧审核角色对应的核准、批准授权�
 
 ## 整体验收与交付要求
 
-- 30 类覆盖，原有编号保持不变；v96 历史原单核销使用独立新号。
+- 31 类覆盖，原有编号保持不变；v96 历史原单核销及 v97 历史与订单核销使用独立新号。
 - 默认独立审批、不同审批步骤、越权、自审、旧客户端、并发与回滚测试。
 - 自动转单、审批后的仓库执行、质检后完工、退料和冲销链。
 - 收付款、核销、成本结算的待审草稿不生效，执行时重新校验。
@@ -179,7 +179,7 @@ v95 迁移只增加权限目录和旧审核角色对应的核准、批准授权�
 
 ## 实施顺序
 
-统一审批基础、29 类接入、生产关联查询与可选批次流程已进入主线；v96 再接入历史原单核销。各次检查和交付按对应合并请求核对。完整产品逐台/逐批实际耗用分配和召回能力仍属于后续精确实物溯源范围，本次不得宣称已经完成。
+统一审批基础、29 类接入、生产关联查询与可选批次流程已进入主线；v96 再接入历史原单核销，v97 接入[历史与订单核销](subledger-order-settlements.md)。各次检查和交付按对应合并请求核对。完整产品逐台/逐批实际耗用分配和召回能力仍属于后续精确实物溯源范围，本次不得宣称已经完成。
 
 ## 实现规则与原设计依据
 
@@ -198,7 +198,7 @@ v95 迁移只增加权限目录和旧审核角色对应的核准、批准授权�
 
 ## 现状证据
 
-- 编号类型清单：`backend/app/core/document_types.py`，共 30 类。
+- 编号类型清单：`backend/app/core/document_types.py`，共 31 类。
 - 原确认和库存事务：`backend/app/inventory/inbounds.py`、`purchase/receipts.py`、`production/material_issues.py`、`production/completions.py` 等。
 - 财务记录已改为待审草稿并在批准执行后生效：`backend/app/finance/routes.py`、`finance/subledger_openings.py`、`finance/order_settlements.py`、`finance/subledger_settlements.py`；生产成本结算见 `production/settlements.py`。
 - 已有凭证独立审批及过账：`backend/app/finance/journals.py`；既有独立审批还包括售后、维护及期初等模块。

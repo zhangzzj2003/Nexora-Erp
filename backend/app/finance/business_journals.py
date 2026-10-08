@@ -254,7 +254,8 @@ def generate(data: GenerateInput, user: dict = Depends(require('business_journal
                 period_id=period.id, note=data.reason, status='draft', version=1, created_by=user['id']))
             save_lines(db, record, lines)
             add_model(db, BusinessJournalSource(journal_id=record.id, source_key=data.source_key,
-                active_key=data.source_key, source_json=encoded(source), mapping_json=encoded(mapping),
+                active_key=data.source_key, source_json=encoded(dict(source,
+                    role_positions={role: position for position, role in enumerate(source['roles'], 1)})), mapping_json=encoded(mapping),
                 policy_version=policy.version))
             audit(db, record, None, 'create', data.reason, user['id'])
             return view(db, record)

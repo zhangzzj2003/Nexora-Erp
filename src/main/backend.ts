@@ -1222,6 +1222,26 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'subledgerOptions': return { method: 'GET', path: '/api/v1/finance/subledger-openings/options' }
     case 'subledgerPayments': return { method: 'GET', path: '/api/v1/finance/subledger-openings/payments' }
     case 'subledgerSettlements': return { method: 'GET', path: '/api/v1/finance/subledger-settlements' }
+    case 'subledgerOrderSettlements': return { method: 'GET', path: '/api/v1/finance/subledger-order-settlements' }
+    case 'subledgerOrderOptions': return { method: 'GET', path: '/api/v1/finance/subledger-order-settlements/options' }
+    case 'createSubledgerOrderSettlement': {
+      const row = payload as ErpOperations['createSubledgerOrderSettlement']['input']
+      if (!['historical_credit', 'order_credit'].includes(row.direction)) throw Error('历史与订单核销方向无效')
+      return { method: 'POST', path: '/api/v1/finance/subledger-order-settlements', body: {
+        opening_line_id: positiveId(row, 'opening_line_id'), order_id: positiveId(row, 'order_id'),
+        direction: row.direction, amount: row.amount, reference: row.reference, reason: row.reason } }
+    }
+    case 'changeSubledgerOrderSettlementStatus': {
+      const row = payload as ErpOperations['changeSubledgerOrderSettlementStatus']['input']
+      if (!['post', 'cancel'].includes(row.action) || typeof row.reason !== 'string' || !row.reason.trim()
+          || row.reason.trim().length > 200) throw Error('历史与订单核销执行参数无效')
+      return { method: 'POST', path: `/api/v1/finance/subledger-order-settlements/${positiveId(row, 'id')}/${row.action}`,
+        body: { version: positiveId(row, 'version'), reason: row.reason.trim() } }
+    }
+    case 'reverseSubledgerOrderSettlement': {
+      const row = payload as ErpOperations['reverseSubledgerOrderSettlement']['input']
+      return { method: 'POST', path: `/api/v1/finance/subledger-order-settlements/${positiveId(row, 'id')}/reverse`, body: { reason: row.reason } }
+    }
     case 'createSubledgerSettlement': {
       const row = payload as ErpOperations['createSubledgerSettlement']['input']
       return { method: 'POST', path: '/api/v1/finance/subledger-settlements', body: {

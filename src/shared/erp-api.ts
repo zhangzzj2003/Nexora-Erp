@@ -311,9 +311,35 @@ export interface SubledgerSettlement extends SubledgerSettlementInput, NumberedD
   cancelled_by: number | null; cancelled_at: string | null; cancellation_reason: string
 }
 export interface SubledgerBalanceRow extends SubledgerLine {
-  settled_amount: string; offset_amount: string; outstanding_amount: string
+  settled_amount: string; offset_amount: string; order_offset_amount?: string; outstanding_amount: string
   payments: SubledgerPayment[]; settlements: SubledgerSettlement[]
 }
+export type SubledgerOrderDirection = 'historical_credit' | 'order_credit'
+export interface SubledgerOrderSettlementInput {
+  opening_line_id: number; order_id: number; direction: SubledgerOrderDirection; amount: string; reference: string; reason: string
+}
+export type OrderScopeEvidence = {
+  type: 'journal'; source_key: string; fingerprint: string; journal_id: number; journal_line_id: number; journal_date: string; order_id: number
+  account_id: number; auxiliary: AuxiliarySnapshot[]; amount: string
+} | {
+  type: 'order_settlement'; transfer_id: number; kind: SubledgerKind; from_order_id: number; to_order_id: number
+  party_id: number; order_id: number; executed_at: string; account_id: number; auxiliary: AuxiliarySnapshot[]; amount: string
+}
+export interface SubledgerOrderSettlement extends SubledgerOrderSettlementInput, NumberedDocument {
+  id: number; reverses_id: number | null; status: 'draft' | 'executed' | 'cancelled'; version: number; approval?: DocumentApprovalState
+  opening_id: number; kind: SubledgerKind; account_id: number; account_code: string; account_name: string
+  party_id: number; party_name: string; document_reference: string; auxiliary: AuxiliarySnapshot[]; currency: 'CNY'
+  order_evidence: OrderScopeEvidence[]; created_by: number; created_by_name: string; created_at: string
+  executed_by: number | null; executed_at: string | null; cancelled_by: number | null; cancelled_at: string | null; cancellation_reason: string
+}
+export interface OrderScopeGroup { account_id: number; auxiliary: AuxiliarySnapshot[]; outstanding_amount: string; evidence: OrderScopeEvidence[] }
+export interface SubledgerOrderOption extends NumberedDocument {
+  kind: SubledgerKind; order_id: number; party_id: number; party_name: string; currency: 'CNY'
+  outstanding_amount: string; groups: OrderScopeGroup[]; blockers: string[]
+}
+export type SubledgerOrderLine = Pick<SubledgerBalanceRow, 'id' | 'opening_id' | 'kind' | 'account_id' | 'account_code' | 'account_name'
+  | 'party_id' | 'party_name' | 'document_reference' | 'document_date' | 'auxiliary' | 'opening_amount' | 'outstanding_amount'>
+export interface SubledgerOrderOptions { currency: 'CNY'; active: boolean; lines: SubledgerOrderLine[]; orders: SubledgerOrderOption[] }
 export interface SubledgerReport {
   currency: 'CNY'; time_basis: 'UTC'; to_date: string; rows: SubledgerBalanceRow[]; opening: SubledgerOpening | null
   totals: Record<SubledgerKind, { opening_amount: string; settled_amount: string; offset_amount: string; outstanding_amount: string }>
@@ -1452,6 +1478,11 @@ export interface ErpOperations extends ProductionAssociationOperations, Document
   createSubledgerSettlement: { input: SubledgerSettlementInput; output: SubledgerSettlement }
   changeSubledgerSettlementStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: SubledgerSettlement }
   reverseSubledgerSettlement: { input: { id: number; reason: string }; output: SubledgerSettlement }
+  subledgerOrderSettlements: { input: undefined; output: SubledgerOrderSettlement[] }
+  subledgerOrderOptions: { input: undefined; output: SubledgerOrderOptions }
+  createSubledgerOrderSettlement: { input: SubledgerOrderSettlementInput; output: SubledgerOrderSettlement }
+  changeSubledgerOrderSettlementStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: SubledgerOrderSettlement }
+  reverseSubledgerOrderSettlement: { input: { id: number; reason: string }; output: SubledgerOrderSettlement }
   createSubledgerPayment: { input: SubledgerPaymentInput; output: SubledgerPayment }
   changeSubledgerPaymentStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: SubledgerPayment }
   reverseSubledgerPayment: { input: { id: number; reason: string }; output: SubledgerPayment }

@@ -58,6 +58,7 @@ import { createProfitTransferActions } from './modules/profit-transfer-actions'
 import { createStatementActions } from './modules/statement-actions'
 import { createAuxiliaryActions } from './modules/auxiliary-actions'
 import { createSubledgerActions } from './modules/subledger-actions'
+import { createSubledgerOrderActions } from './modules/subledger-order-actions'
 import { createMrpActions } from './modules/mrp-actions'
 import { createCrmActions } from './modules/crm-actions'
 import { createQualityActions } from './modules/quality-actions'
@@ -302,6 +303,7 @@ function createAppStore() {
   const statementActions = createStatementActions(state, perform)
   const auxiliaryActions = createAuxiliaryActions(state, perform)
   const subledgerActions = createSubledgerActions(state, perform)
+  const subledgerOrderActions = createSubledgerOrderActions(state, perform, subledgerActions.refreshSubledgerApproval)
   const mrpActions = createMrpActions(state, perform)
   const crmActions = createCrmActions(state, perform)
   const qualityActions = createQualityActions(state, perform)
@@ -316,6 +318,7 @@ function createAppStore() {
       if (target.document_type === 'AfterSalesCase') await afterSalesActions.refreshAfterSalesApproval(target.document_id)
       if (target.document_type === 'MaintenanceJob') await equipmentActions.refreshEquipmentApproval(target.document_id)
       if (['SubledgerOpening','SubledgerPayment','SubledgerSettlement'].includes(target.document_type)) await subledgerActions.refreshSubledgerApproval()
+      if (target.document_type === 'SubledgerOrderSettlement') await subledgerOrderActions.loadSubledgerOrders()
       if (target.document_type === 'MrpPlan') await mrpActions.refreshMrpApproval(target.document_id)
       if (target.document_type === 'QualityDisposition') await qualityActions.refreshQualityApproval(target.document_id)
     }) }
@@ -394,6 +397,7 @@ function createAppStore() {
     ...statementActions,
     ...auxiliaryActions,
     ...subledgerActions,
+    ...subledgerOrderActions,
     ...mrpActions,
     ...crmActions,
     ...qualityActions,

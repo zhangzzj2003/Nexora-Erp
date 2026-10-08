@@ -138,6 +138,8 @@ def validate_transfer(db: Session, record: OrderSettlementTransfer) -> None:
         raise HTTPException(409, '只能核销同一客户或供应商的订单')
     if not source['source_keys'] or not target['source_keys']:
         raise HTTPException(409, '双方订单均须有已确认且已定价的业务单据')
+    from app.finance.subledger_order_settlements import protect_order_transfer
+    protect_order_transfer(db, record.kind, record.from_order_id, record.to_order_id)
     if record.reverses_id is not None:
         original = db.get(OrderSettlementTransfer, record.reverses_id)
         if original is None or original.status != 'executed' or original.reverses_id is not None:

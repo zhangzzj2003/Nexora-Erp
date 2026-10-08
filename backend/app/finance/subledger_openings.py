@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.access.security import current_user, require
 from app.core.models import (BusinessJournalPolicy, LedgerAccount, OpeningBalance,
     OpeningBalanceLine, PaymentRecord, SubledgerOpening, SubledgerOpeningChange,
-    SubledgerOpeningLine, SubledgerPayment, SubledgerSettlement, User)
+    SubledgerOpeningLine, SubledgerPayment, SubledgerSettlement, SubledgerOrderSettlement, User)
 from app.core.orm import add_model, model_data, orm_session
 from app.core.period_lock import ensure_date_unlocked
 from app.finance.auxiliary_rules import (AuxiliaryReference, combination,
@@ -341,6 +341,10 @@ def validate_reversal(db: Session, record: SubledgerOpening) -> None:
     # 真实资金记录即使已冲销也必须保留历史期初，独立批准不能绕过该限制。
     ensure_no_posted_journals(db)
     ensure_date_unlocked(db, record.effective_date)
+    if db.scalar(select(SubledgerOrderSettlement.id).join(SubledgerOpeningLine,
+            SubledgerOpeningLine.id == SubledgerOrderSettlement.opening_line_id).where(
+            SubledgerOrderSettlement.status != 'cancelled', SubledgerOpeningLine.opening_id == record.id).limit(1)) is not None:
+        raise HTTPException(409, '期初已有历史与订单核销草稿或执行记录，不能重设历史期初')
     if db.scalar(select(SubledgerSettlement.id).join(SubledgerOpeningLine,
             SubledgerOpeningLine.id == SubledgerSettlement.from_line_id).where(
             SubledgerSettlement.status != 'cancelled', SubledgerOpeningLine.opening_id == record.id).limit(1)) is not None:
@@ -441,9 +445,13 @@ def balance(db: Session, line: SubledgerOpeningLine, to_date: str | None = None)
     settled = sum((Decimal(row['amount']) for row in payments), ZERO)
     offset = sum((Decimal(row['amount']) * (-1 if row['from_line_id'] == line.id else 1)
                   for row in settlements), ZERO)
+    from app.finance.subledger_order_balances import line_offset
+    order_offset = line_offset(db, line.id, to_date)
+    offset += order_offset
     result = line_data(line)
     return dict(**result, settled_amount=f'{settled:.2f}',
         offset_amount=f'{offset:.2f}',
+        order_offset_amount=f'{order_offset:.2f}',
         outstanding_amount=f'{Decimal(result["opening_amount"]) - settled - offset:.2f}',
         payments=payments, settlements=settlements)
 

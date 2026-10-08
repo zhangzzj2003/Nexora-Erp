@@ -230,9 +230,15 @@ def account_data(db: Session, kind: str, order_id: int,
         .where(OrderSettlementTransfer.kind == kind, OrderSettlementTransfer.from_order_id == order_id, OrderSettlementTransfer.status == 'executed'))), Decimal(0))
     debt_covered = sum((Decimal(value) for value in db.scalars(select(OrderSettlementTransfer.amount)
         .where(OrderSettlementTransfer.kind == kind, OrderSettlementTransfer.to_order_id == order_id, OrderSettlementTransfer.status == 'executed'))), Decimal(0))
+    from app.finance.subledger_order_balances import order_offsets
+    historical_credit_used, historical_debt_covered = order_offsets(db, kind, order_id)
+    credit_used += historical_credit_used
+    debt_covered += historical_debt_covered
     return {"kind": kind, "order_id": order_id, **dict(row), "currency": "CNY",
             "business_amount": money(billed), "settled_amount": money(settled),
             "credit_used_amount": money(credit_used), "debt_covered_amount": money(debt_covered),
+            "historical_credit_used_amount": money(historical_credit_used),
+            "historical_debt_covered_amount": money(historical_debt_covered),
             "outstanding_amount": money(billed - settled + credit_used - debt_covered),
             "source_keys": [item["key"] for item in source]}
 

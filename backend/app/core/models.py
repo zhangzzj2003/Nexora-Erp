@@ -1790,6 +1790,48 @@ class SubledgerSettlement(Base):
     )
 
 
+class SubledgerOrderSettlement(Base):
+    """历史原单与现有订单的同组合抵销，保留凭证依据及追加式撤销。"""
+    __tablename__ = 'subledger_order_settlements'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
+    opening_line_id: Mapped[int] = mapped_column(ForeignKey('subledger_opening_lines.id'), nullable=False)
+    sales_order_id: Mapped[int | None] = mapped_column(ForeignKey('sales_orders.id'))
+    purchase_order_id: Mapped[int | None] = mapped_column(ForeignKey('purchase_orders.id'))
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    direction: Mapped[str] = mapped_column(Text, nullable=False)
+    account_id: Mapped[int] = mapped_column(ForeignKey('ledger_accounts.id'), nullable=False)
+    auxiliary_json: Mapped[str] = mapped_column(Text, nullable=False)
+    order_evidence_json: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reverses_id: Mapped[int | None] = mapped_column(ForeignKey('subledger_order_settlements.id'))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'draft'"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    executed_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    executed_at: Mapped[str | None] = mapped_column(Text)
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    cancelled_at: Mapped[str | None] = mapped_column(Text)
+    cancellation_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    __table_args__ = (
+        CheckConstraint("kind IN ('receivable','payable')"),
+        CheckConstraint("direction IN ('historical_credit','order_credit')"),
+        CheckConstraint("(kind='receivable' AND sales_order_id IS NOT NULL AND purchase_order_id IS NULL) OR "
+                        "(kind='payable' AND purchase_order_id IS NOT NULL AND sales_order_id IS NULL)"),
+        CheckConstraint("status IN ('draft','executed','cancelled')"),
+        CheckConstraint('version > 0'),
+        Index('subledger_order_settlement_sales_reference', 'opening_line_id', 'sales_order_id', 'direction',
+              'reference', unique=True, sqlite_where=reverses_id.is_(None) & (status != 'cancelled')),
+        Index('subledger_order_settlement_purchase_reference', 'opening_line_id', 'purchase_order_id', 'direction',
+              'reference', unique=True, sqlite_where=reverses_id.is_(None) & (status != 'cancelled')),
+        Index('subledger_order_settlement_reversal', 'reverses_id', unique=True,
+              sqlite_where=status != 'cancelled'),
+    )
+
+
 class BankAccount(Base):
     __tablename__ = 'bank_accounts'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

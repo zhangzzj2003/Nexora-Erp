@@ -81,7 +81,7 @@ def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_recor
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 96:
+        if version > 97:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 92:
             # 资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -2927,3 +2927,46 @@ def migrate() -> None:
                 db.execute('''INSERT OR IGNORE INTO document_approval_policies(document_type,version,steps_json)
                     VALUES ('SubledgerSettlement',1,'[{"name":"批准","role":null}]')''')
             db.execute('PRAGMA user_version = 96')
+
+        if version < 97:
+            # 新增跨历史原单与现有订单的抵销结构；升级不推断旧订单的辅助归属。
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS subledger_order_settlements (
+                id INTEGER PRIMARY KEY, document_no TEXT,
+                opening_line_id INTEGER NOT NULL REFERENCES subledger_opening_lines(id),
+                sales_order_id INTEGER REFERENCES sales_orders(id),
+                purchase_order_id INTEGER REFERENCES purchase_orders(id),
+                kind TEXT NOT NULL CHECK(kind IN ('receivable','payable')),
+                direction TEXT NOT NULL CHECK(direction IN ('historical_credit','order_credit')),
+                account_id INTEGER NOT NULL REFERENCES ledger_accounts(id), auxiliary_json TEXT NOT NULL,
+                order_evidence_json TEXT NOT NULL, amount TEXT NOT NULL, reference TEXT NOT NULL,
+                reason TEXT NOT NULL, reverses_id INTEGER REFERENCES subledger_order_settlements(id),
+                status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','executed','cancelled')),
+                version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                executed_by INTEGER REFERENCES users(id), executed_at TEXT,
+                cancelled_by INTEGER REFERENCES users(id), cancelled_at TEXT,
+                cancellation_reason TEXT NOT NULL DEFAULT '',
+                CHECK((kind='receivable' AND sales_order_id IS NOT NULL AND purchase_order_id IS NULL)
+                    OR (kind='payable' AND purchase_order_id IS NOT NULL AND sales_order_id IS NULL)))''')
+            db.execute('CREATE UNIQUE INDEX IF NOT EXISTS subledger_order_settlements_document_no ON subledger_order_settlements(document_no)')
+            for side in ('sales', 'purchase'):
+                db.execute(f'''CREATE UNIQUE INDEX IF NOT EXISTS subledger_order_settlement_{side}_reference
+                    ON subledger_order_settlements(opening_line_id,{side}_order_id,direction,reference)
+                    WHERE reverses_id IS NULL AND status != 'cancelled' ''')
+            db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS subledger_order_settlement_reversal
+                ON subledger_order_settlements(reverses_id) WHERE status != 'cancelled' ''')
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_approval_policies'").fetchone():
+                db.execute('''INSERT OR IGNORE INTO document_approval_policies(document_type,version,steps_json)
+                    VALUES ('SubledgerOrderSettlement',1,'[{"name":"批准","role":null}]')''')
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='permissions'").fetchone():
+                previous = db.execute("SELECT group_code FROM permissions WHERE code='finance.view'").fetchone()
+                if previous:
+                    db.execute('INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,?)',
+                               ('subledger_order_settlement.view', '查看历史与订单核销', previous[0]))
+                    # 新查看权只补给内置财务与管理员；自定义角色由管理员明确授权。
+                    db.execute('''INSERT OR IGNORE INTO role_permissions(role_code,permission_code)
+                        SELECT role_code,'subledger_order_settlement.view' FROM role_permissions
+                        WHERE permission_code='finance.view' AND role_code IN ('admin','finance')''')
+            db.execute('PRAGMA user_version = 97')

@@ -51,6 +51,8 @@ import type {
   SubledgerReconciliation,
   SubledgerPayment,
   SubledgerSettlement,
+  SubledgerOrderSettlement,
+  SubledgerOrderOptions,
   LedgerReportQuery,
   LedgerReportResult,
   LedgerAccountInput,
@@ -253,6 +255,10 @@ export function createAppState() {
   const subledgerReport = ref<SubledgerReport | null>(null)
   const subledgerPayments = ref<SubledgerPayment[]>([])
   const subledgerSettlements = ref<SubledgerSettlement[]>([])
+  const subledgerOrderSettlements = ref<SubledgerOrderSettlement[]>([])
+  const subledgerOrderOptions = ref<SubledgerOrderOptions | null>(null)
+  const subledgerOrderLoading = ref(false)
+  const subledgerOrderError = ref('')
   const subledgerChanges = ref<SubledgerChange[]>([])
   const subledgerCheck = ref<SubledgerReconciliation | null>(null)
   const subledgerLoading = ref(false)
@@ -670,6 +676,10 @@ export function createAppState() {
     subledgerReport,
     subledgerPayments,
     subledgerSettlements,
+    subledgerOrderSettlements,
+    subledgerOrderOptions,
+    subledgerOrderLoading,
+    subledgerOrderError,
     subledgerChanges,
     subledgerCheck,
     subledgerLoading,

@@ -24,6 +24,7 @@ PATH_TYPES = {
     'equipment/jobs': 'MaintenanceJob', 'finance/journals': 'Journal',
     'finance/opening-balances': 'OpeningBalance', 'finance/subledger-openings': 'SubledgerOpening',
     'payment-records': 'PaymentRecord', 'finance/payment-records': 'PaymentRecord', 'finance/order-settlements': 'OrderSettlementTransfer', 'finance/subledger-settlements': 'SubledgerSettlement',
+    'finance/subledger-order-settlements': 'SubledgerOrderSettlement',
 }
 COLLECTION_TYPES = {
     'quotes': 'CrmQuote', 'dispositions': 'QualityDisposition', 'jobs': 'MaintenanceJob',
@@ -115,7 +116,7 @@ def enrich_numbers(db, value, primary: str | None, path: str):
             if order_type:
                 for field in ('order', 'from_order', 'to_order'):
                     add(node, field + '_document_no', order_type, node.get(field + '_id'))
-            if kind in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement'):
+            if kind in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement', 'SubledgerOrderSettlement'):
                 add(node, 'reverses_document_no', kind, node.get('reverses_id'))
             source = node.get('source_type') or node.get('kind')
             if isinstance(source, str):

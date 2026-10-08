@@ -228,7 +228,7 @@ def test_v95_upgrade_preserves_cash_and_rolls_back_failed_table_creation(settlem
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='subledger_settlements'").fetchone()
     migrate(); migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 96
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 97
         assert [tuple(row) for row in db.execute('SELECT * FROM subledger_payments')] == original_payments
         assert not db.execute('PRAGMA foreign_key_check').fetchone()
     assert fixture[1]('GET', 'finance/subledger-settlements') == []

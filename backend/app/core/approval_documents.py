@@ -561,6 +561,31 @@ def order_settlement_snapshot(db: Session, identifier: int) -> dict:
             ('id', 'document_no', 'kind', 'party_id', 'from_order_id', 'to_order_id', 'amount', 'reference', 'executed_at')}}
 
 
+def subledger_order_settlement_snapshot(db: Session, identifier: int) -> dict:
+    import json
+    from app.core.models import SubledgerOrderSettlement, SubledgerOpeningLine
+    from app.core.orm import model_data
+    from app.finance.routes import party_data
+    from app.finance.subledger_order_balances import order_id
+    from app.finance.subledger_order_settlements import evidence_state
+    source = document_source(db, 'SubledgerOrderSettlement', identifier)
+    original = db.get(SubledgerOrderSettlement, source.reverses_id) if source.reverses_id else None
+    evidence = json.loads(source.order_evidence_json)
+    return {field: getattr(source, field) for field in (
+        'opening_line_id', 'sales_order_id', 'purchase_order_id', 'kind', 'direction',
+        'account_id', 'amount', 'reference', 'reason', 'reverses_id')} | {
+        'line': model_data(db.get(SubledgerOpeningLine, source.opening_line_id)),
+        'order_id': order_id(source),
+        'order_party_id': party_data(db, source.kind, order_id(source))['party_id'],
+        'auxiliary': json.loads(source.auxiliary_json), 'order_evidence': evidence,
+        'evidence_state': evidence_state(db, evidence),
+        'source_author_ids': sorted({source.created_by, *([original.created_by] if original else []),
+            *([original.executed_by] if original and original.executed_by is not None else [])}),
+        'original': None if original is None else {field: getattr(original, field) for field in (
+            'id', 'document_no', 'opening_line_id', 'sales_order_id', 'purchase_order_id',
+            'kind', 'direction', 'amount', 'account_id', 'executed_at')}}
+
+
 def subledger_settlement_snapshot(db: Session, identifier: int) -> dict:
     from app.core.models import SubledgerSettlement, SubledgerOpeningLine
     from app.core.orm import model_data
@@ -758,6 +783,7 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
 _SNAPSHOTS = {'SubledgerSettlement': subledger_settlement_snapshot, 'ProductionCostSettlement': settlement_snapshot, 'OrderSettlementTransfer': order_settlement_snapshot, 'SubledgerPayment': subledger_payment_snapshot, 'PaymentRecord': payment_snapshot, 'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+              'SubledgerOrderSettlement': subledger_order_settlement_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
               'Transfer': transfer_snapshot, 'Stocktake': stocktake_snapshot, 'StockAdjustment': adjustment_snapshot,
@@ -879,7 +905,7 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
 
 def submit_permission(document_type: str, intent: str, source=None) -> str | None:
     # 反向资金草稿独立送审，建单权限不能代替冲销权限。
-    if document_type in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement') and source is not None and source.reverses_id is not None:
+    if document_type in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement', 'SubledgerOrderSettlement') and source is not None and source.reverses_id is not None:
         return 'finance.reverse'
     # 冲销送审/撤回沿用冲销权限，不能因为有建单权限而获得冲销权限。
     if intent == 'reverse' and document_type == 'SubledgerOpening':
@@ -898,6 +924,20 @@ def submit_permission(document_type: str, intent: str, source=None) -> str | Non
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'SubledgerOrderSettlement':
+        line = content['line']
+        proof = content['order_evidence']
+        return [{'label': label, 'value': str(value)} for label, value in [
+            ('往来类别', '客户应收' if content['kind'] == 'receivable' else '供应商应付'),
+            ('核销方向', '历史贷方抵扣订单欠款' if content['direction'] == 'historical_credit' else '订单贷方抵扣历史欠款'),
+            ('历史原单', line['document_reference']), ('现有订单', f"#{content['order_id']}"),
+            ('控制科目', line['account_code']),
+            ('完整辅助归属', ' / '.join(item['name'] for item in content['auxiliary'])),
+            ('核销金额（元）', content['amount']), ('参考号', content['reference']), ('依据', content['reason']),
+            ('订单凭证依据', ' / '.join(f"凭证 #{item['journal_id']}" if item['type'] == 'journal'
+                else f"订单核销 #{item['transfer_id']}" for item in proof))]] + (
+            [{'label': '原核销单号', 'value': content['original']['document_no'] or f"#{content['original']['id']}"}]
+            if content['original'] else [])
     if document_type == 'SubledgerSettlement':
         import json
         line = content['from_line']

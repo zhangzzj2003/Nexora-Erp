@@ -18,6 +18,7 @@ import { subledgerActions, subledgerKindLabels } from './subledger-display'
 import SubledgerEditor from './SubledgerEditor.vue'
 import SubledgerEvidence from './SubledgerEvidence.vue'
 import SubledgerSettlements from './SubledgerSettlements.vue'
+import SubledgerOrderSettlements from './SubledgerOrderSettlements.vue'
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import './ledger-metadata.css'
 import './journals.css'
@@ -29,7 +30,7 @@ const { subledgerOpenings: records, subledgerPayments: payments, subledgerQuery:
   subledgerError: error, error: operationError, busy, connectionLost, user, server } = storeToRefs(store)
 const { can, openDocumentApproval, loadSubledger, querySubledger, exportSubledger, editSubledger, loadSubledgerDetail,
   clearSubledgerDetail, changeSubledgerStatus, createSubledgerPayment, reverseSubledgerPayment, changeSubledgerPaymentStatus } = store
-const mode = ref<'balances' | 'plans' | 'payments' | 'settlements'>('balances')
+const mode = ref<'balances' | 'plans' | 'payments' | 'settlements' | 'orders'>('balances')
 const editing = ref(false)
 const preparing = ref(false)
 const detail = ref<SubledgerOpening | null>(null)
@@ -93,7 +94,10 @@ onMounted(async () => {
   if (await loadSubledger() && records.value.some(item => item.status === 'confirmed' && item.active_key === 1)) await querySubledger()
 })
 onUnmounted(closeDetail)
-async function reload(): Promise<void> { source.value = null; closeDetail(); if (await loadSubledger() && mode.value === 'balances') await querySubledger() }
+async function reload(): Promise<void> {
+  if (mode.value === 'orders') { await store.loadSubledgerOrders(); return }
+  source.value = null; closeDetail(); if (await loadSubledger() && mode.value === 'balances') await querySubledger()
+}
 async function edit(item?: SubledgerOpening): Promise<void> {
   if (preparing.value || disabled.value) return
   preparing.value = true; operationError.value = ''
@@ -170,6 +174,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
       <AppButton :variant="mode === 'plans' ? 'primary' : 'secondary'" @click="mode = 'plans'">分户方案</AppButton>
       <AppButton :variant="mode === 'payments' ? 'primary' : 'secondary'" @click="mode = 'payments'">资金记录</AppButton>
       <AppButton :variant="mode === 'settlements' ? 'primary' : 'secondary'" @click="mode = 'settlements'">原单核销</AppButton>
+      <AppButton v-if="can('subledger_order_settlement.view')" :variant="mode === 'orders' ? 'primary' : 'secondary'" @click="mode = 'orders'">历史与订单核销</AppButton>
       <AppButton :disabled="disabled" @click="reload">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
     </div>
     <label v-if="mode !== 'balances'">搜索单据<AppInput v-model.trim="documentQuery" placeholder="单号、参考号或原 ID" /></label>
@@ -221,6 +226,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
       </WorkspaceTable>
     </template>
     <SubledgerSettlements v-else-if="mode === 'settlements'" :search="documentQuery" />
+    <SubledgerOrderSettlements v-else-if="mode === 'orders' && can('subledger_order_settlement.view')" :search="documentQuery" />
     <template v-else>
       <p>历史资金草稿与反向记录全部保留；独立批准后执行才更新未结余额，时间显示为本地时间。退款为负，反向草稿关联原资金。</p>
       <AppButton v-if="can('journal.view') && can('business_journal.view')" :disabled="disabled" @click="store.navigateToRoute('journals')">到凭证管理生成业务凭证</AppButton>
