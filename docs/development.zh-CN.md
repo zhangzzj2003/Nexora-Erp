@@ -68,6 +68,8 @@ Vue 页面 → Pinia 状态与操作 → 受限 preload → Electron 主进程
 
 页面放在 `views/workspace/` 对应业务域，仅本页使用的数据和样式与页面同目录。共享组件按 `app/`、`feedback/`、`workspace/` 分类；组件级逻辑放 `composables/`，辅助函数放 `utils/`。见 [引导目录](../src/renderer/src/views/onboarding/README.md)、[工作台目录](../src/renderer/src/views/workspace/README.md)。
 
+公共 `WorkspaceTable` 对同时包含 `document` 与 `actions` 的单据列表默认固定左侧单据列、右侧操作列，中间区域使用 VXE 内部横向滚动，底部滚动条与表体位置同步。列配置可用 `fixed: 'left' | 'right' | false` 显式指定或关闭固定；没有这两个单据列的表格保持原行为。固定模式未指定宽度的列按 `minTableWidth / 列数` 分配基础宽度，复杂业务应提供明确列宽。
+
 状态标签统一复用 `components/app/AppStatusTag.vue`，传入 `label` 和可选 `tone`（默认 `neutral`）。色调包括 `success`（完成）、`pending`（待处理）、`info`（进行中）、`ready`（已批准待执行）、`danger`（失败/驳回）、`neutral`（取消/撤回）、`reversed`（冲销）。业务状态和文案映射留在各页面，组件负责明暗主题、胶囊底色及装饰圆点；目前已接入其他入库列表与详情，新增状态展示沿用此组件。
 
 桌面工作台内容区左右留白为 24–32px，标题与业务卡片共用同一边界；760px 及以下沿用 17px 留白。
