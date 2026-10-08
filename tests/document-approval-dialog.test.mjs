@@ -50,12 +50,19 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.match(html, /审批中/)
   assert.match(html, /电阻 × 100 个/)
   assert.match(html, /撤回审批/)
-  assert.doesNotMatch(html, />驳回<|>审核<|审批意见/)
+  assert.doesNotMatch(html, /<button[^>]*>驳回<|<button[^>]*>审核<|审批意见（/)
   assert.match(html, /workspace-document-dialog/)
   assert.match(html, /document-basic--readonly/)
   assert.match(html, /min\(1280px/)
   assert.ok(html.indexOf('主仓库') < html.indexOf('物料明细'))
-  assert.ok(html.indexOf('电阻 × 100 个') < html.indexOf('审批进度'))
+  // 顶部流程先于基础信息和物料明细，历史仍保留在正文下方。
+  assert.ok(html.indexOf('审批进度') < html.indexOf('主仓库'))
+  assert.ok(html.indexOf('电阻 × 100 个') < html.indexOf('审批记录'))
+  assert.match(html, /aria-current="step"/)
+  assert.match(html, /当前待办：审核/)
+  // 图形节点保持有序语义与键盘可滚动入口，状态不再退化为纯数字列表。
+  assert.match(html, /aria-label="审批流程（可左右滚动）"/)
+  assert.equal((html.match(/class="approval-stage-icon"/g) ?? []).length, 4)
   assert.ok(html.indexOf('审批记录') < html.indexOf('document-footer'))
   assert.doesNotMatch(html, /保存草稿|添加物料|type="submit"/)
   // 忙碌状态禁止关闭；断线仍可收起，而审批按钮保持禁用。
@@ -95,7 +102,7 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.match(html, /已批准，待执行/)
   assert.match(html, /审核 · 独立审核人/)
   assert.match(html, /核对明细/)
-  assert.doesNotMatch(html, />批准<|>执行<|>确认入库</)
+  assert.doesNotMatch(html, /<button[^>]*>批准<|<button[^>]*>执行<|<button[^>]*>确认入库</)
   // 已确认订单允许追加合同依据，查看原执行快照时不能提示无法完成的撤回操作。
   store.documentApprovalRecord = { ...store.documentApprovalRecord, status: 'executed', content_matches: false, can_withdraw: false }
   html = await render()

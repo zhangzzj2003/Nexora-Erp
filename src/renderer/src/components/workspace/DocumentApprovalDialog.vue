@@ -6,7 +6,7 @@ import { documentApprovalLayout } from '../../utils/document-approval-layout'
 import AppButton from '../app/AppButton.vue'
 import AppInput from '../app/AppInput.vue'
 import { usePiniaAppStore } from '../../store/app-store'
-import { accountRoleText } from '../../utils/account-role'
+import DocumentApprovalProgress from './DocumentApprovalProgress.vue'
 import { approvalTargetKey } from '../../store/modules/document-approval-case-actions'
 
 // 审批复用查看详情的公共单据布局，业务内容始终来自服务端送审快照。
@@ -21,7 +21,6 @@ const layout = computed(() => documentApprovalLayout(record.value))
 // 保留服务端物料名称及数量单位，不拆解显示文本或重新计算审批内容。
 const columns = [{ key: 'label', title: '物料编码 / 名称', width: '440' },
   { key: 'value', title: '数量 / 单位', width: '140' }]
-const labels = { draft: '未送审', submitted: '审批中', approved: '已批准，待执行', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
 const actions = { submit: '送审', approve: '批准', reject: '驳回', withdraw: '撤回', execute: '执行' }
 // 报价、售后及处置保留原必填依据，售后与处置意见最多二百字。
 const quoteReasonRequired = computed(() => ['CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'ProductionCostSettlement'].includes(target.value?.document_type ?? ''))
@@ -37,6 +36,8 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
     :title="`${title}${target?.intent === 'reverse' ? (['OpeningBalance', 'SubledgerOpening'].includes(target.document_type) ? ' · 撤销审批' : ' · 冲销审批') : ''}${record?.document_no ? ` · ${record.document_no}` : ''}`"
     @update:show="value => { if (!value) store.closeDocumentApproval() }">
     <template #beforeBasicInfo>
+      <!-- 进度优先展示，单据正文与历史仍使用同一服务端快照。 -->
+      <DocumentApprovalProgress v-if="record" :record="record" :roles="store.roles" :local-time="store.localTime" />
       <slot />
       <p v-if="loading" role="status">正在读取审批记录…</p>
       <p v-if="error" role="alert" class="approval-error">{{ error }}</p>
@@ -54,22 +55,9 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
     <template #cell-label="{ row }"><strong class="approval-value">{{ row.label }}</strong></template>
     <template #cell-value="{ row }"><span class="approval-value">{{ row.value }}</span></template>
     <template #afterLines>
-      <section v-if="record" class="approval-content" aria-label="审批进度与记录">
-        <h3>审批进度</h3>
-        <!-- 已下达或已完工的历史工单同样保留原流程，不能误显示为等待新审批。 -->
-        <p v-if="record.intent === 'execute' && record.version === 0 && ['posted', 'cancelled', 'confirmed', 'partially_shipped', 'shipped', 'closed', 'released', 'in_progress', 'completed', 'converted', 'processing', 'received', 'repaired', 'reversed', 'accepted', 'reported'].includes(record.business_status)">已处理单据保留原业务记录，不补造审批记录。</p>
-        <!-- 旧申请全部转完后只保留原事实；剩余需求的新批准不能倒写成历史订单的批准。 -->
-        <p v-else-if="record.document_type === 'PurchaseRequest' && record.version === 0 && record.business_status === 'approved' && !record.can_submit">申请已无待转数量，保留原转单记录，不补造审批。</p>
-        <p v-else><strong>{{ labels[record.status] }}</strong> · 审批版本 {{ record.version }}</p>
+      <section v-if="record" class="approval-content" aria-label="审批意见与记录">
         <!-- 完工的质检前置由服务端约束；这里说明不能送审的实际原因。 -->
         <p v-if="record.document_type === 'ProductionCompletion' && record.intent === 'execute' && record.business_status === 'draft'">请先记录质检结果，完成后再提交本单审批。</p>
-        <p class="approval-hint">建单、编辑、提交人员不能自审；不同审批步骤由不同人员完成。批准后仍需执行对应业务操作。</p>
-        <ol v-if="record.steps.length" class="approval-steps">
-          <li v-for="(step, index) in record.steps" :key="index"
-            :class="{ completed: index < record.current_step, current: record.status === 'submitted' && index === record.current_step }">
-            <strong>{{ index + 1 }}. {{ step.name }}</strong><span>{{ step.role ? `指定角色：${accountRoleText([step.role], store.roles)}` : '由有审核权限的人员处理' }}</span>
-          </li>
-        </ol>
         <p v-if="record.reversal_evidence">送审验收更正依据：{{ record.reversal_evidence }}</p>
         <p v-if="record.reversal_reason">送审{{ ['OpeningBalance', 'SubledgerOpening'].includes(record.document_type) ? '撤销' : '冲销' }}原因：{{ record.reversal_reason }}</p>
         <label v-if="reversalSubmit || record.can_review || (quoteReasonRequired && record.can_submit)" class="approval-reason">
@@ -109,18 +97,15 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
 </template>
 
 <style scoped>
-/* 滚动与固定页脚由公共详情组件负责，审批区只补充自己的步骤和记录样式。 */
+/* 进度在顶部独立展示，正文下方保留意见与完整历史，页脚仍由公共组件固定。 */
 .approval-content { margin-top: 24px; overflow-wrap: anywhere; }
 .approval-content h3 { font-size: 15px; margin: 20px 0 12px; }
 .approval-value { white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval-hint { color: var(--workspace-field-muted); line-height: 1.7; }
 .approval-error { color: #b94438; }
 :root[data-theme='dark'] .approval-error { color: #ffaaa2; }
-.approval-steps, .approval-history { list-style: none; padding: 0; display: grid; gap: 10px; }
-.approval-steps li { padding: 12px 16px; border: 1px solid var(--workspace-field-border); border-radius: 10px; display: grid; gap: 6px; }
-.approval-steps .current { border-color: var(--workspace-field-accent); }
-.approval-steps .completed { opacity: .75; }
-.approval-steps span, .approval-history small { display: block; color: var(--workspace-field-muted); font-size: 12px; }
+.approval-history { list-style: none; padding: 0; display: grid; gap: 10px; }
+.approval-history small { display: block; color: var(--workspace-field-muted); font-size: 12px; }
 .approval-reason { display: grid; gap: 8px; }
 .approval-history li { padding: 10px 0; border-bottom: 1px solid var(--workspace-field-border); }
 .approval-history p { margin: 6px 0 0; white-space: pre-wrap; }
