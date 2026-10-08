@@ -79,7 +79,14 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  assert.match(cell('document'),/QTRK-20261007-000003/)
  assert.doesNotMatch(cell('document'),/建单人|2026-10-07T06:00:00Z|待送审/)
  assert.equal(cell('time'),inbound.created_at)
- assert.equal(cell('status'),'待送审')
+ // 状态标签保留可读文案；颜色区分业务阶段，装饰圆点对读屏隐藏。
+ const assertStatus=(label,tone)=>{
+  const content=cell('status')
+  assert.equal(content.replace(/<[^>]*>/g,'').trim(),label)
+  assert.ok(content.includes(`inbound-status--${tone}`))
+  assert.match(content,/class="inbound-status-dot" aria-hidden="true"/)
+ }
+ assertStatus('待送审','pending')
  assert.equal(cell('operator'),'建单人')
  assert.doesNotMatch(cell('actions'),/查看详情/)
  const view=buttons.find(b=>text(b.content)===inbound.document_no)
@@ -109,10 +116,10 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
  store.initialDetailId=3
  // 审批进度须在独立状态列保留；详情入口不受当前单据状态影响。
- for(const [status,label] of [['submitted','审批中'],['approved','已批准，待入库'],['rejected','已驳回'],['withdrawn','已撤回']]) {
+ for(const [status,label,tone] of [['submitted','审批中','info'],['approved','已批准，待入库','ready'],['rejected','已驳回','danger'],['withdrawn','已撤回','neutral'],['executed','已执行','success']]) {
   store.otherInbounds=[{...inbound,approval:{status}}]
   html=await render()
-  assert.equal(cell('status'),label)
+  assertStatus(label,tone)
   assert.ok(buttons.some(b=>text(b.content)===inbound.document_no))
  }
  // 页面刷新时跟随最新保存快照，避免详情固定显示旧状态；单据消失后自动不再展示。
@@ -120,17 +127,17 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
   ...inbound.lines[0],physical_lots:[{id:1,code:'LOT-3',quantity:'2.125',supplier_lot:'SUP-1',manufactured_on:'2026-09-01',expires_on:'2027-09-01'}]
  }]}]
  html=await render()
- assert.equal(cell('status'),'已入库')
+ assertStatus('已入库','success')
  for(const value of ['已入库','确认时间','确认人','LOT-3','SUP-1','2026-09-01','2027-09-01'])assert.ok(html.includes(value),value + ': ' + html)
  store.otherInbounds=[{...inbound,status:'posted'}]
  assert.match(await render(),/普通入库，未登记实物批次/)
- store.otherInbounds=[{...inbound,status:'cancelled',cancelled_at:'取消时间'}]
+ store.otherInbounds=[{...inbound,status:'cancelled',approval:{status:'approved'},cancelled_at:'取消时间'}]
  html=await render()
  assert.match(html,/取消时间/)
- assert.equal(cell('status'),'已取消')
- store.otherInbounds=[{...inbound,status:'posted',reversal_id:8,reversal_reason:'重复录入',reversed_at:'冲销时间',reversed_by_name:'冲销人'}]
+ assertStatus('已取消','neutral')
+ store.otherInbounds=[{...inbound,status:'posted',approval:{status:'executed'},reversal_id:8,reversal_reason:'重复录入',reversed_at:'冲销时间',reversed_by_name:'冲销人'}]
  html=await render()
- assert.equal(cell('status'),'已冲销')
+ assertStatus('已冲销','reversed')
  for(const value of ['已冲销','重复录入','冲销时间','冲销人'])assert.ok(html.includes(value),value + ': ' + html)
  store.otherInbounds=[{...inbound,lines:[]}]
  assert.match(await render(),/此单据暂无物料明细/)
