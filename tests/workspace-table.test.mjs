@@ -185,7 +185,7 @@ test('表头拖动分割线在明暗主题下常驻可见，悬停突出原生�
   assert.match(source, /\.vxe-table--fixed-right-wrapper \.vxe-cell--col-resizable \{ left: 0; \}/)
 })
 
-test('只隐藏主表末列外侧的装饰线，冻结区列间手柄与调宽命中范围保留', () => {
+test('只隐藏外框及冻结右列交界处的重复线，保留冻结区手柄与普通列边界', () => {
   const source = readFileSync(new URL('../src/renderer/src/components/workspace/WorkspaceTable.vue', import.meta.url), 'utf8')
   const { descriptor } = parseVue(source)
   const hiddenHandleRules = []
@@ -198,8 +198,10 @@ test('只隐藏主表末列外侧的装饰线，冻结区列间手柄与调宽�
     })
   }
   // 使用 VXE 的末列标记，不依赖最后一个 th，避免滚动条占位单元格影响定位。
-  // 仅遮掉主表伪元素；冻结右列的手柄位于左边界，不能一并隐藏或禁用。
+  // 主表重复线仅在下一列被冻结区隐藏时消失；无溢出、未固定和冻结区自身不匹配。
+  // 只隐藏伪元素，不能隐藏手柄元素或影响固定列的拖动命中范围。
   assert.deepEqual(hiddenHandleRules, [
-    '.workspace-vxe-table .vxe-table--main-wrapper .vxe-header--column.col--last > .vxe-cell--col-resizable::before'
+    '.workspace-vxe-table .vxe-table--main-wrapper .vxe-header--column.col--last > .vxe-cell--col-resizable::before',
+    '.workspace-vxe-table .vxe-table--main-wrapper .vxe-header--column.fixed--visible:has(+ .vxe-header--column.fixed--hidden.col--fixed) > .vxe-cell--col-resizable::before'
   ])
 })

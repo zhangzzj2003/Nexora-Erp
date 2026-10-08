@@ -364,6 +364,9 @@ defineSlots<{
 .workspace-vxe-table .vxe-header--column > .vxe-cell--col-resizable:hover::before { background-color: var(--workspace-field-accent); }
 /* 末列右侧是表格外框，只隐藏装饰线；右侧冻结区的左边界手柄仍需显示。 */
 .workspace-vxe-table .vxe-table--main-wrapper .vxe-header--column.col--last > .vxe-cell--col-resizable::before { display: none; }
+/* 横向溢出时，右侧冻结列已提供左边界手柄；隐藏主表同一边界的线，避免滚到末端出现双线。 */
+/* fixed--hidden 仅在冻结区启用时出现，无滚动或取消固定后仍显示普通列边界。 */
+.workspace-vxe-table .vxe-table--main-wrapper .vxe-header--column.fixed--visible:has(+ .vxe-header--column.fixed--hidden.col--fixed) > .vxe-cell--col-resizable::before { display: none; }
 /* 冻结区会裁切溢出手柄，把边缘手柄完整放入区内，分割线与可拖动区域才能对齐。 */
 .workspace-vxe-table .vxe-table--fixed-left-wrapper .vxe-cell--col-resizable { right: 0; }
 .workspace-vxe-table .vxe-table--fixed-right-wrapper .vxe-cell--col-resizable { left: 0; }
