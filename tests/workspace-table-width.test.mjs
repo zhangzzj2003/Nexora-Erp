@@ -13,19 +13,24 @@ test('公共表格默认分配剩余宽度，同时保留窄窗最小列宽及�
       if (id.endsWith('/WorkspaceTable.vue')) return code
         .replace("'vxe-table/es/table'", "'virtual:table-width-table'")
         .replace("'vxe-table/es/column'", "'virtual:table-width-column'")
+        .replace("'../../utils/table-column-widths'", "'virtual:table-width-preferences'")
     },
     resolveId(id) {
       if (id === 'virtual:table-width-table') return '\0table-width-table'
       if (id === 'virtual:table-width-column') return '\0table-width-column'
+      if (id === 'virtual:table-width-preferences') return '\0table-width-preferences'
     },
     load(id) {
       // 仅替换 VXE 绘制，参数计算和列配置仍由真实 WorkspaceTable 完成。
       if (id === '\0table-width-table') return `import {defineComponent,h} from 'vue';export const captured={};
-        export default defineComponent({props:['fit','data','scrollbarConfig'],setup(p,{slots,attrs}){
+        export default defineComponent({props:['fit','data','scrollbarConfig','columnConfig','resizableConfig'],setup(p,{slots,attrs}){
           Object.assign(captured,{props:p,attrs});return()=>h('section',slots.default?.())}})`
       if (id === '\0table-width-column') return `import {defineComponent,h} from 'vue';export const captured=[];
         export default defineComponent({props:['field','width','minWidth','fixed','align','headerAlign'],setup(p){
           captured.push({...p});return()=>h('span')}})`
+      if (id === '\0table-width-preferences') return `export * from '/src/renderer/src/utils/table-column-widths.ts';
+        export const values=new Map();export function tableWidthStorage(){return {getItem:key=>values.get(key)??null,
+          setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)}}`
     }
   }, vue()], optimizeDeps: { noDiscovery: true, include: [] },
   server: { middlewareMode: true, hmr: false }, appType: 'custom' })
@@ -33,6 +38,7 @@ test('公共表格默认分配剩余宽度，同时保留窄窗最小列宽及�
   const { default: Table } = await server.ssrLoadModule('/src/renderer/src/components/workspace/WorkspaceTable.vue')
   const { captured: table } = await server.ssrLoadModule('\0table-width-table')
   const { captured: columns } = await server.ssrLoadModule('\0table-width-column')
+  const { values } = await server.ssrLoadModule('\0table-width-preferences')
   const render = async props => {
     columns.length = 0
     await renderToString(createSSRApp({ render: () => h(Table, { title: '宽度回归', ...props }) }))
@@ -82,5 +88,22 @@ test('公共表格默认分配剩余宽度，同时保留窄窗最小列宽及�
     assert.equal(table.props.fit, true)
     assert.deepEqual(table.props.data, [])
     assert.equal(columns[0].minWidth, '120')
+  })
+
+  await t.test('拖动真实组件事件后保存本机宽度，再次打开恢复且非法事件被拒绝', async () => {
+    const source = [{ key: 'name', title: '名称', width: '200' }, { key: 'unit', title: '单位', width: '100' }]
+    await render({ columns: source })
+    assert.deepEqual(table.props.columnConfig, { resizable: true })
+    assert.equal(table.props.resizableConfig.minWidth, 64)
+    const resize = table.attrs.onColumnResizableChange
+    resize({ column: { field: 'unknown' }, resizeWidth: 150 })
+    resize({ column: { field: 'name' }, resizeWidth: Infinity })
+    assert.equal(values.size, 0)
+    resize({ column: { field: 'name' }, resizeWidth: 180.4 })
+    assert.deepEqual(JSON.parse([...values.values()][0]), { version: 1, widths: { name: 180 } })
+    await render({ columns: source })
+    assert.equal(columns[0].width, 180)
+    assert.equal(columns[1].width, undefined)
+    assert.equal(columns[1].minWidth, '100')
   })
 })
