@@ -83,10 +83,11 @@ const { activeLine, showLine, setCompact } = useOtherInboundMaterialDetails(() =
 const materialRows = computed(() => editorForm.value.lines.map((line, index) => ({
   line, index, material: materials.value.find(item => item.id === line.material_id)
 })))
-const materialColumns = [
+const materialColumns: readonly WorkspaceTableColumn[] = [
   { key: 'sku', title: '物料编码', width: '170' },
   { key: 'name', title: '物料 / 资料', width: '470' },
-  { key: 'unit', title: '单位', width: '70' },
+  // 新建与重开共用此明细表，单位的表头和内容保持居中。
+  { key: 'unit', title: '单位', width: '70', align: 'center' },
   { key: 'quantity', title: '数量', width: '130' },
   { key: 'actions', title: '操作', width: '80' }
 ]
