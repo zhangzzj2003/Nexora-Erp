@@ -138,7 +138,7 @@ test('统一弹窗按基础信息、分隔线、添加物料、表格及页脚�
   const { captured } = await server.ssrLoadModule('\0document-modal')
   const form = captured.slots.default()[0]
   const { capturedTable } = await server.ssrLoadModule('\0document-table')
-  const addButton = capturedTable.slots.actions()[0]
+  const addButton = capturedTable.slots.actions().find(node => typeof node.props?.onClick === 'function')
   addButton.props.onClick()
   assert.equal(adds, 1)
   const submit = () => form.props.onSubmit({ preventDefault() {} })
@@ -176,7 +176,11 @@ test('统一弹窗按基础信息、分隔线、添加物料、表格及页脚�
   assert.equal(submits, 1)
   assert.equal(adds, 1)
   assert.equal(closes, 3)
+  // 只读详情允许业务操作插槽，同时仍拦截物料新增与表单保存。
+  slots.documentActions = () => h('button', { type: 'button' }, '查看审批')
   const readonly = await render({ readOnly: true })
+  assert.match(readonly, /查看审批/)
+  assert.ok(readonly.indexOf('查看审批') > readonly.indexOf('物料明细'))
   assert.match(readonly, />关闭</)
   assert.doesNotMatch(readonly, /添加物料|保存草稿|type="submit"/)
   assert.match(await render({ readOnly: true, data: [] }), /此单据暂无物料明细/)

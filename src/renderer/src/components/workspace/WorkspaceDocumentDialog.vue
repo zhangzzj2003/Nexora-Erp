@@ -35,6 +35,8 @@ const emit = defineEmits<{
 }>()
 defineSlots<{
   basicInfo: () => unknown
+  // 只读字段与单据操作分离，业务页面可在明细标题右侧提供自己的状态操作。
+  documentActions?: () => unknown
   materialPicker?: () => unknown
   [name: `cell-${string}`]: (props: { row: TRow }) => unknown
 }>()
@@ -69,8 +71,9 @@ function submit(): void {
           <WorkspaceTable :title="linesTitle" :data="data" :columns="columns" :min-table-width="minTableWidth" stretch-columns
             :empty-text="readOnly ? '此单据暂无物料明细。' : emptyText" class="document-lines">
             <template #heading><h3>{{ linesTitle }} <span class="document-count">{{ data.length }} 项</span></h3></template>
-            <template v-if="!readOnly" #actions>
-              <AppButton v-if="showAdd" type="button" :disabled="busy || disabled || addDisabled"
+            <template v-if="!readOnly || $slots.documentActions" #actions>
+              <slot name="documentActions" />
+              <AppButton v-if="!readOnly && showAdd" type="button" :disabled="busy || disabled || addDisabled"
                 @click="addMaterial" variant="secondary">＋ {{ addLabel }}</AppButton>
             </template>
             <template v-if="$slots.materialPicker" #beforeTable><slot name="materialPicker" /></template>

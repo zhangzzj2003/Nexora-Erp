@@ -24,6 +24,8 @@ import { submitCreateDialog } from '../../../utils/create-dialog'
 import {receiptLotDate,receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
 import type {InboundLotLineInput} from '../../../../../shared/receipt-lot-api'
 import type {OtherInbound} from '../../../../../shared/erp-api'
+import OtherInboundActions from './OtherInboundActions.vue'
+import { otherInboundActions, type OtherInboundAction } from './other-inbound-actions'
 import { shortLocalTime } from '../../../utils/formatters'
 import type { WorkspaceTableColumn } from '../../../utils/table-columns'
 import { useOtherInboundMaterialDetails } from './other-inbound-material-details'
@@ -34,6 +36,29 @@ const { error, notice, busy, connectionLost, materials, warehouses, otherInbound
 const { can, localTime, createOtherInbound, postOtherInbound, cancelOtherInbound,
   reverseOtherInbound } = store
 const showForm = ref(false)
+const pendingActionId = ref(0)
+const inboundPermissions = computed(() => ({
+  post: can('other_inbound.post'), cancel: can('other_inbound.cancel'), reverse: can('other_inbound.reverse')
+}))
+// 点击时重新按 ID 找当前快照；列表和详情走同一入口，刷新后不执行旧状态的动作。
+async function handleInboundAction(identifier: number, action: OtherInboundAction): Promise<void> {
+  if (busy.value || connectionLost.value || pendingActionId.value) return
+  const inbound = otherInbounds.value.find(item => item.id === identifier)
+  if (!inbound || !otherInboundActions(inbound, inboundPermissions.value).some(item => item.key === action)) return
+  pendingActionId.value = identifier
+  try {
+    if (action === 'approval' || action === 'reversalApproval') {
+      await store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: identifier,
+        intent: action === 'approval' ? 'execute' : 'reverse' })
+    } else if (action === 'post') await postOtherInbound(identifier)
+    else if (action === 'cancel') await cancelOtherInbound(identifier)
+    else if (action === 'lots') startLotPost(inbound)
+    else await reverseApproved(identifier)
+  } finally {
+    // 保存失败仍保留详情与原草稿，允许用户读取原因后重试。
+    pendingActionId.value = 0
+  }
+}
 const { activeLine, showLine, setCompact } = useOtherInboundMaterialDetails(() => otherInboundForm.value.lines)
 // 表格行直接引用 Pinia 草稿，资料刷新及删行后仍按该行的真实对象修改数量。
 const materialRows = computed(() => otherInboundForm.value.lines.map((line, index) => ({
@@ -263,49 +288,23 @@ async function reverseApproved(identifier: number): Promise<void> {
           <small v-else-if="item.status === 'posted'" class="inbound-lot-proof">普通入库，未登记实物批次。</small>
         </div></template
       >
-      <template #cell-actions="{ row: item }"
-        ><div class="form-actions">
-          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
-            @click="store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: item.id, intent: 'execute' })">审批记录 / 送审</AppButton>
-          <AppButton v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('other_inbound.post')"
-            type="button" variant="primary" size="small" :disabled="busy || connectionLost"
-            @click="postOtherInbound(item.id)">确认入库</AppButton>
-          <AppButton
-            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('other_inbound.post')"
-            :disabled="busy || connectionLost"
-            @click="startLotPost(item)"
-            variant="primary"
-            size="small"
-            type="button"
-            >登记实物批次（可选）</AppButton
-          >
-          <AppButton
-            v-if="item.status === 'draft' && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('other_inbound.cancel')"
-            :disabled="busy || connectionLost"
-            @click="cancelOtherInbound(item.id)"
-            variant="secondary"
-            size="small"
-            type="button"
-            >取消</AppButton
-          >
-        </div>
-        <!-- 冲销使用独立审批，执行时采用已批准原因，原入库批准不可复用。 -->
-        <div v-if="item.status === 'posted' && !item.reversal_id" class="form-actions">
-          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
-            @click="store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: item.id, intent: 'reverse' })">冲销审批</AppButton>
-          <AppButton v-if="item.reversal_approval?.status === 'approved' && can('other_inbound.reverse')"
-            type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
-            @click="reverseApproved(item.id)">执行冲销</AppButton>
-        </div>
-        <small v-if="item.reversal_reason">冲销：{{ item.reversal_reason }}</small></template
-      >
+      <template #cell-actions="{ row: item }">
+        <OtherInboundActions :inbound="item" :permissions="inboundPermissions"
+          :disabled="busy || connectionLost || !!pendingActionId" @action="action => handleInboundAction(item.id, action)" />
+        <small v-if="item.reversal_reason">冲销：{{ item.reversal_reason }}</small>
+      </template>
       <template #empty>{{ query ? '没有匹配的入库单。' : '暂无其他入库单。' }}</template>
     </WorkspaceTable>
     <WorkspaceDocumentDialog v-if="detailInbound" :show="true" read-only
       :title="`其他入库详情 · ${documentLabel(detailInbound)}`"
       :data="detailInbound.lines" :columns="detailColumns" :min-table-width="940"
-      hint="单据详情仅供查看；确认、取消和冲销请使用列表中的操作。"
+      hint="可在物料明细右侧处理当前单据；操作完成后自动更新状态。"
+      :busy="pendingActionId === detailInbound.id"
       @update:show="value => { if (!value) detailInboundId = 0 }">
+      <template #documentActions>
+        <OtherInboundActions :inbound="detailInbound" :permissions="inboundPermissions"
+          :disabled="busy || connectionLost || !!pendingActionId" @action="action => handleInboundAction(detailInbound!.id, action)" />
+      </template>
       <template #basicInfo>
         <div class="inbound-detail-field"><span>单号</span><strong>{{ documentLabel(detailInbound) }}</strong></div>
         <div class="inbound-detail-field"><span>状态</span><AppStatusTag :label="inboundStatus(detailInbound)" :tone="inboundStatusTone(detailInbound)" /></div>

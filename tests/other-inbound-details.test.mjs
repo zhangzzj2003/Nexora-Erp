@@ -9,13 +9,21 @@ import { shortLocalTime } from '../src/renderer/src/utils/formatters.ts'
 
 // 仅替换桌面桥接和渲染外壳；真实页面、公共弹窗与业务事件均参与验证。
 const storeSource = `import {defineStore} from 'pinia'; import {ref} from 'vue'
-export const usePiniaAppStore=defineStore('inbound-details-test',()=>({
- error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
- otherInbounds:ref([]),otherInboundForm:ref({lines:[{material_id:99,quantity:'7'}]}),otherInboundReversalReasons:ref({}),
- initialDetailId:ref(0),can:()=>false,localTime:value=>value,
- createOtherInbound(){throw Error('查看详情不应创建')},postOtherInbound(){throw Error('查看详情不应确认')},
- cancelOtherInbound(){throw Error('查看详情不应取消')},reverseOtherInbound(){throw Error('查看详情不应冲销')}
-}))`
+export const usePiniaAppStore=defineStore('inbound-details-test',()=>{
+ const otherInbounds=ref([]), permissions=ref([]), calls=ref([]), fail=ref(false), error=ref(''), documentApprovalRecord=ref(null)
+ const update=(id,status)=>{calls.value.push([status,id]); if(fail.value){error.value='操作失败';return}
+ otherInbounds.value=otherInbounds.value.map(item=>item.id===id?{...item,status}:item)}
+ return { error,permissions,calls,fail,documentApprovalRecord,
+ notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
+ otherInbounds,otherInboundForm:ref({lines:[{material_id:99,quantity:'7'}]}),otherInboundReversalReasons:ref({}),
+ initialDetailId:ref(0),can:key=>permissions.value.includes(key),localTime:value=>value,
+ createOtherInbound(){throw Error('查看详情不应创建')},async postOtherInbound(id){update(id,'posted')},
+ async cancelOtherInbound(id){update(id,'cancelled')},async reverseOtherInbound(id){calls.value.push(['reverse',id])},
+ async openDocumentApproval(target){calls.value.push(['approval',target]);documentApprovalRecord.value={status:'approved',reversal_reason:'已批准原因'};return true},
+ closeDocumentApproval(){calls.value.push(['closeApproval'])}
+ }
+})`
+
 const tableSource = `import {defineComponent,h} from 'vue'
 export default defineComponent({props:['data','columns','emptyText'],setup(p,{slots}){return()=>h('section',[
  slots.heading?.(),slots.actions?.(),slots.filters?.(),slots.beforeTable?.(),
@@ -151,4 +159,70 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  assert.equal(vnode.component.setupState.detailInbound,null)
  assert.doesNotMatch(await render(),/data-modal=/)
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ // 详情操作复用真实按钮和入口，验证目标 ID、最新快照及失败后草稿隔离。
+ assert.deepEqual(store.calls, [])
+ store.busy=false
+ store.connectionLost=false
+ store.permissions=['other_inbound.post','other_inbound.cancel','other_inbound.reverse']
+ store.initialDetailId=3
+ const approved={...structuredClone(inbound),approval:{status:'approved'}}
+ const flush=()=>new Promise(resolve=>setImmediate(resolve))
+ const detailButton=label=>buttons.filter(button=>text(button.content)===label).at(-1)
+ store.otherInbounds=[approved]
+ html=await render()
+ assert.equal(buttons.filter(button=>text(button.content)==='确认入库').length,2)
+ assert.ok(html.indexOf('单据操作',html.indexOf('data-modal='))>html.indexOf('物料明细',html.indexOf('data-modal=')))
+ detailButton('确认入库').attrs.onClick()
+ await flush()
+ assert.deepEqual(store.calls.at(-1),['posted',3])
+ assert.equal(vnode.component.setupState.detailInbound.status,'posted')
+ assert.equal(vnode.component.setupState.detailInboundId,3)
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+
+ // 失败不关闭详情，处理期间、离线和过期按钮都不能触发第二次写入。
+ store.otherInbounds=[approved]
+ store.fail=true
+ await render()
+ const post=detailButton('确认入库')
+ post.attrs.onClick(); post.attrs.onClick()
+ await flush()
+ assert.equal(store.calls.filter(call=>call[0]==='posted').length,2)
+ assert.equal(vnode.component.setupState.detailInbound.status,'draft')
+ assert.equal(vnode.component.setupState.detailInboundId,3)
+ assert.equal(store.error,'操作失败')
+ const count=store.calls.length
+ for(const flag of ['busy','connectionLost']) {
+  store[flag]=true;post.attrs.onClick();await flush();store[flag]=false
+  assert.equal(store.calls.length,count)
+ }
+ store.otherInbounds=[{...approved,status:'cancelled'}]
+ post.attrs.onClick();await flush()
+ assert.equal(store.calls.length,count)
+ store.otherInbounds=[approved]
+ store.permissions=[]
+ post.attrs.onClick();await flush()
+ assert.equal(store.calls.length,count)
+
+ store.fail=false
+ store.permissions=['other_inbound.post','other_inbound.cancel','other_inbound.reverse']
+ await render()
+ detailButton('登记实物批次（可选）').attrs.onClick();await flush()
+ assert.equal(vnode.component.setupState.activeInboundId,3)
+ assert.equal(vnode.component.setupState.lotDrafts[0].inbound_line_id,7)
+ assert.equal(store.calls.length,count)
+ detailButton('审批记录 / 送审').attrs.onClick();await flush()
+ assert.deepEqual(store.calls.at(-1),['approval',{document_type:'WarehouseInbound',document_id:3,intent:'execute'}])
+ store.otherInbounds=[structuredClone(inbound)]
+ await render()
+ detailButton('取消').attrs.onClick();await flush()
+ assert.equal(vnode.component.setupState.detailInbound.status,'cancelled')
+ store.otherInbounds=[{...inbound,status:'posted',reversal_approval:{status:'approved'}}]
+ await render()
+ detailButton('执行冲销').attrs.onClick();await flush()
+ assert.deepEqual(store.calls.slice(-3),[
+  ['approval',{document_type:'WarehouseInbound',document_id:3,intent:'reverse'}],['closeApproval'],['reverse',3]
+ ])
+ assert.equal(store.otherInboundReversalReasons[3],'已批准原因')
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+
 })
