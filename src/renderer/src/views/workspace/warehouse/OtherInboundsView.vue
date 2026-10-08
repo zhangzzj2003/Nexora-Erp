@@ -91,8 +91,14 @@ function inboundStatus(inbound: OtherInbound): string {
     : inbound.reversal_id ? '已冲销' : '已入库'
 }
 const columns = [
-  { key: 'document', title: '单据' }, { key: 'source', title: '仓库与来源' },
-  { key: 'lines', title: '物料明细' }, { key: 'actions', title: '操作' }
+  // 单号与审计信息分列，列宽保证长单号和时间完整展示，窄窗口沿用公共表格横向滚动。
+  { key: 'document', title: '单据号', width: '230' },
+  { key: 'time', title: '时间', width: '180' },
+  { key: 'status', title: '状态', width: '120' },
+  { key: 'operator', title: '处理人', width: '110' },
+  { key: 'source', title: '仓库与来源', width: '220' },
+  { key: 'lines', title: '物料明细', width: '310' },
+  { key: 'actions', title: '操作', width: '240' }
 ]
 // 写入失败时保留表单，成功后才关闭弹窗。
 async function submitCreate(): Promise<void> {
@@ -158,7 +164,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       :data="filtered"
       title="其他入库"
       :columns="columns"
-      :min-table-width="900"
+      :min-table-width="1410"
     >
       <template #actions>
         <AppButton
@@ -222,11 +228,15 @@ async function reverseApproved(identifier: number): Promise<void> {
           </template>
         </WorkspaceDocumentDialog>
       </template>
-      <template #cell-document="{ row: item }"
-        ><strong>{{ documentLabel(item) }}</strong
-        ><small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small
-        ><small>{{ inboundStatus(item) }}</small></template
-      >
+      <template #cell-document="{ row: item }">
+        <!-- 单号直接打开只读详情；使用公共文本按钮保留键盘操作，断线仍可查看已加载快照。 -->
+        <AppButton type="button" variant="text" :aria-label="`查看单据 ${documentLabel(item)} 详情`"
+          @click="detailInboundId = item.id">{{ documentLabel(item) }}</AppButton>
+      </template>
+      <!-- 时间、处理人沿用原单据中的创建记录，避免改变历史字段含义。 -->
+      <template #cell-time="{ row: item }">{{ localTime(item.created_at) }}</template>
+      <template #cell-status="{ row: item }">{{ inboundStatus(item) }}</template>
+      <template #cell-operator="{ row: item }">{{ item.created_by_name }}</template>
       <template #cell-source="{ row: item }"
         >{{ item.warehouse_name }} · {{ reasonName[item.reason] }}<small>{{ item.note }}</small
         ><small v-if="item.reference">{{ item.reference }}</small></template
@@ -242,9 +252,6 @@ async function reverseApproved(identifier: number): Promise<void> {
       >
       <template #cell-actions="{ row: item }"
         ><div class="form-actions">
-          <!-- 查看沿用页面查看权限，断线和无写权限时仍可读取已加载的单据。 -->
-          <AppButton type="button" variant="secondary" size="small"
-            @click="detailInboundId = item.id">查看详情</AppButton>
           <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
             @click="store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: item.id, intent: 'execute' })">审批记录 / 送审</AppButton>
           <AppButton v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('other_inbound.post')"

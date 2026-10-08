@@ -18,11 +18,12 @@ export const usePiniaAppStore=defineStore('inbound-details-test',()=>({
 const tableSource = `import {defineComponent,h} from 'vue'
 export default defineComponent({props:['data','columns','emptyText'],setup(p,{slots}){return()=>h('section',[
  slots.heading?.(),slots.actions?.(),slots.filters?.(),slots.beforeTable?.(),
- ...p.data.map(row=>h('article',p.columns.map(c=>slots['cell-'+c.key]?.({row})))),p.data.length?null:h('p',p.emptyText)
+ h('header',p.columns.map(c=>h('span',{'data-column':c.key},c.title))),
+ ...p.data.map(row=>h('article',{'data-row':row.id},p.columns.map(c=>h('div',{'data-cell':c.key},slots['cell-'+c.key]?.({row}))))),p.data.length?null:h('p',p.emptyText)
 ])}})`
 const buttonSource = `import {defineComponent,h} from 'vue'
 export const buttons=[]
-export default defineComponent({props:['type','disabled'],setup(p,{slots,attrs}){return()=>{
+export default defineComponent({props:['type','disabled','variant'],setup(p,{slots,attrs}){return()=>{
  const content=slots.default?.();buttons.push({props:p,attrs,content});return h('button',{...attrs,type:p.type,disabled:p.disabled},content)
 }}})`
 const modalSource = `import {defineComponent,h} from 'vue'
@@ -69,15 +70,29 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  const draft=JSON.stringify(store.otherInboundForm)
  store.connectionLost=true
  store.busy=true
- assert.match(await render(),/查看详情/)
- const view=buttons.find(b=>text(b.content)==='查看详情')
+ let html=await render()
+ // 核对真实列插槽，防止元信息再次挤回单号列；只读且断线时单号仍能打开对应记录。
+ for(const [key,title] of [['document','单据号'],['time','时间'],['status','状态'],['operator','处理人']]) {
+  assert.ok(html.includes(`<span data-column="${key}">${title}</span>`),title)
+ }
+ const cell=key=>html.match(new RegExp(`<div data-cell="${key}">([\\s\\S]*?)</div>`))?.[1]
+ assert.match(cell('document'),/QTRK-20261007-000003/)
+ assert.doesNotMatch(cell('document'),/建单人|2026-10-07T06:00:00Z|待送审/)
+ assert.equal(cell('time'),inbound.created_at)
+ assert.equal(cell('status'),'待送审')
+ assert.equal(cell('operator'),'建单人')
+ assert.doesNotMatch(cell('actions'),/查看详情/)
+ const view=buttons.find(b=>text(b.content)===inbound.document_no)
+ assert.equal(view.props.type,'button')
+ assert.equal(view.props.variant,'text')
+ assert.equal(view.attrs['aria-label'],`查看单据 ${inbound.document_no} 详情`)
  assert.equal(view.props.disabled,undefined)
  view.attrs.onClick()
  assert.equal(vnode.component.setupState.detailInboundId,3)
  assert.equal(vnode.component.setupState.detailInbound.id,3)
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
  store.initialDetailId=3
- let html=await render()
+ html=await render()
  for(const value of ['其他入库详情','QTRK-20261007-000003','OLD-SKU','历史物料名称','2.125','历史说明','REF-3','建单人','待送审','尚未登记实物批次'])assert.ok(html.includes(value),value + ': ' + html)
  assert.doesNotMatch(html,/添加物料|保存草稿|登记批次并确认|type="submit"/)
  const close=buttons.find(b=>text(b.content)==='关闭')
@@ -85,18 +100,37 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  close.attrs.onClick()
  assert.equal(vnode.component.setupState.detailInboundId,0)
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ // 多行时按点击行的内部 ID 选中，避免展示首行或把单号作为业务 ID。
+ store.initialDetailId=0
+ store.otherInbounds=[structuredClone(inbound),{...structuredClone(inbound),id:4,document_no:'QTRK-20261007-000004'}]
+ await render()
+ buttons.find(b=>text(b.content)==='QTRK-20261007-000004').attrs.onClick()
+ assert.equal(vnode.component.setupState.detailInbound.id,4)
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ store.initialDetailId=3
+ // 审批进度须在独立状态列保留；详情入口不受当前单据状态影响。
+ for(const [status,label] of [['submitted','审批中'],['approved','已批准，待入库'],['rejected','已驳回'],['withdrawn','已撤回']]) {
+  store.otherInbounds=[{...inbound,approval:{status}}]
+  html=await render()
+  assert.equal(cell('status'),label)
+  assert.ok(buttons.some(b=>text(b.content)===inbound.document_no))
+ }
  // 页面刷新时跟随最新保存快照，避免详情固定显示旧状态；单据消失后自动不再展示。
  store.otherInbounds=[{...inbound,status:'posted',posted_at:'确认时间',posted_by_name:'确认人',lines:[{
   ...inbound.lines[0],physical_lots:[{id:1,code:'LOT-3',quantity:'2.125',supplier_lot:'SUP-1',manufactured_on:'2026-09-01',expires_on:'2027-09-01'}]
  }]}]
  html=await render()
+ assert.equal(cell('status'),'已入库')
  for(const value of ['已入库','确认时间','确认人','LOT-3','SUP-1','2026-09-01','2027-09-01'])assert.ok(html.includes(value),value + ': ' + html)
  store.otherInbounds=[{...inbound,status:'posted'}]
  assert.match(await render(),/普通入库，未登记实物批次/)
  store.otherInbounds=[{...inbound,status:'cancelled',cancelled_at:'取消时间'}]
- assert.match(await render(),/取消时间/)
+ html=await render()
+ assert.match(html,/取消时间/)
+ assert.equal(cell('status'),'已取消')
  store.otherInbounds=[{...inbound,status:'posted',reversal_id:8,reversal_reason:'重复录入',reversed_at:'冲销时间',reversed_by_name:'冲销人'}]
  html=await render()
+ assert.equal(cell('status'),'已冲销')
  for(const value of ['已冲销','重复录入','冲销时间','冲销人'])assert.ok(html.includes(value),value + ': ' + html)
  store.otherInbounds=[{...inbound,lines:[]}]
  assert.match(await render(),/此单据暂无物料明细/)
