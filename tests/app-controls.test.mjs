@@ -113,7 +113,11 @@ test('页面统一使用公共控件，只保留选择校验代理和表格专�
   for (const file of files(root)) {
     const source = readFileSync(file, 'utf8')
     if (!file.endsWith('AppInput.vue')) assert.doesNotMatch(source, /<(?:NInput|n-input)\b/, file)
-    if (!file.endsWith('AppButton.vue')) assert.doesNotMatch(source, /<(?:button|NButton|n-button)\b/, file)
+    // 公共分页用原生按钮补齐键盘语义；只放行既有的两个页项，新增业务按钮仍须走 AppButton。
+    const buttons = file.endsWith('WorkspacePagination.vue')
+      ? source.replace(/<button class="pagination-page-label" type="button" aria-label="(?:上一页|下一页)" :disabled="disabled \|\| page (?:<= 1|>= pageCount)">[‹›]<\/button>/g, '')
+      : source
+    if (!file.endsWith('AppButton.vue')) assert.doesNotMatch(buttons, /<(?:button|NButton|n-button)\b/, file)
     if (!file.endsWith('WorkspaceSelect.vue') && !file.endsWith('WorkspaceTable.vue')) assert.doesNotMatch(source, /<(?:input|select|textarea|details|summary)\b/, file)
   }
 })
