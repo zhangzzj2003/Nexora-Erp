@@ -10,6 +10,8 @@ import { VxeUI } from '@vxe-ui/core'
 import { setup as setupSsrStyles } from '@css-render/vue3-ssr'
 import { renderToString } from '@vue/server-renderer'
 import { createServer } from 'vite'
+import { parse as parseVue } from '@vue/compiler-sfc'
+import postcss from 'postcss'
 
 const viewRoot = new URL('../src/renderer/src/views/workspace/', import.meta.url)
 
@@ -181,4 +183,23 @@ test('表头拖动分割线在明暗主题下常驻可见，悬停突出原生�
   // 冻结区裁切不能把分割线中心落到相邻普通单元格，保留完整命中范围。
   assert.match(source, /\.vxe-table--fixed-left-wrapper \.vxe-cell--col-resizable \{ right: 0; \}/)
   assert.match(source, /\.vxe-table--fixed-right-wrapper \.vxe-cell--col-resizable \{ left: 0; \}/)
+})
+
+test('只隐藏主表末列外侧的装饰线，冻结区列间手柄与调宽命中范围保留', () => {
+  const source = readFileSync(new URL('../src/renderer/src/components/workspace/WorkspaceTable.vue', import.meta.url), 'utf8')
+  const { descriptor } = parseVue(source)
+  const hiddenHandleRules = []
+  for (const style of descriptor.styles) {
+    postcss.parse(style.content).walkRules(rule => {
+      if (!rule.selector.includes('vxe-cell--col-resizable')) return
+      rule.walkDecls('display', declaration => {
+        if (declaration.value === 'none') hiddenHandleRules.push(rule.selector)
+      })
+    })
+  }
+  // 使用 VXE 的末列标记，不依赖最后一个 th，避免滚动条占位单元格影响定位。
+  // 仅遮掉主表伪元素；冻结右列的手柄位于左边界，不能一并隐藏或禁用。
+  assert.deepEqual(hiddenHandleRules, [
+    '.workspace-vxe-table .vxe-table--main-wrapper .vxe-header--column.col--last > .vxe-cell--col-resizable::before'
+  ])
 })

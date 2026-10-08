@@ -362,6 +362,8 @@ defineSlots<{
 /* 分割线画在原生拖动手柄上，固定列与滚动列仍共用准确的调宽位置。 */
 .workspace-vxe-table .vxe-header--column > .vxe-cell--col-resizable::before { width: 2px; height: 55%; }
 .workspace-vxe-table .vxe-header--column > .vxe-cell--col-resizable:hover::before { background-color: var(--workspace-field-accent); }
+/* 末列右侧是表格外框，只隐藏装饰线；右侧冻结区的左边界手柄仍需显示。 */
+.workspace-vxe-table .vxe-table--main-wrapper .vxe-header--column.col--last > .vxe-cell--col-resizable::before { display: none; }
 /* 冻结区会裁切溢出手柄，把边缘手柄完整放入区内，分割线与可拖动区域才能对齐。 */
 .workspace-vxe-table .vxe-table--fixed-left-wrapper .vxe-cell--col-resizable { right: 0; }
 .workspace-vxe-table .vxe-table--fixed-right-wrapper .vxe-cell--col-resizable { left: 0; }
