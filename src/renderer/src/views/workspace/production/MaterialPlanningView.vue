@@ -91,7 +91,7 @@ watch(connectionLost, lost => { command.value = null; conversion.value = null; i
       <form v-if="command" class="mrp-editor" @submit.prevent="act">
         <p>{{ command.record.reference }} · {{ mrpStatus[command.record.status] }} · v{{ command.record.version }}</p>
         <p v-if="!check?.matched" role="alert">来源变化或起日已过期。取消仍须核对当前原单依赖；后续供给须新建计划重算。</p>
-        <p>操作原因和账号会留入审计。编制及曾提交此计划的账号不能审核。</p>
+        <p>操作原因和账号会留入审计。拥有当前步骤按钮权限的账号可审批此计划。</p>
         <label>操作依据<AppInput v-model.trim="reason" required maxlength="500" :disabled="busy" /></label>
         <p v-if="operationError" role="alert">{{ operationError }}</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !reason.trim()">确认{{ mrpAction[command.action] }}</AppButton>

@@ -15,7 +15,7 @@ from app.core.approval_documents import (
     current_snapshot, document_pending, document_snapshot, document_source, document_summary, submit_permission,
     native_review_evidence, sync_native_review, maintenance_execution_snapshot,
 )
-from app.core.models import DocumentApprovalAuthor, DocumentApprovalEvent, DocumentApprovalPolicy, User
+from app.core.models import DocumentApprovalEvent, DocumentApprovalPolicy, User
 from app.core.orm import orm_session
 
 router = APIRouter(prefix='/api/v1/system/document-approvals')
@@ -25,6 +25,8 @@ class ApprovalStepInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     name: str = Field(min_length=1, max_length=40)
     role: str | None = Field(default=None, min_length=1, max_length=100)
+    # 省略时兼容旧模板；新客户端显式选择按钮动作，不用显示名称作为权限代码。
+    action: Literal['review', 'verify', 'approve'] | None = None
 
 
 class ApprovalPolicyInput(BaseModel):
@@ -58,7 +60,7 @@ def get_policy(document_type: str, user: dict = Depends(current_user)) -> dict:
 def configure_policy(document_type: str, payload: ApprovalPolicyInput,
                      user: dict = Depends(current_user)) -> dict:
     with orm_session(write=True) as db:
-        return {**save_policy(db, document_type, [step.model_dump() for step in payload.steps],
+        return {**save_policy(db, document_type, [step.model_dump(exclude_unset=True) | {'role': step.role} for step in payload.steps],
                              payload.version, user['id']), 'title': approval_type(document_type).title}
 
 
@@ -118,18 +120,10 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
         if error.status_code != 409:
             raise
         pending = False
-    authors = list(db.scalars(select(DocumentApprovalAuthor.user_id).where(
-        DocumentApprovalAuthor.document_type == document_type,
-        DocumentApprovalAuthor.document_id == identifier)))
-    can_review = pending and content_matches and state['status'] == 'submitted' and rule.review_permission in permissions
+    # 查询按钮与提交接口使用相同的当前步骤权限，不根据人员参与历史或模板职务排除。
+    can_review = pending and content_matches and state['status'] == 'submitted'
     if can_review:
-        step = state['steps'][state['current_step']]
-        can_review = (user_id not in authors and user_id not in json.loads(row.authors_json)
-            and (step['role'] is None or step['role'] in user['roles'])
-            and db.scalar(select(DocumentApprovalEvent.id).where(
-                DocumentApprovalEvent.case_id == row.id,
-                DocumentApprovalEvent.generation == row.generation,
-                DocumentApprovalEvent.action == 'approve', DocumentApprovalEvent.actor_id == user_id)) is None)
+        can_review = rule.step_permission(state['steps'][state['current_step']]) in permissions
     permission = submit_permission(document_type, intent, source) or rule.submit_permission
     events = []
     if row is not None:
@@ -220,7 +214,10 @@ def act_document_approval(document_type: str, identifier: int,
             else:
                 from app.finance.subledger_openings import validate_payment
             permission = submit_permission(document_type, payload.intent, source) or rule.submit_permission
-            workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else permission)
+            if action in ('approve', 'reject'):
+                workflow.require_review_actor(db, document_type, row, user['id'])
+            else:
+                workflow.actor(db, user['id'], permission)
             workflow.check_version(row.version if row else 0, payload.version)
             if action != 'withdraw' and (not payload.reason.strip() or len(payload.reason.strip()) > 200):
                 raise HTTPException(422, '资金审批依据必填，最多二百字')
@@ -228,7 +225,10 @@ def act_document_approval(document_type: str, identifier: int,
                 validate_payment(db, source)
         if document_type == 'ProductionCostSettlement':
             permission = submit_permission(document_type,payload.intent,source) or rule.submit_permission
-            workflow.actor(db,user['id'],rule.review_permission if action in ('approve','reject') else permission)
+            if action in ('approve', 'reject'):
+                workflow.require_review_actor(db, document_type, row, user['id'])
+            else:
+                workflow.actor(db, user['id'], permission)
             workflow.check_version(row.version if row else 0,payload.version)
             if action != 'withdraw' and (not payload.reason.strip() or len(payload.reason.strip())>200):
                 raise HTTPException(422,'结算审批依据必填，最多二百字')
@@ -256,7 +256,10 @@ def act_document_approval(document_type: str, identifier: int,
                 from app.finance.journals import prepare_approval_action
             else:
                 from app.production.equipment import prepare_approval_action
-            workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else rule.submit_permission)
+            if action in ('approve', 'reject'):
+                workflow.require_review_actor(db, document_type, row, user['id'])
+            else:
+                workflow.actor(db, user['id'], rule.submit_permission)
             workflow.check_version(row.version if row else 0, payload.version)
             document_pending(db, document_type, identifier, payload.intent)
             if action == 'submit':
@@ -277,7 +280,7 @@ def act_document_approval(document_type: str, identifier: int,
             extra_authors = list(db.scalars(select(change_model.changed_by).where(
                 source_field == identifier,
                 change_model.action.not_in(('approve', 'reject', 'withdraw')))))
-            # 原审核人员没有编制或办理时可继续独立核对；实际办理作者才进入排除范围。
+            # 原审核与实际办理记录继续存证；审批资格统一由当前步骤的按钮权限决定。
             # 旧已执行单没有执行快照，先登记更正申请人及原办理作者，再固定当前正文。
             for author_id in {source.created_by, user['id'], *extra_authors}:
                 workflow.record_author(db, document_type, identifier, author_id)
@@ -300,18 +303,21 @@ def act_document_approval(document_type: str, identifier: int,
                 from app.finance.opening_balances import prepare_approval_action
             else:
                 from app.finance.subledger_openings import prepare_approval_action
-            workflow.actor(db, user['id'], rule.review_permission if action in ('approve', 'reject') else submit_permission(document_type, 'reverse'))
+            if action in ('approve', 'reject'):
+                workflow.require_review_actor(db, document_type, row, user['id'])
+            else:
+                workflow.actor(db, user['id'], submit_permission(document_type, 'reverse'))
             workflow.check_version(row.version if row else 0, payload.version)
             document_pending(db, document_type, identifier, payload.intent)
             prepare_approval_action(db, source, action, user, payload.reason, payload.intent)
             if action == 'submit':
-                # 实际确认人员和撤销申请人也属于撤销编制范围，不能自行批准撤销。
+                # 实际确认人员和撤销申请人仍记录在作者范围，授权由当前步骤按钮权限决定。
                 extra_authors = [source.confirmed_by] if source.confirmed_by is not None else []
                 for author_id in {source.created_by, user['id'], *extra_authors}:
                     workflow.record_author(db, document_type, identifier, author_id)
         content = document_snapshot(db, document_type, identifier, payload.intent, reason, fixed_evidence)
         if action == 'submit':
-            # 派生草稿同时排除原方案编制人员；作者范围取自服务端快照，客户端无法指定。
+            # 派生草稿保留原方案编制人员；作者范围取自服务端快照，客户端无法指定。
             original = content['document'] if payload.intent == 'reverse' else content
             result = workflow.submit(db, document_type, identifier, content, payload.version, user['id'],
                             authors=[*extra_authors, *original.get('source_author_ids', ()),

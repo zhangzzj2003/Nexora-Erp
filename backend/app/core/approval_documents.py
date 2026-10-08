@@ -270,7 +270,7 @@ def quote_snapshot(db: Session, identifier: int) -> dict:
 
 
 def sales_source_authors(db: Session, order_id: int) -> list[int]:
-    # 新旧派生草稿都从原审计恢复编制人员，转换人或原方案作者不能审核下游。
+    # 新旧派生草稿都从原审计恢复编制人员，保留下游作者溯源但不作为审批资格限制。
     quotes = list(db.scalars(select(CrmQuote).where(CrmQuote.sales_order_id == order_id)))
     cases = list(db.scalars(select(AfterSalesCase).where(AfterSalesCase.replacement_order_id == order_id)))
     authors = {row.created_by for row in [*quotes, *cases]}

@@ -1,4 +1,4 @@
-"""审批模板、独立人员、内容冻结及真实 SQLite 并发回滚验证。"""
+"""审批模板、角色按钮授权、内容冻结及真实 SQLite 并发回滚验证。"""
 
 import json
 import sqlite3
@@ -91,12 +91,11 @@ def test_29_types_and_permissions_are_complete(context):
             assert rule.model.__table__.c.document_no is not None
 
 
-def test_independent_review_and_monotonic_execution(context):
+def test_author_can_review_and_monotonic_execution(context):
     _, _, source = context
     identifier = source['id']
     assert send(identifier)['status'] == 'submitted'
-    failure(403, approve, identifier, user_id=1)
-    approved = approve(identifier)
+    approved = approve(identifier, user_id=1)
     assert approved['status'] == 'approved' and approved['version'] == 2
     failure(409, approve, identifier, version=1)
     with orm_session(write=True) as db:
@@ -108,30 +107,29 @@ def test_independent_review_and_monotonic_execution(context):
         failure(409, require_approved, db, 'WarehouseInbound', identifier, snapshot(db, identifier), 1)
     with orm_session() as db:
         events = list(db.scalars(select(DocumentApprovalEvent).order_by(DocumentApprovalEvent.version)))
-        assert [(row.action, row.actor_id) for row in events] == [('submit', 1), ('approve', 2), ('execute', 1)]
+        assert [(row.action, row.actor_id) for row in events] == [('submit', 1), ('approve', 1), ('execute', 1)]
         assert all(row.created_at for row in events)
         assert db.get(WarehouseInbound, identifier).document_no == source['document_no']
 
 
-def test_editor_submitter_cannot_self_review_after_resubmission(context):
+def test_editor_permission_controls_review_after_resubmission(context):
     identifier = context[2]['id']
     with orm_session(write=True) as db:
         record_author(db, 'WarehouseInbound', identifier, 4)
     send(identifier, user_id=3)
+    # 仓管缺少批准权限仍拒绝；有批准权限的编辑人可审，作者记录不会因此被删除。
     failure(403, approve, identifier, user_id=3)
-    failure(403, approve, identifier, user_id=4)
     with orm_session(write=True) as db:
         withdrawn = withdraw(db, 'WarehouseInbound', identifier, 1, 3)
         assert withdrawn['version'] == 2
     send(identifier, user_id=1, version=2)
-    failure(403, approve, identifier, user_id=4, version=3)
     failure(403, approve, identifier, user_id=3, version=3)
-    assert approve(identifier, version=3)['status'] == 'approved'
+    assert approve(identifier, user_id=4, version=3)['status'] == 'approved'
     with orm_session() as db:
         assert list(db.scalars(select(DocumentApprovalAuthor.user_id).order_by(DocumentApprovalAuthor.user_id))) == [1, 3, 4]
 
 
-def test_multiple_steps_freeze_template_and_require_different_people(context):
+def test_multiple_steps_freeze_template_and_allow_authorized_same_person(context):
     identifier = context[2]['id']
     with orm_session(write=True) as db:
         save_policy(db, 'WarehouseInbound', [{'name': '审核', 'role': 'admin'},
@@ -142,8 +140,7 @@ def test_multiple_steps_freeze_template_and_require_different_people(context):
     first = approve(identifier)
     assert first['status'] == 'submitted' and first['current_step'] == 1
     assert first['policy_version'] == 2 and len(first['steps']) == 2
-    failure(403, approve, identifier, version=2)
-    final = approve(identifier, user_id=4, version=2)
+    final = approve(identifier, version=2)
     assert final['status'] == 'approved' and final['current_step'] == 2
 
 
@@ -211,14 +208,12 @@ def test_live_permission_revocation_and_disabled_reviewer(context):
     failure(401, approve, identifier, user_id=4)
 
 
-def test_step_role_is_checked_against_current_roles(context):
+def test_legacy_step_role_does_not_override_button_permissions(context):
     identifier = context[2]['id']
     with orm_session(write=True) as db:
         save_policy(db, 'WarehouseInbound', [{'name': '仓库审核', 'role': 'warehouse'}], 1, 1)
     send(identifier)
-    failure(403, approve, identifier)
-    with orm_session(write=True) as db:
-        db.add(UserRole(user_id=2, role_code='warehouse'))
+    # 旧职务字段保留于固定快照，但不能阻止另一角色持有审核权限的人员。
     assert approve(identifier)['status'] == 'approved'
 
 
@@ -417,8 +412,7 @@ def test_inbound_old_client_cannot_post_before_independent_approval(context):
         'lots': [{'quantity': '10'}]}]}).status_code == 409
     sent = approval_api(client, auth, identifier, 'submit', version=0)
     assert sent.status_code == 200 and sent.json()['status'] == 'submitted'
-    assert not sent.json()['can_review']
-    assert approval_api(client, auth, identifier, 'approve', version=1).status_code == 403
+    assert sent.json()['can_review']  # 建单账号持有当前按钮权限时允许审批。
     assert client.post(url, headers=auth).status_code == 409
     reviewer = reviewer_auth(client)
     read = approval_api(client, reviewer, identifier)
@@ -445,9 +439,8 @@ def test_inbound_multistep_cannot_execute_until_last_approval(context):
     reviewer = reviewer_auth(client)
     first = approval_api(client, reviewer, identifier, 'approve', version=1)
     assert first.json()['status'] == 'submitted' and first.json()['current_step'] == 1
-    assert not first.json()['can_review']
+    assert first.json()['can_review']
     assert client.post(f'/api/v1/warehouse-inbounds/{identifier}/post', headers=auth).status_code == 409
-    assert approval_api(client, reviewer, identifier, 'approve', version=2).status_code == 403
     assert approval_api(client, reviewer_auth(client, 'editor'), identifier, 'approve', version=2).json()['status'] == 'approved'
     assert client.post(f'/api/v1/warehouse-inbounds/{identifier}/post', headers=auth).status_code == 200
 

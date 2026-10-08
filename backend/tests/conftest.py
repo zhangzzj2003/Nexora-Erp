@@ -6,6 +6,13 @@ import pytest
 @pytest.fixture
 def remove_after_sales_labor_schema():
     def remove(db):
+        # 旧版本夹具同步移除 v95 按钮权限，不能让新增外键留在即将撤掉的权限分组中。
+        from app.core.approval_catalog import APPROVAL_TYPES
+        for rule in APPROVAL_TYPES.values():
+            for action in ('verify', 'approve'):
+                code = rule.step_permission({'name': '', 'action': action})
+                db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
+                db.execute('DELETE FROM permissions WHERE code=?', (code,))
         db.execute('DROP TABLE IF EXISTS after_sales_labor_costs')
         db.execute("DELETE FROM role_permissions WHERE permission_code='after_sales.cost'")
         db.execute("DELETE FROM permissions WHERE code='after_sales.cost'")

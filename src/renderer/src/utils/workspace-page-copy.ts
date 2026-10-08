@@ -9,7 +9,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   physicalLots: '按仓库与物料核对实物批次结存、未分配差额和来源历史；历史未识别期初不代表真实批号。',
   inventoryLedger: '按仓库和物料核对期初、每笔变动及期末。选择来源后显示该来源范围内的累计数量。',
   transfers: '在仓库之间调拨物料，确认后同时更新来源仓库与目标仓库的库存。',
-  stockAdjustments: '调整量可正可负；建单人不能审批自己的单据。审批通过后由仓库确认才记库存流水。',
+  stockAdjustments: '调整量可正可负；审核、核准与批准按角色按钮权限办理。审批通过后由仓库确认才记库存流水。',
   stocktakes: '核对账面与实盘数量，确认差异后更新库存；库存变化时需重新盘点。',
   inventoryReports: '按仓库、物料和日期查询库存报表，支持导出当前结果。',
   sales: '查看客户订单、交付进度与销售明细，确认后按单办理出库。',

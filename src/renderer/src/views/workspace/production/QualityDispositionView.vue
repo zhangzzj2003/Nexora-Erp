@@ -73,7 +73,7 @@ onMounted(()=>{void store.loadQuality()});onUnmounted(()=>store.clearQualityDeta
     <NModal :show="!!command" preset="card" :title="command?qualityCommand[command.action]:''" :style="{width:'min(760px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)command=null}">
       <form v-if="command" class="quality-operation" @submit.prevent="execute">
         <QualityEvidenceView :row="command.row" compact />
-        <p v-if="['approve','reject'].includes(command.action)">核对原检验结果、本次数量、成本处理及返工材料。编制、修订或提交人不得审核，包括管理员。</p>
+        <p v-if="['approve','reject'].includes(command.action)">核对原检验结果、本次数量、成本处理及返工材料。拥有当前步骤按钮权限的账号即可审批，包括编制人员和管理员。</p>
         <p v-else-if="command.action==='post'">确认报废保留隔离来源；确认返工只建立关联工单草稿，不增加可用库存。成本须另行结算。</p>
         <p v-else-if="command.action==='reverse'">执行已独立批准的固定更正原因，更正前须冲销原结算；有关返工报工、领料及费用须先完整更正，关联历史工单仍保留。</p>
         <p v-else>本次动作、原因、旧版本和正文将保留为操作证据。</p>

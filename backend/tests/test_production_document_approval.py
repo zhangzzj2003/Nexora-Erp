@@ -134,7 +134,7 @@ def test_production_failure_rolls_back_business_and_approval(production_document
     assert client.get('/api/v1/movements', headers=auth).json() == before
 
 
-def test_completion_inspector_cannot_review_own_result(context):
+def test_completion_authorized_inspector_can_review_own_result(context):
     client, auth, inbound = context
     order = prepare_order(client, auth, inbound)
     approve_document(client, auth, 'WorkOrder', order['id'])
@@ -151,10 +151,10 @@ def test_completion_inspector_cannot_review_own_result(context):
         json={'accepted_quantity': '1', 'qc_note': '合格'})
     path = f"/api/v1/system/document-approvals/ProductionCompletion/{row['id']}"
     assert client.post(path + '/submit', headers=auth, json={'version': 0}).status_code == 200
-    assert not client.get(path, headers=inspector).json()['can_review']
-    assert client.post(path + '/approve', headers=inspector, json={'version': 1}).status_code == 403
+    assert client.get(path, headers=inspector).json()['can_review']
+    assert client.get((path + '/approve').removesuffix('/approve'), headers=inspector, params={'intent': 'execute'}).json()['can_review']
 
-def test_mrp_generated_work_order_requires_independent_author_exclusion(mrp_erp):
+def test_mrp_generated_work_order_preserves_authors_and_button_permissions(mrp_erp):
     client, admin, reviewer, planner, _, materials, _ = mrp_erp
     plan = approve_mrp(client, admin, reviewer, mrp_payload(client, admin, materials))
     plan = client.get(MRP + f"/plans/{plan['id']}", headers=admin).json()
@@ -167,9 +167,9 @@ def test_mrp_generated_work_order_requires_independent_author_exclusion(mrp_erp)
     assert client.post(f'/api/v1/work-orders/{identifier}/release', headers=admin).status_code == 409
     path = f'/api/v1/system/document-approvals/WorkOrder/{identifier}'
     assert client.post(path + '/submit', headers=reviewer, json={'version': 0}).status_code == 200
-    # 管理员是原计划编制人，工单由计划员转出；仍不得用管理员权限自审。
-    assert not client.get(path, headers=admin).json()['can_review']
-    assert client.post(path + '/approve', headers=admin, json={'version': 1}).status_code == 403
+    # 管理员与计划员的作者身份仍保留，审批资格由当前按钮权限决定。
+    assert client.get(path, headers=admin).json()['can_review']
+    assert client.get((path + '/approve').removesuffix('/approve'), headers=admin, params={'intent': 'execute'}).json()['can_review']
     assert not client.get(path, headers=planner).json()['can_review']
     assert client.post('/api/v1/users', headers=admin, json={'username': 'child_reviewer',
         'password': 'secure-pass-123', 'roles': ['admin']}).status_code == 201
@@ -196,10 +196,10 @@ def test_rework_generated_order_recovers_original_disposition_author(quality_erp
     assert client.post(f'/api/v1/work-orders/{identifier}/release', headers=admin).status_code == 409
     assert client.post(path + '/submit', headers=admin, json={'version': 0}).status_code == 200
     with orm_session(write=True) as db:
-        # 后续升为管理员也不能绕过原编制身份；验证的是作者约束而不是角色缺权。
+        # 后续升为管理员获得按钮权限即可审批；原编制身份仍用于溯源。
         db.add(UserRole(user_id=2, role_code='admin'))
-    assert not client.get(path, headers=actors['author']).json()['can_review']
-    assert client.post(path + '/approve', headers=actors['author'], json={'version': 1}).status_code == 403
+    assert client.get(path, headers=actors['author']).json()['can_review']
+    assert client.get((path + '/approve').removesuffix('/approve'), headers=actors['author'], params={'intent': 'execute'}).json()['can_review']
     token = client.post('/api/v1/auth/login', json={'username': 'independent_reviewer_1',
         'password': 'approval-test-pass-123'}).json()['token']
     independent = {'Authorization': 'Bearer ' + token}

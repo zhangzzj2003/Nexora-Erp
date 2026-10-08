@@ -81,7 +81,7 @@ def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_recor
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 94:
+        if version > 95:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 92:
             # 资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -2766,7 +2766,7 @@ def migrate() -> None:
                 db.executemany('''INSERT OR IGNORE INTO document_approval_policies(document_type,version,steps_json)
                     VALUES (?,1,?)''', [(name, '[{"name":"批准","role":null}]') for name in APPROVAL_TYPES])
             if {'permissions', 'role_permissions', 'permission_groups', 'roles'} <= tables:
-                # 新审核权限不会自动授给执行人员；管理员也必须由另一位人员独立审核。
+                # 原审核权限不会自动授给执行人员；第 95 版再拆分核准与批准按钮权限。
                 for rule in APPROVAL_TYPES.values():
                     if rule.native_workflow:
                         continue
@@ -2875,3 +2875,27 @@ def migrate() -> None:
             if 'material_code_sequences' in tables:
                 db.execute('UPDATE material_categories SET used=1 WHERE code IN (SELECT prefix FROM material_code_sequences)')
             db.execute('PRAGMA user_version = 94')
+
+
+        if version < 95:
+            # 仅扩展按钮权限目录，保留旧角色审核能力、审批快照、人员与不可改写的审计。
+            from app.core.approval_catalog import APPROVAL_TYPES
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if {'permissions', 'role_permissions', 'permission_groups', 'roles'} <= tables:
+                for rule in APPROVAL_TYPES.values():
+                    previous = db.execute('SELECT group_code FROM permissions WHERE code=?',
+                                          (rule.review_permission,)).fetchone()
+                    if previous is None:
+                        continue
+                    for action, label in (('verify', '核准'), ('approve', '批准')):
+                        code = rule.step_permission({'name': label, 'action': action})
+                        title = '收付款与核销' if rule.review_permission == 'finance.review' else rule.title
+                        db.execute('INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,?)',
+                                   (code, label + title, previous[0]))
+                        # 旧审核角色原本可完成所有步骤；仅为这些角色补齐，未授权角色不扩大权限。
+                        db.execute("""INSERT OR IGNORE INTO role_permissions(role_code,permission_code)
+                            SELECT role_code, ? FROM role_permissions WHERE permission_code=?""",
+                                   (code, rule.review_permission))
+            db.execute('PRAGMA user_version = 95')

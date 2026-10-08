@@ -33,7 +33,7 @@ def new_actor(erp, name):
     return name
 
 
-def test_three_steps_freeze_plan_and_require_distinct_people(erp):
+def test_three_steps_freeze_plan_and_allow_authorized_people(erp):
     _, api, *_ = erp
     with orm_session(write=True) as db:
         workflow.save_policy(db, 'AfterSalesCase', [dict(name=name, role=None)
@@ -47,10 +47,10 @@ def test_three_steps_freeze_plan_and_require_distinct_people(erp):
     state=api('GET',path(row))
     assert state['content_matches'] and state['policy_version']==2
     assert state['summary'][0]['value']=='售后客户'
-    action(api,row,'approve',status=403)
+    assert api('GET', f'system/document-approvals/AfterSalesCase/{row['id']}?intent=execute', actor='admin')['can_review']
     row=action(api,row,'approve',actor='reviewer')
     assert row['status']=='submitted'
-    action(api,row,'approve',actor='reviewer',status=403)
+    assert api('GET', f'system/document-approvals/AfterSalesCase/{row['id']}?intent=execute', actor='reviewer')['can_review']
     action(api,row,'process',status=409)
     for name in ('after_check','after_authorize'):
         row=action(api,row,'approve',actor=new_actor(erp,name))
@@ -68,7 +68,7 @@ def test_attachments_freeze_plan_but_allow_later_work_evidence(erp):
     author=new_actor(erp,'after_plan_attachment_author')
     item=upload(api,row,actor=author)
     row=action(api,row,'submit')
-    action(api,row,'approve',actor=author,status=403)
+    assert api('GET', f'system/document-approvals/AfterSalesCase/{row['id']}?intent=execute', actor=author)['can_review']
     assert not api('GET',f'{ROOT}/{row["id"]}/attachments')['can_modify']
     api('POST',f'{ROOT}/{row["id"]}/attachments/{item["id"]}/reverse',{'reason':'不能替换待审证据'},status=409)
     row=action(api,row,'approve',actor=new_actor(erp,'after_independent'))
@@ -86,7 +86,7 @@ def test_attachments_freeze_plan_but_allow_later_work_evidence(erp):
     assert row['custody_quantity']=='0' and len(row['custody'])==2
 
 
-def test_attachment_author_cannot_review_any_derived_document(erp):
+def test_attachment_author_can_review_any_derived_document(erp):
     client,api,actors,*_=erp
     author=new_actor(erp,'after_attachment_author')
     for kind in ('repair','exchange'):
@@ -103,8 +103,9 @@ def test_attachment_author_cannot_review_any_derived_document(erp):
             p=f'system/document-approvals/{typ}/{identifier}'
             api('POST',p+'/submit',{'version':0})
             state=api('GET',p,actor=author)
-            assert not state['can_review']
-            api('POST',p+'/approve',{'version':state['version']},actor=author,status=403)
+            assert state['can_review']  # 附件作者持有子单批准权限时也可审批。
+            approved = api('POST',p+'/approve',{'version':state['version']},actor=author)
+            assert approved['status'] == 'approved'
 
 
 def test_legacy_endpoints_scope_reason_and_withdraw_reservation(erp):

@@ -93,7 +93,7 @@
 
 `finance/LedgerAccountsView.vue` 与 `finance/AccountingPeriodsView.vue` 分别维护总账科目与会计期间，按独立查看、维护权限控制。共享草稿和快照在 Pinia，修改携带旧版本，冲突保留输入；`MetadataHistory.vue` 展示建立、名称、启停及版本变更，读取失败可重试。科目结构和期间日期保存后固定；`JournalsView.vue` 提供手工及业务来源凭证，`JournalHistory.vue` 展示操作审计，`JournalAttachments.vue` 在详情中展示附件与追加撤销，文件选择和保存只经主进程受限接口；会计期间支持结账检查、结账与重开，操作沿用公共控件；历史成本锁定由服务端执行。
 
-`finance/OpeningBalancesView.vue` 提供首次总账启用方案，使用 Pinia、独立动作授权和版本校验；同账号不能审核自身建改或提交的方案。`OpeningHistory.vue` 展示阶段、操作者、结果及原因。主表、余额编辑和详情沿用 WorkspaceTable，窄窗口内部横向滚动。`LedgerReportsView.vue` 展示同快照期初来源与审计，正式期初不计本期发生额；业务分户初始余额不自动生成，须单独录入并核对。
+`finance/OpeningBalancesView.vue` 提供首次总账启用方案，使用 Pinia、独立动作授权和版本校验；同账号持有当前步骤权限时可审批自身建改或提交的方案。`OpeningHistory.vue` 展示阶段、操作者、结果及原因。主表、余额编辑和详情沿用 WorkspaceTable，窄窗口内部横向滚动。`LedgerReportsView.vue` 展示同快照期初来源与审计，正式期初不计本期发生额；业务分户初始余额不自动生成，须单独录入并核对。
 
 `finance/SubledgerOpeningsView.vue` 提供 `/workspace/subledger-openings` 独立查看权限入口，使用 Pinia 的 `subledger-actions.ts` 管理方案、查询、审计、资金与迟到请求。`SubledgerEditor.vue` 编辑原单与附加部门/项目，`SubledgerEvidence.vue` 显示逐完整组合差额、确认快照及审计前后明细。失败保留输入，同账号断线保留草稿；换号撤权清理全部共享数据，表格内部行标记不发送服务端。只读用户没有建单选项或资金写入能力，规则见 [分户期初](../../../../../docs/subledger-openings.md)。
 

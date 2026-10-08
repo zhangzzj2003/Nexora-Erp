@@ -1,4 +1,4 @@
-"""审批类型与领域权限白名单；审核权限不能由执行权限推导。"""
+"""审批类型与领域权限白名单；角色按钮权限与业务执行权限分别校验。"""
 
 from dataclasses import dataclass
 
@@ -18,13 +18,18 @@ class ApprovalType:
     execute_permission: str
     native_workflow: bool = False
 
+    def step_permission(self, step: dict) -> str:
+        # 步骤名称允许自定义，授权以固定动作代码为准；旧模板按名称兼容识别。
+        action = approval_step_action(step)
+        return self.review_permission if action == 'review' else self.review_permission.rsplit('.', 1)[0] + '.' + action
+
     @property
     def model(self):
         # 只取静态模型；不允许客户端提供表名或反射任意业务表。
         return getattr(models, self.model_name)
 
 
-# 十类既有审批继续使用原权限，其余类型增加独立审核权限。
+# 各领域原审核代码保持不变，核准与批准以同一前缀生成独立按钮权限。
 _RULES = (
     ('PurchaseRequest', '采购申请', 'purchase_request.view', 'purchase_request.submit', 'purchase_request.review', 'purchase_order.create', True),
     ('PurchaseOrder', '采购订单', 'inventory.view', 'purchase_order.create', 'purchase_order.review', 'purchase_order.confirm', False),
@@ -60,6 +65,16 @@ APPROVAL_TYPES = {rule[0]: ApprovalType(*rule) for rule in _RULES}
 
 # 编号范围与审批范围必须一致，防止新增单据后遗漏审核入口。
 assert set(APPROVAL_TYPES) == {item[0] for item in DOCUMENT_TYPES}
+
+
+def approval_step_action(step: dict) -> str:
+    # 旧审批快照不能重写；缺少动作字段时仍可按原步骤名称解析按钮权限。
+    if 'action' in step:
+        if step['action'] not in ('review', 'verify', 'approve'):
+            raise HTTPException(422, '审批步骤操作无效')
+        return step['action']
+    name = step['name']
+    return 'verify' if '核准' in name or '复核' in name else 'approve' if '批准' in name else 'review'
 
 
 def approval_type(name: str) -> ApprovalType:

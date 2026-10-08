@@ -1,7 +1,7 @@
 import { watch } from 'vue'
 import type { AppState } from '../state'
 import type { DocumentApprovalType } from '../../../../shared/document-approval-api'
-import { documentApprovalPolicyBody } from '../../../../shared/document-approval-api.ts'
+import { documentApprovalPolicyBody, documentApprovalStepAction } from '../../../../shared/document-approval-api.ts'
 import { displayError } from '../../utils/formatters.ts'
 
 export function createDocumentApprovalActions(state: AppState) {
@@ -44,7 +44,7 @@ export function createDocumentApprovalActions(state: AppState) {
     const row = state.approvalPolicies.value.find(item => item.document_type === type)
     if (!row) return false
     state.approvalPolicyDrafts.value[type] = {
-      document_type: type, version: row.version, steps: row.steps.map(step => ({ ...step }))
+      document_type: type, version: row.version, steps: row.steps.map(step => ({ ...step, role: null, action: documentApprovalStepAction(step) }))
     }
     state.approvalPolicyError.value = ''
     return true

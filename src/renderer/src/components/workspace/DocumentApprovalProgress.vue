@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { DocumentApprovalRecord } from '../../../../shared/document-approval-api'
 import type { Role } from '../../../../shared/erp-api'
 import { documentApprovalProgress } from '../../utils/document-approval-progress'
-import { accountRoleText } from '../../utils/account-role'
+import { documentApprovalStepAction, documentApprovalStepLabels } from '../../../../shared/document-approval-api'
 
 // 顶部流程只展示服务端进度，不提供跳步、批准或执行入口。
 const props = defineProps<{
@@ -75,14 +75,14 @@ watch(() => [props.record.document_type, props.record.document_id, props.record.
           <div class="approval-node-copy">
             <div class="approval-node-title"><strong>{{ node.name }}</strong><span>{{ node.caption }}</span></div>
             <small v-if="node.event">{{ node.event.actor_name }} · {{ localTime(node.event.created_at) }}</small>
-            <small v-else-if="node.key.startsWith('step-')">{{ node.role ? `指定角色：${accountRoleText([node.role], roles)}` : '由有审核权限的人员处理' }}</small>
+            <small v-else-if="node.key.startsWith('step-')">由有{{ documentApprovalStepLabels[documentApprovalStepAction(record.steps[Number(node.key.slice(5))]!)] }}权限的人员处理</small>
           </div>
         </li>
       </ol>
     </div>
     <div v-if="progress.nodes.length" class="approval-progress-note">
       <span v-if="record.steps.length">{{ progress.completed }} / {{ record.steps.length }} 步审批已完成</span>
-      <span>建单、编辑、提交人员不能自审；不同审批步骤由不同人员完成。批准后仍需执行对应业务操作。</span>
+      <span>各步骤按角色的按钮权限操作；同一人员可完成多个已授权步骤。批准后仍需执行对应业务操作。</span>
     </div>
   </section>
 </template>

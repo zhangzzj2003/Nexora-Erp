@@ -241,7 +241,7 @@ def update_purchase_request(
         return request_data(db, request_id)
 
 
-# 旧入口没有审批版本，不能保证步骤、自审或并发边界，保留权限校验后明确拒绝。
+# 旧入口没有审批版本，不能保证步骤、按钮授权或并发边界，保留权限校验后明确拒绝。
 @router.post("/purchase-requests/{request_id}/submit")
 def submit_purchase_request(request_id: int, _: dict = Depends(require("purchase_request.submit"))) -> dict:
     raise HTTPException(409, "请使用带版本的单据审批入口送审")

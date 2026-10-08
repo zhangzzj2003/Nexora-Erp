@@ -109,7 +109,7 @@ def test_multistep_self_review_and_pending_cancel_require_withdraw(funds):
     row=new(funds)
     sent=client.post(f'{APPROVAL}/{row["id"]}/submit',json={'version':0,'reason':'核对银行回单'}).json()
     assert sent['steps']==steps
-    assert client.post(f'{APPROVAL}/{row["id"]}/approve',json={'version':1,'reason':'管理员自审'}).status_code==403
+    assert client.get((f"{APPROVAL}/{row['id']}/approve").removesuffix('/approve'), headers=None, params={'intent': 'execute'}).json()['can_review']
     assert client.post(f'{BASE}/{row["id"]}/cancel',json={'version':1,'reason':'直接取消'}).status_code==409
     assert client.post(f'{APPROVAL}/{row["id"]}/withdraw',json={'version':1}).status_code==200
     assert client.post(f'{BASE}/{row["id"]}/cancel',json={'version':1,'reason':'重录银行依据'}).status_code==200

@@ -331,7 +331,7 @@ def change(case_id: int, action: Literal['submit','approve','reject','process','
                     reason='other',note=f'售后维修耗材 {row.reference}'[:200],reference=row.reference,created_by=user['id']))
                 db.add_all([WarehouseOutboundLine(outbound_id=outbound.id,material_id=part['material_id'],quantity=part['quantity']) for part in parts])
                 row.parts_outbound_id=outbound.id
-                # 耗材子单独立送审，原售后方案的建单、编辑和提交人员不能自审。
+                # 耗材子单独立送审，原售后方案作者继续存证，审批按子单当前步骤按钮权限办理。
                 for author_id in after_sales_snapshot(db, row.id)['source_author_ids']:
                     if author_id is not None:
                         record_author(db, 'WarehouseOutbound', outbound.id, author_id)

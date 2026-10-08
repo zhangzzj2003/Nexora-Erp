@@ -44,13 +44,13 @@ def test_three_steps_fixed_original_and_no_funds_until_execution(subledger):
     assert f'subledger_payment:{row["id"]}' not in [s['key'] for s in client.get('/api/v1/finance/business-journals').json()]
     execute(client,row,expected=409)
     submitted=act(client,row,'submit',0)
-    act(client,row,'approve',submitted['version'],expected=403)
+    assert submitted['can_review']  # 同一账号可处理已授权的后续步骤。
     execute(client,row,'cancel',expected=409)
     assert any(s['label']=='完整辅助归属' and '项目甲' in s['value'] for s in submitted['summary'])
     for index in range(3):
         actor=reviewer(client,f'funds_reviewer_{index}')
         submitted=act(client,row,'approve',submitted['version'],actor)
-        if index<2:act(client,row,'approve',submitted['version'],actor,expected=403)
+        if index<2:assert submitted['can_review']
     assert submitted['status']=='approved' and query(subledger)['rows'][0]['outstanding_amount']=='100.00'
     result=execute(client,row)
     assert result['approval']['status']=='executed' and result['executed_at'] and result['executed_by']

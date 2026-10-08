@@ -131,7 +131,7 @@ def test_adjustment_upgrade_keeps_old_review_without_treating_it_as_new_approval
     assert state['business_status'] == 'submitted' and '原审核说明' in state['summary'][-1]['value']
     login = client.post('/api/v1/auth/login', json={'username': 'submitter', 'password': 'secure-pass-123'}).json()
     original_submitter = {'Authorization': 'Bearer ' + login['token']}
-    assert client.post(target + '/approve', headers=original_submitter, json={'version': 1}).status_code == 403
+    assert client.get((target + '/approve').removesuffix('/approve'), headers=original_submitter, params={'intent': 'execute'}).json()['can_review']
     login = client.post('/api/v1/auth/login', json={'username': 'reviewer', 'password': 'secure-pass-123'}).json()
     reviewer = {'Authorization': 'Bearer ' + login['token']}
     approved = client.post(target + '/approve', headers=reviewer, json={'version': 1, 'reason': '新审核意见'})
@@ -184,11 +184,11 @@ def test_adjustment_reject_withdraw_resubmit_tracks_native_status(context):
     assert not state['can_submit'] and len(state['events']) == 4
 
 
-def test_historical_adjustment_preserves_execution_and_excludes_original_submitter_from_reverse(context):
+def test_historical_adjustment_preserves_execution_and_allows_authorized_original_submitter_reverse(context):
     client, auth, inbound = context
     row = client.post('/api/v1/stock-adjustments', headers=auth, json={'warehouse_id': 1,
         'reason': '旧确认', 'lines': [{'material_id': inbound['lines'][0]['material_id'], 'quantity': '2'}]}).json()
-    # 模拟升级前已执行的主单，不补造新流程批准，原提交人员仍不能审核冲销。
+    # 模拟升级前已执行的主单，不补造新流程批准，原提交人员按当前冲销步骤按钮权限审批。
     with orm_session(write=True) as db:
         source = db.get(StockAdjustment, row['id'])
         source.status, source.submitted_by, source.submitted_at = 'posted', 3, '2025-01-01 09:00:00'
@@ -200,6 +200,5 @@ def test_historical_adjustment_preserves_execution_and_excludes_original_submitt
         json={'version': 0, 'intent': 'reverse', 'reason': '复核冲销'}).status_code == 200
     original = {'Authorization': 'Bearer ' + client.post('/api/v1/auth/login',
         json={'username': 'submitter', 'password': 'secure-pass-123'}).json()['token']}
-    assert client.post(target + '/approve', headers=original,
-        json={'version': 1, 'intent': 'reverse'}).status_code == 403
+    assert client.get((target + '/approve').removesuffix('/approve'), headers=original, params={'intent': 'reverse'}).json()['can_review']
     assert client.get(target, headers=auth).json()['events'] == []

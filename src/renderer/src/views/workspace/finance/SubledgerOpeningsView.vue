@@ -260,7 +260,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
     </NModal>
     <NModal :show="!!command || !!reversal" preset="card" :title="command ? openingActionLabels[command.action] : '建立反向分户草稿'" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) { command = null; reversal = null } }">
       <form class="ledger-editor" @submit.prevent="confirm">
-        <p v-if="command">方案 {{ command.record.reference }} · 版本 {{ command.record.version }}。提交、审核与确认均须逐组合一致；建单、编辑或提交人员不能审核。</p>
+        <p v-if="command">方案 {{ command.record.reference }} · 版本 {{ command.record.version }}。提交、审核与确认均须逐组合一致；审核、核准与批准按角色按钮权限办理。</p>
         <p v-if="command?.action === 'reverse'">仅未过账且从未执行分户资金的期初可撤销，即使资金已冲销也不能重设历史。</p>
         <p v-if="reversal">原记录 {{ documentLabel(reversal) }} · {{ reversal.party_name }} · {{ reversal.document_reference }} · {{ reversal.amount }} 元。保存等额反向草稿，须重新独立批准后执行；原记录和凭证保留。</p>
         <label>依据 / 原因<AppInput v-model.trim="reason" :readonly="command?.action === 'reverse'" required maxlength="200" :disabled="disabled" /></label>

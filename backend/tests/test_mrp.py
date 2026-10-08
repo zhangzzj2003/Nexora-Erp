@@ -164,8 +164,7 @@ def test_full_plan_workflow_snapshot_and_conversion_do_not_change_stock(seeded):
         json={'version':1,'suggestion_key':'1:2030-01-10','reason':'未审核'}).status_code == 409
     approval_action(client, admin, record['id'], 'submit', '提交')
     state = client.get(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}', headers=admin).json()
-    assert client.post(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}/approve', headers=admin,
-        json={'version':state['version'],'reason':'本人审核'}).status_code == 403
+    assert state['can_review']  # 编制人拥有批准按钮权限时可以审批。
     approval_action(client, reviewer, record['id'], 'approve', '独立核对')
     detail = client.get(MRP+f'/plans/{record["id"]}', headers=planner).json()
     assert detail['snapshot']['sources']['movements']
@@ -315,7 +314,7 @@ def test_v48_upgrade_preserves_stock_and_is_idempotent(seeded, remove_mrp_schema
     migrate()
     migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 94
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 95
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert len(Base.metadata.tables) == 195
@@ -344,17 +343,23 @@ def test_upgrade_failure_rolls_back_new_tables(seeded, remove_mrp_schema, monkey
         assert not db.execute("SELECT 1 FROM permissions WHERE code='mrp.view'").fetchone()
 
 
-def test_previous_submitter_cannot_review_after_resubmission(seeded):
+def test_previous_submitter_needs_current_button_permission_after_resubmission(seeded):
     client, admin, reviewer, planner, viewer, materials, _ = seeded
     record = client.post(MRP+'/plans', headers=admin, json=payload(client, admin, materials)).json()
     approval_action(client, planner, record['id'], 'submit', '初次提交')
     approval_action(client, reviewer, record['id'], 'reject', '退回核对')
     record = approval_action(client, admin, record['id'], 'submit', '重新提交')
     assert len(record['author_ids']) == 2
-    # 后续授予审核权限不能消除这个账号已经参与编制的事实。
+    # 后续授予审核权限不能代替当前批准步骤的权限，作者记录始终保留。
     client.post(BASE+'/roles', headers=admin, json={'code':'mrp_review','label':'计划审核','permissions':['mrp.view','mrp.review']})
     planner_id = client.get(BASE+'/auth/me', headers=planner).json()['id']
     client.put(BASE+f'/users/{planner_id}/roles', headers=admin, json={'roles':['planner','mrp_review']})
     state = client.get(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}', headers=planner).json()
     assert client.post(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}/approve', headers=planner,
         json={'version':state['version'],'reason':'历史提交人审核'}).status_code == 403
+    # 再授予当前批准按钮权限，旧登录即可审批；曾提交该计划不构成额外限制。
+    assert client.put(BASE+'/roles/mrp_review', headers=admin, json={'label':'计划批准',
+        'permissions':['mrp.view','mrp.review','mrp.approve']}).status_code == 200
+    assert client.get(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}', headers=planner).json()['can_review']
+    assert client.post(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}/approve', headers=planner,
+        json={'version':state['version'],'reason':'授权后批准'}).status_code == 200

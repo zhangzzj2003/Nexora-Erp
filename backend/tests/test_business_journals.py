@@ -81,7 +81,8 @@ def test_purchase_sales_and_payments_use_real_sources(business):
     row = generate(client, key)
     assert row['business_source']['key'] == key and row['total_debit'] == '62.50'
     generate(client, key, 'DUPLICATE', 409)
-    transition(client, transition(client, row, 'submit'), 'approve', expected=403)
+    submitted = transition(client, row, 'submit')
+    assert client.get(f'/api/v1/system/document-approvals/Journal/{submitted["id"]}').json()['can_review']
     row = client.get(f'{JOURNALS}/{row["id"]}').json()
     row = transition(client, row, 'approve', reviewer)
     row = transition(client, row, 'post')
@@ -370,5 +371,5 @@ def test_v43_upgrade_atomic_failure_and_idempotent_retry(business, remove_transf
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 94
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 95
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'business_journal.%'").fetchone()[0] == 3

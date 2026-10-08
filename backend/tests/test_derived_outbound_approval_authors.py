@@ -1,4 +1,4 @@
-"""维护、售后派生耗材单继续排除原方案编制人员，且独立批准前不扣库存。"""
+"""维护、售后派生耗材单保留原方案作者并按按钮权限审批，且独立批准前不扣库存。"""
 
 import pytest
 
@@ -11,11 +11,11 @@ def approval_path(identifier):
 
 
 @pytest.mark.parametrize('legacy', [False, True])
-def test_maintenance_editor_cannot_review_derived_outbound(equipment_erp, monkeypatch, legacy):
+def test_maintenance_editor_can_review_derived_outbound(equipment_erp, monkeypatch, legacy):
     client, api, actors, _, _, part = equipment_erp
     data = job_input(equipment_erp, warehouse_id=1, parts=[{'material_id': part, 'quantity': '2'}])
     job = api('POST', 'equipment/jobs', data, status=201)
-    # 原方案由第三人修订和送审，后续生成子单仍须保留这位编制人员的排除记录。
+    # 原方案由第三人修订和送审，后续生成子单仍须保留这位编制人员的溯源记录。
     job = api('PUT', f"equipment/jobs/{job['id']}", {**data, 'version': job['version']}, actor='third')
     job = equipment_action(api, job, 'submit', actor='third')
     job = equipment_action(api, job, 'approve', actor='reviewer')
@@ -28,15 +28,15 @@ def test_maintenance_editor_cannot_review_derived_outbound(equipment_erp, monkey
     state = client.post(approval_path(identifier) + '/submit', headers=actors['reviewer'], json={'version': 0})
     assert state.status_code == 200, state.text
     for author in ('admin', 'third', 'reviewer'):
-        assert not client.get(approval_path(identifier), headers=actors[author]).json()['can_review']
-        assert client.post(approval_path(identifier) + '/approve', headers=actors[author], json={'version': 1}).status_code == 403
+        assert client.get(approval_path(identifier), headers=actors[author]).json()['can_review']
+        assert client.get((approval_path(identifier) + '/approve').removesuffix('/approve'), headers=actors[author], params={'intent': 'execute'}).json()['can_review']
     assert api('GET', 'stock')[0]['quantity'] == '10'
 
 
 @pytest.mark.parametrize('legacy', [False, True])
-def test_after_sales_editor_cannot_review_derived_outbound(after_sales_erp, monkeypatch, legacy):
+def test_after_sales_editor_can_review_derived_outbound(after_sales_erp, monkeypatch, legacy):
     client, api, actors, _, _, part, _ = after_sales_erp
-    # 使用有完整审核权限的编辑账号，证明拒绝来自作者隔离，而非缺少角色权限。
+    # 使用有完整审核权限的编辑账号，证明作者身份不再额外阻止有权限的角色。
     token = client.post('/api/v1/auth/login', json={'username': 'independent_reviewer_1',
                                                  'password': 'approval-test-pass-123'}).json()['token']
     editor = {'Authorization': 'Bearer ' + token}
@@ -55,6 +55,6 @@ def test_after_sales_editor_cannot_review_derived_outbound(after_sales_erp, monk
     state = client.post(approval_path(identifier) + '/submit', headers=actors['admin'], json={'version': 0})
     assert state.status_code == 200, state.text
     for author in (editor, actors['admin']):
-        assert not client.get(approval_path(identifier), headers=author).json()['can_review']
-        assert client.post(approval_path(identifier) + '/approve', headers=author, json={'version': 1}).status_code == 403
+        assert client.get(approval_path(identifier), headers=author).json()['can_review']
+        assert client.get((approval_path(identifier) + '/approve').removesuffix('/approve'), headers=author, params={'intent': 'execute'}).json()['can_review']
     assert next(item for item in api('GET', 'stock') if item['id'] == part)['quantity'] == '20'

@@ -308,7 +308,7 @@ def confirm_goods_receipt(
                     supplier_id=order["supplier_id"], reference=source["reference"], created_by=user["id"]
                 ),
             ).id
-            # 转单人员和原收货建单人员均不能审核这张派生入库单；新单仍未送审。
+            # 记录转单人员和原收货建单人员用于溯源；新单仍须单独送审并按按钮权限审批。
             approval.record_author(db, 'Receipt', inbound_id, source['created_by'])
             add_model(db, ReceiptWarehouse(receipt_id=inbound_id, warehouse_id=source["warehouse_id"]))
             for line in accepted:

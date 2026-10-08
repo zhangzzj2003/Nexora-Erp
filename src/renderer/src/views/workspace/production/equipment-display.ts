@@ -52,6 +52,6 @@ export function maintenanceEffect(action:MaintenanceAction):string{
   if(action==='rework')return '退回指定执行人重新处理，继续原停机区间，之前报工证据保留。'
   if(action==='reverse')return '保留真实停机与耗材领用；仅在计划未被后续修订或工单使用时恢复原到期日，否则保留较新安排。实物更正须由仓库另行处理。'
   if(action==='cancel')return '关联耗材出库草稿须先取消；已实际领用的耗材不会自动归库。已开始的停机区间在取消时结束。'
-  if(action==='approve' || action==='reject')return '核对设备、计划、执行人和耗材。编制、修订或提交人不得审核，包括管理员。'
+  if(action==='approve' || action==='reject')return '核对设备、计划、执行人和耗材。拥有当前步骤按钮权限的账号即可审批，包括编制人员和管理员。'
   return '提交后不能修改正文；周期保养须到期，设备、计划版本及指定执行人须仍有效。'
 }

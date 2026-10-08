@@ -48,7 +48,7 @@ def test_three_steps_fixed_source_child_independent_and_cost_privacy(quality_erp
         assert submitted['version'] == previous['version'] + 1
         assert submitted['status'] == ('approved' if index == 2 else 'submitted')
         if index == 0:
-            action(api, submitted, 'approve', reviewer, 403)
+            assert api('GET', path(submitted), actor=reviewer)['can_review']
     posted = action(api, submitted, 'post', actors['keeper'])
     assert posted['approval']['status'] == 'executed'
     child = next(item for item in api('GET', 'work-orders') if item['id'] == posted['rework_order_id'])
@@ -87,13 +87,15 @@ def test_editor_author_propagation_and_fixed_material_labels(quality_erp):
     row = api('POST', ROOT + '/dispositions', data, 201, actors['author'])
     row = api('PUT', f'{ROOT}/dispositions/{row["id"]}', {**data, 'version': row['version']})
     row = action(api, row, 'submit', actors['author'])
-    action(api, row, 'approve', status=403)
+    assert api('GET', path(row))['can_review']
     row = action(api, row, 'approve', actors['reviewer'])
     row = action(api, row, 'post', actors['keeper'])
     child_path = f'system/document-approvals/WorkOrder/{row["rework_order_id"]}'
     state = api('POST', child_path + '/submit', {'version': 0})
-    for actor in (admin, actors['author'], actors['keeper']):
-        api('POST', child_path + '/approve', {'version': state['version']}, 403, actor)
+    for actor, allowed in ((admin, True), (actors['author'], False), (actors['keeper'], False)):
+        assert api('GET', child_path, actor=actor)['can_review'] is allowed
+        if not allowed:
+            api('POST', child_path + '/approve', {'version': state['version']}, 403, actor)
     assert api('GET', path(row))['content_matches']
 
 
@@ -138,8 +140,8 @@ def test_independent_correction_fixed_reason_and_pending_child_dependency(qualit
     row = action(api, api('GET', f'{ROOT}/dispositions/{row["id"]}'), 'post', actors['keeper'])
     action(api, row, 'reverse', status=409)
     submitted = api('POST', path(row) + '/submit', {'version': 0, 'intent': 'reverse', 'reason': '原方案误录'})
-    for actor in (admin, actors['keeper']):
-        api('POST', path(row) + '/approve', {'intent': 'reverse', 'version': submitted['version'], 'reason': '自审'}, 403, actor)
+    assert api('GET', path(row) + '?intent=reverse')['can_review']
+    api('POST', path(row) + '/approve', {'intent': 'reverse', 'version': submitted['version'], 'reason': '缺少批准权限'}, 403, actors['keeper'])
     approved = api('POST', path(row) + '/approve', {'intent': 'reverse', 'version': submitted['version'], 'reason': '独立核对'}, actor=actors['reviewer'])
     action(api, row, 'reverse', reason='更换原因', status=409)
     child_path = f'system/document-approvals/WorkOrder/{row["rework_order_id"]}'

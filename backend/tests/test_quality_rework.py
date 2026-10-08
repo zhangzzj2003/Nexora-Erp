@@ -261,7 +261,7 @@ def test_independent_review_freeze_versions_permissions_and_cost_privacy(quality
     edited = api('PUT',f'{ROOT}/dispositions/{row["id"]}',{**payload(completion,quantity='2'),
         'version':rejected['version'],'reason':'复核损失依据'},actor=admin)
     submitted = action(api,edited,'submit')
-    action(api,submitted,'approve',status=403)
+    assert api('GET',f'system/document-approvals/QualityDisposition/{submitted["id"]}')['can_review']
     action(api,submitted,'cancel',actors['reviewer'],403)
     action(api,row,'cancel',status=409)
     approved = action(api,submitted,'approve',actors['reviewer'])
@@ -352,11 +352,11 @@ def test_v50_upgrade_preserves_records_and_static_models(quality_erp,remove_qual
         db.execute('PRAGMA user_version=50')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 94
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 95
         assert db.execute('SELECT * FROM work_orders').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert len(Base.metadata.tables) == 195
-        assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'quality.%'").fetchone()[0] == 7
+        assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'quality.%'").fetchone()[0] == 9
     assert api('GET',ROOT)['cases'][0]['work_order_id'] == original['id']
 
 

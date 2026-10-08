@@ -39,20 +39,20 @@ def order_input(supplier, source, quantity='4'):
         'quantity': quantity, 'unit_price': '2'}]}
 
 
-def test_steps_do_not_approve_native_early_and_do_not_allow_self_review(requisition):
+def test_steps_do_not_approve_native_early_and_allow_authorized_self_review(requisition):
     client, auth, supplier, source = requisition
     with orm_session(write=True) as db:
         workflow.save_policy(db, 'PurchaseRequest', [{'name': name, 'role': None}
             for name in ('审核', '核准', '批准')], 1, 1)
     endpoint = path(source['id'])
     state = client.post(endpoint + '/submit', headers=auth, json={'version': 0}).json()
-    assert client.post(endpoint + '/approve', headers=auth, json={'version': 1}).status_code == 403
+    assert client.get((endpoint + '/approve').removesuffix('/approve'), headers=auth, params={'intent': 'execute'}).json()['can_review']
     review = reviewer(client)
     state = client.post(endpoint + '/approve', headers=review, json={'version': state['version']}).json()
     assert state['status'] == 'submitted' and state['business_status'] == 'submitted'
     assert client.post('/api/v1/purchase-orders', headers=auth,
         json=order_input(supplier, source)).status_code == 409
-    assert client.post(endpoint + '/approve', headers=review, json={'version': state['version']}).status_code == 403
+    assert client.get((endpoint + '/approve').removesuffix('/approve'), headers=review, params={'intent': 'execute'}).json()['can_review']
     # 另外两步分别使用独立人员，旧版本不能覆盖已经作出的审核决定。
     for index in (2, 3):
         name = f'approval_step_{index}'
@@ -67,7 +67,7 @@ def test_steps_do_not_approve_native_early_and_do_not_allow_self_review(requisit
     assert state['status'] == state['business_status'] == 'approved'
 
 
-def test_editor_cannot_review_and_pending_cancel_requires_withdraw(requisition):
+def test_editor_can_review_and_pending_cancel_requires_withdraw(requisition):
     client, auth, _, source = requisition
     editor = {'Authorization': 'Bearer ' + client.post('/api/v1/auth/login', json={
         'username': 'editor', 'password': 'secure-pass-123'}).json()['token']}
@@ -76,8 +76,8 @@ def test_editor_cannot_review_and_pending_cancel_requires_withdraw(requisition):
     endpoint = path(source['id'])
     sent = client.post(endpoint + '/submit', headers=auth, json={'version': 0})
     assert sent.status_code == 200, sent.text
-    assert not client.get(endpoint, headers=editor).json()['can_review']
-    assert client.post(endpoint + '/approve', headers=editor, json={'version': 1}).status_code == 403
+    assert client.get(endpoint, headers=editor).json()['can_review']
+    assert client.get((endpoint + '/approve').removesuffix('/approve'), headers=editor, params={'intent': 'execute'}).json()['can_review']
     assert client.put(f"/api/v1/purchase-requests/{source['id']}", headers=auth, json=payload).status_code == 409
     assert client.post(f"/api/v1/purchase-requests/{source['id']}/cancel", headers=auth).status_code == 409
     assert client.post(endpoint + '/withdraw', headers=auth, json={'version': 1}).status_code == 200
@@ -217,11 +217,11 @@ def test_downstream_order_recovers_request_author_and_editor(requisition):
     endpoint = f"/api/v1/system/document-approvals/PurchaseOrder/{converted['id']}"
     assert client.post(endpoint + '/submit', headers=reviewer(client), json={'version': 0}).status_code == 200
     for author in (auth, editor):
-        assert not client.get(endpoint, headers=author).json()['can_review']
-        assert client.post(endpoint + '/approve', headers=author, json={'version': 1}).status_code == 403
+        assert client.get(endpoint, headers=author).json()['can_review']
+        assert client.get((endpoint + '/approve').removesuffix('/approve'), headers=author, params={'intent': 'execute'}).json()['can_review']
 
 
-def test_mrp_generated_request_excludes_original_plan_author(mrp_erp):
+def test_mrp_generated_request_preserves_original_plan_author(mrp_erp):
     client, admin, review, planner, _, materials, _ = mrp_erp
     plan = approve_mrp(client, admin, review, plan_payload(client, admin, materials))
     plan = client.get(MRP + f"/plans/{plan['id']}", headers=admin).json()
@@ -231,11 +231,11 @@ def test_mrp_generated_request_excludes_original_plan_author(mrp_erp):
     assert result.status_code == 201, result.text
     endpoint = path(result.json()['purchase_request_id'])
     assert client.post(endpoint + '/submit', headers=review, json={'version': 0}).status_code == 200
-    assert not client.get(endpoint, headers=admin).json()['can_review']
-    assert client.post(endpoint + '/approve', headers=admin, json={'version': 1}).status_code == 403
+    assert client.get(endpoint, headers=admin).json()['can_review']
+    assert client.get((endpoint + '/approve').removesuffix('/approve'), headers=admin, params={'intent': 'execute'}).json()['can_review']
 
 
-def test_maintenance_generated_request_excludes_original_job_author(equipment_erp):
+def test_maintenance_generated_request_preserves_original_job_author(equipment_erp):
     client, api, actors, _, _, part = equipment_erp
     row = approve_job(equipment_erp, warehouse_id=1, parts=[{'material_id': part, 'quantity': '3'}])
     result = api('POST', f"equipment/jobs/{row['id']}/purchase-requests", {
@@ -243,7 +243,7 @@ def test_maintenance_generated_request_excludes_original_job_author(equipment_er
         'parts': [{'material_id': part, 'quantity': '2'}]}, actor='reviewer', status=201)
     endpoint = path(result['purchase_requests'][0]['id'])
     assert client.post(endpoint + '/submit', headers=actors['third'], json={'version': 0}).status_code == 200
-    assert not client.get(endpoint, headers=actors['admin']).json()['can_review']
-    assert not client.get(endpoint, headers=actors['reviewer']).json()['can_review']
+    assert client.get(endpoint, headers=actors['admin']).json()['can_review']
+    assert client.get(endpoint, headers=actors['reviewer']).json()['can_review']
     with orm_session() as db:
         assert 1 in purchase_request_snapshot(db, result['purchase_requests'][0]['id'])['source_author_ids']

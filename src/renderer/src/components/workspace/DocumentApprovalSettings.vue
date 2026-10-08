@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import type { DocumentApprovalType } from '../../../../shared/document-approval-api'
+import { documentApprovalStepAction, documentApprovalStepLabels, type DocumentApprovalStepAction, type DocumentApprovalType } from '../../../../shared/document-approval-api'
 import AppButton from '../app/AppButton.vue'
 import AppInput from '../app/AppInput.vue'
 import WorkspaceSelect from './WorkspaceSelect.vue'
@@ -9,7 +9,7 @@ import { usePiniaAppStore } from '../../store/app-store'
 
 // 只负责表单交互，模板读取、版本、保存与草稿全部由 Pinia 持有。
 const store = usePiniaAppStore()
-const { user, busy, connectionLost, roles, approvalPolicies: policies, approvalPolicyDrafts: drafts,
+const { user, busy, connectionLost, approvalPolicies: policies, approvalPolicyDrafts: drafts,
   approvalPolicyLoading: loading, approvalPolicyError: error } = storeToRefs(store)
 const { loadApprovalPolicies, editApprovalPolicy, saveApprovalPolicy } = store
 const selected = ref<DocumentApprovalType>('WarehouseInbound')
@@ -18,15 +18,25 @@ const draft = computed(() => drafts.value[selected.value])
 const saved = computed(() => policies.value.find(row => row.document_type === selected.value))
 const disabled = computed(() => busy.value || loading.value || connectionLost.value || !administrator.value)
 const typeOptions = computed(() => policies.value.map(row => ({ value: row.document_type, label: row.title })))
-const roleOptions = computed(() => [{ value: '', label: '不限职务（仍须有该单据审核权限）' },
-  ...roles.value.map(role => ({ value: role.code, label: role.label }))])
+// 按钮权限在职务与权限页面分配，审批模板仅定义每一步要执行的动作。
+const actionOptions = Object.entries(documentApprovalStepLabels).map(([value, label]) => ({ value, label }))
+function changeAction(index: number, value: string): void {
+  if (disabled.value || !draft.value || !actionOptions.some(option => option.value === value)) return
+  const step = draft.value.steps[index]
+  if (!step) return
+  const oldLabel = documentApprovalStepLabels[documentApprovalStepAction(step)]
+  step.action = value as DocumentApprovalStepAction
+  if (step.name === oldLabel) step.name = documentApprovalStepLabels[step.action]
+  // 新配置不再按固定职务排除其他持有同一按钮权限的角色。
+  step.role = null
+}
 
 async function reload(): Promise<void> {
   if (await loadApprovalPolicies()) editApprovalPolicy(selected.value)
 }
 function choose(): void { editApprovalPolicy(selected.value) }
 function addStep(): void {
-  if (!disabled.value && draft.value && draft.value.steps.length < 5) draft.value.steps.push({ name: '批准', role: null })
+  if (!disabled.value && draft.value && draft.value.steps.length < 5) draft.value.steps.push({ name: '批准', role: null, action: 'approve' })
 }
 function removeStep(index: number): void {
   if (!disabled.value && draft.value && draft.value.steps.length > 1) draft.value.steps.splice(index, 1)
@@ -44,7 +54,7 @@ onMounted(() => { if (administrator.value) void reload() })
       <h2>单据审批步骤</h2>
       <AppButton :disabled="busy || loading || connectionLost" :loading="loading" @click="reload">刷新规则</AppButton>
     </div>
-    <p class="muted">默认由一位独立人员批准，可按单据增加审核、核准和批准步骤。建单、编辑及提交人员不能审批本单，各步骤由不同人员完成。</p>
+    <p class="muted">在“职务与权限”中按单据分配审核、核准、批准按钮权限；登录账号拥有当前步骤权限即可操作，建单人员也可审批，同一人员可完成多个已授权步骤。</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <form class="stack" @submit.prevent="saveApprovalPolicy(selected)">
       <label>单据类型<WorkspaceSelect v-model="selected" :options="typeOptions" :disabled="disabled" @change="choose" /></label>
@@ -52,8 +62,8 @@ onMounted(() => { if (administrator.value) void reload() })
         <div v-for="(step, index) in draft.steps" :key="index" class="approval-step">
           <span class="pill">{{ index + 1 }}</span>
           <label>步骤名称<AppInput v-model="step.name" required maxlength="40" :disabled="disabled" /></label>
-          <label>审批职务<WorkspaceSelect :model-value="step.role ?? ''" :options="roleOptions" :disabled="disabled"
-            @update:model-value="step.role = $event || null" /></label>
+          <label>审批操作<WorkspaceSelect :model-value="documentApprovalStepAction(step)" :options="actionOptions" :disabled="disabled"
+            @update:model-value="changeAction(index, $event)" /></label>
           <AppButton :disabled="disabled || draft.steps.length === 1" @click="removeStep(index)">移除</AppButton>
         </div>
         <div class="approval-actions">
@@ -72,7 +82,7 @@ onMounted(() => { if (administrator.value) void reload() })
 </template>
 
 <style scoped>
-/* 步骤顺序保持一致，窄窗口按行折叠，不挤压职务下拉与操作按钮。 */
+/* 步骤顺序保持一致，窄窗口按行折叠，不挤压审批操作下拉与操作按钮。 */
 .approval-settings label { display: grid; gap: 8px; min-width: 0; }
 .approval-steps { display: grid; gap: 16px; }
 .approval-step { display: grid; grid-template-columns: auto minmax(140px, 1fr) minmax(220px, 1.5fr) auto; gap: 12px; align-items: end; }

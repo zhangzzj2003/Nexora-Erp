@@ -110,7 +110,7 @@ def test_purchase_self_review_snapshot_change_and_withdraw(purchase, kind):
     endpoint = path(kind, record['id'])
     sent = client.post(endpoint + '/submit', headers=auth, json={'version': 0})
     assert sent.status_code == 200, sent.text
-    assert client.post(endpoint + '/approve', headers=auth, json={'version': 1}).status_code == 403
+    assert client.get((endpoint + '/approve').removesuffix('/approve'), headers=auth, params={'intent': 'execute'}).json()['can_review']
     with orm_session(write=True) as db:
         # 模拟另一旧写入边界篡改正文，批准和执行都不能使用过期内容。
         setattr(db.get(model, record['lines'][0]['id']), field, changed)
@@ -205,7 +205,7 @@ def test_receipt_derived_authors_and_domain_read_permission(purchase):
         assert db.get(DocumentApprovalAuthor, ('Receipt', child_id, order['created_by'])) is not None
     endpoint = path('Receipt', child_id)
     assert client.post(endpoint + '/submit', headers=confirmer, json={'version': 0}).status_code == 200
-    assert client.post(endpoint + '/approve', headers=auth, json={'version': 1}).status_code == 403
+    assert client.get((endpoint + '/approve').removesuffix('/approve'), headers=auth, params={'intent': 'execute'}).json()['can_review']
     client.post('/api/v1/roles', headers=auth, json={
         'code': 'production_observer', 'label': '仅生产查看', 'permissions': ['production.view']})
     client.post('/api/v1/users', headers=auth, json={

@@ -45,8 +45,7 @@ def test_three_steps_partial_conversion_and_independent_children(seeded):
     stock = client.get(BASE + '/stock', headers=admin).json()
     approval_action(client, planner, row['id'], 'submit', '固定需求和供给日期')
     state = client.get(path(row['id']), headers=admin).json()
-    assert client.post(path(row['id']) + '/approve', headers=admin,
-        json={'version': state['version'], 'reason': '编制人自审'}).status_code == 403
+    assert state['can_review']
     # 模板修改只作用下一轮，当前三步和完整计算快照继续固定。
     assert client.put(BASE + '/system/document-approvals/MrpPlan', headers=admin, json={
         'version': policy['version'] + 1, 'steps': [{'name': '新模板', 'role': None}]}).status_code == 200
@@ -56,8 +55,7 @@ def test_three_steps_partial_conversion_and_independent_children(seeded):
         if index < 2:
             convert(client, planner, row, initial['snapshot']['suggestions'][0], 409)
             current = client.get(path(row['id']), headers=actor).json()
-            assert client.post(path(row['id']) + '/approve', headers=actor,
-                json={'version': current['version'], 'reason': '重复步骤'}).status_code == 403
+            assert current['can_review']
     suggestions = initial['snapshot']['suggestions']
     first = convert(client, planner, row, suggestions[0])
     child_type = 'WorkOrder' if first['work_order_id'] else 'PurchaseRequest'
@@ -66,8 +64,8 @@ def test_three_steps_partial_conversion_and_independent_children(seeded):
     child = client.get(child_path, headers=admin).json()
     assert child['business_status'] == 'draft' and child['status'] == 'draft'
     sent = client.post(child_path + '/submit', headers=admin, json={'version': 0}).json()
-    for actor in (admin, planner):
-        assert client.post(child_path + '/approve', headers=actor, json={'version': sent['version']}).status_code == 403
+    assert client.get(child_path, headers=admin).json()['can_review']
+    assert client.post(child_path + '/approve', headers=planner, json={'version': sent['version']}).status_code == 403
     # 其他建议的转换人不进入已生成子单的作者摘要，也不重复执行原计划。
     row = plan_detail(client, admin, row['id'])
     assert row['approval']['status'] == 'executed'

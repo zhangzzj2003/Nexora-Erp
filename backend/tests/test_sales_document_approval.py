@@ -160,9 +160,9 @@ def test_contract_editor_and_attachment_evidence_are_part_of_approval(context):
     attachment = client.post(attachment_url, headers=editor, json=file_input()).json()
     path = f"/api/v1/system/document-approvals/SalesOrder/{order['id']}"
     assert client.post(path + '/submit', headers=auth, json={'version': 0}).status_code == 200
-    # 编辑合同的人即使有管理员权限也不能审核；原件追加/撤销均不得绕过固定正文。
-    assert not client.get(path, headers=editor).json()['can_review']
-    assert client.post(path + '/approve', headers=editor, json={'version': 1}).status_code == 403
+    # 编辑合同的人拥有按钮权限时也可审批；原件追加／撤销均不得绕过固定正文。
+    assert client.get(path, headers=editor).json()['can_review']
+    assert client.get((path + '/approve').removesuffix('/approve'), headers=editor, params={'intent': 'execute'}).json()['can_review']
     assert client.post(attachment_url, headers=auth, json=file_input(b'%PDF-1.4\nnew\n%%EOF')).status_code == 409
     assert client.post(attachment_url + f"/{attachment['id']}/reverse", headers=auth,
                        json={'reason': '未经审批撤销'}).status_code == 409

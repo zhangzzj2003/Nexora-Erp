@@ -145,3 +145,16 @@ test('分户摘要允许独立撤销的确认依据，仍拒绝超长和无效�
   assert.equal(caseApi.documentApprovalActionBody(input).reason,'核对分户')
   for(const reason of [' ','字'.repeat(201)])assert.throws(()=>caseApi.documentApprovalActionBody({...input,reason}))
 })
+
+// 显式动作绑定按钮权限；步骤改名不能把核准变成批准，旧快照仍能读取。
+test('审批步骤动作严格校验并与自由名称分离', () => {
+  const input = { document_type: 'WarehouseInbound', version: 1,
+    steps: [{name:'负责人确认',role:null,action:'verify'}] }
+  assert.deepEqual(documentApprovalPolicyBody(input).steps, input.steps)
+  assert.equal(caseApi.documentApprovalStepAction(input.steps[0]), 'verify')
+  assert.equal(caseApi.documentApprovalStepAction({name:'批准',role:null}), 'approve')
+  assert.equal(caseApi.documentApprovalStepAction({name:'仓库审核',role:null}), 'review')
+  for (const action of [null, ['review'], 1, '', 'users.manage', 'execute']) {
+    assert.throws(() => documentApprovalPolicyBody({...input,steps:[{...input.steps[0],action}]}))
+  }
+})

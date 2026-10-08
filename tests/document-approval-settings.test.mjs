@@ -36,7 +36,7 @@ test('真实审批设置组件展示有序步骤、冲突及禁用状态，普�
   const render = () => renderToString(createSSRApp({ render: () => h(Settings) }).use(pinia))
   let html = await render()
   assert.match(html, /单据审批步骤/)
-  assert.match(html, /不同人员完成/)
+  assert.match(html, /按钮权限/); assert.match(html, /同一人员可完成多个已授权步骤/); assert.match(html, /审批操作/); assert.match(html, /value="verify"/)
   assert.match(html, /value="审核"/)
   assert.match(html, /value="批准"/)
   assert.match(html, /载入最新规则/)

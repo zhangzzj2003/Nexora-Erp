@@ -8,7 +8,14 @@ export const documentApprovalTypes = [
   'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer'
 ] as const
 export type DocumentApprovalType = typeof documentApprovalTypes[number]
-export interface DocumentApprovalStep { name: string; role: string | null }
+export type DocumentApprovalStepAction = 'review' | 'verify' | 'approve'
+export interface DocumentApprovalStep { name: string; role: string | null; action?: DocumentApprovalStepAction }
+// 兼容已固定的旧快照；新规则显式绑定动作，修改名称不会改变按钮授权。
+export function documentApprovalStepAction(step: DocumentApprovalStep): DocumentApprovalStepAction {
+  return step.action ?? (step.name.includes('核准') || step.name.includes('复核') ? 'verify'
+    : step.name.includes('批准') ? 'approve' : 'review')
+}
+export const documentApprovalStepLabels = { review: '审核', verify: '核准', approve: '批准' } as const
 export interface DocumentApprovalPolicy {
   document_type: DocumentApprovalType
   title: string
@@ -45,12 +52,14 @@ function steps(value: unknown): DocumentApprovalStep[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 5) throw new Error('审批步骤须为一至五步')
   return value.map(item => {
     const step = record(item)
-    if (Object.keys(step).some(key => key !== 'name' && key !== 'role')
+    if (Object.keys(step).some(key => !['name', 'role', 'action'].includes(key))
       || typeof step.name !== 'string' || !step.name.trim() || step.name.trim().length > 40
+      || ('action' in step && (typeof step.action !== 'string' || !['review', 'verify', 'approve'].includes(step.action)))
       || !(step.role === null || typeof step.role === 'string' && /^[a-z][a-z0-9_]{2,39}$/.test(step.role))) {
       throw new Error('审批步骤名称或角色无效')
     }
-    return { name: step.name.trim(), role: step.role as string | null }
+    return { name: step.name.trim(), role: step.role as string | null,
+      ...('action' in step ? { action: step.action as DocumentApprovalStepAction } : {}) }
   })
 }
 

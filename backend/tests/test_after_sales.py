@@ -156,7 +156,7 @@ def test_v79_responsibility_upgrade_is_atomic_and_preserves_old_cases(erp,monkey
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_responsibilities'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 94
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 95
         assert db.execute("SELECT 1 FROM sqlite_master WHERE name='after_sales_responsibilities'").fetchone()
     assert api('GET',f'{ROOT}/{old["id"]}')['responsibilities']==[]
 
@@ -257,7 +257,7 @@ def test_v78_order_warranty_upgrade_is_atomic_and_keeps_old_orders_unknown(erp,m
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(sales_order_lines)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 94
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 95
         assert db.execute('SELECT warranty_days,warranty_basis FROM sales_order_lines WHERE sales_order_id=?',
             (old_order['id'],)).fetchone()==(None,'')
     old=next(item for item in api('GET','sales-orders') if item['id']==old_order['id'])
@@ -337,7 +337,7 @@ def test_v77_warranty_upgrade_keeps_old_cases_unknown_and_is_idempotent(erp,monk
         assert 'warranty_days' not in {item[1] for item in db.execute('PRAGMA table_info(after_sales_cases)')}
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 94
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 95
         assert db.execute('SELECT warranty_days,warranty_basis FROM after_sales_cases WHERE id=?',
             (old['id'],)).fetchone()==(None,'')
     assert api('GET',f'{ROOT}/{old["id"]}')['warranty_status']=='unknown'
@@ -718,7 +718,7 @@ def test_independent_review_tracks_editors_and_versions_and_read_permissions(erp
     row=api('POST',ROOT,payload(erp),status=201)
     row=api('PUT',f'{ROOT}/{row["id"]}',{**payload(erp), 'version':row['version']},actor='seller')
     row=action(api,row,'submit')
-    action(api,row,'approve',status=403)
+    assert api('GET',f'system/document-approvals/AfterSalesCase/{row["id"]}')['can_review']
     action(api,row,'approve',actor='seller',status=403)
     action(api,row,'approve',actor='reviewer',version=row['version']-1,status=409)
     row=action(api,row,'approve',actor='reviewer')
@@ -810,7 +810,7 @@ def test_v51_upgrade_is_idempotent_preserves_sales_and_models(erp,remove_after_s
         remove_after_sales_schema(db); db.execute('PRAGMA user_version=51')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 94
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 95
         assert db.execute('SELECT * FROM sales_orders').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
     assert len(Base.metadata.tables)== 195
@@ -840,7 +840,7 @@ def test_v63_labor_upgrade_preserves_cases_and_rolls_back_on_failure(erp,remove_
         assert not db.execute("SELECT 1 FROM permissions WHERE code='after_sales.labor'").fetchone()
     migrate();migrate()
     with original() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 94
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 95
         assert db.execute('SELECT status FROM after_sales_cases WHERE id=?',(case['id'],)).fetchone()[0]=='approved'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='after_sales.labor'").fetchone()[0]==2
 
@@ -897,12 +897,11 @@ def test_repair_fee_and_correction_generate_independently_reviewed_balanced_jour
             fingerprint=source['fingerprint'],policy_version=source['policy_version'],reference=reference,
             journal_date=source['minimum_date'],reason='核对客户同意及交付'),status=201)
         path=f'finance/journals/{journal["id"]}'
-        # 通过真实统一审批检查自审拒绝，随后由独立人员核对来源并批准。
+        # 建单人具有按钮权限即可审批；这里保留另一角色核对来源及批准的业务链。
         submitted=journal_approval_request(erp[0],journal,'submit',reason='核对来源',headers=erp[2]['admin'])
         assert submitted.status_code==200,submitted.text
         journal=api('GET',path)
-        self_review=journal_approval_request(erp[0],journal,'approve',reason='不能自审',headers=erp[2]['admin'])
-        assert self_review.status_code==403,self_review.text
+        assert api('GET',f'system/document-approvals/Journal/{journal["id"]}')['can_review']
         reviewed=journal_approval_request(erp[0],journal,'approve',reason='独立审核',headers=erp[2]['reviewer'])
         assert reviewed.status_code==200,reviewed.text
         journal=api('GET',path)
@@ -998,10 +997,9 @@ def test_after_sales_children_exclude_original_submitter_before_new_author_migra
             assert db.scalar(select(DocumentApprovalAuthor.user_id).where(
                 DocumentApprovalAuthor.document_type == kind, DocumentApprovalAuthor.document_id == identifier)) is None
     with orm_session(write=True) as db:
-        # 原售后编制记录不能因为换货/退货生成另一张草稿就失去自审排除。
+        # 原售后编制记录保留用于溯源，后续授予按钮权限即可审批子单。
         db.add(UserRole(user_id=3, role_code='admin'))
     for kind, identifier in [('SalesOrder', row['replacement_order_id']), ('SalesReturn', row['sales_return_id'])]:
         path = f'/api/v1/system/document-approvals/{kind}/{identifier}'
         assert client.post(path + '/submit', headers=actors['admin'], json={'version': 0}).status_code == 200
-        assert not client.get(path, headers=actors['seller']).json()['can_review']
-        assert client.post(path + '/approve', headers=actors['seller'], json={'version': 1}).status_code == 403
+        assert client.get(path, headers=actors['seller']).json()['can_review']

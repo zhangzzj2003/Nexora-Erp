@@ -69,14 +69,14 @@ def test_three_steps_fixed_orders_and_no_balance_until_execution(offsets):
     response=client.post(f'{APPROVAL}/{row["id"]}/submit',json={'version':0,'reason':'核对双方订单'})
     assert response.status_code==200,response.text
     state=response.json()
-    assert client.post(f'{APPROVAL}/{row["id"]}/approve',json={'version':state['version'],'reason':'本人审核'}).status_code==403
+    assert state['can_review']  # 作者持有当前按钮权限时允许审批。
     execute(client,row,'cancel',409)
     assert any(v['label']=='来源订单' and v['value'].startswith('SO-') for v in state['summary'])
     for i in range(3):
         headers=reviewer(client,f'offset_reviewer_{i}')
         response=client.post(f'{APPROVAL}/{row["id"]}/approve',headers=headers,json={'version':state['version'],'reason':'核对单据'})
         assert response.status_code==200,response.text;state=response.json()
-        if i<2:assert client.post(f'{APPROVAL}/{row["id"]}/approve',headers=headers,json={'version':state['version'],'reason':'再次审核'}).status_code==403
+        if i<2:assert state['can_review']
     assert state['status']=='approved' and balance(offsets)==('-10.00','20.00')
     posted=execute(client,row)
     assert posted['version']==2 and posted['executed_by'] and posted['approval']['status']=='executed'

@@ -153,7 +153,7 @@ def test_probability_migration_preserves_old_opportunities_as_unrated(seeded, mo
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 94
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 95
         assert db.execute('SELECT probability_percent FROM crm_opportunities WHERE id = ?',
                           (opportunity['id'],)).fetchone()[0] is None
     assert client.get(C+'/forecast', headers=admin).json()['unrated_count'] == 1
@@ -605,7 +605,7 @@ def test_v60_owner_upgrade_keeps_existing_customers_unassigned(seeded, remove_eq
         db.execute('PRAGMA user_version=60')
     migrate();migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 94
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 95
         assert db.execute('SELECT id,name FROM customers ORDER BY id').fetchall() == names
         assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == 2
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
@@ -646,19 +646,19 @@ def test_complete_crm_workflow_keeps_snapshot_and_does_not_post_stock(seeded):
     assert client.post(B+f'/sales-orders/{order["id"]}/confirm',headers=admin).status_code == 200
 
 
-def test_review_excludes_every_author_even_after_edit_and_resubmission(seeded):
+def test_review_permissions_apply_after_edit_and_resubmission(seeded):
     client,admin,reviewer,seller,*_ = seeded
     _,_,data = base_records(seeded)
     quote = client.post(C+'/quotes',headers=seller,json=data).json()
     quote = action(client,admin,quote,'submit')
-    action(client,admin,quote,'approve',status=403)
+    assert client.get(B+f'/system/document-approvals/CrmQuote/{quote["id"]}',headers=admin).json()['can_review']
     action(client,seller,quote,'approve',status=403)
     quote = action(client,reviewer,quote,'reject',reason='价格须更正')
     quote = client.put(C+f'/quotes/{quote["id"]}',headers=admin,json={**data,
         'version':quote['version'],'reason':'修订价格','lines':[{'material_id':data['lines'][0]['material_id'],'quantity':'2','unit_price':'3'}]}).json()
     assert quote['status'] == 'draft' and quote['total_amount'] == '6.00'
     quote = action(client,seller,quote,'submit')
-    action(client,admin,quote,'approve',status=403)
+    assert client.get(B+f'/system/document-approvals/CrmQuote/{quote["id"]}',headers=admin).json()['can_review']
     quote = action(client,reviewer,quote,'approve')
     assert set(quote['review_blocked']) == {1,3}
     audits = client.get(C+f'/records/quote/{quote["id"]}/changes',headers=admin).json()
@@ -871,7 +871,7 @@ def test_v49_upgrade_is_idempotent_preserves_business_and_models(seeded,remove_c
         db.execute('PRAGMA user_version=49')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 94
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 95
         assert db.execute('SELECT id,name,created_at FROM customers ORDER BY id').fetchall() == before
         assert db.execute('SELECT COUNT(*) FROM customers WHERE owner_id IS NULL').fetchone()[0] == len(before)
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
@@ -912,12 +912,11 @@ def test_converted_order_excludes_original_quote_submitter_without_new_author_ro
                        opportunity_version=opportunity['version'])
     identifier = converted['sales_order_id']
     with orm_session(write=True) as db:
-        # 模拟没有新作者记录的旧派生草稿；原报价提交人升级为管理员仍然不能自审。
+        # 模拟没有新作者记录的旧派生草稿；原报价提交人升级为管理员后拥有按钮权限，可以审批。
         assert db.scalar(select(DocumentApprovalAuthor.user_id).where(
             DocumentApprovalAuthor.document_type == 'SalesOrder', DocumentApprovalAuthor.document_id == identifier)) is None
         db.add(UserRole(user_id=3, role_code='admin'))
     path = B + f'/system/document-approvals/SalesOrder/{identifier}'
     assert client.post(path + '/submit', headers=admin, json={'version': 0}).status_code == 200
-    assert not client.get(path, headers=seller).json()['can_review']
-    assert client.post(path + '/approve', headers=seller, json={'version': 1}).status_code == 403
+    assert client.get(path, headers=seller).json()['can_review']
     assert client.post(path + '/approve', headers=reviewer, json={'version': 1}).status_code == 200

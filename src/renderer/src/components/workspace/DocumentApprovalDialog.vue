@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { documentApprovalStepAction, documentApprovalStepLabels } from '../../../../shared/document-approval-api'
 import { storeToRefs } from 'pinia'
 import WorkspaceDocumentDialog from './WorkspaceDocumentDialog.vue'
 import { documentApprovalLayout } from '../../utils/document-approval-layout'
@@ -21,6 +22,11 @@ const layout = computed(() => documentApprovalLayout(record.value))
 // 保留服务端物料名称及数量单位，不拆解显示文本或重新计算审批内容。
 const columns = [{ key: 'label', title: '物料编码 / 名称', width: '440' },
   { key: 'value', title: '数量 / 单位', width: '140' }]
+// 按钮名称与授权动作一致；自定义步骤名称仍由顶部流程展示。
+const reviewLabel = computed(() => {
+  const step = record.value?.steps[record.value.current_step]
+  return step ? documentApprovalStepLabels[documentApprovalStepAction(step)] : '批准'
+})
 const actions = { submit: '送审', approve: '批准', reject: '驳回', withdraw: '撤回', execute: '执行' }
 // 报价、售后及处置保留原必填依据，售后与处置意见最多二百字。
 const quoteReasonRequired = computed(() => ['CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'ProductionCostSettlement'].includes(target.value?.document_type ?? ''))
@@ -90,7 +96,7 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
         <AppButton v-if="record?.can_review" type="button" :disabled="disabled || evidenceMissing || !reasons[key]?.trim()"
           @click="store.actDocumentApproval('reject')">驳回</AppButton>
         <AppButton v-if="record?.can_review" type="button" variant="primary" :disabled="disabled || evidenceMissing || (quoteReasonRequired && !reasons[key]?.trim())"
-          @click="store.actDocumentApproval('approve')">{{ record.steps[record.current_step]?.name || '批准' }}</AppButton>
+          @click="store.actDocumentApproval('approve')">{{ reviewLabel }}</AppButton>
       </div>
     </template>
   </WorkspaceDocumentDialog>

@@ -55,10 +55,10 @@ def test_steps_freeze_party_labels_and_policy_before_final_approval(quotation):
     assert state['content_matches'] and state['policy_version'] == 2
     assert state['summary'][0]['value'] == '送审时客户名'
     assert any(row['label'].endswith('送审时物料名') for row in state['summary'])
-    action(client, admin, sent, 'approve', status=403)
+    assert client.get(endpoint(sent['id']), headers=admin).json()['can_review']
     first = action(client, reviewer, sent, 'approve')
     assert first['status'] == first['approval']['status'] == 'submitted'
-    action(client, reviewer, first, 'approve', status=403)
+    assert client.get(endpoint(first['id']), headers=reviewer).json()['can_review']
     # 原转单接口也不能越过尚未完成的核准、批准步骤。
     action(client, admin, first, 'convert', status=409, opportunity_version=1, acceptance_reference='接受依据')
     for name in ('quote_check', 'quote_authorize'):
@@ -68,13 +68,13 @@ def test_steps_freeze_party_labels_and_policy_before_final_approval(quotation):
     assert client.get(path, headers=admin).json()['events'][0]['reason'] == '固定商务与附件依据'
 
 
-def test_attachment_authors_cannot_review_quote_or_derived_order(quotation):
+def test_attachment_authors_can_review_quote_or_derived_order(quotation):
     client, admin, reviewer, _, quote, opportunity, _ = quotation
     path = C+f'/quotes/{quote["id"]}/attachments'
     added = client.post(path, headers=reviewer, json=attachment())
     assert added.status_code == 201, added.text
     quote = action(client, admin, quote, 'submit')
-    action(client, reviewer, quote, 'approve', status=403)
+    assert client.get(endpoint(quote['id']), headers=reviewer).json()['can_review']
     independent = new_reviewer(client, admin, 'quote_attachment_review')
     quote = action(client, independent, quote, 'approve')
     converted = action(client, admin, quote, 'convert', opportunity_version=1, acceptance_reference='客户签字')
@@ -84,8 +84,8 @@ def test_attachment_authors_cannot_review_quote_or_derived_order(quotation):
     child_path = B+f'/system/document-approvals/SalesOrder/{child["id"]}'
     sent = client.post(child_path+'/submit', headers=admin, json={'version': 0})
     assert sent.status_code == 200, sent.text
-    assert not client.get(child_path, headers=reviewer).json()['can_review']
-    assert client.post(child_path+'/approve', headers=reviewer, json={'version': 1}).status_code == 403
+    assert client.get(child_path, headers=reviewer).json()['can_review']
+    assert client.get((child_path + '/approve').removesuffix('/approve'), headers=reviewer, params={'intent': 'execute'}).json()['can_review']
 
 
 def test_pending_and_approved_attachments_are_locked_until_withdraw(quotation):
@@ -106,7 +106,7 @@ def test_pending_and_approved_attachments_are_locked_until_withdraw(quotation):
     assert quote['status'] == 'draft'
     assert client.post(path+f'/{item["id"]}/reverse', headers=reviewer, json={'reason': '核实错误附件'}).status_code == 201
     quote = action(client, admin, quote, 'submit')
-    action(client, reviewer, quote, 'approve', status=403)
+    assert client.get(endpoint(quote['id']), headers=reviewer).json()['can_review']
     state = client.get(endpoint(quote['id']), headers=admin).json()
     assert any('已撤销' in row['value'] for row in state['summary'])
     quote = action(client, admin, quote, 'withdraw')

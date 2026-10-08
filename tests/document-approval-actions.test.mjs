@@ -35,7 +35,7 @@ test('审批模板草稿跨页面保留，成功保存只更新对应类型和�
   assert.equal(await actions.saveApprovalPolicy('WarehouseInbound'), true)
   assert.equal(state.approvalPolicyDrafts.value.WarehouseInbound.version, 2)
   assert.deepEqual(requests.at(-1)[1], { document_type: 'WarehouseInbound', version: 1,
-    steps: [{ name: '独立审核', role: null }] })
+    steps: [{ name: '独立审核', role: null, action: 'approve' }] })
   assert.equal(state.busy.value, false)
 })
 

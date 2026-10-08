@@ -67,7 +67,7 @@ def test_return_and_generated_outbound_separately_approved(returns):
         assert sum(map(Decimal, db.scalars(select(StockMovement.quantity)))) == 7
 
 
-def test_derived_outbound_excludes_creator_and_converter(returns):
+def test_derived_outbound_preserves_authors_without_blocking_button_permissions(returns):
     client, auth, row, _ = returns
     approve_document(client, auth, 'PurchaseReturn', row['id'])
     login = client.post('/api/v1/auth/login', json={'username': 'reviewer', 'password': 'secure-pass-123'})
@@ -77,7 +77,7 @@ def test_derived_outbound_excludes_creator_and_converter(returns):
     target = path('WarehouseOutbound', result.json()['outbound_id'])
     assert client.post(target + '/submit', headers=converter, json={'version': 0}).status_code == 200
     for author in (auth, converter):
-        assert client.post(target + '/approve', headers=author, json={'version': 1}).status_code == 403
+        assert client.get(target, headers=author).json()['can_review']
 
 
 def test_legacy_pending_outbound_requires_parent_and_child_approval(returns):

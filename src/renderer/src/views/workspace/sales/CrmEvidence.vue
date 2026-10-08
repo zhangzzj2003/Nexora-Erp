@@ -32,7 +32,8 @@ function auditLines(source:Record<string,unknown>): {material_name:string; quant
         <p>人民币 {{ quote.total_amount }} 元 · 有效至 {{ quote.valid_until }} · 商机：{{ quote.opportunity_title }}</p>
         <p v-if="quote.expired" role="alert">报价已过期，不能提交、批准或转单。草稿可修订有效期；已批准报价须另建并重新审核。</p>
         <p v-if="!quote.contact_active && !['converted','cancelled'].includes(quote.status)" role="alert">报价联系人已停用，不能提交、批准或转单。请先核实联系人资料；固定报价正文和历史保持原样。</p>
-        <p v-if="quote.status==='submitted' && quote.review_blocked.includes(store.user?.id ?? 0)">您已参与此报价的编制或提交，请由其他有审核权限的账号处理。</p>
+        <!-- 作者记录仍用于溯源，审批资格统一由当前步骤的角色按钮权限决定。 -->
+        <p v-if="quote.status==='submitted'">审核、核准与批准按角色的当前步骤按钮权限办理；编制或提交人员拥有权限时也可审批。</p>
         <p>{{ quote.terms || '未填写商务条款' }}</p>
         <p v-if="quote.sales_order_id">已转销售订单 {{ relatedDocumentLabel(quote, 'sales_order') }} · {{ quote.sales_order_status==='cancelled' ? '原订单已取消，原报价不能再次转单' : '须继续原订单确认与出库流程' }} · 客户接受依据：{{ quote.acceptance_reference }}</p>
         <AppButton v-if="['approved','converted'].includes(quote.status)" :disabled="busy" @click="store.exportCrmQuotePdf(quote)">导出固定报价 PDF</AppButton>

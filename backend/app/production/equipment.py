@@ -298,7 +298,7 @@ def change_job(identifier: int, action: JobAction, payload: ActionInput,
                     reason='other', note=f'设备维护耗材 {row.reference}'[:200], reference=row.reference, created_by=user['id']))
                 db.add_all([WarehouseOutboundLine(outbound_id=outbound.id, **part) for part in parts])
                 row.parts_outbound_id = outbound.id
-                # 原维护方案编制人员也不能审批派生的耗材出库单，保留原审计作者范围。
+                # 保留原维护方案作者范围用于溯源，耗材出库按其当前步骤按钮权限审批。
                 for author_id in authors(db, row):
                     record_author(db, 'WarehouseOutbound', outbound.id, author_id)
             row.status = 'in_progress'

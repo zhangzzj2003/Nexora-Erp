@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.access.security import user_details
-from app.core.approval_catalog import approval_type
+from app.core.approval_catalog import approval_type, approval_step_action
 from app.core.models import (
     DocumentApprovalAuthor, DocumentApprovalCase, DocumentApprovalEvent,
     DocumentApprovalPolicy, DocumentApprovalPolicyChange, Role, User,
@@ -59,14 +59,18 @@ def validate_steps(db: Session, steps: Sequence[Mapping]) -> list[dict]:
         raise HTTPException(422, '审批步骤须为一至五步')
     result = []
     for step in steps:
-        if not isinstance(step, Mapping) or set(step) != {'name', 'role'}:
+        if (not isinstance(step, Mapping) or not {'name', 'role'} <= set(step)
+                or set(step) - {'name', 'role', 'action'}):
             raise HTTPException(422, '审批步骤字段无效')
         name, role = step['name'], step['role']
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 40:
             raise HTTPException(422, '审批步骤名称须为一至四十字')
         if role is not None and (not isinstance(role, str) or db.get(Role, role) is None):
             raise HTTPException(422, '审批步骤角色不存在')
-        result.append({'name': name.strip(), 'role': role})
+        checked = {'name': name.strip(), 'role': role}
+        if 'action' in step:
+            checked['action'] = approval_step_action(step)
+        result.append(checked)
     return result
 
 
@@ -176,9 +180,9 @@ def submit(db: Session, document_type: str, document_id: int, snapshot: Mapping,
         raise HTTPException(404, '审批单据不存在')
     content, content_digest = digest(snapshot)
     creator = getattr(source, 'created_by', None)
-    # 不能因为遗漏作者字段而默认允许自审。
+    # 建单人员必须保留，避免审批事件失去来源人员的溯源依据。
     if not isinstance(creator, int) or creator <= 0:
-        raise HTTPException(409, '单据缺少建单人员，无法进行独立审批')
+        raise HTTPException(409, '单据缺少建单人员，无法记录审批溯源')
     if any(type(author_id) is not int or author_id <= 0 for author_id in authors):
         raise HTTPException(422, '单据操作人员无效')
     for author_id in sorted(set([creator, user_id, *authors])):
@@ -217,25 +221,26 @@ def checked_case(db: Session, document_type: str, document_id: int,
     return row
 
 
+def require_review_actor(db: Session, document_type: str, row: DocumentApprovalCase | None, user_id: int) -> dict:
+    # 所有领域前置核验与最终写入共用此授权，撤权后旧登录和旧弹窗立即失效。
+    user = actor(db, user_id)
+    if row is None or row.status != 'submitted':
+        raise HTTPException(409, '只能处理正在送审的单据')
+    step = json.loads(row.steps_json)[row.current_step]
+    if approval_type(document_type).step_permission(step) not in user['permissions']:
+        raise HTTPException(403, '没有执行此审批操作的权限')
+    return user
+
+
 def review(db: Session, document_type: str, document_id: int, snapshot: Mapping,
            version: int, user_id: int, *, approve: bool, reason: str = '',
            intent: str = 'execute', evidence: str = '') -> dict:
     write_transaction(db)
-    user = actor(db, user_id, approval_type(document_type).review_permission)
     row = checked_case(db, document_type, document_id, version, snapshot, intent)
     if row.status != 'submitted':
-        raise HTTPException(409, '只能审核正在送审的单据')
-    if user_id in json.loads(row.authors_json) or db.get(
-            DocumentApprovalAuthor, (document_type, document_id, user_id)) is not None:
-        raise HTTPException(403, '建单、编辑或提交人员不能审核自己的单据')
-    step = json.loads(row.steps_json)[row.current_step]
-    if step['role'] is not None and step['role'] not in user['roles']:
-        raise HTTPException(403, '当前人员不属于本步骤指定的审批角色')
-    previous = db.scalar(select(DocumentApprovalEvent.id).where(
-        DocumentApprovalEvent.case_id == row.id, DocumentApprovalEvent.generation == row.generation,
-        DocumentApprovalEvent.action == 'approve', DocumentApprovalEvent.actor_id == user_id))
-    if previous:
-        raise HTTPException(403, '不同审批步骤须由不同人员完成')
+        raise HTTPException(409, '只能处理正在送审的单据')
+    # 角色持有当前步骤的按钮权限即可操作；建单者与前一步操作者不再被额外排除。
+    require_review_actor(db, document_type, row, user_id)
     if not isinstance(reason, str) or len(reason.strip()) > 500 or (not approve and not reason.strip()):
         raise HTTPException(422, '驳回原因必填，审批意见最多五百字')
     current_step = row.current_step
@@ -273,7 +278,7 @@ def require_approved(db: Session, document_type: str, document_id: int, snapshot
     actor(db, user_id, permission or rule.execute_permission)
     row = find_case(db, document_type, document_id, intent)
     if row is None or row.status != 'approved':
-        raise HTTPException(409, '请先提交单据并完成独立审批')
+        raise HTTPException(409, '请先提交单据并完成审批')
     if row.content_digest != digest(snapshot)[1]:
         raise HTTPException(409, '执行内容与批准内容不一致，请重新送审')
     return row
@@ -300,7 +305,7 @@ def require_conversion_approved(db: Session, document_type: str, document_id: in
     actor(db, user_id, approval_type(document_type).execute_permission)
     row = find_case(db, document_type, document_id)
     if row is None or row.status not in ('approved', 'executed'):
-        raise HTTPException(409, '请先送审并完成本单独立审批')
+        raise HTTPException(409, '请先送审并完成本单审批')
     if row.content_digest != digest(snapshot)[1]:
         raise HTTPException(409, '单据内容与批准内容不一致，请重新送审')
     # 实际可转数量仍由领域在同一写事务核对；后续拆单不追加虚假的重复批准或执行事件。
@@ -314,7 +319,7 @@ def require_maintenance_approved(db: Session, identifier: int, snapshot: Mapping
     actor(db, user_id, permission)
     row = find_case(db, 'MaintenanceJob', identifier)
     if row is None or row.status not in ('approved', 'executed'):
-        raise HTTPException(409, '请先送审并完成维护工单独立审批')
+        raise HTTPException(409, '请先送审并完成维护工单审批')
     if row.content_digest != digest(snapshot)[1]:
         raise HTTPException(409, '维护方案与批准内容不一致，请重新送审')
     return row

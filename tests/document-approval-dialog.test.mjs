@@ -46,7 +46,7 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
     version: 1, status: 'submitted', current_step: 0, steps: [{ name: '审核', role: 'admin' }, { name: '批准', role: null }],
     can_submit: false, can_review: false, can_withdraw: true, reversal_reason: '', events: [] }
   let html = await render()
-  assert.match(html, /指定角色：管理员/)
+  assert.match(html, /由有审核权限的人员处理/); assert.doesNotMatch(html, /不能自审|指定角色/); assert.match(html, /同一人员可完成多个已授权步骤/)
   assert.match(html, /审批中/)
   assert.match(html, /电阻 × 100 个/)
   assert.match(html, /撤回审批/)
@@ -93,6 +93,10 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   html = await render()
   assert.match(html, /<button[^>]*disabled[^>]*>驳回/)
   assert.match(html, /<button[^>]*>审核/)
+  // 自定义名称不替代动作名称，核准按钮仍按服务端 action 呈现。
+  store.documentApprovalRecord.steps[0] = {name:'负责人确认',role:null,action:'verify'}
+  assert.match(await render(), /<button[^>]*>核准/)
+  store.documentApprovalRecord.steps[0] = {name:'审核',role:null,action:'review'}
   store.documentApprovalReasons['WarehouseInbound:1:execute'] = '数量需核对'
   html = await render()
   assert.doesNotMatch(html, /<button[^>]*disabled[^>]*>驳回/)

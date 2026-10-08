@@ -78,7 +78,7 @@ def action(api, row, operation, actor='admin', status=200, **extra):
 
 
 def approve_correction(api, row):
-    # 验收更正单独送审，固定原因和现场依据；原办理人员不能自审。
+    # 验收更正单独送审，固定原因和现场依据；原办理人员仍记录在作者范围，审批按按钮权限办理。
     path = f'system/document-approvals/MaintenanceJob/{row["id"]}'
     case = api('GET', path+'?intent=reverse')
     case = api('POST', path+'/submit', {'intent':'reverse', 'version':case['version'],
@@ -196,15 +196,15 @@ def test_periodic_maintenance_parts_acceptance_and_reversal(erp):
     assert api('GET',ROOT+f'/assets/{asset["id"]}')['downtimes']==[downtime]
 
 
-def test_admin_cannot_review_own_or_edited_request(erp):
+def test_authorized_admin_can_review_own_or_edited_request(erp):
     _, api, _, _, _, _ = erp
     row = api('POST',ROOT+'/jobs',job_input(erp),status=201)
     row = action(api,row,'submit')
-    action(api,row,'approve',status=403)
+    assert api('GET',f'system/document-approvals/MaintenanceJob/{row["id"]}')['can_review']
     row = action(api,row,'reject',actor='reviewer')
     row = api('PUT',ROOT+f'/jobs/{row["id"]}',{**job_input(erp), 'version':row['version']},actor='reviewer')
     row = action(api,row,'submit')
-    action(api,row,'approve',actor='reviewer',status=403)
+    assert api('GET',f'system/document-approvals/MaintenanceJob/{row["id"]}',actor='reviewer')['can_review']
     row = action(api,row,'approve',actor='third')
     assert row['author_ids']==[1,erp[3]['reviewer']]
 
@@ -448,10 +448,10 @@ def test_v52_upgrade_is_idempotent_and_preserves_old_business(erp,remove_equipme
         db.execute('PRAGMA user_version=52')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 94
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 95
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
-        assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'equipment.%'").fetchone()[0]==11
+        assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'equipment.%'").fetchone()[0]==13
     assert len(Base.metadata.tables)== 195
 
 
@@ -606,7 +606,7 @@ def test_v62_hour_migration_preserves_calendar_business_and_is_idempotent(erp):
         remove_hour_schema(db)
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 94
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 95
         assert db.execute('SELECT id,status,plan_id FROM maintenance_jobs ORDER BY id').fetchall() == old_jobs
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code='equipment.meter'").fetchone()[0] == 1

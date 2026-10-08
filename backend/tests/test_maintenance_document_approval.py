@@ -32,9 +32,9 @@ def test_steps_fixed_authors_child_approval_and_first_procurement_consumes_once(
     row = api('POST', 'equipment/jobs', job_input(erp, warehouse_id=1,
         parts=[{'material_id':part,'quantity':'3'}]), status=201)
     common(api,row,'submit')
-    common(api,row,'approve',status=403)
+    assert api('GET', f'system/document-approvals/MaintenanceJob/{row['id']}?intent=execute', actor='admin')['can_review']
     common(api,row,'approve',actor='reviewer')
-    common(api,row,'approve',actor='reviewer',status=403)
+    assert api('GET', f'system/document-approvals/MaintenanceJob/{row['id']}?intent=execute', actor='reviewer')['can_review']
     action(api,api('GET',f'equipment/jobs/{row["id"]}'),'start',status=409)
     common(api,row,'approve',actor='third')
     common(api,row,'approve',actor='fourth')
@@ -106,7 +106,7 @@ def test_correction_fixes_reason_evidence_actual_result_and_does_not_fake_stock(
     row=action(api,reported(erp),'accept',actor='reviewer')
     action(api,row,'reverse',status=409)
     case=common(api,row,'submit',intent='reverse',reason='纠正原验收',evidence='固定更正现场记录')
-    common(api,row,'approve',intent='reverse',status=403)
+    assert api('GET', f'system/document-approvals/MaintenanceJob/{row['id']}?intent=reverse', actor='admin')['can_review']
     common(api,row,'approve',intent='reverse',actor='third',reason='审核意见不同',evidence='审核依据不同')
     row=api('GET',f'equipment/jobs/{row["id"]}')
     action(api,row,'reverse',reason='纠正原验收',evidence='另一个现场记录',status=409)

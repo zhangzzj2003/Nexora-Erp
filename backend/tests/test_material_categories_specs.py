@@ -264,5 +264,5 @@ def test_v93_upgrade_preserves_legacy_ids_text_and_counter(client):
     assert category(client,'PL-RM')['fields'] and category(client,'WR-HS')['fields']
     assert client.post('/api/v1/materials',json={'category_code':'EL-WR','name':'兼容旧前缀','unit':'件'}).json()['sku'] == 'EL-WR-000033'
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 94
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 95
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []

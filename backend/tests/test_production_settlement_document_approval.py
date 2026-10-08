@@ -37,12 +37,12 @@ def test_three_steps_planned_costs_do_not_change_inventory_or_lock_sources(costs
     assert api('GET','production-costs')['orders'][0]['settlement_id'] is None
     api('POST',f'{BASE}/{row["id"]}/post',{'version':1,'reason':'提前结算'},409)
     state=api('POST',f'{APPROVAL}/{row["id"]}/submit',{'version':0,'reason':'复核分摊来源'})
-    api('POST',f'{APPROVAL}/{row["id"]}/approve',{'version':state['version'],'reason':'自己批准'},403)
+    assert state['can_review']  # 作者持有当前按钮权限时允许审批。
     for i in range(3):
         actor=reviewer(client,f'cost_reviewer_{i}')
         r=client.post('/api/v1/'+f'{APPROVAL}/{row["id"]}/approve',headers=actor,json={'version':state['version'],'reason':'核对来源成本'})
         assert r.status_code==200,r.text;state=r.json()
-        if i<2:assert client.post('/api/v1/'+f'{APPROVAL}/{row["id"]}/approve',headers=actor,json={'version':state['version'],'reason':'重复批准'}).status_code==403
+        if i<2:assert state['can_review']
     assert state['status']=='approved' and api('GET','production-costs')['orders'][0]['settlement_id'] is None
     row=api('POST',f'{BASE}/{row["id"]}/post',{'version':1,'reason':'复核正式结算'})
     assert row['status']=='active' and row['version']==2 and row['executed_at'] and row['approval']['status']=='executed'
@@ -98,7 +98,7 @@ def test_reversal_needs_separate_approval_and_keeps_original_plan(costs):
     client,headers,api,*_=costs[0];row=execute_production_settlement(client,headers,new(costs))
     api('POST',f'{BASE}/{row["id"]}/reverse',{'reason':'原结算需更正'},409)
     state=api('POST',f'{APPROVAL}/{row["id"]}/submit',{'version':0,'intent':'reverse','reason':'原结算需更正'})
-    api('POST',f'{APPROVAL}/{row["id"]}/approve',{'version':state['version'],'intent':'reverse','reason':'自己更正自己批准'},403)
+    assert state['can_review']  # 作者持有当前按钮权限时允许审批。
     actor=reviewer(client,'cost_reverse_reviewer')
     response=client.post('/api/v1/'+f'{APPROVAL}/{row["id"]}/approve',headers=actor,
         json={'version':state['version'],'intent':'reverse','reason':'独立核对更正'})
