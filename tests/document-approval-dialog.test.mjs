@@ -19,15 +19,18 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   const server = await createServer({ configFile: false, plugins: [{
     name: 'approval-dialog-fixture', enforce: 'pre',
     transform(code, id) {
-      if (id.endsWith('/DocumentApprovalDialog.vue')) return code.replace("'naive-ui'", "'virtual:approval-dialog-modal'")
+      if (id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace("'naive-ui'", "'virtual:approval-dialog-modal'")
     }, resolveId(id, importer) {
       if (id === 'virtual:approval-dialog-modal') return '\0approval-dialog-modal'
       if (importer?.includes('DocumentApprovalDialog') && id.endsWith('/store/app-store')) return '\0approval-dialog-store'
-      if (id === 'naive-ui' && importer?.includes('DocumentApprovalDialog')) return '\0approval-dialog-modal'
+      if (id.endsWith('/WorkspaceTable.vue')) return '\0approval-dialog-table'
+      if (id === 'naive-ui' && importer?.includes('WorkspaceDocumentDialog')) return '\0approval-dialog-modal'
       for (const name of ['AppButton.vue', 'AppInput.vue']) if (id.endsWith('/' + name)) return '\0approval-dialog-' + name
     }, load(id) {
       if (id === '\0approval-dialog-store') return fixture
-      if (id === '\0approval-dialog-modal') return `import {defineComponent,h} from 'vue';export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return()=>p.show?h('section',{'data-title':p.title},slots.default?.()):null}})`
+      if (id === '\0approval-dialog-modal') return `import {defineComponent,h} from 'vue';export const captured={};export const NModal=defineComponent({props:['show','title','maskClosable','closeOnEsc','closable'],setup(p,{slots,attrs}){Object.assign(captured,{props:p,attrs,slots});return()=>p.show?h('section',{...attrs,'data-title':p.title},slots.default?.()):null}})`
+      // 表格仅替换绘制，列数据与行插槽仍经过真实公共单据组件。
+      if (id === '\0approval-dialog-table') return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns','emptyText'],setup(p,{slots}){return()=>h('section',{'data-table':true},[slots.heading?.(),...p.data.map(row=>h('article',p.columns.map(c=>slots['cell-'+c.key]?.({row})))),p.data.length?null:h('p',p.emptyText)])}})`
       if (id === '\0approval-dialog-AppButton.vue') return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`
       if (id === '\0approval-dialog-AppInput.vue') return `import {defineComponent,h} from 'vue';export default defineComponent({props:['modelValue','disabled'],setup(p,{attrs}){return()=>h('input',{...attrs,value:p.modelValue,disabled:p.disabled})}})`
     }
@@ -37,8 +40,9 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   const pinia = createPinia(), store = usePiniaAppStore(pinia)
   const { default: Dialog } = await server.ssrLoadModule('/src/renderer/src/components/workspace/DocumentApprovalDialog.vue')
   const render = () => renderToString(createSSRApp({ render: () => h(Dialog) }).use(pinia))
-  store.documentApprovalRecord = { document_no: 'QTRK-20261007-000001', intent: 'execute', business_status: 'draft',
-    summary: [{label:'入库明细',value:'电阻 × 100 个'}], content_matches: true,
+  store.documentApprovalRecord = { document_type: 'WarehouseInbound', document_no: 'QTRK-20261007-000001', intent: 'execute', business_status: 'draft',
+    summary: [{label:'仓库',value:'主仓库'},{label:'用途',value:'赠品'},{label:'入库说明',value:'完整说明'.repeat(40)},
+      {label:'参考号',value:'REF-1'},{label:'入库明细',value:'电阻 × 100 个'}], content_matches: true,
     version: 1, status: 'submitted', current_step: 0, steps: [{ name: '审核', role: 'admin' }, { name: '批准', role: null }],
     can_submit: false, can_review: false, can_withdraw: true, reversal_reason: '', events: [] }
   let html = await render()
@@ -47,6 +51,37 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.match(html, /电阻 × 100 个/)
   assert.match(html, /撤回审批/)
   assert.doesNotMatch(html, />驳回<|>审核<|审批意见/)
+  assert.match(html, /workspace-document-dialog/)
+  assert.match(html, /document-basic--readonly/)
+  assert.match(html, /min\(1280px/)
+  assert.ok(html.indexOf('主仓库') < html.indexOf('物料明细'))
+  assert.ok(html.indexOf('电阻 × 100 个') < html.indexOf('审批进度'))
+  assert.ok(html.indexOf('审批记录') < html.indexOf('document-footer'))
+  assert.doesNotMatch(html, /保存草稿|添加物料|type="submit"/)
+  // 忙碌状态禁止关闭；断线仍可收起，而审批按钮保持禁用。
+  const { captured } = await server.ssrLoadModule('\0approval-dialog-modal')
+  const { calls } = await server.ssrLoadModule('\0approval-dialog-store')
+  store.busy = true
+  await render()
+  assert.equal(captured.props.closable, false)
+  captured.attrs['onUpdate:show'](false)
+  assert.deepEqual(calls, [])
+  store.busy = false
+  store.connectionLost = true
+  await render()
+  captured.attrs['onUpdate:show'](false)
+  assert.deepEqual(calls, ['close'])
+  store.connectionLost = false
+  // 刷新失败保留原送审摘要，加载和错误提示在固定页脚之前显示。
+  store.documentApprovalLoading = true
+  store.documentApprovalError = '读取失败，请重试'
+  html = await render()
+  assert.match(html, /role="status"[^>]*>正在读取审批记录/)
+  assert.match(html, /role="alert"[^>]*>读取失败/)
+  assert.match(html, /电阻 × 100 个/)
+  assert.match(html, /<button[^>]*disabled[^>]*>刷新记录/)
+  store.documentApprovalLoading = false
+  store.documentApprovalError = ''
   store.documentApprovalRecord.can_review = true
   html = await render()
   assert.match(html, /<button[^>]*disabled[^>]*>驳回/)
@@ -152,5 +187,8 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   store.documentApprovalReasons={}
   html=await render();assert.match(html,/凭证操作依据（必填）/);assert.match(html,/maxlength="200"/)
   assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
+  // 非物料审批不展示空物料表，未知摘要完整保留在基础信息中。
+  assert.doesNotMatch(html.replace(/<!--[\s\S]*?-->/g, ''), /data-table|物料明细|此单据暂无物料明细/)
+  assert.match(html, /电阻 × 100 个/)
 
 })

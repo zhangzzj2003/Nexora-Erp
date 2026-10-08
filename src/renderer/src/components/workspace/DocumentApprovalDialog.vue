@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+import WorkspaceDocumentDialog from './WorkspaceDocumentDialog.vue'
+import { documentApprovalLayout } from '../../utils/document-approval-layout'
 import AppButton from '../app/AppButton.vue'
 import AppInput from '../app/AppInput.vue'
 import { usePiniaAppStore } from '../../store/app-store'
 import { accountRoleText } from '../../utils/account-role'
 import { approvalTargetKey } from '../../store/modules/document-approval-case-actions'
 
-// 单据页面提供业务摘要，通用弹窗只负责审批步骤、意见与完整操作记录。
+// 审批复用查看详情的公共单据布局，业务内容始终来自服务端送审快照。
 withDefaults(defineProps<{ title?: string }>(), { title: '单据审批' })
 const store = usePiniaAppStore()
 const { documentApprovalTarget: target, documentApprovalRecord: record,
@@ -16,6 +17,10 @@ const { documentApprovalTarget: target, documentApprovalRecord: record,
   documentApprovalReasons: reasons, documentApprovalEvidence: evidence, busy, connectionLost } = storeToRefs(store)
 const disabled = computed(() => busy.value || loading.value || connectionLost.value)
 const key = computed(() => target.value ? approvalTargetKey(target.value) : '')
+const layout = computed(() => documentApprovalLayout(record.value))
+// 保留服务端物料名称及数量单位，不拆解显示文本或重新计算审批内容。
+const columns = [{ key: 'label', title: '物料编码 / 名称', width: '440' },
+  { key: 'value', title: '数量 / 单位', width: '140' }]
 const labels = { draft: '未送审', submitted: '审批中', approved: '已批准，待执行', rejected: '已驳回', withdrawn: '已撤回', executed: '已执行' }
 const actions = { submit: '送审', approve: '批准', reject: '驳回', withdraw: '撤回', execute: '执行' }
 // 报价、售后及处置保留原必填依据，售后与处置意见最多二百字。
@@ -26,12 +31,12 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
 </script>
 
 <template>
-  <NModal :show="!!target" preset="card" class="document-approval-dialog"
+  <!-- 未打开时不读取审批摘要，保持页面进入时审批内容按需加载的原行为。 -->
+  <WorkspaceDocumentDialog :show="!!target" read-only :busy="busy" class="document-approval-dialog"
+    :data="target ? layout.lines : []" :columns="columns" :show-lines="!!target && layout.showLines" :min-table-width="580"
     :title="`${title}${target?.intent === 'reverse' ? (['OpeningBalance', 'SubledgerOpening'].includes(target.document_type) ? ' · 撤销审批' : ' · 冲销审批') : ''}${record?.document_no ? ` · ${record.document_no}` : ''}`"
-    :style="{ width: 'min(760px, calc(100vw - 32px))', maxHeight: 'calc(100dvh - 48px)' }"
-    :mask-closable="!busy" :close-on-esc="!busy" :closable="!busy"
     @update:show="value => { if (!value) store.closeDocumentApproval() }">
-    <div class="approval-content">
+    <template #beforeBasicInfo>
       <slot />
       <p v-if="loading" role="status">正在读取审批记录…</p>
       <p v-if="error" role="alert" class="approval-error">{{ error }}</p>
@@ -39,9 +44,18 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
         <!-- 已执行单据的后续合同证据保留原快照，不要求撤回已经执行的审批。 -->
         <p v-if="!record.content_matches && record.status !== 'executed'" role="alert" class="approval-error">当前单据内容与送审内容不一致，请撤回后重新送审。</p>
         <p v-else-if="!record.content_matches" class="approval-hint">当前正文与执行时审批快照不同，下方保留原审批内容，请核对后续变更记录。</p>
-        <dl class="approval-summary">
-          <div v-for="(item, index) in record.summary" :key="index"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>
-        </dl>
+      </template>
+    </template>
+    <template #basicInfo>
+      <div v-for="(item, index) in layout.basic" :key="index" class="document-detail-field">
+        <span>{{ item.label }}</span><strong>{{ item.value }}</strong>
+      </div>
+    </template>
+    <template #cell-label="{ row }"><strong class="approval-value">{{ row.label }}</strong></template>
+    <template #cell-value="{ row }"><span class="approval-value">{{ row.value }}</span></template>
+    <template #afterLines>
+      <section v-if="record" class="approval-content" aria-label="审批进度与记录">
+        <h3>审批进度</h3>
         <!-- 已下达或已完工的历史工单同样保留原流程，不能误显示为等待新审批。 -->
         <p v-if="record.intent === 'execute' && record.version === 0 && ['posted', 'cancelled', 'confirmed', 'partially_shipped', 'shipped', 'closed', 'released', 'in_progress', 'completed', 'converted', 'processing', 'received', 'repaired', 'reversed', 'accepted', 'reported'].includes(record.business_status)">已处理单据保留原业务记录，不补造审批记录。</p>
         <!-- 旧申请全部转完后只保留原事实；剩余需求的新批准不能倒写成历史订单的批准。 -->
@@ -75,26 +89,30 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
             <p v-if="event.reason">{{ event.reason }}</p><p v-if="event.evidence">现场依据：{{ event.evidence }}</p>
           </li>
         </ol>
-      </template>
-    </div>
-    <footer class="approval-footer">
-      <AppButton type="button" :disabled="disabled" @click="store.loadDocumentApproval()">刷新记录</AppButton>
-      <AppButton v-if="record?.can_withdraw" type="button" :disabled="disabled"
-        @click="store.actDocumentApproval('withdraw')">撤回审批</AppButton>
-      <AppButton v-if="record?.can_submit" type="button" variant="primary"
-        :disabled="disabled || evidenceMissing || ((reversalSubmit || quoteReasonRequired) && !reasons[key]?.trim())"
-        @click="store.actDocumentApproval('submit')">提交审批</AppButton>
-      <AppButton v-if="record?.can_review" type="button" :disabled="disabled || evidenceMissing || !reasons[key]?.trim()"
-        @click="store.actDocumentApproval('reject')">驳回</AppButton>
-      <AppButton v-if="record?.can_review" type="button" variant="primary" :disabled="disabled || evidenceMissing || (quoteReasonRequired && !reasons[key]?.trim())"
-        @click="store.actDocumentApproval('approve')">{{ record.steps[record.current_step]?.name || '批准' }}</AppButton>
-    </footer>
-  </NModal>
+      </section>
+    </template>
+    <template #footer>
+      <div class="approval-footer">
+        <AppButton type="button" :disabled="disabled" @click="store.loadDocumentApproval()">刷新记录</AppButton>
+        <AppButton v-if="record?.can_withdraw" type="button" :disabled="disabled"
+          @click="store.actDocumentApproval('withdraw')">撤回审批</AppButton>
+        <AppButton v-if="record?.can_submit" type="button" variant="primary"
+          :disabled="disabled || evidenceMissing || ((reversalSubmit || quoteReasonRequired) && !reasons[key]?.trim())"
+          @click="store.actDocumentApproval('submit')">提交审批</AppButton>
+        <AppButton v-if="record?.can_review" type="button" :disabled="disabled || evidenceMissing || !reasons[key]?.trim()"
+          @click="store.actDocumentApproval('reject')">驳回</AppButton>
+        <AppButton v-if="record?.can_review" type="button" variant="primary" :disabled="disabled || evidenceMissing || (quoteReasonRequired && !reasons[key]?.trim())"
+          @click="store.actDocumentApproval('approve')">{{ record.steps[record.current_step]?.name || '批准' }}</AppButton>
+      </div>
+    </template>
+  </WorkspaceDocumentDialog>
 </template>
 
 <style scoped>
-/* 明细可滚动，审批操作固定在页脚，窄窗口仍能看到失败原因和按钮。 */
-.approval-content { max-height: calc(100dvh - 240px); overflow-y: auto; overflow-wrap: anywhere; }
+/* 滚动与固定页脚由公共详情组件负责，审批区只补充自己的步骤和记录样式。 */
+.approval-content { margin-top: 24px; overflow-wrap: anywhere; }
+.approval-content h3 { font-size: 15px; margin: 20px 0 12px; }
+.approval-value { white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval-hint { color: var(--workspace-field-muted); line-height: 1.7; }
 .approval-error { color: #b94438; }
 :root[data-theme='dark'] .approval-error { color: #ffaaa2; }
@@ -103,12 +121,8 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
 .approval-steps .current { border-color: var(--workspace-field-accent); }
 .approval-steps .completed { opacity: .75; }
 .approval-steps span, .approval-history small { display: block; color: var(--workspace-field-muted); font-size: 12px; }
-.approval-summary { display: grid; gap: 8px; margin: 0 0 18px; }
-.approval-summary div { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(120px, 2fr); gap: 12px; }
-.approval-summary dt { color: var(--workspace-field-muted); }
-.approval-summary dd { margin: 0; white-space: pre-wrap; }
 .approval-reason { display: grid; gap: 8px; }
 .approval-history li { padding: 10px 0; border-bottom: 1px solid var(--workspace-field-border); }
 .approval-history p { margin: 6px 0 0; white-space: pre-wrap; }
-.approval-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--workspace-field-border); }
+.approval-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; width: 100%; }
 </style>

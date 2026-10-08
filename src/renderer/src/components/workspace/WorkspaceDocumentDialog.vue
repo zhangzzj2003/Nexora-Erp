@@ -22,10 +22,12 @@ const props = withDefaults(defineProps<{
   addLabel?: string
   linesTitle?: string
   emptyText?: string
+  // 无物料表的审批仍复用详情外壳，不显示空的物料区。
+  showLines?: boolean
 }>(), {
   busy: false, disabled: false, submitDisabled: false, addDisabled: false, readOnly: false,
   submitLabel: '保存草稿', hint: '', minTableWidth: 760, showAdd: true,
-  addLabel: '添加物料', linesTitle: '物料明细',
+  addLabel: '添加物料', linesTitle: '物料明细', showLines: true,
   emptyText: '尚未添加物料，请点击“添加物料”新增一行，再在表格内搜索选择。'
 })
 const emit = defineEmits<{
@@ -35,6 +37,10 @@ const emit = defineEmits<{
 }>()
 defineSlots<{
   basicInfo: () => unknown
+  // 审批提示、步骤和记录保持在同一个滚动区，操作按钮由固定页脚承载。
+  beforeBasicInfo?: () => unknown
+  afterLines?: () => unknown
+  footer?: () => unknown
   // 只读字段与单据操作分离，业务页面可在明细标题右侧提供自己的状态操作。
   documentActions?: () => unknown
   materialPicker?: () => unknown
@@ -60,6 +66,7 @@ function submit(): void {
     :style="{ width: 'min(1280px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)' }">
     <form class="document-form" @submit.prevent="submit">
       <div class="document-body">
+        <slot name="beforeBasicInfo" />
         <!-- 详情插槽使用纯文本，不禁用整个字段集，保留表格滚动和分页等查看交互。 -->
         <fieldset :disabled="busy || disabled" class="document-fields">
           <section class="document-basic" :class="{ 'document-basic--readonly': readOnly }" aria-label="基础信息">
@@ -67,8 +74,8 @@ function submit(): void {
             <div class="form-grid document-basic-grid"><slot name="basicInfo" /></div>
           </section>
           <!-- 分隔线明确区分单据头与物料明细，避免两类信息混在同一张表单中。 -->
-          <hr class="document-divider" />
-          <WorkspaceTable :title="linesTitle" :data="data" :columns="columns" :min-table-width="minTableWidth" stretch-columns
+          <hr v-if="showLines" class="document-divider" />
+          <WorkspaceTable v-if="showLines" :title="linesTitle" :data="data" :columns="columns" :min-table-width="minTableWidth" stretch-columns
             :empty-text="readOnly ? '此单据暂无物料明细。' : emptyText" class="document-lines">
             <template #heading><h3>{{ linesTitle }} <span class="document-count">{{ data.length }} 项</span></h3></template>
             <template v-if="!readOnly || $slots.documentActions" #actions>
@@ -83,14 +90,17 @@ function submit(): void {
             </template>
           </WorkspaceTable>
         </fieldset>
+        <slot name="afterLines" />
       </div>
       <footer class="document-footer">
-        <p v-if="hint" class="muted">{{ hint }}</p>
-        <div class="document-actions">
-          <AppButton type="button" :disabled="busy" @click="updateShow(false)">{{ readOnly ? '关闭' : '收起' }}</AppButton>
-          <AppButton v-if="!readOnly" type="submit" variant="primary" :loading="busy"
-            :disabled="busy || disabled || submitDisabled">{{ submitLabel }}</AppButton>
-        </div>
+        <slot name="footer">
+          <p v-if="hint" class="muted">{{ hint }}</p>
+          <div class="document-actions">
+            <AppButton type="button" :disabled="busy" @click="updateShow(false)">{{ readOnly ? '关闭' : '收起' }}</AppButton>
+            <AppButton v-if="!readOnly" type="submit" variant="primary" :loading="busy"
+              :disabled="busy || disabled || submitDisabled">{{ submitLabel }}</AppButton>
+          </div>
+        </slot>
       </footer>
     </form>
   </NModal>
@@ -107,6 +117,10 @@ function submit(): void {
 .document-basic { padding: 20px; border: 1px solid var(--workspace-field-border);
   border-radius: 14px; background: var(--app-modal-surface); }
 .document-basic--readonly .document-basic-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 24px; }
+/* 只读审批字段沿用详情的标签与正文排版，长说明完整换行且可以复制。 */
+.document-basic-grid :deep(> .document-detail-field) { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.document-basic-grid :deep(> .document-detail-field > span:first-child) { color: var(--workspace-field-muted); font-size: 12px; }
+.document-basic-grid :deep(> .document-detail-field > strong) { font-weight: 500; overflow-wrap: anywhere; white-space: pre-wrap; }
 .document-basic h3 { display: flex; align-items: center; gap: 9px; }
 .document-basic h3::before { content: ''; width: 3px; height: 14px; border-radius: 3px; background: var(--workspace-field-accent); }
 .document-divider { margin: 22px 0; border: 0; }
