@@ -316,8 +316,8 @@ async function reverseApproved(identifier: number): Promise<void> {
           <li v-for="(line, index) in item.lines.slice(0, 2)" :key="line.id">
             <span class="inbound-material-text" :title="materialPreviewTitle(item, line)">{{ line.material_name }} × {{ line.quantity }} {{ line.unit }}</span>
             <span v-if="index === 1 && item.lines.length > 2" class="inbound-material-more"
-              :title="`另有 ${item.lines.length - 2} 项物料，点击单据号查看完整明细`"
-              :aria-label="`另有 ${item.lines.length - 2} 项物料`">…… × {{ item.lines.length - 2 }}</span>
+              :title="item.lines.slice(2).map(line => materialPreviewTitle(item, line)).join('\n')"
+              :aria-label="`另有 ${item.lines.length - 2} 项物料`">+{{ item.lines.length - 2 }} 项</span>
           </li>
         </ul>
       </template>
@@ -384,11 +384,11 @@ async function reverseApproved(identifier: number): Promise<void> {
 <style scoped>
 /* 列表说明只占一行，完整内容保留在悬停提示和详情中，不截断原始数据。 */
 .inbound-note { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 长物料名不换行；余量提示不收缩，确保任何列宽下都能读到剩余条数。 */
+/* 摘要保持两行，右侧余量标签独立留位，避免被误读为物料数量的乘数。 */
 .inbound-material-preview { list-style: none; margin: 0; padding: 0; }
 .inbound-material-preview li { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.7; }
-.inbound-material-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inbound-material-more { flex: none; color: var(--workspace-field-muted); white-space: nowrap; font-size: 12px; }
+.inbound-material-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbound-material-more { flex: none; padding: 0 6px; border-radius: 6px; background: color-mix(in srgb, var(--workspace-field-muted) 12%, transparent); color: var(--workspace-field-muted); white-space: nowrap; font-size: 12px; line-height: 20px; }
 /* 详情展示历史单据字段，使用可选中复制的文本，并兼容长说明和窄窗口。 */
 .inbound-detail-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .inbound-detail-field > span:first-child { color: var(--workspace-field-muted); font-size: 12px; }

@@ -116,8 +116,10 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  assert.equal((cell('lines').match(/<li\b/g)??[]).length,2)
  assert.match(cell('lines'),/明细物料1/)
  assert.match(cell('lines'),/明细物料2/)
- assert.match(cell('lines'),/…… × 2/)
- assert.doesNotMatch(cell('lines'),/明细物料3|明细物料4/)
+ assert.match(cell('lines'),/\+2 项/)
+ // 隐藏项只进入悬停说明，不能增加列表的可见行数。
+ assert.doesNotMatch(cell('lines').replace(/<[^>]*>/g,''),/明细物料3|明细物料4/)
+ assert.match(cell('lines'),/title="明细物料3[^"]*明细物料4/)
  const setup=vnode.component.setupState
  for(const query of ['HIDDEN-REF','明细物料4']) {
   setup.query=query
@@ -131,7 +133,7 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
   html=await render()
   assert.equal((cell('lines').match(/<li\b/g)??[]).length,Math.min(length,2))
   if(length<=2)assert.doesNotMatch(cell('lines'),/inbound-material-more/)
-  else assert.match(cell('lines'),/…… × 1/)
+  else assert.match(cell('lines'),/\+1 项/)
  }
  store.initialDetailId=3
  store.otherInbounds=[many]
