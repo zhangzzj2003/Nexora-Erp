@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import { createSSRApp, h } from 'vue'
 import { createPinia } from 'pinia'
+import { VxeUI } from '@vxe-ui/core'
 import { setup as setupSsrStyles } from '@css-render/vue3-ssr'
 import { renderToString } from '@vue/server-renderer'
 import { createServer } from 'vite'
@@ -30,7 +31,17 @@ test('公共表格加载真实 vxe 组件并渲染功能区、加载和空状态
     appType: 'custom'
   })
   t.after(() => server.close())
+  // 只注册语言包并不会启用它；从未安装的语言起步，覆盖冷启动时回退为键名的风险。
+  VxeUI.setLanguage('uninstalled-test-language')
   const { default: WorkspaceTable } = await server.ssrLoadModule('/src/renderer/src/components/workspace/WorkspaceTable.vue')
+  await t.test('公共表格启用中文语言包，内置文案不会回退为语言键', () => {
+    assert.equal(VxeUI.getLanguage(), 'zh-CN')
+    for (const width of [64, 320, 2400]) {
+      assert.equal(VxeUI.getI18n('vxe.table.resizeColTip', [width]), `宽：${width} 像素`)
+    }
+    // 内置空表文案也应使用相同语言，避免只修复单个提示的表面问题。
+    assert.equal(VxeUI.getI18n('vxe.table.emptyText'), '暂无数据')
+  })
   const columns = [{ key: 'name', title: '名称' }, { key: 'actions', title: '操作' }]
   const slots = {
     actions: () => h('button', '新增'),
@@ -167,4 +178,7 @@ test('表头拖动分割线在明暗主题下常驻可见，悬停突出原生�
   // 线条必须属于真实拖动手柄，不能只给表头加一个无法拖动的装饰边框。
   assert.match(source, /\.workspace-vxe-table \.vxe-header--column > \.vxe-cell--col-resizable::before \{ width: 2px; height: 55%; \}/)
   assert.match(source, /\.workspace-vxe-table \.vxe-header--column > \.vxe-cell--col-resizable:hover::before \{ background-color: var\(--workspace-field-accent\); \}/)
+  // 冻结区裁切不能把分割线中心落到相邻普通单元格，保留完整命中范围。
+  assert.match(source, /\.vxe-table--fixed-left-wrapper \.vxe-cell--col-resizable \{ right: 0; \}/)
+  assert.match(source, /\.vxe-table--fixed-right-wrapper \.vxe-cell--col-resizable \{ left: 0; \}/)
 })

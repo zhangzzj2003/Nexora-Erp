@@ -49,6 +49,8 @@ test('公共表格默认分配剩余宽度，同时保留窄窗最小列宽及�
     const before = structuredClone(source)
     await render({ columns: source, minTableWidth: 580 })
     assert.equal(table.props.fit, true)
+    // 调宽由共享组件实时预览，关闭库内数字浮层，用户直接看布局效果。
+    assert.equal(table.props.resizableConfig.showDragTip, false)
     assert.deepEqual(columns.map(c => c.width), [undefined, undefined])
     assert.deepEqual(columns.map(c => c.minWidth), ['120', '60'])
     // 铺满模式让 VXE 负责横向滚动，外层不能再撑宽后裁掉明细列。

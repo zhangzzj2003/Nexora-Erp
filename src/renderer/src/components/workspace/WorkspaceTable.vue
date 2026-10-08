@@ -2,8 +2,9 @@
 import { VxeUI } from '@vxe-ui/core'
 import zhCN from 'vxe-table/es/locale/lang/zh-CN'
 
-// 分组件加载时显式安装中文文案，避免表格内置提示回退为语言键。
+// 分组件加载不会自动选择语言；注册后还需启用中文，避免内置文案回退为语言键。
 VxeUI.setI18n('zh-CN', zhCN)
+VxeUI.setLanguage('zh-CN')
 </script>
 
 <script setup lang="ts" generic="TRow extends object">
@@ -20,6 +21,7 @@ import { clearTableColumnWidths, MAX_TABLE_COLUMN_WIDTH, MIN_TABLE_COLUMN_WIDTH,
 
 import type { VxeTableInstance } from 'vxe-table'
 import { resolveTableColumns, type WorkspaceTableColumn } from '../../utils/table-columns'
+import { createTableColumnResize } from '../../utils/table-column-resize'
 
 const props = withDefaults(defineProps<{
   title: string
@@ -71,6 +73,59 @@ const scrollMax = ref(0)
 const scrollPosition = ref(0)
 const scrollThumbWidth = ref(44)
 let resizeObserver: ResizeObserver | null = null
+const resizingColumn = ref(false)
+let cancelColumnResize: (() => void) | undefined
+
+function startColumnResize(event: MouseEvent): void {
+  const table = tableRef.value
+  if (event.button !== 0 || !table || !(event.target instanceof HTMLElement)) return
+  const handle = event.target.closest('.vxe-cell--col-resizable')
+  const header = handle?.closest('.vxe-header--column')
+  // 只接管当前表格的原生调宽手柄，普通表头、行操作与嵌套表格保持原行为。
+  if (!handle || !header || handle.closest('.workspace-vxe-table') !== scrollContainer.value?.querySelector('.workspace-vxe-table')) return
+  const column = table.getColumnById(header.getAttribute('colid'))
+  if (!column || !props.columns.some(item => item.key === column.field) || !Number.isFinite(column.renderWidth)) return
+  event.preventDefault()
+  event.stopPropagation()
+  cancelColumnResize?.()
+  const fixedSide = handle.closest('.vxe-table--fixed-right-wrapper') ? 'right'
+    : handle.closest('.vxe-table--fixed-left-wrapper') ? 'left' : undefined
+  // 冻结区需给其他冻结列及中间滚动区留空间，避免窄窗口被拖动列完全遮住。
+  const fixedOthers = table.getColumns().filter(item => item.fixed && item.id !== column.id)
+    .reduce((sum, item) => sum + item.renderWidth, 0)
+  const maxWidth = fixedSide ? Math.min(MAX_TABLE_COLUMN_WIDTH,
+    Math.max(column.renderWidth, table.getScrollData().clientWidth - fixedOthers - MIN_TABLE_COLUMN_WIDTH)) : MAX_TABLE_COLUMN_WIDTH
+  const storageKey = columnStorageKey.value
+  const session = createTableColumnResize({
+    startX: event.clientX, startWidth: column.renderWidth, direction: fixedSide === 'right' ? -1 : 1, maxWidth,
+    schedule: callback => window.requestAnimationFrame(callback), unschedule: id => window.cancelAnimationFrame(id),
+    // 使用公共列宽接口同步重排表头、数据行和冻结区，不直接改表格内部绘制结构。
+    preview: width => table.setColumnWidth(column, width).then(() => updateScrollbar()),
+    // 松手到异步刷新结束之间可能切换页面，旧表格不能把宽度保存到新页面。
+    commit: width => {
+      if (tableRef.value === table && columnStorageKey.value === storageKey) saveColumnWidth({ column, resizeWidth: width })
+    }, restore: applyColumnWidths,
+    onError: error => console.error('表格实时列宽调整失败。', error)
+  })
+  const cleanup = () => {
+    document.removeEventListener('mousemove', move)
+    document.removeEventListener('mouseup', finish)
+    document.removeEventListener('keydown', keydown)
+    window.removeEventListener('blur', cancel)
+    resizingColumn.value = false
+    cancelColumnResize = undefined
+  }
+  const move = (ev: MouseEvent) => { ev.preventDefault(); session.move(ev.clientX) }
+  const finish = (ev: MouseEvent) => { cleanup(); void session.finish(ev.clientX) }
+  const cancel = () => { cleanup(); void session.cancel() }
+  const keydown = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { ev.preventDefault(); cancel() } }
+  cancelColumnResize = cancel
+  resizingColumn.value = true
+  document.addEventListener('mousemove', move)
+  document.addEventListener('mouseup', finish)
+  document.addEventListener('keydown', keydown)
+  window.addEventListener('blur', cancel)
+}
 
 async function applyColumnWidths(): Promise<void> {
   await nextTick()
@@ -98,6 +153,7 @@ function resetColumnWidths(): void {
 
 // 字段或表格身份变化时读取对应设置，不能把上一张表的宽度带入当前页面。
 watch(columnStorageKey, key => {
+  cancelColumnResize?.()
   savedColumnWidths.value = readTableColumnWidths(tableWidthStorage(), key, props.columns.map(column => column.key))
   void applyColumnWidths()
 }, { immediate: true })
@@ -137,7 +193,7 @@ onMounted(async () => {
   if (table) resizeObserver.observe(table)
   await refreshScrollbar()
 })
-onUnmounted(() => resizeObserver?.disconnect())
+onUnmounted(() => { cancelColumnResize?.(); resizeObserver?.disconnect() })
 async function refreshScrollbar(): Promise<void> {
   await nextTick()
   // 等列宽和数据行完成重排后读取真实范围，窗口缩放或筛选后不会残留过期位置。
@@ -193,12 +249,12 @@ defineSlots<{
     <div v-if="$slots.beforeTable" class="workspace-table-before">
       <slot name="beforeTable" />
     </div>
-    <div ref="scrollContainer" class="table-wrap" :class="{ 'has-table-scroll': usesTableScroll }" @scroll.passive="syncScrollPosition">
+    <div ref="scrollContainer" class="table-wrap" :class="{ 'has-table-scroll': usesTableScroll, 'is-resizing-column': resizingColumn }" @scroll.passive="syncScrollPosition" @mousedown.capture="startColumnResize">
       <span v-if="loading" class="workspace-table-status" role="status">正在加载…</span>
       <VxeTable ref="tableRef" class="workspace-vxe-table" @scroll="syncScrollPosition" :aria-label="title" :aria-busy="loading" :data="error ? [] : data" :loading="loading" :style="usesTableScroll ? undefined : { minWidth: `${minTableWidth}px` }"
         :fit="stretchColumns || undefined" :scrollbar-config="usesTableScroll ? { x: { visible: false } } : undefined"
         :column-config="{ resizable: true }"
-        :resizable-config="{ dragMode: 'auto', minWidth: MIN_TABLE_COLUMN_WIDTH, maxWidth: MAX_TABLE_COLUMN_WIDTH }"
+        :resizable-config="{ dragMode: 'auto', showDragTip: false, minWidth: MIN_TABLE_COLUMN_WIDTH, maxWidth: MAX_TABLE_COLUMN_WIDTH }"
         @column-resizable-change="saveColumnWidth">
         <VxeColumn v-for="column in layoutColumns" :key="column.key" :field="column.key" :title="column.title"
           :align="column.align" :header-align="column.align"
@@ -268,6 +324,8 @@ defineSlots<{
 .workspace-table-empty.is-error .workspace-table-empty-copy strong { color: #9e3934; }
 .table-wrap { overflow-x: auto; overflow-y: hidden; border-radius: 11px; scrollbar-width: none; }
 .table-wrap.has-table-scroll { overflow: clip; }
+/* 拖动期间只看实际布局变化，不显示宽度数值，也不选中单元格文字。 */
+.table-wrap.is-resizing-column { user-select: none; cursor: col-resize; }
 .table-wrap::-webkit-scrollbar { display: none; }
 .workspace-table-scrollbar { display: block; appearance: none; width: 100%; min-height: 14px; height: 14px; margin: 10px 0 0; padding: 2px; border: 1px solid #d2dde5; border-radius: 8px; background: #e4ebf0; cursor: ew-resize; }
 .workspace-table-scrollbar::-webkit-slider-thumb { appearance: none; width: var(--scroll-thumb-width); height: 10px; border: 0; border-radius: 6px; background: #61869c; box-shadow: 0 1px 2px #28465b38; }
@@ -304,6 +362,9 @@ defineSlots<{
 /* 分割线画在原生拖动手柄上，固定列与滚动列仍共用准确的调宽位置。 */
 .workspace-vxe-table .vxe-header--column > .vxe-cell--col-resizable::before { width: 2px; height: 55%; }
 .workspace-vxe-table .vxe-header--column > .vxe-cell--col-resizable:hover::before { background-color: var(--workspace-field-accent); }
+/* 冻结区会裁切溢出手柄，把边缘手柄完整放入区内，分割线与可拖动区域才能对齐。 */
+.workspace-vxe-table .vxe-table--fixed-left-wrapper .vxe-cell--col-resizable { right: 0; }
+.workspace-vxe-table .vxe-table--fixed-right-wrapper .vxe-cell--col-resizable { left: 0; }
 /* 弹窗关闭时浏览器会恢复行按钮焦点；外层只裁切，不允许隐式滚动把表头推走。 */
 /* 表格实际滚动仍由 VXE 的表体容器和共享横向滚动条处理。 */
 .workspace-vxe-table .vxe-table--viewport-wrapper { overflow: clip; }
