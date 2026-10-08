@@ -364,7 +364,7 @@ def submit_return_in_transaction(db: Session, return_id: int, actor_id: int) -> 
             for line in lines
         ]
     )
-    # 建单人和转单人均排除自审；派生出库仍是未送审草稿。
+    # 建单人和转单人均保留溯源；派生出库仍是未送审草稿，按子单按钮权限审批。
     approval.record_author(db, 'WarehouseOutbound', outbound_id, actor_id)
     approval.mark_executed(db, approved, actor_id)
     return outbound_id

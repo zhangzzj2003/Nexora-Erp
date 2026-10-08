@@ -254,7 +254,7 @@ def inspect_completion(
         if payload.accepted_quantity > reported:
             raise HTTPException(422, "合格数量不能超过报工数量")
         rejected = reported - payload.accepted_quantity
-        # 质检人员参与编制本单依据，不能在之后独立批准自己填写的结果。
+        # 质检人员参与编制本单依据，记录其身份；后续审批按当前步骤按钮权限核验。
         approval.record_author(db, 'ProductionCompletion', completion_id, user['id'])
         db.execute(
             update(ProductionCompletion)

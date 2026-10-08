@@ -12,6 +12,6 @@
 
 数据库第 92 版为 `OrderSettlementTransfer` 增加草稿、执行及取消状态、递增业务版本、实际执行与取消人员/时间。旧记录仍为原执行事实，金额、编号、参考、双方归属与撤销关系原样保留，迁移不补造审批；新建明确为草稿。
 
-统一审批 `GET /api/v1/system/document-approvals/OrderSettlementTransfer/{id}`、`POST /{id}/submit|approve|reject|withdraw` 固定双方订单和实际往来身份、金额、原核销执行事实、参考及依据。审核要求 `finance.review`，每步必须是不同的独立人员，原核销编制及执行人不能审核撤销。反向草稿的送审和执行要求 `finance.reverse`。模板固定于每次送审，批准正文变化不能执行。
+统一审批 `GET /api/v1/system/document-approvals/OrderSettlementTransfer/{id}`、`POST /{id}/submit|approve|reject|withdraw` 固定双方订单和实际往来身份、金额、原核销执行事实、参考及依据。审核、核准、批准分别要求 `finance.review`、`finance.verify`、`finance.approve`，按当前步骤按钮权限办理；允许同一人逐步操作，原核销编制及执行人持有权限时也可审批撤销。反向草稿的送审和执行要求 `finance.reverse`。模板固定于每次送审，批准正文变化不能执行。
 
 `POST /api/v1/finance/order-settlements/{id}/post|cancel` 要求当前正整数业务版本和必填二百字内依据。执行须全部批准，在同一 ORM 写事务内再次核对最新贷方、目标待结及期间，更新执行事实并追加审批事件，任一步失败整体回滚。并行批准的草稿不预占，执行时竞争额度；撤销恢复原经济事实，可能重新形成贷方，原核销和真实资金保留。待审或已批准草稿须先撤回再取消；取消释放参考号与原核销反向申请占用，但保留原草稿及单号，新申请取得新号。旧客户端直接执行未批准草稿返回 409。

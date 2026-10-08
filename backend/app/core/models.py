@@ -2492,7 +2492,7 @@ class DocumentApprovalEvent(Base):
 
 
 class DocumentApprovalAuthor(Base):
-    """保留历次建单、编辑、送审人员，撤回或驳回不能清除自审限制。"""
+    """保留历次建单、编辑、送审人员的溯源记录，撤回或驳回不能清除参与历史。"""
     __tablename__ = 'document_approval_authors'
     document_type: Mapped[str] = mapped_column(Text, primary_key=True)
     document_id: Mapped[int] = mapped_column(Integer, primary_key=True)
