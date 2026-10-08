@@ -40,6 +40,17 @@ export function localTime(value: string): string {
     : date.toLocaleString('zh-CN', { hour12: false })
 }
 
+// 列表短时间沿用设备本地时区；无时区的服务端时间仍按 UTC 解析，分钟仅截去秒数。
+export function shortLocalTime(value: string): string {
+  const normalized = value.replace(' ', 'T')
+  const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized) ? normalized : normalized + 'Z')
+  if (Number.isNaN(date.getTime())) return value
+  const year = String(date.getFullYear()).slice(-2).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  return `${year}/${date.getMonth() + 1}/${date.getDate()} ${hour}:${minute}`
+}
+
 export function movementSource(item: Movement): string {
   const sourceNumber = (item as Movement & { source_document_no?: string | null }).source_document_no
   if (sourceNumber) return `${movementTypeLabel(item.source_type)} ${sourceNumber}`

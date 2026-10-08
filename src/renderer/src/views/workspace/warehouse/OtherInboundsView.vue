@@ -24,6 +24,8 @@ import { submitCreateDialog } from '../../../utils/create-dialog'
 import {receiptLotDate,receiptLotMilli} from '../../../../../shared/receipt-lot-api.ts'
 import type {InboundLotLineInput} from '../../../../../shared/receipt-lot-api'
 import type {OtherInbound} from '../../../../../shared/erp-api'
+import { shortLocalTime } from '../../../utils/formatters'
+import type { WorkspaceTableColumn } from '../../../utils/table-columns'
 import { useOtherInboundMaterialDetails } from './other-inbound-material-details'
 
 const store = usePiniaAppStore()
@@ -98,14 +100,15 @@ function inboundStatusTone(inbound: OtherInbound): AppStatusTone {
   return ({ draft: 'pending', submitted: 'info', approved: 'ready', rejected: 'danger',
     withdrawn: 'neutral', executed: 'success' } as const)[inbound.approval?.status ?? 'draft']
 }
-const columns = [
+const columns: readonly WorkspaceTableColumn[] = [
   // 单号与审计信息分列，列宽保证长单号和时间完整展示，窄窗口沿用公共表格横向滚动。
   { key: 'document', title: '单据号', width: '230' },
-  { key: 'time', title: '时间', width: '180' },
   { key: 'status', title: '状态', width: '160' },
   { key: 'operator', title: '处理人', width: '110' },
   { key: 'source', title: '仓库与来源', width: '220' },
   { key: 'lines', title: '物料明细', width: '310' },
+  // 时间紧邻操作并固定在右侧，横向查看物料时仍能对照创建时间。
+  { key: 'time', title: '时间', width: '150', fixed: 'right' },
   { key: 'actions', title: '操作', width: '240' }
 ]
 // 写入失败时保留表单，成功后才关闭弹窗。
@@ -242,7 +245,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           @click="detailInboundId = item.id">{{ documentLabel(item) }}</AppButton>
       </template>
       <!-- 时间、处理人沿用原单据中的创建记录，避免改变历史字段含义。 -->
-      <template #cell-time="{ row: item }">{{ localTime(item.created_at) }}</template>
+      <template #cell-time="{ row: item }">{{ shortLocalTime(item.created_at) }}</template>
       <template #cell-status="{ row: item }">
         <AppStatusTag :label="inboundStatus(item)" :tone="inboundStatusTone(item)" />
       </template>

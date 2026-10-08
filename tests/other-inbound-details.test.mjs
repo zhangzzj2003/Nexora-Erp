@@ -5,6 +5,7 @@ import { renderToString } from '@vue/server-renderer'
 import { createPinia } from 'pinia'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { shortLocalTime } from '../src/renderer/src/utils/formatters.ts'
 
 // 仅替换桌面桥接和渲染外壳；真实页面、公共弹窗与业务事件均参与验证。
 const storeSource = `import {defineStore} from 'pinia'; import {ref} from 'vue'
@@ -78,7 +79,10 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  const cell=key=>html.match(new RegExp(`<div data-cell="${key}">([\\s\\S]*?)</div>`))?.[1]
  assert.match(cell('document'),/QTRK-20261007-000003/)
  assert.doesNotMatch(cell('document'),/建单人|2026-10-07T06:00:00Z|待送审/)
- assert.equal(cell('time'),inbound.created_at)
+ assert.equal(cell('time'),shortLocalTime(inbound.created_at))
+ // 核对真实页面配置，时间须紧挨操作列并显式固定，不能只是移动了表头文案。
+ assert.deepEqual(vnode.component.setupState.columns.map(column=>column.key), ['document','status','operator','source','lines','time','actions'])
+ assert.equal(vnode.component.setupState.columns.find(column=>column.key==='time').fixed, 'right')
  // 状态标签保留可读文案；颜色区分业务阶段，装饰圆点对读屏隐藏。
  const assertStatus=(label,tone)=>{
   const content=cell('status')
