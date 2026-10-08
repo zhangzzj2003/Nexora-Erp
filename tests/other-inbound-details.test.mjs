@@ -10,13 +10,14 @@ import { shortLocalTime } from '../src/renderer/src/utils/formatters.ts'
 // 仅替换桌面桥接和渲染外壳；真实页面、公共弹窗与业务事件均参与验证。
 const storeSource = `import {defineStore} from 'pinia'; import {ref} from 'vue'
 export const usePiniaAppStore=defineStore('inbound-details-test',()=>{
- const otherInbounds=ref([]), permissions=ref([]), calls=ref([]), fail=ref(false), error=ref(''), documentApprovalRecord=ref(null)
+ const otherInboundReopenForms=ref({}), otherInbounds=ref([]), permissions=ref([]), calls=ref([]), fail=ref(false), error=ref(''), documentApprovalRecord=ref(null)
  const update=(id,status)=>{calls.value.push([status,id]); if(fail.value){error.value='操作失败';return}
  otherInbounds.value=otherInbounds.value.map(item=>item.id===id?{...item,status}:item)}
  return { error,permissions,calls,fail,documentApprovalRecord,
  notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
- otherInbounds,otherInboundForm:ref({lines:[{material_id:99,quantity:'7'}]}),otherInboundReversalReasons:ref({}),
+ otherInbounds,otherInboundReopenForms,otherInboundForm:ref({lines:[{material_id:99,quantity:'7'}]}),otherInboundReversalReasons:ref({}),
  initialDetailId:ref(0),can:key=>permissions.value.includes(key),localTime:value=>value,
+ prepareOtherInboundReopen(id){calls.value.push(['reopen',id]);otherInboundReopenForms.value[id]={lines:[]};return true},
  createOtherInbound(){throw Error('查看详情不应创建')},async postOtherInbound(id){update(id,'posted')},
  async cancelOtherInbound(id){update(id,'cancelled')},async reverseOtherInbound(id){calls.value.push(['reverse',id])},
  async openDocumentApproval(target){calls.value.push(['approval',target]);documentApprovalRecord.value={status:'approved',reversal_reason:'已批准原因'};return true},
@@ -224,5 +225,23 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  ])
  assert.equal(store.otherInboundReversalReasons[3],'已批准原因')
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
+
+ // 列表与详情都能重开，点击仅打开新建表单，不修改原单或调用取消/冲销。
+ store.permissions=['other_inbound.create']
+ store.otherInbounds=[{...inbound,status:'cancelled'}]
+ await render()
+ assert.equal(buttons.filter(button=>text(button.content)==='重开为新单').length,2)
+ const reopen=detailButton('重开为新单')
+ reopen.attrs.onClick();await flush()
+ assert.deepEqual(store.calls.at(-1),['reopen',3])
+ assert.equal(vnode.component.setupState.reopenSourceId,3)
+ assert.equal(vnode.component.setupState.showForm,true)
+ assert.equal(vnode.component.setupState.detailInboundId,0)
+ assert.equal(store.otherInbounds[0].status,'cancelled')
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
+ const before=store.calls.length
+ store.otherInbounds=[inbound]
+ reopen.attrs.onClick();await flush()
+ assert.equal(store.calls.length,before)
 
 })

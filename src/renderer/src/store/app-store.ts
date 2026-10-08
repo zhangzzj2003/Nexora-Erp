@@ -113,6 +113,9 @@ function createAppStore() {
       && !permission.endsWith('.view') && !['users.manage'].includes(permission)) return false
     return user.value?.permissions.includes(permission) ?? false
   }
+  // 重开草稿属于当前账号和服务端；切换会话或失去创建权限立即清理。
+  watch([() => state.server.value?.id, () => state.server.value?.fingerprint, () => user.value?.id,
+    () => can('other_inbound.create')], () => { state.otherInboundReopenForms.value = {} }, { flush: 'sync' })
   // 分类和权限来自同一张路由表，避免侧栏与地址访问使用两套规则。
   const visibleGroups = computed(() =>
     visibleRouteGroups(user.value?.permissions ?? []).map((group) => ({

@@ -3,6 +3,7 @@ import type {OutboundLotLineInput, OutboundLotOptions} from '../../../../shared/
 import type {TransferLotLineInput, TransferLotOptions} from '../../../../shared/transfer-lot-api'
 import type {StocktakeLotLineInput, StocktakeLotOptions} from '../../../../shared/stocktake-lot-api'
 import type {AdjustmentLotLineInput, AdjustmentLotOptions} from '../../../../shared/adjustment-lot-api'
+import { documentMaterialIssue } from '../../utils/document-material-lines.ts'
 import type { AppState } from '../state'
 
 // 仓库与盘点操作独立维护；写入后由统一入口刷新服务端快照。
@@ -113,6 +114,45 @@ export function createWarehouseActions(
       otherInboundForm.value = { warehouse_id: otherInboundForm.value.warehouse_id,
         reason: 'other', note: '', reference: '', lines: [] }
     }, '其他入库草稿已创建。')
+  }
+
+  // 仅复制可编辑业务字段；原单身份、审批、确认记录和实物批次永远不进入新建请求。
+  function prepareOtherInboundReopen(inboundId: number): boolean {
+    const inbound = state.otherInbounds.value.find(item => item.id === inboundId)
+    if (!canReopenOtherInbound() || inbound?.status !== 'cancelled') return false
+    state.otherInboundReopenForms.value[inboundId] ??= {
+      warehouse_id: inbound.warehouse_id, reason: inbound.reason,
+      note: inbound.note, reference: inbound.reference,
+      lines: inbound.lines.map(line => ({ material_id: line.material_id, quantity: line.quantity }))
+    }
+    return true
+  }
+
+  function canReopenOtherInbound(): boolean {
+    return !state.busy.value && !state.connectionLost.value
+      && !!state.user.value?.permissions.includes('other_inbound.create')
+  }
+
+  async function createReopenedOtherInbound(inboundId: number): Promise<void> {
+    if (!window.nexora || !canReopenOtherInbound()) return
+    const source = state.otherInbounds.value.find(item => item.id === inboundId)
+    const draft = state.otherInboundReopenForms.value[inboundId]
+    if (source?.status !== 'cancelled' || !draft) {
+      state.error.value = '原单状态已变化，请重新打开重开单。'
+      return
+    }
+    const issue = documentMaterialIssue(draft.lines, state.materials.value)
+      || (!state.warehouses.value.some(item => item.id === draft.warehouse_id) ? '请选择可用仓库。' : '')
+    if (issue) { state.error.value = issue; return }
+    await perform(async () => {
+      // 走标准新建接口，由服务端生成新单号和新明细，并重新开始审批流程。
+      await window.nexora!.callApi('createOtherInbound', {
+        warehouse_id: draft.warehouse_id, reason: draft.reason, note: draft.note, reference: draft.reference,
+        lines: draft.lines.map(line => ({ material_id: line.material_id, quantity: line.quantity }))
+      })
+      // 失败不清空输入；成功只移除当前原单对应的重开草稿。
+      if (state.otherInboundReopenForms.value[inboundId] === draft) delete state.otherInboundReopenForms.value[inboundId]
+    }, '重开单已保存为新的其他入库草稿，请重新送审。')
   }
 
   async function postOtherInbound(inboundId: number,
@@ -331,6 +371,8 @@ export function createWarehouseActions(
     reverseStockAdjustment,
     queryLedger,
     createOtherInbound,
+    prepareOtherInboundReopen,
+    createReopenedOtherInbound,
     postOtherInbound,
     cancelOtherInbound,
     reverseOtherInbound,

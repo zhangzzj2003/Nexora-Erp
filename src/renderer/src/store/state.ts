@@ -13,6 +13,7 @@ import type { AfterSalesOverview, AfterSalesEvidence, AfterSalesDraft } from '..
 import type { MrpChange, MrpCheck, MrpDetail, MrpOptions, MrpPlan, MrpPlanInput, MrpPolicy } from '../../../shared/mrp-api'
 import type { MenuIconSetting } from '../../../shared/menu-icons'
 import type {
+  ErpOperations,
   Bom,
   Customer,
   FinanceAccount,
@@ -442,6 +443,8 @@ export function createAppState() {
     // 新增空行也保存在草稿中，保存前须完成行内物料选择。
     lines: [] as { material_id: number; quantity: string }[]
   })
+  // 重开草稿按原单隔离保存，切换单据或收起弹窗不会覆盖普通新建草稿。
+  const otherInboundReopenForms = ref<Record<number, ErpOperations['createOtherInbound']['input']>>({})
   const otherInboundReversalReasons = ref<Record<number, string>>({})
   const otherOutboundForm = ref({
     warehouse_id: 1,
@@ -732,6 +735,7 @@ export function createAppState() {
     costReversalReasons,
     warehouseForm,
     otherInboundForm,
+    otherInboundReopenForms,
     otherInboundReversalReasons,
     otherOutboundForm,
     otherOutboundReversalReasons,

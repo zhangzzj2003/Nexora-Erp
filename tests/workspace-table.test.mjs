@@ -140,7 +140,7 @@ test('新增入口打开弹窗，失败时保留草稿', () => {
     const source = readFileSync(new URL(path, viewRoot), 'utf8')
     // 单据新增已迁移到公共弹窗；资料与账号编辑继续使用 Naive 弹窗。
     assert.match(source, /<(?:NModal|WorkspaceDocumentDialog)\b/, path)
-    assert.match(source, /@click="(?:edit\(\)|openEditor\(\)|showForm = true|createOpen = true|customerOpen = true)"/, path)
+    assert.match(source, /@click="(?:edit\(\)|openEditor\(\)|startCreate|showForm = true|createOpen = true|customerOpen = true)"/, path)
     assert.match(source, /submitCreateDialog\(|if \(await saveMaterial/, path)
   }
 })

@@ -9,7 +9,7 @@ import AppStatusTag, { type AppStatusTone } from '../../../components/app/AppSta
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
@@ -31,14 +31,27 @@ import type { WorkspaceTableColumn } from '../../../utils/table-columns'
 import { useOtherInboundMaterialDetails } from './other-inbound-material-details'
 
 const store = usePiniaAppStore()
-const { error, notice, busy, connectionLost, materials, warehouses, otherInbounds, otherInboundForm,
+const { error, notice, busy, connectionLost, materials, warehouses, otherInbounds, otherInboundForm, otherInboundReopenForms,
   otherInboundReversalReasons } = storeToRefs(store)
 const { can, localTime, createOtherInbound, postOtherInbound, cancelOtherInbound,
   reverseOtherInbound } = store
 const showForm = ref(false)
 const pendingActionId = ref(0)
+const reopenSourceId = ref(0)
+// 编辑器复用同一套字段，普通新建与不同原单的重开草稿各自独立。
+const editorForm = computed(() => reopenSourceId.value
+  ? otherInboundReopenForms.value[reopenSourceId.value] ?? otherInboundForm.value : otherInboundForm.value)
+// 会话清理或保存成功移除草稿后关闭编辑器，防止回落到普通草稿继续编辑。
+watch(() => reopenSourceId.value && !otherInboundReopenForms.value[reopenSourceId.value], missing => {
+  if (missing) { showForm.value = false; reopenSourceId.value = 0 }
+}, { flush: 'sync' })
+const reopenSource = computed(() => otherInbounds.value.find(item => item.id === reopenSourceId.value))
+function startCreate(): void {
+  reopenSourceId.value = 0
+  showForm.value = true
+}
 const inboundPermissions = computed(() => ({
-  post: can('other_inbound.post'), cancel: can('other_inbound.cancel'), reverse: can('other_inbound.reverse')
+  create: can('other_inbound.create'), post: can('other_inbound.post'), cancel: can('other_inbound.cancel'), reverse: can('other_inbound.reverse')
 }))
 // 点击时重新按 ID 找当前快照；列表和详情走同一入口，刷新后不执行旧状态的动作。
 async function handleInboundAction(identifier: number, action: OtherInboundAction): Promise<void> {
@@ -53,15 +66,21 @@ async function handleInboundAction(identifier: number, action: OtherInboundActio
     } else if (action === 'post') await postOtherInbound(identifier)
     else if (action === 'cancel') await cancelOtherInbound(identifier)
     else if (action === 'lots') startLotPost(inbound)
+    else if (action === 'reopen') {
+      if (!store.prepareOtherInboundReopen(identifier)) return
+      reopenSourceId.value = identifier
+      detailInboundId.value = 0
+      showForm.value = true
+    }
     else await reverseApproved(identifier)
   } finally {
     // 保存失败仍保留详情与原草稿，允许用户读取原因后重试。
     pendingActionId.value = 0
   }
 }
-const { activeLine, showLine, setCompact } = useOtherInboundMaterialDetails(() => otherInboundForm.value.lines)
+const { activeLine, showLine, setCompact } = useOtherInboundMaterialDetails(() => editorForm.value.lines)
 // 表格行直接引用 Pinia 草稿，资料刷新及删行后仍按该行的真实对象修改数量。
-const materialRows = computed(() => otherInboundForm.value.lines.map((line, index) => ({
+const materialRows = computed(() => editorForm.value.lines.map((line, index) => ({
   line, index, material: materials.value.find(item => item.id === line.material_id)
 })))
 const materialColumns = [
@@ -71,22 +90,22 @@ const materialColumns = [
   { key: 'quantity', title: '数量', width: '130' },
   { key: 'actions', title: '操作', width: '80' }
 ]
-const materialIssue = computed(() => documentMaterialIssue(otherInboundForm.value.lines, materials.value))
-const addDisabled = computed(() => otherInboundForm.value.lines.length >= documentMaterialLimit
-  || !materials.value.some(item => !otherInboundForm.value.lines.some(line => line.material_id === item.id)))
-const pendingFocus = ref<(typeof otherInboundForm.value.lines)[number] | null>(null)
+const materialIssue = computed(() => documentMaterialIssue(editorForm.value.lines, materials.value))
+const addDisabled = computed(() => editorForm.value.lines.length >= documentMaterialLimit
+  || !materials.value.some(item => !editorForm.value.lines.some(line => line.material_id === item.id)))
+const pendingFocus = ref<(typeof editorForm.value.lines)[number] | null>(null)
 function materialOptions(index: number) {
   return materials.value.map(item => ({label: `${item.sku} · ${item.name}`, value: item.id,
-    disabled: documentMaterialDisabled(otherInboundForm.value.lines, index, item.id)}))
+    disabled: documentMaterialDisabled(editorForm.value.lines, index, item.id)}))
 }
 function addMaterialRow(): void {
   if (busy.value || connectionLost.value || addDisabled.value) return
-  otherInboundForm.value.lines = appendDocumentMaterialRow(otherInboundForm.value.lines)
-  pendingFocus.value = otherInboundForm.value.lines.at(-1) ?? null
+  editorForm.value.lines = appendDocumentMaterialRow(editorForm.value.lines)
+  pendingFocus.value = editorForm.value.lines.at(-1) ?? null
   // 新增时把资料展示切换到新行，之前的行自动保留简短摘要。
   if (pendingFocus.value) showLine(pendingFocus.value)
 }
-function focusNewRow(line: (typeof otherInboundForm.value.lines)[number], instance: Element | ComponentPublicInstance | null): void {
+function focusNewRow(line: (typeof editorForm.value.lines)[number], instance: Element | ComponentPublicInstance | null): void {
   // vxe 可能延迟挂载新行，等选择器的真实引用出现后再聚焦，不依赖固定延时。
   if (instance && pendingFocus.value === line && 'focus' in instance && typeof instance.focus === 'function') {
     const focus = instance.focus as () => void
@@ -140,7 +159,8 @@ const columns: readonly WorkspaceTableColumn[] = [
 async function submitCreate(): Promise<void> {
   // 原生表单校验之外再检查物料和数量，防止空明细或已失效物料提交到服务端。
   if (connectionLost.value || !can('other_inbound.create') || materialIssue.value) return
-  await submitCreateDialog(createOtherInbound, { busy, error, notice }, showForm)
+  await submitCreateDialog(reopenSourceId.value
+    ? () => store.createReopenedOtherInbound(reopenSourceId.value) : createOtherInbound, { busy, error, notice }, showForm)
 }
 function startLotPost(inbound: OtherInbound): void {
   // 批次登记是批准后的可选实物证据，不承担业务审批。
@@ -206,7 +226,7 @@ async function reverseApproved(identifier: number): Promise<void> {
         <AppButton
           v-if="can('other_inbound.create')"
           :disabled="busy || connectionLost"
-          @click="showForm = true"
+          @click="startCreate"
           variant="primary"
           type="button"
           >新建其他入库</AppButton
@@ -219,7 +239,7 @@ async function reverseApproved(identifier: number): Promise<void> {
         <WorkspaceDocumentDialog
           v-if="can('other_inbound.create')"
           v-model:show="showForm"
-          title="非采购来源入库"
+          :title="reopenSourceId ? `重开为新单 · ${reopenSource ? documentLabel(reopenSource) : '原单'}` : '非采购来源入库'"
           :data="materialRows"
           :columns="materialColumns"
           :busy="busy"
@@ -227,19 +247,19 @@ async function reverseApproved(identifier: number): Promise<void> {
           :submit-disabled="!!materialIssue"
           :add-disabled="addDisabled"
           :min-table-width="960"
-          hint="创建草稿后提交独立审批，批准并确认后才增加库存；这类入库不产生采购应付。"
+          :hint="reopenSourceId ? '保存后生成新单号并重新送审；原单保留已取消状态，原审批和批次记录不带入。' : '创建草稿后提交独立审批，批准并确认后才增加库存；这类入库不产生采购应付。'"
           @submit="submitCreate"
           @add-material="addMaterialRow"
         >
           <template #basicInfo>
-            <label>仓库<WorkspaceSelect v-model="otherInboundForm.warehouse_id" required
+            <label>仓库<WorkspaceSelect v-model="editorForm.warehouse_id" required
               :disabled="busy || connectionLost"
               :options="warehouses.map(item => ({ label: item.name, value: item.id }))" /></label>
-            <label>用途<WorkspaceSelect v-model="otherInboundForm.reason" required
+            <label>用途<WorkspaceSelect v-model="editorForm.reason" required
               :disabled="busy || connectionLost"
               :options="[{ label: '期初补录', value: 'opening' }, { label: '赠品', value: 'gift' }, { label: '其他', value: 'other' }]" /></label>
-            <label>参考号<AppInput v-model.trim="otherInboundForm.reference" maxlength="100" :disabled="busy || connectionLost" /></label>
-            <label>入库说明<AppInput v-model.trim="otherInboundForm.note" required maxlength="200" :disabled="busy || connectionLost" /></label>
+            <label>参考号<AppInput v-model.trim="editorForm.reference" maxlength="100" :disabled="busy || connectionLost" /></label>
+            <label>入库说明<AppInput v-model.trim="editorForm.note" required maxlength="200" :disabled="busy || connectionLost" /></label>
           </template>
           <template #materialPicker>
             <p v-if="materialRows.length && materialIssue" role="alert" class="inbound-material-issue">{{ materialIssue }}</p>
@@ -260,7 +280,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           </template>
           <template #cell-actions="{ row }">
             <AppButton type="button" variant="text" :disabled="busy || connectionLost"
-              :aria-label="`移除${row.material?.name ?? '物料'}`" @click="otherInboundForm.lines.splice(row.index, 1)">移除</AppButton>
+              :aria-label="`移除${row.material?.name ?? '物料'}`" @click="editorForm.lines.splice(row.index, 1)">移除</AppButton>
           </template>
         </WorkspaceDocumentDialog>
       </template>
@@ -303,7 +323,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       @update:show="value => { if (!value) detailInboundId = 0 }">
       <template #documentActions>
         <OtherInboundActions :inbound="detailInbound" :permissions="inboundPermissions"
-          :disabled="busy || connectionLost || !!pendingActionId" @action="action => handleInboundAction(detailInbound!.id, action)" />
+          :disabled="busy || connectionLost || !!pendingActionId" @action="action => detailInbound && handleInboundAction(detailInbound.id, action)" />
       </template>
       <template #basicInfo>
         <div class="inbound-detail-field"><span>单号</span><strong>{{ documentLabel(detailInbound) }}</strong></div>
