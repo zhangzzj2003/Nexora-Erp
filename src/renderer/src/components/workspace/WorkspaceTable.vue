@@ -294,11 +294,16 @@ defineSlots<{
   --vxe-ui-table-header-background-color: #f1f5f7;
   --vxe-ui-table-header-font-color: #52657b;
   --vxe-ui-table-border-color: #e5edf1;
+  /* 按需加载时需显式提供拖动线颜色，让列宽调节入口常驻可见。 */
+  --vxe-ui-table-resizable-line-color: #a5b5c5;
   border: 1px solid #e5edf1;
   border-radius: 11px;
   overflow: hidden;
 }
 .workspace-vxe-table table { border-collapse: separate; border-spacing: 0; }
+/* 分割线画在原生拖动手柄上，固定列与滚动列仍共用准确的调宽位置。 */
+.workspace-vxe-table .vxe-header--column > .vxe-cell--col-resizable::before { width: 2px; height: 55%; }
+.workspace-vxe-table .vxe-header--column > .vxe-cell--col-resizable:hover::before { background-color: var(--workspace-field-accent); }
 /* 弹窗关闭时浏览器会恢复行按钮焦点；外层只裁切，不允许隐式滚动把表头推走。 */
 /* 表格实际滚动仍由 VXE 的表体容器和共享横向滚动条处理。 */
 .workspace-vxe-table .vxe-table--viewport-wrapper { overflow: clip; }
@@ -345,6 +350,7 @@ defineSlots<{
   --vxe-ui-table-header-background-color: #203047;
   --vxe-ui-table-header-font-color: #b3c4d8;
   --vxe-ui-table-border-color: #2d3e57;
+  --vxe-ui-table-resizable-line-color: #657d99;
   border-color: #2d3e57;
 }
 </style>

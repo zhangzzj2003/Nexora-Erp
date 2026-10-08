@@ -157,3 +157,14 @@ test('公共 vxe 表格匹配工作台明暗主题与单元格高度', () => {
   assert.match(source, /--vxe-ui-table-border-width: 1px;/)
   assert.match(source, /:root\[data-theme='dark'\] \.workspace-vxe-table/)
 })
+
+test('表头拖动分割线在明暗主题下常驻可见，悬停突出原生调宽手柄', () => {
+  const source = readFileSync(new URL('../src/renderer/src/components/workspace/WorkspaceTable.vue', import.meta.url), 'utf8')
+  // 缺少主题变量会让 VXE 的线条透明；同时约束两套主题，避免深色模式回归。
+  for (const selector of ['\\.workspace-vxe-table', ":root\\[data-theme='dark'\\] \\.workspace-vxe-table"]) {
+    assert.match(source, new RegExp(`${selector} \\{[^}]*--vxe-ui-table-resizable-line-color: #[0-9a-f]{6};`))
+  }
+  // 线条必须属于真实拖动手柄，不能只给表头加一个无法拖动的装饰边框。
+  assert.match(source, /\.workspace-vxe-table \.vxe-header--column > \.vxe-cell--col-resizable::before \{ width: 2px; height: 55%; \}/)
+  assert.match(source, /\.workspace-vxe-table \.vxe-header--column > \.vxe-cell--col-resizable:hover::before \{ background-color: var\(--workspace-field-accent\); \}/)
+})
