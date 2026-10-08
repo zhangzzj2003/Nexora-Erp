@@ -20,19 +20,26 @@ test('操作菜单保留详情完整布局，拦截未知键和过期选择',asy
    if(id==='\0action-menu')return `import {h,defineComponent} from 'vue';export const captured={};export const NButton=defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}});
     export const NDropdown=defineComponent({props:['options','show','disabled'],setup(p,{slots,attrs}){
      Object.assign(captured,{props:p,attrs});return()=>h('span',slots.default?.())}})`
-   if(id==='\0action-button')return `import {h} from 'vue';export default {props:['disabled'],setup(p,{slots,attrs}){
+   if(id==='\0action-button')return `import {h} from 'vue';export const buttons=[];export default {props:['disabled','secondary','quaternary','tone','size'],setup(p,{slots,attrs}){
+    buttons.push({props:p,attrs});
     return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}}`
   }
  },vue()],server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]}})
  t.after(()=>server.close())
  const {default:Actions}=await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/OtherInboundActions.vue')
  const {captured}=await server.ssrLoadModule('\0action-menu')
+ const {buttons}=await server.ssrLoadModule('\0action-button')
  const props=reactive({inbound:{status:'draft'},permissions:{create:true,post:true,cancel:true,reverse:true},disabled:false,compact:true})
  const emitted=[]
  let vnode
  const render=()=>renderToString(createSSRApp({render:()=>{vnode=h(Actions,{...props,onAction:key=>emitted.push(key)});return vnode}}))
  const html=await render()
  assert.match(html,/审批 \/ 送审/)
+ // 主操作与更多都应收到公共浅底按钮样式，颜色仍区分业务主操作与中性次要操作。
+ assert.equal(buttons.length,2)
+ assert.ok(buttons.every(button=>button.props.secondary==='' && button.props.quaternary===undefined && button.props.size==='small'))
+ assert.equal(buttons[0].props.tone,'info')
+ assert.equal(buttons[1].props.tone,'default')
  assert.match(html,/aria-haspopup="menu"/)
  assert.doesNotMatch(html,/>取消</)
  assert.deepEqual(captured.props.options.map(item=>item.key),['cancel'])

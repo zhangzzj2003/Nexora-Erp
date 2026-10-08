@@ -68,26 +68,26 @@ function run(action: OtherInboundAction): void {
 
 <template>
   <div v-if="compact" ref="actionRoot" class="inbound-row-actions" role="group" aria-label="单据操作">
-    <!-- 通过公共按钮封装使用 Naive UI 语义色与浅底样式，业务页面只负责排列。 -->
+    <!-- 主操作保留业务色，次要操作与更多使用中性浅底；尺寸和圆角统一沿用公共按钮。 -->
     <AppButton v-for="item in visibleItems" :key="item.key" :data-action="item.key"
       :class="item.key === rowActions.primary.key ? 'inbound-row-primary' : 'inbound-row-extra'" type="button" size="small"
-      :secondary="item.key === rowActions.primary.key" :quaternary="item.key !== rowActions.primary.key"
+      secondary
       :tone="item.key === rowActions.primary.key ? (item.key === 'post' ? 'success' : item.key === 'reopen' ? 'primary' : 'info') : 'default'"
       :disabled="disabled" @click="run(item.key)">{{ item.label }}</AppButton>
     <template v-if="menuOptions.length">
       <NDropdown v-model:show="menuOpen" trigger="click" placement="bottom-end" :disabled="disabled"
         :options="menuOptions" @select="selectMore">
-        <AppButton class="inbound-row-more" type="button" size="small" tone="default" quaternary :disabled="disabled"
+        <AppButton class="inbound-row-more" type="button" size="small" tone="default" secondary :disabled="disabled"
           aria-label="更多单据操作" aria-haspopup="menu" :aria-expanded="menuOpen">更多</AppButton>
       </NDropdown>
     </template>
-    <!-- 测量副本仅在浏览器挂载后生成，不可点击、聚焦或被读屏重复朗读。 -->
+    <!-- 测量副本与可见按钮采用同一浅底样式，仅在挂载后生成，禁止点击、聚焦或重复朗读。 -->
     <div v-if="mounted" ref="measureRoot" class="inbound-action-measure" aria-hidden="true" inert>
       <AppButton v-for="item in rowItems" :key="item.key" data-measure-action type="button" size="small" disabled
         :class="item.key === rowActions.primary.key ? 'inbound-row-primary' : 'inbound-row-extra'"
-        :secondary="item.key === rowActions.primary.key" :quaternary="item.key !== rowActions.primary.key"
+        secondary
         :tone="item.key === rowActions.primary.key ? (item.key === 'post' ? 'success' : item.key === 'reopen' ? 'primary' : 'info') : 'default'">{{ item.label }}</AppButton>
-      <AppButton data-measure-more class="inbound-row-more" type="button" size="small" tone="default" quaternary disabled>更多</AppButton>
+      <AppButton data-measure-more class="inbound-row-more" type="button" size="small" tone="default" secondary disabled>更多</AppButton>
     </div>
   </div>
   <div v-else class="inbound-actions" role="group" aria-label="单据操作">
