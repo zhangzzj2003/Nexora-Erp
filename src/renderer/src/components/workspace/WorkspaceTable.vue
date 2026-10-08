@@ -371,6 +371,10 @@ defineSlots<{
   border-radius: 11px;
   overflow: hidden;
 }
+/* 外框由公共组件的圆角边框统一绘制，撤销 VXE 叠加的直角外框；行分隔线继续使用原生渐变。 */
+.workspace-vxe-table > .vxe-table--border-line { display: none; }
+/* 自动高度且无表内页脚时，末行已贴着外框，不再叠加一条横线；纵向滚动和表内页脚保留原分隔。 */
+.workspace-vxe-table.border--default.not--footer.not--scroll-y .vxe-body--row:last-child > .vxe-body--column { background-image: none; }
 .workspace-vxe-table table { border-collapse: separate; border-spacing: 0; }
 /* 分割线画在原生拖动手柄上，固定列与滚动列仍共用准确的调宽位置。 */
 .workspace-vxe-table .vxe-header--column > .vxe-cell--col-resizable::before { width: 2px; height: 55%; }

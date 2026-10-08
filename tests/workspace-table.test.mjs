@@ -205,3 +205,32 @@ test('只隐藏外框及冻结右列交界处的重复线，保留冻结区手�
     '.workspace-vxe-table .vxe-table--main-wrapper .vxe-header--column.fixed--visible:has(+ .vxe-header--column.fixed--hidden.col--fixed) > .vxe-cell--col-resizable::before'
   ])
 })
+
+
+test('公共表格仅保留圆角外框，行分隔线和固定列仍独立绘制', () => {
+  const source = readFileSync(new URL('../src/renderer/src/components/workspace/WorkspaceTable.vue', import.meta.url), 'utf8')
+  const { descriptor } = parseVue(source)
+  const rules = descriptor.styles.flatMap(style => {
+    const entries = []
+    postcss.parse(style.content).walkRules(rule => entries.push(rule))
+    return entries
+  })
+  const values = selector => Object.fromEntries(rules.filter(rule => rule.selector === selector)
+    .flatMap(rule => rule.nodes.filter(node => node.type === 'decl').map(decl => [decl.prop, decl.value])))
+  const outer = values('.workspace-vxe-table')
+  // 保留公共组件的圆角裁切与完整外框，不通过关闭边框宽度破坏内部行分隔线。
+  assert.equal(outer.border, '1px solid #e5edf1')
+  assert.equal(outer['border-radius'], '11px')
+  assert.equal(outer.overflow, 'hidden')
+  assert.equal(outer['--vxe-ui-table-border-width'], '1px')
+  assert.equal(values(":root[data-theme='dark'] .workspace-vxe-table")['border-color'], '#2d3e57')
+  // 只撤销 VXE 根节点直接绘制的重复外框，不能隐藏主体、冻结区或嵌套表格。
+  const suppressedBorders = rules.filter(rule => rule.selector.includes('vxe-table--border-line'))
+  assert.equal(suppressedBorders.length, 1)
+  assert.equal(suppressedBorders[0].selector, '.workspace-vxe-table > .vxe-table--border-line')
+  assert.equal(values(suppressedBorders[0].selector).display, 'none')
+  // 默认横线模式只在末行贴外框时撤销末行底线，滚动列表与表内页脚不能受影响。
+  const hiddenRowLines = rules.filter(rule => rule.nodes.some(node => node.prop === 'background-image' && node.value === 'none'))
+  assert.equal(hiddenRowLines.length, 1)
+  assert.equal(hiddenRowLines[0].selector, '.workspace-vxe-table.border--default.not--footer.not--scroll-y .vxe-body--row:last-child > .vxe-body--column')
+})
