@@ -42,6 +42,17 @@ test('公共按钮保留提交类型、禁用/加载保护以及图标和读屏�
   for (const props of [{ disabled: true }, { loading: true }]) {
     assert.match(await render(AppButton, props), /\sdisabled(?:\s|>)/)
   }
+  // 原生语义色和浅底样式经封装后仍正常解析，不能把 tone 误当作表单 type。
+  for (const tone of ['default', 'tertiary', 'primary', 'info', 'success', 'warning', 'error']) {
+    const html = await render(AppButton, { tone, secondary: true, size: 'small' })
+    assert.match(html, new RegExp(`n-button--${tone}-type`))
+    assert.match(html, /n-button--secondary/)
+    assert.match(html, /type="button"/)
+    assert.match(html, /--n-border-radius:10px/)
+  }
+  for (const [size, radius] of [['medium', '12px'], ['large', '14px']]) {
+    assert.match(await render(AppButton, { size }), new RegExp(`--n-border-radius:${radius}`))
+  }
   // NInput 的包装不能吞掉浏览器必填、数字范围、步长、长度和输入语义。
   const number = await render(AppInput, { modelValue: '1.25', type: 'number', required: true, min: '0.001', max: '100', step: '0.001', 'aria-label': '数量' })
   const input = number.match(/<input\b[^>]*>/)?.[0] ?? ''

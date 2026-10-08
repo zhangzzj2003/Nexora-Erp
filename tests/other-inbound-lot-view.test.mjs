@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {createSSRApp,h} from 'vue'
+import {setup as setupSsrStyles} from '@css-render/vue3-ssr'
 import {renderToString} from '@vue/server-renderer'
 import {createPinia} from 'pinia'
 import {createServer} from 'vite'
@@ -29,7 +30,8 @@ test('其他入库列表区分待登记、已登记和旧单未分配批次',asy
   const {usePiniaAppStore}=await server.ssrLoadModule('\0other-inbound-store')
   const pinia=createPinia(),store=usePiniaAppStore(pinia)
   const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/OtherInboundsView.vue')
-  const render=()=>renderToString(createSSRApp({render:()=>h(View)}).use(pinia))
+  // 原生下拉菜单在服务端渲染时需要样式收集器，避免访问浏览器 document。
+  const render=()=>{const app=createSSRApp({render:()=>h(View)}).use(pinia);setupSsrStyles(app);return renderToString(app)}
   const inbound={id:3,status:'draft',reason:'gift',note:'赠品',warehouse_name:'主仓库',created_at:'2026-10-02',
     created_by_name:'admin',reference:'GIFT',reversal_id:null,reversal_reason:null,
     lines:[{id:7,sku:'GIFT-3',material_name:'赠品物料',quantity:'2.125',unit:'件',physical_lots:[]}]}
@@ -37,7 +39,8 @@ test('其他入库列表区分待登记、已登记和旧单未分配批次',asy
   assert.doesNotMatch(await render(),/登记实物批次（可选）|>确认入库</)
   // 批准后普通入库与实物登记均可执行，未送审不能借批次弹窗绕过审批。
   store.otherInbounds=[{...inbound,approval:{status:'approved'}}]
-  assert.match(await render(),/登记实物批次（可选）/)
+  // 批次登记收纳到更多菜单，完整动作集合由操作菜单测试覆盖。
+  assert.match(await render(),/更多单据操作/)
   assert.match(await render(),/>确认入库</)
   store.otherInbounds=[{...inbound,status:'posted'}]
   assert.match(await render(),/普通入库，未登记实物批次/)

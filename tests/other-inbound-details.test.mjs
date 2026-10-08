@@ -54,19 +54,22 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  const server=await createServer({configFile:false,plugins:[{
   name:'inbound-detail-fixtures',enforce:'pre',
   transform(code,id){
+   if(id.endsWith('/OtherInboundActions.vue'))return code.replace("'naive-ui'","'virtual:inbound-action-controls'")
    // 可设置初始选中 ID 来展开真实弹窗；正常打开事件另行直接触发验证。
    if(id.endsWith('/OtherInboundsView.vue'))return code.replace('const detailInboundId = ref(0)','const detailInboundId = ref(store.initialDetailId)').replace("'naive-ui'","'virtual:inbound-detail-modal'")
    if(id.endsWith('/WorkspaceDocumentDialog.vue'))return code.replace("'naive-ui'","'virtual:inbound-detail-modal'")
   },
   resolveId(id,importer){
+   if(id==='virtual:inbound-action-controls')return '\0inbound-action-controls'
    if(id==='virtual:inbound-detail-modal')return '\0inbound-detail-modal'
    if(!importer?.includes('/src/renderer/'))return
    if(id.endsWith('/store/app-store')&&importer.includes('OtherInboundsView'))return '\0inbound-detail-store'
    if(id.endsWith('/DocumentApprovalDialog.vue'))return '\0inbound-approval-placeholder'
    if(id.endsWith('/WorkspaceTable.vue'))return '\0inbound-detail-table'
    if(id.endsWith('/AppButton.vue'))return '\0inbound-detail-button'
+   if(id==='naive-ui'&&importer.includes('OtherInboundActions'))return '\0inbound-action-controls'
    if(id==='naive-ui'&&(importer.includes('OtherInboundsView')||importer.includes('WorkspaceDocumentDialog')))return '\0inbound-detail-modal'
-  },load(id){if(id==='\0inbound-approval-placeholder')return 'export default {render(){return null}}';return {'\0inbound-detail-store':storeSource,'\0inbound-detail-table':tableSource,
+  },load(id){if(id==='\0inbound-action-controls')return `import {defineComponent,h} from 'vue'; export const NDropdown=defineComponent({setup(p,{slots}){return()=>h('span',slots.default?.())}})`;if(id==='\0inbound-approval-placeholder')return 'export default {render(){return null}}';return {'\0inbound-detail-store':storeSource,'\0inbound-detail-table':tableSource,
    '\0inbound-detail-button':buttonSource,'\0inbound-detail-modal':modalSource}[id]}
  },vue()],server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]},appType:'custom'})
  t.after(()=>server.close())

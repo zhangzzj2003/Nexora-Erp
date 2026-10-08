@@ -153,7 +153,7 @@ const columns: readonly WorkspaceTableColumn[] = [
   { key: 'lines', title: '物料明细', width: '310' },
   // 时间紧邻操作并固定在右侧，横向查看物料时仍能对照创建时间。
   { key: 'time', title: '时间', width: '150', fixed: 'right' },
-  { key: 'actions', title: '操作', width: '240' }
+  { key: 'actions', title: '操作', width: '200' }
 ]
 // 写入失败时保留表单，成功后才关闭弹窗。
 async function submitCreate(): Promise<void> {
@@ -220,7 +220,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       :data="filtered"
       title="其他入库"
       :columns="columns"
-      :min-table-width="1450"
+      :min-table-width="1410"
     >
       <template #actions>
         <AppButton
@@ -309,7 +309,7 @@ async function reverseApproved(identifier: number): Promise<void> {
         </div></template
       >
       <template #cell-actions="{ row: item }">
-        <OtherInboundActions :inbound="item" :permissions="inboundPermissions"
+        <OtherInboundActions compact :inbound="item" :permissions="inboundPermissions"
           :disabled="busy || connectionLost || !!pendingActionId" @action="action => handleInboundAction(item.id, action)" />
         <small v-if="item.reversal_reason">冲销：{{ item.reversal_reason }}</small>
       </template>
