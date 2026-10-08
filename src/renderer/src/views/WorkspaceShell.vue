@@ -119,6 +119,11 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
 </template>
 
 <style scoped>
+/* 桌面工作台缩小左右留白，让标题和业务卡片共用更宽的内容区；窄屏沿用原间距。 */
+@media (min-width: 761px) {
+  .has-sidebar .content-body { padding-inline: clamp(24px, 2vw, 32px); }
+}
+
 /* 自动外边距只在内容足够时居中；矮窗口从顶部滚动，固定底栏不被卡片挤走。 */
 .content-body.numbering-onboarding { display: flex; flex-direction: column; padding: 20px clamp(16px, 4vw, 62px) 24px; }
 .numbering-session-bar { display: flex; flex: none; align-items: center; justify-content: flex-end; gap: 8px; min-height: 32px; margin-bottom: 16px; }
