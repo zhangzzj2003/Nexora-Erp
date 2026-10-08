@@ -30,6 +30,8 @@ const props = withDefaults(defineProps<{
   // 开启分页时只展示当前页数据，不在组件内切割完整数组。
   pagination?: { page: number; pageSize: number; total: number; disabled?: boolean }
   minTableWidth?: number
+  // 单据弹窗加宽时将列宽作为最小值，让明细均分剩余空间。
+  stretchColumns?: boolean
 }>(), {
   showTitle: true,
   description: '',
@@ -38,7 +40,8 @@ const props = withDefaults(defineProps<{
   emptyText: '暂无数据',
   error: '',
   loading: false,
-  minTableWidth: 580
+  minTableWidth: 580,
+  stretchColumns: false
 })
 
 const emit = defineEmits<{ pageChange: [page: number, pageSize: number] }>()
@@ -146,9 +149,10 @@ defineSlots<{
     <div ref="scrollContainer" class="table-wrap" :class="{ 'has-fixed-columns': hasFixedColumns }" @scroll.passive="syncScrollPosition">
       <span v-if="loading" class="workspace-table-status" role="status">正在加载…</span>
       <VxeTable ref="tableRef" class="workspace-vxe-table" @scroll="syncScrollPosition" :aria-label="title" :aria-busy="loading" :data="error ? [] : data" :loading="loading" :style="hasFixedColumns ? undefined : { minWidth: `${minTableWidth}px` }"
-        :scrollbar-config="hasFixedColumns ? { x: { visible: false } } : undefined">
+        :fit="stretchColumns || undefined" :scrollbar-config="hasFixedColumns ? { x: { visible: false } } : undefined">
         <VxeColumn v-for="column in resolvedColumns" :key="column.key" :field="column.key" :title="column.title"
-          :fixed="column.fixed || undefined" :width="column.width || (hasFixedColumns ? defaultColumnWidth : undefined)">
+          :fixed="column.fixed || undefined" :width="stretchColumns ? undefined : column.width || (hasFixedColumns ? defaultColumnWidth : undefined)"
+          :min-width="stretchColumns ? column.width || defaultColumnWidth : undefined">
           <template v-if="$slots[`cell-${column.key}`]" #default="{ row }">
             <slot :name="`cell-${column.key}`" :row="row" />
           </template>

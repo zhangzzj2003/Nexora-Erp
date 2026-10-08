@@ -52,9 +52,10 @@ function submit(): void {
 </script>
 
 <template>
+  <!-- 单据编辑与详情统一加宽，宽屏多展示物料信息，窄屏仍在两侧各留 16px。 -->
   <NModal :show="show" @update:show="updateShow" preset="card" :title="title"
     class="workspace-document-dialog" :mask-closable="!busy" :close-on-esc="!busy" :closable="!busy"
-    :style="{ width: 'min(1040px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)' }">
+    :style="{ width: 'min(1280px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)' }">
     <form class="document-form" @submit.prevent="submit">
       <div class="document-body">
         <!-- 详情插槽使用纯文本，不禁用整个字段集，保留表格滚动和分页等查看交互。 -->
@@ -65,7 +66,7 @@ function submit(): void {
           </section>
           <!-- 分隔线明确区分单据头与物料明细，避免两类信息混在同一张表单中。 -->
           <hr class="document-divider" />
-          <WorkspaceTable :title="linesTitle" :data="data" :columns="columns" :min-table-width="minTableWidth"
+          <WorkspaceTable :title="linesTitle" :data="data" :columns="columns" :min-table-width="minTableWidth" stretch-columns
             :empty-text="readOnly ? '此单据暂无物料明细。' : emptyText" class="document-lines">
             <template #heading><h3>{{ linesTitle }} <span class="document-count">{{ data.length }} 项</span></h3></template>
             <template v-if="!readOnly" #actions>
