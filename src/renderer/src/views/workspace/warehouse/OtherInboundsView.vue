@@ -156,13 +156,14 @@ function inboundStatusTone(inbound: OtherInbound): AppStatusTone {
 const columns: readonly WorkspaceTableColumn[] = [
   // 单号与审计信息分列，列宽保证长单号和时间完整展示，窄窗口沿用公共表格横向滚动。
   { key: 'document', title: '单据号', width: '230' },
-  { key: 'status', title: '状态', width: '160' },
-  { key: 'operator', title: '处理人', width: '110' },
+  // 短信息列与操作列统一居中，长文本列继续左对齐以便阅读。
+  { key: 'status', title: '状态', width: '160', align: 'center' },
+  { key: 'operator', title: '处理人', width: '110', align: 'center' },
   { key: 'source', title: '仓库与来源', width: '220' },
   { key: 'lines', title: '物料明细', width: '310' },
   // 时间紧邻操作并固定在右侧，横向查看物料时仍能对照创建时间。
-  { key: 'time', title: '时间', width: '150', fixed: 'right' },
-  { key: 'actions', title: '操作', width: '200' }
+  { key: 'time', title: '时间', width: '150', fixed: 'right', align: 'center' },
+  { key: 'actions', title: '操作', width: '200', align: 'center' }
 ]
 // 写入失败时保留表单，成功后才关闭弹窗。
 async function submitCreate(): Promise<void> {

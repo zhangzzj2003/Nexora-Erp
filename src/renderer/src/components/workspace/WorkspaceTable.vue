@@ -151,6 +151,7 @@ defineSlots<{
       <VxeTable ref="tableRef" class="workspace-vxe-table" @scroll="syncScrollPosition" :aria-label="title" :aria-busy="loading" :data="error ? [] : data" :loading="loading" :style="hasFixedColumns ? undefined : { minWidth: `${minTableWidth}px` }"
         :fit="stretchColumns || undefined" :scrollbar-config="hasFixedColumns ? { x: { visible: false } } : undefined">
         <VxeColumn v-for="column in resolvedColumns" :key="column.key" :field="column.key" :title="column.title"
+          :align="column.align" :header-align="column.align"
           :fixed="column.fixed || undefined" :width="stretchColumns ? undefined : column.width || (hasFixedColumns ? defaultColumnWidth : undefined)"
           :min-width="stretchColumns ? column.width || defaultColumnWidth : undefined">
           <template v-if="$slots[`cell-${column.key}`]" #default="{ row }">

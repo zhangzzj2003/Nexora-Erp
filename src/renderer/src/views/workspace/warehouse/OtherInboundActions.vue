@@ -27,7 +27,7 @@ function run(action: OtherInboundAction): void {
 </script>
 
 <template>
-  <div v-if="compact" class="inbound-row-actions" role="group" aria-label="单据操作">
+  <div v-if="compact" class="inbound-row-actions" :class="{ 'is-single': !menuOptions.length }" role="group" aria-label="单据操作">
     <!-- 通过公共按钮封装使用 Naive UI 语义色与浅底样式，业务页面只负责排列。 -->
     <AppButton class="inbound-row-primary" type="button" size="small" secondary
       :tone="rowActions.primary.key === 'post' ? 'success' : rowActions.primary.key === 'reopen' ? 'primary' : 'info'"
@@ -49,7 +49,9 @@ function run(action: OtherInboundAction): void {
 <style scoped>
 /* 列表使用等宽双列保持对齐；按钮的颜色、圆角、悬停和焦点均沿用 Naive UI。 */
 .inbound-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.inbound-row-actions { display: grid; grid-template-columns: 104px 52px; align-items: center; gap: 8px; white-space: nowrap; }
+.inbound-row-actions { display: grid; grid-template-columns: 104px 52px; justify-content: center; align-items: center; gap: 8px; white-space: nowrap; }
+/* 只有一个操作时去掉预留菜单位，让按钮自身也处于列中央。 */
+.inbound-row-actions.is-single { grid-template-columns: 104px; }
 .inbound-row-primary { width: 104px; }
 .inbound-row-more { width: 52px; }
 </style>

@@ -2,6 +2,8 @@ export interface WorkspaceTableColumn {
   key: string
   title: string
   width?: string
+  // 表头和内容共用对齐方式；未配置的业务列保持表格默认布局。
+  align?: 'left' | 'center' | 'right'
   // 留空沿用单据列表约定，显式 false 可让特殊业务列参与滚动。
   fixed?: 'left' | 'right' | false
 }
