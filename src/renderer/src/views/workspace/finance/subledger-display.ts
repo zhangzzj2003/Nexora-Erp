@@ -3,8 +3,9 @@ import { dateFieldError } from '../../../utils/date-field.ts'
 
 export const subledgerKindLabels = { receivable: '客户应收', payable: '供应商应付' }
 export function subledgerDraftError(input: SubledgerInput, effectiveDate: string): string {
-  if (!input.control_accounts.length || input.control_accounts.some(item => item.account_id <= 0)) return '请选择至少一个往来控制科目。'
-  if (new Set(input.control_accounts.map(item => item.account_id)).size !== input.control_accounts.length) return '应收与应付不能使用同一个科目。'
+  if (!input.control_accounts.length || input.control_accounts.some(item => !Number.isSafeInteger(item.account_id) || item.account_id <= 0)) return '请选择至少一个往来控制科目。'
+  if (input.control_accounts.length > 500) return '控制科目最多添加 500 个。'
+  if (new Set(input.control_accounts.map(item => item.account_id)).size !== input.control_accounts.length) return '控制科目不能重复选择，应收与应付不能共用科目。'
   const keys = new Set<string>()
   for (const [index, line] of input.lines.entries()) {
     const prefix = `第 ${index + 1} 行：`

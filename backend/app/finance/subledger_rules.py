@@ -29,9 +29,16 @@ def protect_opening(db: Session, identifier: int) -> None:
         raise HTTPException(409, '总账期初已被有效分户方案引用，须先取消或撤销分户方案')
 
 
+def validate_control_mapping(control_accounts: list[dict], mapping: dict) -> None:
+    identifiers: dict[str, set[int]] = {}
+    for item in control_accounts:
+        identifiers.setdefault(item['kind'], set()).add(item['account_id'])
+    for kind, selected in identifiers.items():
+        if kind in mapping and mapping[kind] not in selected:
+            raise HTTPException(409, '业务凭证应收应付科目须属于分户期初的对应控制范围')
+
+
 def check_control_mapping(db: Session, mapping: dict) -> None:
     record = active_subledger(db)
     if record is not None:
-        for item in json.loads(record.control_accounts_json):
-            if item['kind'] in mapping and mapping[item['kind']] != item['account_id']:
-                raise HTTPException(409, '业务凭证应收应付科目须与有效分户期初的控制科目一致')
+        validate_control_mapping(json.loads(record.control_accounts_json), mapping)

@@ -116,6 +116,15 @@ def source_auxiliary(db: Session, source: dict, role: str, selections: dict) -> 
     return list(defaults.values())
 
 
+def source_mapping(source: dict, configured: dict) -> dict:
+    mapping = dict(configured)
+    if source['source_type'] == 'subledger_payment':
+        # 历史资金始终结清原单科目；通用映射变化不能搬走其期初余额。
+        record = source['records'][0]
+        mapping[record['kind']] = record['account_id']
+    return mapping
+
+
 def source_rows(db: Session) -> list[dict]:
     policy = policy_data(db.get(BusinessJournalPolicy, 1))
     bindings = active_bindings(db)
@@ -123,13 +132,14 @@ def source_rows(db: Session) -> list[dict]:
     rows = []
     for item in business_sources(db).values():
         row = dict(item)
+        mapping = source_mapping(item, policy['mapping'])
         blockers = list(item['blockers'])
         if not policy['version']:
             blockers.append('先配置启用日期和业务科目')
         elif item['source_date'] < policy['start_date']:
             blockers.append('来源早于业务凭证启用日期，需人工核对既有账务')
         for role in item['roles']:
-            account = accounts.get(policy['mapping'].get(role))
+            account = accounts.get(mapping.get(role))
             if account is None or not account.is_active:
                 blockers.append(f'{ROLE_LABELS[role]}未配置启用科目')
         binding = bindings.get(item['key'])
@@ -227,7 +237,7 @@ def generate(data: GenerateInput, user: dict = Depends(require('business_journal
             if data.journal_date < earliest or (not rebuilding and data.journal_date != source['source_date']):
                 raise HTTPException(409, '首次生成按业务发生日期入账；重建不得早于已过账冲销日期')
             period = period_for(db, data.journal_date)
-            mapping = json.loads(policy.mapping_json)
+            mapping = source_mapping(source, json.loads(policy.mapping_json))
             if set(data.auxiliary_by_role) - set(source['roles']):
                 raise HTTPException(409, '不能为当前来源未生成的业务用途填写辅助信息')
             lines = []

@@ -22,7 +22,7 @@ from app.finance.auxiliary_rules import (AuxiliaryReference, combination,
     selection_options, snapshot_values, validate_references)
 from app.finance.journals import JournalInput, JournalLineInput, ReasonInput, VersionInput
 from app.finance.opening_rules import active_opening, ensure_no_posted_journals
-from app.finance.subledger_rules import active_subledger, check_control_mapping, check_subledger
+from app.finance.subledger_rules import active_subledger, check_subledger, validate_control_mapping
 from app.reports.routes import csv_value
 
 from app.core import document_approval as approval
@@ -60,16 +60,15 @@ class OpeningInput(ReasonInput):
     reference: str = Field(min_length=1, max_length=80)
     opening_balance_id: int = Field(gt=0, strict=True)
     opening_version: int = Field(gt=0, strict=True)
-    control_accounts: list[ControlInput] = Field(min_length=1, max_length=2)
+    control_accounts: list[ControlInput] = Field(min_length=1, max_length=500)
     lines: list[LineInput] = Field(max_length=500)
     note: str = Field(default='', max_length=500)
     _reference = field_validator('reference')(JournalInput.nonblank_reference.__func__)
 
     @model_validator(mode='after')
     def unique_sources(self):
-        if len({item.kind for item in self.control_accounts}) != len(self.control_accounts) or len(
-                {item.account_id for item in self.control_accounts}) != len(self.control_accounts):
-            raise ValueError('每类往来只选一个控制科目，两个类别不能共用科目')
+        if len({item.account_id for item in self.control_accounts}) != len(self.control_accounts):
+            raise ValueError('控制科目不能重复选择，应收与应付不能共用科目')
         # 同一原始单据不能通过换科目或辅助组合重复导入。
         keys = [(line.kind, line.party_id, line.document_reference) for line in self.lines]
         if len(set(keys)) != len(keys):
@@ -182,25 +181,24 @@ def bound_opening(db: Session, identifier: int, version: int) -> OpeningBalance:
     return opening
 
 
-def controls(db: Session, values: list[dict]) -> dict:
+def controls(db: Session, values: list[dict]) -> dict[tuple[str, int], LedgerAccount]:
     result = {}
     for item in values:
         account = db.get(LedgerAccount, item['account_id'])
         if account is None or not account.is_active or account.category not in ('asset', 'liability'):
             raise HTTPException(409, '往来控制科目须为已启用的资产或负债科目')
-        result[item['kind']] = account
+        result[(item['kind'], account.id)] = account
     policy = db.get(BusinessJournalPolicy, 1)
     mapping = json.loads(policy.mapping_json) if policy else {}
-    if any(kind in mapping and mapping[kind] != account.id for kind, account in result.items()):
-        raise HTTPException(409, '往来控制科目须与已有业务凭证科目配置一致')
+    validate_control_mapping(values, mapping)
     return result
 
 
 def save_lines(db: Session, record: SubledgerOpening, values: list[LineInput]) -> None:
     mapping = controls(db, json.loads(record.control_accounts_json))
     for position, value in enumerate(values, 1):
-        account = mapping.get(value.kind)
-        if account is None or account.id != value.account_id:
+        account = mapping.get((value.kind, value.account_id))
+        if account is None:
             raise HTTPException(409, '分户明细须使用所属类别的控制科目')
         if value.document_date >= record.effective_date:
             raise HTTPException(409, '历史未结单据日期须早于总账启用日')
@@ -247,10 +245,13 @@ def validate(db: Session, record: SubledgerOpening) -> dict:
     ensure_date_unlocked(db, record.effective_date)
     mapping = controls(db, json.loads(record.control_accounts_json))
     for line in lines_for(db, record.id):
+        account = mapping.get((line.kind, line.account_id))
+        if account is None:
+            raise HTTPException(409, '分户明细须使用所属类别的控制科目')
         values = json.loads(line.auxiliary_json)
         references = [AuxiliaryReference(kind=item['kind'], id=item['id']) for item in values]
         line.auxiliary_json = encode(validate_references(db, line.account_id, record.effective_date, references))
-        line.account_name = mapping[line.kind].name
+        line.account_name = account.name
     db.flush()
     evidence = reconcile(db, record)
     if not evidence['matched']:

@@ -97,7 +97,7 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
   async function saveSubledger(): Promise<boolean> {
     const { id, version, reference, opening_balance_id, opening_version, note, reason, control_accounts, lines } = state.subledgerForm.value
     const input = { reference, opening_balance_id, opening_version, note, reason,
-      control_accounts: control_accounts.map(item => ({ ...item })),
+      control_accounts: control_accounts.map(({kind,account_id}) => ({kind,account_id})),
       // 表格会给行附加内部标记；请求只提取业务字段，避免将控件状态发送给服务端。
       lines: lines.map(({ kind, party_id, account_id, document_reference, document_date, debit, credit, auxiliary }) => ({
         kind, party_id, account_id, document_reference, document_date, debit, credit,

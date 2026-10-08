@@ -1245,11 +1245,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'updateSubledgerOpening': {
       const fields = payload as ErpOperations['updateSubledgerOpening']['input']
       const { reference, note, reason, control_accounts, lines } = fields
-      if (!Array.isArray(control_accounts) || control_accounts.length < 1 || control_accounts.length > 2
+      if (!Array.isArray(control_accounts) || control_accounts.length < 1 || control_accounts.length > 500
         || !Array.isArray(lines) || lines.length > 500) throw new Error('分户明细或控制科目无效')
+      const selectedControls = control_accounts.map(item => {
+        if (!item || !['receivable','payable'].includes(item.kind)) throw new Error('分户控制类别无效')
+        return {kind:item.kind,account_id:positiveId(item,'account_id')}
+      })
+      if (new Set(selectedControls.map(item => item.account_id)).size !== selectedControls.length) throw new Error('分户控制科目不能重复')
       const body = { reference, note, reason, opening_balance_id: positiveId(payload, 'opening_balance_id'),
         opening_version: positiveId(payload, 'opening_version'),
-        control_accounts: control_accounts.map(item => ({ kind: item.kind, account_id: positiveId(item, 'account_id') })),
+        control_accounts: selectedControls,
         lines: lines.map(item => {
           if (!Array.isArray(item.auxiliary) || item.auxiliary.length > 2) throw new Error('分户辅助信息无效')
           return { kind: item.kind, account_id: positiveId(item, 'account_id'), party_id: positiveId(item, 'party_id'),

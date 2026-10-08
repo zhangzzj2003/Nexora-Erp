@@ -12,7 +12,8 @@ import { datePickerString, dateOutsideRange, vDateField } from '../../../utils/d
 import type { BusinessJournalCandidate, BusinessJournalMapping, BusinessJournalRole, AuxiliaryReference } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
-import { businessRoleLabels, businessTotal } from './business-journal-display'
+import { businessRoleLabels, businessTotal, businessSourceMapping } from './business-journal-display'
+import { auxiliaryLabels } from './auxiliary-display'
 import { journalStatusLabels } from './journal-display'
 import BusinessSourceEvidence from './BusinessSourceEvidence.vue'
 import AuxiliarySelector from './AuxiliarySelector.vue'
@@ -24,12 +25,14 @@ const { can, loadBusinessJournals, saveBusinessJournalPolicy, generateBusinessJo
 const query = ref(''); const filter = ref('pending'); const configure = ref(false)
 const configuration = ref<{ version: number; start_date: string; mapping: BusinessJournalMapping; reason: string }>({ version: 0, start_date: '', mapping: {}, reason: '' })
 const selected = ref<BusinessJournalCandidate | null>(null)
+const historical = computed(() => selected.value?.source_type === 'subledger_payment')
+const selectedMapping = computed(() => selected.value ? businessSourceMapping(selected.value, options.value?.policy.mapping) : {})
 const auxiliaryByRole = ref<Partial<Record<BusinessJournalRole, AuxiliaryReference[]>>>({})
 const auxiliaryColumns = [{ key: 'role', title: '业务用途' }, { key: 'auxiliary', title: '部门与项目' }]
 const selectedRoles = computed(() => selected.value ? Object.keys(selected.value.roles).map(role => ({ role: role as BusinessJournalRole })) : [])
 const sourcePartners = computed(() => (selected.value?.auxiliary_defaults ?? []).map(ref => {
   const item = options.value?.auxiliary_items?.find(item => item.kind === ref.kind && item.id === ref.id)
-  return item ? `${item.kind === 'customer' ? '客户' : '供应商'}：${item.name}` : `${ref.kind === 'customer' ? '客户' : '供应商'} #${ref.id}`
+  return item ? `${auxiliaryLabels[item.kind]}：${item.name}` : `${auxiliaryLabels[ref.kind]} #${ref.id}`
 }).join('；'))
 const reference = ref(''); const journalDate = ref(''); const reason = ref('')
 const rows = computed(() => sources.value.filter(row =>
@@ -61,7 +64,8 @@ async function savePolicy(): Promise<void> {
 }
 function open(row: BusinessJournalCandidate): void {
   selected.value = row; reference.value = ''; journalDate.value = row.minimum_date; reason.value = ''
-  auxiliaryByRole.value = Object.fromEntries(Object.keys(row.roles).map(role => [role, []]))
+  auxiliaryByRole.value = Object.fromEntries(Object.keys(row.roles).map(role => [role,
+    row.source_type === 'subledger_payment' ? (row.auxiliary_defaults ?? []).filter(item => ['department','project'].includes(item.kind)).map(({kind,id}) => ({kind,id})) : []]))
 }
 async function reloadSource(): Promise<void> {
   const key = selected.value?.key
@@ -105,17 +109,18 @@ async function generate(): Promise<void> {
     <NCollapse v-if="changes.length"><AppCollapseItem name="history" :title="`科目配置历史（${changes.length} 次）`"><WorkspaceTable title="配置审计" :columns="changeColumns" :data="changeRows" :min-table-width="760" /></AppCollapseItem></NCollapse>
     <NModal :show="selected !== null" preset="card" :title="selected ? `${selected.label} ${relatedDocumentLabel(selected, 'source')} · 来源核对` : ''" :mask-closable="!busy" :style="{ width: 'min(1050px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }" @update:show="value => { if (!value) selected = null }">
       <div v-if="selected" class="stack">
-        <BusinessSourceEvidence :source="selected" :mapping="options?.policy.mapping" :accounts="options?.accounts" />
+        <BusinessSourceEvidence :source="selected" :mapping="selectedMapping" :accounts="options?.accounts" />
         <AppButton variant="secondary" :disabled="loading || busy || connectionLost" @click="reloadSource">重新核对来源</AppButton>
         <form v-if="can('business_journal.generate') && !selected.journal_id && !selected.no_amount" class="ledger-editor" @submit.prevent="generate">
           <div class="form-grid"><label>凭证依据编号<AppInput v-model.trim="reference" required maxlength="80" :disabled="busy" /></label><label>凭证日期<NDatePicker to="body" :formatted-value="journalDate || null" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" v-date-field="{ required: true, min: selected.minimum_date }" :is-date-disabled="(timestamp: number) => dateOutsideRange(timestamp, selected?.minimum_date)" :disabled="busy" @update:formatted-value="value => { journalDate = datePickerString(value) }" /></label><label>生成依据<AppInput v-model.trim="reason" required maxlength="200" :disabled="busy" /></label></div>
           <p class="muted">首次生成使用来源发生日期；已过账关联冲销后的重建，不得早于冲销日期。缺价或金额变化时先重新核对，不手工覆盖分录。</p>
           <p v-if="sourcePartners">真实往来对象自动带入各分录：{{ sourcePartners }}。</p>
+          <p v-if="historical">历史资金沿用原单控制科目及完整辅助归属；资金科目按当前配置选择。</p>
           <WorkspaceTable title="业务分录辅助信息" :columns="auxiliaryColumns" :data="selectedRoles" :min-table-width="540">
             <template #cell-role="{ row }">{{ businessRoleLabels[row.role as BusinessJournalRole] }}</template>
             <template #cell-auxiliary="{ row }"><AuxiliarySelector :model-value="auxiliaryByRole[row.role as BusinessJournalRole]"
-              :kinds="['department', 'project']" :items="options?.auxiliary_items" :date="journalDate" :disabled="busy || loading || connectionLost"
-              :policy="options?.auxiliary_policies?.find(item => item.account_id === options?.policy.mapping[row.role as BusinessJournalRole])"
+              :kinds="['department', 'project']" :items="options?.auxiliary_items" :date="journalDate" :disabled="historical || busy || loading || connectionLost"
+              :policy="options?.auxiliary_policies?.find(item => item.account_id === selectedMapping[row.role as BusinessJournalRole])"
               :label-prefix="businessRoleLabels[row.role as BusinessJournalRole]"
               @update:model-value="values => { auxiliaryByRole[row.role as BusinessJournalRole] = values }" /></template>
           </WorkspaceTable>

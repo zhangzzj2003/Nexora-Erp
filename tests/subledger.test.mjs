@@ -22,6 +22,12 @@ test('分户表单拦截错误日期、重复原单及双边金额，不以浮�
   assert.equal(subledgerDraftError({...input,lines:[{...input.lines[0],debit:'0.00',credit:'20.11'}]}, '2026-01-01'), '')
   assert.equal(subledgerDraftError({...input,lines:[]}, '2026-01-01'), '')
   assert.ok(subledgerDraftError({...input,control_accounts:[]}, '2026-01-01'))
+  assert.equal(subledgerDraftError({...input,control_accounts:[...input.control_accounts,{kind:'receivable',account_id:4}]}, '2026-01-01'), '')
+  for (const controls of [[...input.control_accounts,...input.control_accounts],
+    [...input.control_accounts,{kind:'payable',account_id:3}], [{kind:'receivable',account_id:1.5}],
+    Array.from({length:501},(_,i)=>({kind:'receivable',account_id:i+1}))]) {
+    assert.ok(subledgerDraftError({...input,control_accounts:controls}, '2026-01-01'))
+  }
 })
 
 test('分户页面独立查看授权，参与编制者不能看到审核操作', () => {
@@ -58,6 +64,15 @@ test('分户 IPC 使用固定地址并剔除客户端快照、确认状态、期
   await assert.rejects(callBackend('changeSubledgerStatus',{id:1,version:1,action:'post',reason:'绕开独立审核'}),/不允许/)
   await assert.rejects(callBackend('createSubledgerOpening',{...input,lines:null}),/明细/)
   assert.equal(requests.length,2)
+  for (const controls of [[...input.control_accounts,...input.control_accounts],
+    [...input.control_accounts,{kind:'payable',account_id:3}], [{kind:'bogus',account_id:3}],
+    [{kind:'receivable',account_id:true}], Array.from({length:501},(_,i)=>({kind:'receivable',account_id:i+1}))]) {
+    await assert.rejects(callBackend('createSubledgerOpening',{...input,control_accounts:controls}),/控制|编号/)
+  }
+  assert.equal(requests.length,2)
+  const controls=[...input.control_accounts,{kind:'receivable',account_id:4},{kind:'payable',account_id:5}]
+  await callBackend('createSubledgerOpening',{...input,control_accounts:controls})
+  assert.deepEqual(requests.at(-1).body.control_accounts,controls)
 })
 
 test('筛选改变后迟到金额失效，CSV 只导出当前有效快照',async t=>{
@@ -99,7 +114,7 @@ test('保存使用普通数据且失败保留输入和版本，成功刷新后�
     if(action==='subledgerOptions')return options
     return []
   },async run=>{try{await run()}catch{}})
-  state.subledgerForm.value={...input,id:2,version:6,lines:input.lines.map(row=>({...row,_X_ROW_KEY:'控件行标记'}))}
+  state.subledgerForm.value={...input,id:2,version:6,control_accounts:input.control_accounts.map(row=>({...row,_X_ROW_KEY:'控制范围行标记'})),lines:input.lines.map(row=>({...row,_X_ROW_KEY:'控件行标记'}))}
   assert.equal(await actions.saveSubledger(),false);assert.equal(state.subledgerForm.value.version,6)
   assert.equal(state.subledgerForm.value.reference,'IMPORT');assert.deepEqual(calls[0][1],{...input,id:2,version:6})
   fail=false;assert.equal(await actions.saveSubledger(),true);assert.deepEqual(state.subledgerForm.value.lines,[])

@@ -6,10 +6,10 @@ import { NCollapse } from 'naive-ui'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import type { BusinessJournalEvidence, BusinessJournalMapping, LedgerAccount } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
-import { businessRoleRows } from './business-journal-display'
+import { businessRoleRows, businessSourceMapping } from './business-journal-display'
 const props = defineProps<{ source: BusinessJournalEvidence; mapping?: BusinessJournalMapping; accounts?: LedgerAccount[] }>()
 const roles = computed(() => businessRoleRows(props.source).map(row => {
-  const id = props.mapping?.[row.role]
+  const id = businessSourceMapping(props.source, props.mapping)[row.role]
   const account = props.accounts?.find(item => item.id === id)
   return { ...row, account: account ? `${account.code} · ${account.name}` : id ? `科目 #${id}` : '未配置' }
 }))
