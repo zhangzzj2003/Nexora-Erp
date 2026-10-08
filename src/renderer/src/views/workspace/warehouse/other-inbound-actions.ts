@@ -30,7 +30,7 @@ export function otherInboundActions(inbound: OtherInbound, permissions: OtherInb
   return actions
 }
 
-// 表格只露出一个常用动作，其余操作完整保留在菜单；取消与冲销不作为默认主操作。
+// 表格优先排列常用动作；次要动作按列宽展开或进入菜单，取消与冲销不作为默认主操作。
 export function otherInboundRowActions(inbound: OtherInbound, permissions: OtherInboundPermissions) {
   const actions = otherInboundActions(inbound, permissions)
   const primary = actions.find(item => item.key === 'post')

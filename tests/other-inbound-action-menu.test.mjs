@@ -29,7 +29,8 @@ test('操作菜单保留详情完整布局，拦截未知键和过期选择',asy
  const {captured}=await server.ssrLoadModule('\0action-menu')
  const props=reactive({inbound:{status:'draft'},permissions:{create:true,post:true,cancel:true,reverse:true},disabled:false,compact:true})
  const emitted=[]
- const render=()=>renderToString(createSSRApp({render:()=>h(Actions,{...props,onAction:key=>emitted.push(key)})}))
+ let vnode
+ const render=()=>renderToString(createSSRApp({render:()=>{vnode=h(Actions,{...props,onAction:key=>emitted.push(key)});return vnode}}))
  const html=await render()
  assert.match(html,/审批 \/ 送审/)
  assert.match(html,/aria-haspopup="menu"/)
@@ -48,4 +49,29 @@ test('操作菜单保留详情完整布局，拦截未知键和过期选择',asy
  select('cancel');assert.deepEqual(emitted,['cancel'])
  props.compact=false;props.inbound.status='draft'
  assert.match(await render(),/>取消</)
+ await t.test('宽度变化实时展开已授权操作，直接按钮和溢出菜单仍复核禁用与权限',async()=>{
+  props.compact=true
+  await render()
+  const setup=vnode.component.setupState
+  // 使用真实组件计算链模拟浏览器测得的按钮宽度，验证布局与事件而非另一套业务规则。
+  setup.buttonWidths=[104,52]
+  setup.availableWidth=164
+  assert.deepEqual(setup.visibleItems.map(item=>item.key),['approval','cancel'])
+  assert.deepEqual(setup.menuOptions,[])
+  setup.run('cancel');assert.deepEqual(emitted,['cancel','cancel'])
+  setup.availableWidth=163
+  assert.deepEqual(setup.visibleItems,[])
+  assert.deepEqual(setup.menuOptions.map(item=>item.key),['approval','cancel'])
+  setup.selectMore('approval');assert.deepEqual(emitted,['cancel','cancel','approval'])
+  vnode.component.props.disabled=true
+  setup.run('cancel');setup.selectMore('cancel')
+  assert.deepEqual(emitted,['cancel','cancel','approval'])
+  vnode.component.props.disabled=false
+  props.permissions.cancel=false
+  setup.run('cancel');setup.selectMore('cancel')
+  assert.deepEqual(emitted,['cancel','cancel','approval'])
+  setup.buttonWidths=[104]
+  assert.equal(setup.visibleItems.length,1)
+  assert.deepEqual(setup.menuOptions,[])
+ })
 })

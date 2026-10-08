@@ -25,8 +25,8 @@ test('缺少权限只展示记录入口，不能从详情获得额外操作权�
 })
 
 
-// 精简布局不能丢失任何已授权操作，也不能把取消或冲销变成一键主操作。
-test('外侧操作仅突出常用动作，其余完整移入更多菜单',()=>{
+// 自适应布局不能丢失任何已授权操作，也不能把取消或冲销变成默认主操作。
+test('列表优先突出常用动作，次要操作完整保留供按宽度展开',()=>{
  for(const record of [{status:'draft'}, {status:'draft',approval:{status:'approved'}},
   {status:'posted',reversal_approval:{status:'approved'}}, {status:'cancelled'}, {status:'posted',reversal_id:9}]) {
   const {primary,more}=otherInboundRowActions(record,permissions)
