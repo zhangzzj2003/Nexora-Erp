@@ -1,11 +1,32 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
+import { parse } from '@vue/compiler-sfc'
+import postcss from 'postcss'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia } from 'pinia'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { shortLocalTime } from '../src/renderer/src/utils/formatters.ts'
+
+test('物料摘要不吞占列内余量，窄列可收缩且余项标签保持可见', () => {
+ const source=readFileSync(new URL('../src/renderer/src/views/workspace/warehouse/OtherInboundsView.vue',import.meta.url),'utf8')
+ const {descriptor}=parse(source)
+ const styles=postcss.parse(descriptor.styles.map(style=>style.content).join('\n'))
+ const declarations=selector=>{
+  const values={}
+  styles.walkRules(selector,rule=>rule.walkDecls(decl=>{values[decl.prop]=decl.value}))
+  return values
+ }
+ const preview=declarations('.inbound-material-preview')
+ // 不增长才能让标签跟随内容，同时允许文本收缩，保留窄列的省略能力。
+ assert.deepEqual(preview.flex.split(/\s+/),['0','1','auto'])
+ assert.equal(preview['min-width'],'0')
+ assert.equal(declarations('.inbound-material-summary').gap,'8px')
+ assert.equal(declarations('.inbound-material-more').flex,'none')
+ assert.equal(declarations('.inbound-material-text')['text-overflow'],'ellipsis')
+})
 
 // 仅替换桌面桥接和渲染外壳；真实页面、公共弹窗与业务事件均参与验证。
 const storeSource = `import {defineStore} from 'pinia'; import {ref} from 'vue'

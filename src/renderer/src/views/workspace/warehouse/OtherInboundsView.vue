@@ -387,9 +387,9 @@ async function reverseApproved(identifier: number): Promise<void> {
 <style scoped>
 /* 列表说明只占一行，完整内容保留在悬停提示和详情中，不截断原始数据。 */
 .inbound-note { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 摘要保持两行，右侧余量标签独立留位，避免被误读为物料数量的乘数。 */
+/* 摘要按内容宽度排布，让余量标签紧跟两行明细；窄列仍可收缩并省略长文本。 */
 .inbound-material-summary { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.inbound-material-preview { flex: 1; min-width: 0; list-style: none; margin: 0; padding: 0; }
+.inbound-material-preview { flex: 0 1 auto; min-width: 0; list-style: none; margin: 0; padding: 0; }
 .inbound-material-preview li { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.7; }
 .inbound-material-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inbound-material-more { flex: none; padding: 0 6px; border-radius: 6px; background: color-mix(in srgb, var(--workspace-field-muted) 12%, transparent); color: var(--workspace-field-muted); white-space: nowrap; font-size: 12px; line-height: 20px; }
