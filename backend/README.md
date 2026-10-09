@@ -321,6 +321,10 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 第 60 版 `POST /api/v1/inventory/physical-lots/evidence-groups` 接收 2 至 50 对 `pairs: [{inbound_movement_id, outbound_movement_id, quantity}]`，涉及至少三笔不同流水，并提交同一批次和现场依据。各对必须是升级检查点之后同仓同物料、先入后出的流水，数量不得超过各流水剩余未分配量；服务端在同一 ORM 写事务中创建逐对证据和整组关联，任一对失败即整组回滚。组内单对不能独立冲销；`POST /api/v1/inventory/physical-lots/evidence-groups/{id}/reverse` 逆序整体冲销，批次历史保留整组关联与操作人。补证不改变正式库存和移动平均成本。旧版无法确认检查点的流水、跨仓或跨物料流水，以及先出后入的流水不会自动匹配。
 
+## 物料当前供需
+
+`POST /api/v1/inventory/material-supply/query` 按物料批量读取全仓库存、计划中、待回料与采购待入库。当前只读供需独立于历史单据，沿原查看权限返回数量与来源，不修改业务数据。采购计划、到货扣减、冲销、权限缺失及缓存边界见 [物料供需口径](../docs/material-supply.md)。
+
 ## 业务物料选项
 
 报价 `/api/v1/crm/options`、售后 `/api/v1/after-sales`、设备维护 `/api/v1/equipment/overview`、质检 `/api/v1/production-quality` 与库存预警 `/api/v1/inventory/warnings` 的 `materials` 附带当前物料的分类、规格、封装、品牌、制造商料号、技术参数、合规信息及备注，并提供 `category_name` 中文分类名称。统一使用 `app.catalog.material_rules.material_choice_data` 的展示字段白名单；原接口权限保持不变，不要求额外取得库存查看权限，不返回编辑版本、供应商联系方式或业务价格。物料列表与 MRP 选项也提供中文分类名称；MRP 只在选项响应中补充，计算来源、指纹与固定快照保持原结构。此变更无数据库迁移，也不改变历史单据。

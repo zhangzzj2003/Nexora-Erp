@@ -274,6 +274,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       </template>
       <template #beforeTable>
         <WorkspaceDocumentDialog
+          material-supply
           v-if="can('other_inbound.create')"
           v-model:show="showForm"
           :title="reopenSourceId ? `重开为新单 · ${reopenSource ? documentLabel(reopenSource) : '原单'}` : '非采购来源入库'"
@@ -357,7 +358,8 @@ async function reverseApproved(identifier: number): Promise<void> {
       </template>
       <template #empty>{{ query || statusFilter !== 'all' ? '没有匹配的入库单。' : '暂无其他入库单。' }}</template>
     </WorkspaceTable>
-    <WorkspaceDocumentDialog v-if="detailInbound" :show="true" read-only
+    <WorkspaceDocumentDialog
+          material-supply v-if="detailInbound" :show="true" read-only
       :title="`其他入库详情 · ${documentLabel(detailInbound)}`"
       :data="detailInbound.lines" :columns="detailColumns" :min-table-width="940"
       hint="可在物料明细右侧处理当前单据；操作完成后自动更新状态。"

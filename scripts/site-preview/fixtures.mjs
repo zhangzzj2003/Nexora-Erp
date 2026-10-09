@@ -78,8 +78,37 @@ export const receivablesPayables = { currency: 'CNY', receivable_amount: '0.00',
 }
 
 // 仅允许截图需要的读取；任何未配置请求（包括写入）明确失败，不回退正式服务。
-export function previewResponse(operation) {
-  const responses = { dashboard, inventoryLedger: ledger }
+// 供需预览只使用虚构数量与来源，不读取正式服务端数据。
+export const supplyPreviewInbounds = [{
+  id: 901, document_no: 'QTRK-DEMO-000901', reason: 'other', status: 'draft', note: '物料供需界面示例',
+  reference: 'SUPPLY-DEMO', warehouse_id: 1, warehouse_name: '电子原料仓', created_by_name: '示例管理员',
+  created_at: createdAt, posted_at: null, cancelled_at: null, reversal_id: null,
+  approval: {status: 'draft'},
+  lines: materials.slice(0, 3).map((row, index) => ({id: 901 + index, material_id: row.id, sku: row.sku,
+    material_name: row.name, quantity: '1000.000', unit: row.unit, physical_lots: []}))
+}]
+export function previewResponse(operation, payload) {
+  if (operation === 'materialSupply') {
+    const values = ['200.000', '50.000', '700.000', '100.000']
+    const phases = ['stock', 'planned', 'awaiting_delivery', 'awaiting_inbound']
+    const kinds = ['warehouse', 'purchase_request', 'purchase_order', 'receipt']
+    return {scope: 'all_warehouses', generated_at: new Date().toISOString(), rows: payload.material_ids.map(id => {
+      const material = materials.find(row => row.id === id)
+      if (!material) throw Error('示例物料不存在')
+      return {material_id: id, sku: material.sku, name: material.name, unit: material.unit,
+        stock_quantity: values[0], planned_quantity: values[1], awaiting_delivery_quantity: values[2], awaiting_inbound_quantity: values[3],
+        sources: phases.map((phase, index) => ({phase, kind: kinds[index], document_id: 1 + index,
+          document_no: index ? 'DEMO-' + index : null, reference: index ? '示例来源' : '',
+          quantity: values[index], warehouse_name: index ? null : '电子原料仓'}))}
+    })}
+  }
+  // 计划页面只提供虚构的采购供给，编排交互仍走正式页面；计算、保存等写入继续拒绝。
+  const responses = { dashboard, inventoryLedger: ledger, mrpPlans: [], mrpOptions: {
+    materials, warehouses, policies: [], boms: [], demands: [], reservations: [],
+    fingerprint: 'sample-only', today: new Date().toISOString().slice(0, 10),
+    supplies: materials.slice(0, 3).map(item => ({key: `purchase_order:2:${item.id}`, kind: 'purchase_order',
+      source_id: 2, source_line_id: item.id, reference: 'DEMO-2', status: 'confirmed', material_id: item.id, quantity: '700.000', due_date: null}))
+  } }
   if (!Object.hasOwn(responses, operation)) throw new Error('截图预览不支持此操作，未连接业务服务。')
   return structuredClone(responses[operation])
 }

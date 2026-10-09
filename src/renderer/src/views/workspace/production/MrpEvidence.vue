@@ -42,7 +42,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
         <ul><li v-for="text in item.snapshot.assumptions" :key="text">{{ text }}</li></ul>
       </AppCollapseItem></NCollapse>
     </div>
-    <WorkspaceTable title="采购与生产建议" :columns="suggestions" :data="item.snapshot.suggestions" :min-table-width="1050">
+    <WorkspaceTable material-supply title="采购与生产建议" :columns="suggestions" :data="item.snapshot.suggestions" :min-table-width="1050">
       <template #cell-material="{ row }">{{ row.sku }} · {{ row.name }}<span class="muted mrp-line">{{ mrpMode[row.supply_mode] }} · {{ row.unit }}<template v-if="row.bom_id"> · BOM #{{ row.bom_id }} v{{ row.bom_version }}</template></span></template>
       <template #cell-release="{ row }">{{ row.release_date }}<span v-if="row.late" class="mrp-line">提前期不足：应在 {{ row.required_release_date }} 投放</span></template>
       <template #cell-actions="{ row }">
@@ -55,7 +55,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
       </template>
       <template #empty>没有净缺口，不需要新增采购或生产供给。</template>
     </WorkspaceTable>
-    <WorkspaceTable title="日期净需求" :columns="columns" :data="rows" :min-table-width="1050">
+    <WorkspaceTable material-supply title="日期净需求" :columns="columns" :data="rows" :min-table-width="1050">
       <template #filters><label>搜索物料 / 日期<AppInput v-model="query" placeholder="编码、名称或 YYYY-MM-DD" /></label></template>
       <template #cell-material="{ row }">{{ row.sku }} · {{ row.name }}<span class="muted mrp-line">{{ row.date }} · {{ row.unit }} · 低层码 {{ row.level }}</span></template>
       <template #cell-actions="{ row }"><AppButton size="small" @click="source=row">来源核对</AppButton></template>

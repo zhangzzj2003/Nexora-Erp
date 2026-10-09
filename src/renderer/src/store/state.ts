@@ -1,3 +1,4 @@
+import type {MaterialSupplyRow} from '../../../shared/material-supply-api'
 import type { ProductionAssociationTarget, ProductionAssociations } from '../../../shared/production-association-api'
 import type { DocumentNumberingConfig } from '../../../shared/document-numbering'
 import type { DocumentApprovalPolicy, DocumentApprovalPolicyInput, DocumentApprovalType, DocumentApprovalTarget, DocumentApprovalRecord } from '../../../shared/document-approval-api'
@@ -152,6 +153,11 @@ export function createAppState() {
     plan:{equipment_id:0,reference:'',title:'',interval_days:30,next_due:'',enabled:true,reason:''},
     hour_plan:{equipment_id:0,reference:'',title:'',interval_hours:'100.00',next_due_hours:'',enabled:true,reason:''},
     job:{reference:'',equipment_id:0,kind:'corrective',plan_id:null,hour_plan_id:null,work_order_id:null,assigned_to:0,request_note:'',warehouse_id:null,parts:[],reason:''}})
+  // 当前供需按物料共享，弹窗中的多行读取由同一个批量队列合并。
+  const materialSupplyRows = ref<Record<number, {row: MaterialSupplyRow; generatedAt: string}>>({})
+  const materialSupplyLoading = ref<Record<number, boolean>>({})
+  const materialSupplyErrors = ref<Record<number, string>>({})
+  const materialSupplyEpoch = ref(0)
   const dashboardResult = ref<DashboardResult|null>(null)
   const dashboardPeriod = ref<DashboardPeriod>('7d')
   const dashboardLoading = ref(false), dashboardError = ref('')
@@ -597,6 +603,7 @@ export function createAppState() {
     dashboardResult, dashboardPeriod, dashboardLoading, dashboardError,
     qualityOverview, qualityDetail, qualityLoading, qualityError, qualityEdit, qualityForm,
     afterSalesOverview,afterSalesDetail,afterSalesLoading,afterSalesError,afterSalesEdit,afterSalesForm,
+    materialSupplyRows, materialSupplyLoading, materialSupplyErrors, materialSupplyEpoch,
     warningOverview,warningDetail,warningEvents,warningEventsLoading,warningEventsError,
     warningAlert,warningLoading,warningError,warningWarehouseId,warningEditing,warningForm,
     equipmentOverview,equipmentDetail,equipmentLoading,equipmentError,equipmentEdit,equipmentForms,

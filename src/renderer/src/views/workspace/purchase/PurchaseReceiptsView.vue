@@ -189,6 +189,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       :busy="busy" :disabled="connectionLost" :issue="lotIssue" submit-label="确认入库"
       @update:show="value => { if (!value) activeReceiptId = 0 }" @submit="confirmLotPost">
       <WorkspaceLotLineEditor v-for="line in lotDrafts" :key="line.receipt_line_id" :lots="line.lots"
+        :material-id="activeReceipt.lines.find(item => item.id === line.receipt_line_id)?.material_id ?? 0"
         :sku="activeReceipt.lines.find(item => item.id === line.receipt_line_id)?.sku" :material-name="activeReceipt.lines.find(item => item.id === line.receipt_line_id)?.material_name"
         :unit="activeReceipt.lines.find(item => item.id === line.receipt_line_id)?.unit" :expected="activeReceipt.lines.find(item => item.id === line.receipt_line_id)?.quantity ?? ''"
         expected-label="应入库" source-label="供应商批号" quantity-label="批次数量"

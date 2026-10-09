@@ -1,3 +1,4 @@
+import { materialSupplyBody, validateMaterialSupply } from '../shared/material-supply-api.ts'
 import { materialCategoryCode, materialCategoryRevision, materialCategoryBody, materialSpecFieldBody, validateMaterialCategoryResult } from '../shared/material-category-validation.ts'
 import { productionAssociationInput, validateProductionAssociations } from '../shared/production-association-api.ts'
 import { validateProductionSettlementResponse } from '../shared/production-settlement-api.ts'
@@ -560,6 +561,7 @@ function permissionCode(payload: unknown): string {
 function operation(action: keyof ErpOperations, payload: unknown): { method: string; path: string; body?: unknown } {
   // 明确列出可调用的接口，禁止页面拼接任意后端路径。
   switch (action) {
+    case 'materialSupply': return {method: 'POST', path: '/api/v1/inventory/material-supply/query', body: materialSupplyBody(payload)}
     case 'dashboard': {
       const period = payload && typeof payload === 'object' ? (payload as Record<string,unknown>).period : undefined
       if (period !== '7d' && period !== '30d') throw new Error('首页统计范围无效')
@@ -1707,6 +1709,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   if (action === 'documentApprovalPolicies') validateDocumentApprovalPolicies(data)
   if (action === 'documentApprovalPolicy' || action === 'saveDocumentApprovalPolicy') validateDocumentApprovalPolicy(data)
+  if (action === 'materialSupply') validateMaterialSupply(data, materialSupplyBody(payload).material_ids)
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
   if (action === 'customerImportPreview') validateCustomerImportPreview(data,
     customerImportNames(payload))

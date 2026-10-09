@@ -35,13 +35,13 @@ async function save(): Promise<void> { if (options.value && !problem.value && !d
       <label>计划起日（服务端 UTC）<MrpDate v-model="form.start_date" :min="options?.today" :disabled="disabled" aria-label="计划起日" /></label>
       <label>编制依据<AppInput v-model.trim="form.reason" required maxlength="500" :disabled="disabled" /></label>
     </div>
-    <WorkspaceTable title="现有需求与预计供给" :columns="sourceColumns" :data="dates" :min-table-width="950">
+    <WorkspaceTable material-supply title="现有需求与预计供给" :columns="sourceColumns" :data="dates" :min-table-width="950">
       <template #cell-source="{ row }">{{ mrpSourceLabel(row) }}<span class="muted mrp-line">原单状态：{{ mrpSourceStatus(row.status) }}</span></template>
       <template #cell-material="{ row }">{{ name(row.material_id) }}</template>
       <template #cell-date="{ row }"><MrpDate v-if="row.schedule" v-model="row.schedule.due_date" :min="form.start_date" :disabled="disabled" :aria-label="mrpSourceLabel(row) + '日期'" /><span v-else>{{ row.due_date }} · 前次转单日期</span></template>
       <template #empty>暂无未执行销售需求或预计供给；可添加手工需求。</template>
     </WorkspaceTable>
-    <WorkspaceTable title="额外手工需求" :columns="manualColumns" :data="form.manual_demands" :min-table-width="950">
+    <WorkspaceTable material-supply title="额外手工需求" :columns="manualColumns" :data="form.manual_demands" :min-table-width="950">
       <template #actions><AppButton :disabled="disabled || form.manual_demands.length >= 500" @click="form.manual_demands.push({material_id:0,quantity:'1',due_date:'',reference:''})">添加手工需求</AppButton></template>
       <template #cell-material="{ row }"><WorkspaceMaterialSelect :materials="options?.materials ?? []" v-model="row.material_id" :options="materialOptions" :disabled="disabled" aria-label="手工需求物料" required /></template>
       <template #cell-quantity="{ row }"><AppInput v-model="row.quantity" required inputmode="decimal" pattern="[0-9]{1,7}(\.[0-9]{1,3})?" :disabled="disabled" aria-label="手工需求数量" /></template>

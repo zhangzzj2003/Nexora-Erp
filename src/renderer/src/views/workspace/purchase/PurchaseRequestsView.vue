@@ -117,6 +117,7 @@ const requestConversionFormColumns = [
       <template #beforeTable>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
         <WorkspaceDocumentDialog
+          material-supply
           v-if="showForm && can('purchase_request.create')"
           v-model:show="showForm"
           :title="purchaseRequestForm.requestId ? '修改采购申请' : '新建采购申请'"
@@ -186,6 +187,7 @@ const requestConversionFormColumns = [
         </WorkspaceDocumentDialog>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
         <WorkspaceDocumentDialog
+          material-supply
           v-if="selectedRequest && can('purchase_order.create')"
           v-model:show="conversionOpen"
           :title="`申请 ${selectedRequest ? documentLabel(selectedRequest) : ''} 转采购订单`"

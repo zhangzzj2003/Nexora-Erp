@@ -1,3 +1,4 @@
+import {createMaterialSupplyActions} from './modules/material-supply-actions'
 import { createProductionAssociationActions } from './modules/production-association-actions'
 import type { DocumentNumberingInput } from '../../../shared/document-numbering'
 import { createDocumentApprovalCaseActions } from './modules/document-approval-case-actions'
@@ -323,6 +324,7 @@ function createAppStore() {
       if (target.document_type === 'QualityDisposition') await qualityActions.refreshQualityApproval(target.document_id)
     }) }
   const equipmentActions = createEquipmentActions(state, perform)
+  const materialSupplyActions = createMaterialSupplyActions(state)
   const dashboardActions = createDashboardActions(state)
   const ledgerReportActions = createLedgerReportActions(state)
   const valuationActions = createValuationActions(state, perform)
@@ -405,6 +407,7 @@ function createAppStore() {
     ...equipmentActions,
     ...inventoryWarningActions,
     ...physicalLotActions,
+    ...materialSupplyActions,
     ...dashboardActions,
     ...openingBalanceActions,
     ...ledgerReportActions,

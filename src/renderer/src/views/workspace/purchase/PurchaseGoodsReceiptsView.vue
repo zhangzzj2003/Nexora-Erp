@@ -73,6 +73,8 @@ const goodsReceiptFormColumns = [
       <template #beforeTable>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
         <WorkspaceDocumentDialog
+          material-supply
+          :material-id="row => selectedOrder?.lines.find(line => line.id === row.line.purchase_order_line_id)?.material_id ?? 0"
           v-if="showForm && can('purchase_receiving.create')"
           v-model:show="showForm"
           title="记录本批采购收货"

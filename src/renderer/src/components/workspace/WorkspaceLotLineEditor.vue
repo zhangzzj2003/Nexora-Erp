@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { NDatePicker } from 'naive-ui'
 import AppButton from '../app/AppButton.vue'
 import AppInput from '../app/AppInput.vue'
@@ -10,9 +10,13 @@ import { lotAllocation } from '../../utils/lot-allocation'
 import type { LotEditorPart } from '../../utils/lot-allocation'
 import type { WorkspaceSelectOption } from '../../utils/workspace-select'
 
+// 采购入库的批次登记也可查看原物料供需；其他批次业务显式传编号后才加载。
+const WorkspaceMaterialSupplyCell = defineAsyncComponent(() => import('./WorkspaceMaterialSupplyCell.vue'))
+
 // 表格行保留业务草稿的对象引用，失败时仍能继续编辑，不另建跨页面状态。
 const props = withDefaults(defineProps<{
   lots: LotEditorPart[]
+  materialId?: number
   sku?: string
   materialName?: string
   unit?: string
@@ -61,6 +65,7 @@ function remove(index: number): void {
       <div class="lot-line-material"><strong>{{ sku }}</strong><span>{{ materialName }}</span></div>
       <AppButton type="button" size="small" :disabled="disabled || lots.length >= 20" @click="add">添加批次</AppButton>
     </header>
+    <div v-if="materialId" class="lot-line-supply"><WorkspaceMaterialSupplyCell :material-id="materialId" :active="!disabled" /></div>
     <div class="lot-line-summary" :class="`is-${allocation.status}`" role="status" aria-live="polite" aria-atomic="true">
       <span>{{ expectedLabel }} <strong>{{ allocation.expected }}</strong> {{ unit }}</span>
       <span>已分配 <strong>{{ allocation.allocated }}</strong> {{ unit }}</span>
@@ -114,6 +119,8 @@ function remove(index: number): void {
 </template>
 
 <style scoped>
+/* 当前供需只读展示，批次数量仍按本单原始目标独立核对。 */
+.lot-line-supply { width: min(320px, 100%); margin-bottom: 12px; }
 /* 物料信息只出现一次，批次按紧凑表格排列，窄窗口沿用公共横向滚动。 */
 .lot-line-editor { width: 100%; min-width: 0; }
 .lot-line-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }

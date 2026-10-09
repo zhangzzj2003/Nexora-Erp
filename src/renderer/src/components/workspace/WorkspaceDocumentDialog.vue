@@ -24,6 +24,9 @@ const props = withDefaults(defineProps<{
   emptyText?: string
   // 无物料表的审批仍复用详情外壳，不显示空的物料区。
   showLines?: boolean
+  // 新增、详情和计划物料表沿用同一供需列，原有字段和保存事件保持不变。
+  materialSupply?: boolean
+  materialId?: (row: TRow) => number
 }>(), {
   busy: false, disabled: false, submitDisabled: false, addDisabled: false, readOnly: false,
   submitLabel: '保存草稿', hint: '', minTableWidth: 760, showAdd: true,
@@ -76,7 +79,7 @@ function submit(): void {
           <!-- 分隔线明确区分单据头与物料明细，避免两类信息混在同一张表单中。 -->
           <hr v-if="showLines" class="document-divider" />
           <WorkspaceTable v-if="showLines" :title="linesTitle" :data="data" :columns="columns" :min-table-width="minTableWidth" stretch-columns
-            :empty-text="readOnly ? '此单据暂无物料明细。' : emptyText" class="document-lines">
+            :empty-text="readOnly ? '此单据暂无物料明细。' : emptyText" class="document-lines" :material-supply="materialSupply" :material-supply-active="show" :material-id="materialId">
             <template #heading><h3>{{ linesTitle }} <span class="document-count">{{ data.length }} 项</span></h3></template>
             <template v-if="!readOnly || $slots.documentActions" #actions>
               <slot name="documentActions" />

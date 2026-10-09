@@ -156,6 +156,7 @@ const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '
   <section class="stack">
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
         <WorkspaceDocumentDialog
+          material-supply
           v-if="can('transfer.create')"
           v-model:show="createOpen"
           title="新建仓库调拨"

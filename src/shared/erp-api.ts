@@ -1,3 +1,4 @@
+import type { MaterialSupplyOperations } from './material-supply-api'
 import type { ProductionAssociationOperations } from './production-association-api'
 import type { DocumentNumberingOperations, NumberedDocument } from './document-numbering'
 import type { DocumentApprovalOperations, DocumentApprovalState } from './document-approval-api'
@@ -1342,7 +1343,7 @@ export interface ReportResult {
   csv: string
 }
 
-export interface ErpOperations extends ProductionAssociationOperations, DocumentApprovalOperations, DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations {
+export interface ErpOperations extends MaterialSupplyOperations, ProductionAssociationOperations, DocumentApprovalOperations, DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations {
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
   login: { input: { username: string; password: string }; output: User }

@@ -8,11 +8,12 @@ VxeUI.setLanguage('zh-CN')
 </script>
 
 <script setup lang="ts" generic="TRow extends object">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import VxeColumn from 'vxe-table/es/column'
 import VxeTable from 'vxe-table/es/table'
 import 'vxe-table/es/table/style.css'
 import WorkspacePagination from './WorkspacePagination.vue'
+import { materialSupplyId, materialSupplyColumns } from '../../utils/material-supply-row'
 import AppButton from '../app/AppButton.vue'
 import { tableScrollbarMetrics } from '../../utils/table-scrollbar'
 import { clearTableColumnWidths, MAX_TABLE_COLUMN_WIDTH, MIN_TABLE_COLUMN_WIDTH, readTableColumnWidths,
@@ -22,6 +23,9 @@ import { clearTableColumnWidths, MAX_TABLE_COLUMN_WIDTH, MIN_TABLE_COLUMN_WIDTH,
 import type { VxeTableInstance } from 'vxe-table'
 import { resolveTableColumns, type WorkspaceTableColumn } from '../../utils/table-columns'
 import { createTableColumnResize } from '../../utils/table-column-resize'
+
+// 未启用的表格不加载业务状态，避免普通表格依赖账号、路由及网络。
+const WorkspaceMaterialSupplyCell = defineAsyncComponent(() => import('./WorkspaceMaterialSupplyCell.vue'))
 
 const props = withDefaults(defineProps<{
   title: string
@@ -41,6 +45,10 @@ const props = withDefaults(defineProps<{
   stretchColumns?: boolean
   // 特殊复用场景可提供稳定标识，默认按当前页面、标题和字段隔离本机列宽。
   columnLayoutKey?: string
+  // 业务页面显式启用供需列；来源行可提供稳定编号映射，禁止从名称猜测。
+  materialSupply?: boolean
+  materialSupplyActive?: boolean
+  materialId?: (row: TRow) => number
 }>(), {
   showTitle: true,
   description: '',
@@ -50,24 +58,26 @@ const props = withDefaults(defineProps<{
   error: '',
   loading: false,
   minTableWidth: 580,
-  stretchColumns: true
+  stretchColumns: true, materialSupply: false, materialSupplyActive: true
 })
 
 const emit = defineEmits<{ pageChange: [page: number, pageSize: number] }>()
 
 const tableRef = ref<VxeTableInstance<TRow> | null>(null)
-const resolvedColumns = computed(() => resolveTableColumns(props.columns))
+// 把供需放在操作列之前，并纳入已有的列宽保存、拖动与横向滚动。
+const visibleColumns = computed(() => materialSupplyColumns(props.columns, props.materialSupply))
+const resolvedColumns = computed(() => resolveTableColumns(visibleColumns.value))
 const hasFixedColumns = computed(() => resolvedColumns.value.some(column => column.fixed))
 // 铺满模式和固定列都由 VXE 自身布局与滚动，避免外层裁切隐藏溢出的列。
 const usesTableScroll = computed(() => props.stretchColumns || hasFixedColumns.value)
-const defaultColumnWidth = computed(() => Math.ceil(props.minTableWidth / Math.max(1, props.columns.length)))
+const defaultColumnWidth = computed(() => Math.ceil(props.minTableWidth / Math.max(1, visibleColumns.value.length)))
 const savedColumnWidths = ref<TableColumnWidths>({})
 const hasCustomColumnWidths = computed(() => Object.keys(savedColumnWidths.value).length > 0)
 const layoutColumns = computed(() => resolveTableColumnWidths(resolvedColumns.value, savedColumnWidths.value,
   props.stretchColumns, defaultColumnWidth.value))
 const pageScope = typeof window === 'undefined' ? '' : (window.location.hash || window.location.pathname).split('?')[0]
 const columnStorageKey = computed(() => tableColumnWidthKey(props.columnLayoutKey ?? pageScope, props.title,
-  props.columns.map(column => column.key)))
+  visibleColumns.value.map(column => column.key)))
 const scrollContainer = ref<HTMLElement | null>(null)
 const scrollMax = ref(0)
 const scrollPosition = ref(0)
@@ -84,7 +94,7 @@ function startColumnResize(event: MouseEvent): void {
   // 只接管当前表格的原生调宽手柄，普通表头、行操作与嵌套表格保持原行为。
   if (!handle || !header || handle.closest('.workspace-vxe-table') !== scrollContainer.value?.querySelector('.workspace-vxe-table')) return
   const column = table.getColumnById(header.getAttribute('colid'))
-  if (!column || !props.columns.some(item => item.key === column.field) || !Number.isFinite(column.renderWidth)) return
+  if (!column || !visibleColumns.value.some(item => item.key === column.field) || !Number.isFinite(column.renderWidth)) return
   event.preventDefault()
   event.stopPropagation()
   cancelColumnResize?.()
@@ -139,7 +149,7 @@ async function applyColumnWidths(): Promise<void> {
 
 function saveColumnWidth({ column, resizeWidth }: { column: { field: string }; resizeWidth: number }): void {
   const width = Math.round(resizeWidth)
-  if (!props.columns.some(item => item.key === column.field) || !validTableColumnWidth(width)) return
+  if (!visibleColumns.value.some(item => item.key === column.field) || !validTableColumnWidth(width)) return
   savedColumnWidths.value = { ...savedColumnWidths.value, [column.field]: width }
   saveTableColumnWidths(tableWidthStorage(), columnStorageKey.value, savedColumnWidths.value)
   void applyColumnWidths()
@@ -156,7 +166,7 @@ function resetColumnWidths(): void {
 // 字段或表格身份变化时读取对应设置，不能把上一张表的宽度带入当前页面。
 watch(columnStorageKey, key => {
   cancelColumnResize?.()
-  savedColumnWidths.value = readTableColumnWidths(tableWidthStorage(), key, props.columns.map(column => column.key))
+  savedColumnWidths.value = readTableColumnWidths(tableWidthStorage(), key, visibleColumns.value.map(column => column.key))
   void applyColumnWidths()
 }, { immediate: true })
 
@@ -259,7 +269,10 @@ defineSlots<{
         <VxeColumn v-for="column in layoutColumns" :key="column.key" :field="column.key" :title="column.title"
           :align="column.align" :header-align="column.align"
           :fixed="column.fixed || undefined" :width="column.width" :min-width="column.minWidth">
-          <template v-if="$slots[`cell-${column.key}`]" #default="{ row }">
+          <template v-if="column.key === 'materialSupply' && materialSupply" #default="{ row }">
+            <WorkspaceMaterialSupplyCell :material-id="materialId ? materialId(row) : materialSupplyId(row)" :active="materialSupplyActive" />
+          </template>
+          <template v-else-if="$slots[`cell-${column.key}`]" #default="{ row }">
             <slot :name="`cell-${column.key}`" :row="row" />
           </template>
         </VxeColumn>

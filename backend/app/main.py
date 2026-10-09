@@ -25,6 +25,7 @@ from app.purchase.returns import router as purchase_returns_router
 from app.inventory.warehouse import router as inventory_router
 from app.inventory.stocktake import router as stocktake_router
 from app.inventory.stock import router as stock_router
+from app.inventory.material_supply import router as material_supply_router
 from app.inventory.warnings import router as warnings_router
 from app.inventory.warning_events import router as warning_events_router, run_warning_event_scheduler
 from app.inventory.physical_lots import router as physical_lots_router
@@ -135,7 +136,7 @@ app = FastAPI(title="Nexora ERP API", version="0.1.0", lifespan=lifespan,
 # 路由只在这里组装；各功能目录负责自己的参数校验与业务接口。
 for router in (
     numbering_router, approval_policy_router, service_router, access_router, menu_router, catalog_router, units_router, categories_router, receipts_router,
-    inventory_router, stock_router, warnings_router, warning_events_router, physical_lots_router, movement_evidence_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
+    inventory_router, stock_router, material_supply_router, warnings_router, warning_events_router, physical_lots_router, movement_evidence_router, ledger_router, valuation_router, stocktake_router, adjustments_router,
     warehouse_inbounds_router, warehouse_outbounds_router,
     purchase_router, purchase_requests_router, goods_receipts_router,
     purchase_returns_router, sales_router, sales_contracts_router, sales_contract_attachments_router, customer_import_router, contact_import_router, opportunity_import_router, crm_forecast_router, sales_returns_router, crm_router, crm_record_attachments_router, crm_quotes_router, crm_quote_attachments_router, crm_quote_pdf_router, after_sales_labor_router, after_sales_labor_cost_router, after_sales_margin_router, after_sales_responsibility_router, after_sales_attachments_router, after_sales_router,
