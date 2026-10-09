@@ -4,6 +4,8 @@ import AppButton from '../app/AppButton.vue'
 
 // 各业务保留自己的草稿和确认操作，共享弹窗只负责标题、滚动区和操作保护。
 const props = withDefaults(defineProps<{
+  // 多物料统一表格按需加宽，其他批次业务保留原尺寸。
+  wide?: boolean
   show: boolean
   title: string
   documentNumber: string
@@ -29,7 +31,7 @@ function submit(): void {
 <template>
   <NModal :show="show" preset="card" :title="`${title} · ${documentNumber}`"
     class="workspace-lot-dialog" :mask-closable="!busy" :close-on-esc="!busy" :closable="!busy"
-    :style="{ width: 'min(1120px, calc(100vw - 32px))', maxHeight: 'calc(100dvh - 48px)' }"
+    :style="{ width: `min(${wide ? 1280 : 1120}px, calc(100vw - 32px))`, maxHeight: 'calc(100dvh - 48px)' }"
     @update:show="updateShow">
     <form class="lot-dialog-form" @submit.prevent="submit">
       <div class="lot-dialog-body">

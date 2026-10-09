@@ -22,7 +22,7 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
       if (id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace("'naive-ui'", "'virtual:approval-dialog-modal'")
     }, resolveId(id, importer) {
       if (id === 'virtual:approval-dialog-modal') return '\0approval-dialog-modal'
-      if (importer?.includes('DocumentApprovalDialog') && id.endsWith('/store/app-store')) return '\0approval-dialog-store'
+      if ((importer?.includes('DocumentApprovalDialog') || importer?.includes('DocumentApprovalPanel')) && id.endsWith('/store/app-store')) return '\0approval-dialog-store'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0approval-dialog-table'
       if (id === 'naive-ui' && importer?.includes('WorkspaceDocumentDialog')) return '\0approval-dialog-modal'
       for (const name of ['AppButton.vue', 'AppInput.vue']) if (id.endsWith('/' + name)) return '\0approval-dialog-' + name

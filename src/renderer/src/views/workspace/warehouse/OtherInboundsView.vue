@@ -14,7 +14,7 @@ import AppStatusTag, {
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from "../../../components/workspace/WorkspaceSelect.vue";
 import WorkspaceMaterialSelect from "../../../components/workspace/WorkspaceMaterialSelect.vue";
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import type { ComponentPublicInstance } from "vue";
 import { storeToRefs } from "pinia";
 import WorkspaceTable from "../../../components/workspace/WorkspaceTable.vue";
@@ -24,9 +24,9 @@ import type { WorkspaceSummaryFilterOption } from "../../../components/workspace
 import { otherInboundGroup, otherInboundSummary, type OtherInboundFilter } from "./other-inbound-summary";
 import { useLocalPagination } from "../../../composables/use-local-pagination";
 // 全部批次单据共享标题、固定操作区与数量核对表。
-import DocumentApprovalDialog from "../../../components/workspace/DocumentApprovalDialog.vue";
+import DocumentApprovalPanel from "../../../components/workspace/DocumentApprovalPanel.vue";
 import WorkspaceLotDialog from "../../../components/workspace/WorkspaceLotDialog.vue";
-import WorkspaceLotLineEditor from "../../../components/workspace/WorkspaceLotLineEditor.vue";
+import WorkspaceInboundLotTable from "../../../components/workspace/WorkspaceInboundLotTable.vue";
 import WorkspaceDocumentDialog from "../../../components/workspace/WorkspaceDocumentDialog.vue";
 import {
   appendDocumentMaterialRow,
@@ -63,6 +63,8 @@ const {
   otherInboundForm,
   otherInboundReopenForms,
   otherInboundReversalReasons,
+  documentApprovalTarget,
+  documentApprovalLoading,
 } = storeToRefs(store);
 const {
   can,
@@ -125,17 +127,20 @@ async function handleInboundAction(
   pendingActionId.value = identifier;
   try {
     if (action === "approval" || action === "reversalApproval") {
-      await store.openDocumentApproval({
-        document_type: "WarehouseInbound",
-        document_id: identifier,
-        intent: action === "approval" ? "execute" : "reverse",
-      });
-    } else if (action === "post") await postOtherInbound(identifier);
-    else if (action === "cancel") await cancelOtherInbound(identifier);
+      await openInboundDetail(identifier, action === "approval" ? "execute" : "reverse");
+    } else if (action === "post") {
+      await postOtherInbound(identifier);
+      if (detailApprovalMatches.value) await store.loadDocumentApproval();
+    }
+    else if (action === "cancel") {
+      await cancelOtherInbound(identifier);
+      if (detailApprovalMatches.value) await store.loadDocumentApproval();
+    }
     else if (action === "lots") startLotPost(inbound);
     else if (action === "reopen") {
       if (!store.prepareOtherInboundReopen(identifier)) return;
       reopenSourceId.value = identifier;
+      store.closeDocumentApproval();
       detailInboundId.value = 0;
       showForm.value = true;
     } else await reverseApproved(identifier);
@@ -249,6 +254,7 @@ function startExcessGift(): void {
     lines: excessLines.value.map(item => ({ material_id: item.line.material_id, quantity: item.quantity })),
   };
   activeInboundId.value = 0;
+  if (detailApprovalMatches.value) store.closeDocumentApproval();
   detailInboundId.value = 0;
   reopenSourceId.value = 0;
   showForm.value = true;
@@ -304,6 +310,55 @@ const detailInbound = computed(
     otherInbounds.value.find((item) => item.id === detailInboundId.value) ??
     null,
 );
+// 详情与审批共用一个弹窗，匹配当前单据及意图后才显示审批控件。
+const detailApprovalIntent = ref<"execute" | "reverse">("execute");
+const detailApprovalMatches = computed(() => {
+  const target = documentApprovalTarget.value;
+  return !!target && target.document_type === "WarehouseInbound" &&
+    target.document_id === detailInboundId.value && target.intent === detailApprovalIntent.value;
+});
+const detailActions = computed(() => detailInbound.value
+  ? otherInboundActions(detailInbound.value, inboundPermissions.value).filter(action =>
+      action.key !== "approval" && (detailApprovalIntent.value === "execute" ||
+        !["post", "lots", "cancel", "reversalApproval"].includes(action.key))) : []);
+async function openInboundDetail(identifier: number, intent: "execute" | "reverse" = "execute"): Promise<void> {
+  // 查看已加载详情不依赖联网；切换单据先清理旧请求，避免旧审批显示在新单上。
+  if (pendingActionId.value && pendingActionId.value !== identifier) return;
+  if (busy.value || connectionLost.value) {
+    detailInboundId.value = identifier;
+    detailApprovalIntent.value = intent;
+    return;
+  }
+  store.closeDocumentApproval();
+  detailInboundId.value = identifier;
+  detailApprovalIntent.value = intent;
+  if (!connectionLost.value) await store.openDocumentApproval({
+    document_type: "WarehouseInbound", document_id: identifier, intent,
+  });
+}
+function closeInboundDetail(): void {
+  if (busy.value || pendingActionId.value) return;
+  if (detailApprovalMatches.value) store.closeDocumentApproval();
+  detailInboundId.value = 0;
+}
+// 路由卸载和会话切换清理本页审批目标，保留其他页面拥有的目标。
+onUnmounted(() => { if (detailApprovalMatches.value) store.closeDocumentApproval(); });
+watch(() => `${store.server?.id}:${store.server?.fingerprint}:${store.user?.id}`, (value, previous) => {
+  if (value !== previous) detailInboundId.value = 0;
+});
+const inboundLotLines = computed(() => lotDrafts.value.flatMap(draft => {
+  const line = activeInbound.value?.lines.find(item => item.id === draft.inbound_line_id);
+  return line ? [{ id: line.id, sku: line.sku, name: line.material_name, unit: line.unit,
+    expected: inboundRemaining(line), lots: draft.lots }] : [];
+}));
+function addInboundLot(identifier: number): void {
+  const line = lotDrafts.value.find(item => item.inbound_line_id === identifier);
+  if (line && !busy.value && !connectionLost.value) addLot(line);
+}
+function removeInboundLot(identifier: number, index: number): void {
+  const line = lotDrafts.value.find(item => item.inbound_line_id === identifier);
+  if (line && !busy.value && !connectionLost.value && index >= 0 && index < line.lots.length) line.lots.splice(index, 1);
+}
 const detailColumns = [
   { key: "sku", title: "物料编码", width: "180" },
   { key: "name", title: "物料名称", width: "240" },
@@ -435,7 +490,10 @@ async function confirmLotPost(): Promise<void> {
     })),
   );
   // 保存成功即关闭本次登记，续收重新读取剩余量；失败仍保留原批次草稿。
-  if (!error.value) activeInboundId.value = 0;
+  if (!error.value) {
+    activeInboundId.value = 0;
+    if (detailApprovalMatches.value) await store.loadDocumentApproval();
+  }
 }
 // 执行冲销前从服务端读取已批准原因；不能使用未送审的列表输入。
 async function reverseApproved(identifier: number): Promise<void> {
@@ -450,8 +508,11 @@ async function reverseApproved(identifier: number): Promise<void> {
   const record = store.documentApprovalRecord;
   if (record?.status !== "approved" || !record.reversal_reason) return;
   otherInboundReversalReasons.value[identifier] = record.reversal_reason;
-  store.closeDocumentApproval();
   await reverseOtherInbound(identifier);
+  if (detailInboundId.value === identifier) {
+    detailApprovalIntent.value = "reverse";
+    await store.loadDocumentApproval();
+  } else store.closeDocumentApproval();
 }
 </script>
 
@@ -619,7 +680,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           type="button"
           variant="text"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="detailInboundId = item.id"
+          @click="openInboundDetail(item.id)"
           >{{ documentLabel(item) }}</AppButton
         >
       </template>
@@ -684,36 +745,27 @@ async function reverseApproved(identifier: number): Promise<void> {
     </WorkspaceTable>
     <WorkspaceDocumentDialog
           material-supply
-      v-if="detailInbound"
+      v-if="detailInbound && !activeInbound"
       :show="true"
       read-only
       :title="`其他入库详情 · ${documentLabel(detailInbound)}`"
       :data="detailInbound.lines"
       :columns="detailColumns"
       :min-table-width="940"
-      hint="可在物料明细右侧处理当前单据；操作完成后自动更新状态。"
-      :busy="pendingActionId === detailInbound.id"
+      :busy="busy || pendingActionId === detailInbound.id"
       @update:show="
         (value) => {
-          if (!value) detailInboundId = 0;
+          if (!value) closeInboundDetail();
         }
       "
     >
       <template #beforeBasicInfo>
+        <DocumentApprovalPanel v-if="detailApprovalMatches" part="progress" live-details
+          :execution-hint="detailInbound.status === 'draft' ? '审批已完成，请使用下方操作办理入库。' : undefined" />
+        <p v-else class="inbound-flow-hint" role="status">{{ connectionLost ? '连接恢复后可刷新审批记录，当前可查看已加载详情。' : '审批记录尚未加载，请刷新记录后操作。' }}</p>
         <OtherInboundReopenTrace v-if="detailInbound.reopen_trace?.length" :links="detailInbound.reopen_trace"
           :current-id="detailInbound.id" :local-time="localTime" :disabled="!!pendingActionId"
-          @open="id => { detailInboundId = id; }" />
-      </template>
-      <template #documentActions>
-        <OtherInboundActions
-          :inbound="detailInbound"
-          :permissions="inboundPermissions"
-          :disabled="busy || connectionLost || !!pendingActionId"
-          @action="
-            (action) =>
-              detailInbound && handleInboundAction(detailInbound.id, action)
-          "
-        />
+          @open="id => openInboundDetail(id)" />
       </template>
       <template #basicInfo>
         <div class="inbound-detail-field">
@@ -806,15 +858,34 @@ async function reverseApproved(identifier: number): Promise<void> {
             : "尚未登记实物批次"
         }}</span>
       </template>
+      <template #afterLines>
+        <DocumentApprovalPanel v-if="detailApprovalMatches" part="opinion" />
+      </template>
+      <template #footer>
+        <!-- 下一步集中到固定页脚；批准不自动加库存，仓库在这里继续入库。 -->
+        <div class="inbound-flow-footer">
+          <p class="inbound-flow-hint" role="status">{{ detailApprovalIntent === 'reverse' ? '当前查看冲销审批，批准后可执行冲销。' : detailInbound.approval?.status === 'approved' && !detailInbound.reversal_id && ['draft', 'partially_posted'].includes(detailInbound.status) ? '审批已通过，请确认入库；需要分批收货时填写本次批次。' : `当前状态：${inboundStatus(detailInbound)}` }}</p>
+          <div class="inbound-flow-actions" role="group" aria-label="单据操作">
+            <DocumentApprovalPanel v-if="detailApprovalMatches" part="actions" />
+            <AppButton v-else type="button" :disabled="busy || connectionLost || !!pendingActionId"
+              @click="detailInbound && openInboundDetail(detailInbound.id, detailApprovalIntent)">刷新记录</AppButton>
+            <AppButton v-if="detailApprovalIntent === 'reverse'" type="button" :disabled="busy || connectionLost || !!pendingActionId"
+              @click="detailInbound && openInboundDetail(detailInbound.id)">查看入库审批</AppButton>
+            <AppButton v-for="action in detailActions" :key="action.key" type="button" :variant="action.variant"
+              :disabled="busy || connectionLost || !!pendingActionId || documentApprovalLoading"
+              @click="detailInbound && handleInboundAction(detailInbound.id, action.key)">{{ action.label }}</AppButton>
+            <AppButton type="button" :disabled="busy || !!pendingActionId" @click="closeInboundDetail">关闭</AppButton>
+          </div>
+        </div>
+      </template>
     </WorkspaceDocumentDialog>
-    <DocumentApprovalDialog title="其他入库审批" />
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
-    <WorkspaceLotDialog
+    <WorkspaceLotDialog wide
       v-if="activeInbound && can('other_inbound.post')"
       :show="true"
       title="其他入库 · 批次登记"
       :document-number="documentLabel(activeInbound)"
-      hint="按本次实到数量登记，可以分批入库；未到货的物料可移除全部批次，留待后续到货。本次实收不得超过待入库量，多收部分由仓库确认赠品、补充采购或退回。来源批号和日期缺失时留空。"
+      hint="直接填写本次到货数量；同一物料可添加多批，未到货可移除全部批次。来源批号和日期可留空。"
       :busy="busy"
       :disabled="connectionLost"
       :issue="lotIssue"
@@ -836,37 +907,20 @@ async function reverseApproved(identifier: number): Promise<void> {
         <AppButton v-if="excessDisposition === 'gift' && can('other_inbound.create')" type="button"
           :disabled="busy || connectionLost" @click="startExcessGift">新建多收赠品入库单</AppButton>
       </div>
-      <WorkspaceLotLineEditor
-        v-for="line in lotDrafts"
-        :key="line.inbound_line_id"
-        :lots="line.lots"
-        :sku="
-          activeInbound.lines.find((item) => item.id === line.inbound_line_id)
-            ?.sku
-        "
-        :material-name="
-          activeInbound.lines.find((item) => item.id === line.inbound_line_id)
-            ?.material_name
-        "
-        :unit="
-          activeInbound.lines.find((item) => item.id === line.inbound_line_id)
-            ?.unit
-        "
-        :expected="inboundRemaining(activeInbound.lines.find((item) => item.id === line.inbound_line_id)!)"
-        expected-label="待入库"
-        :allow-partial="true"
-        quantity-label="批次数量"
-        :disabled="busy || connectionLost"
-        @add="addLot(line)"
-        @remove="(index) => line.lots.splice(index, 1)"
-      >
-        单据数量 {{ activeInbound.lines.find((item) => item.id === line.inbound_line_id)?.quantity }} · 已入库 {{ line.expected_received_quantity }}；本次仅登记实际到货数量。
-      </WorkspaceLotLineEditor>
+      <WorkspaceInboundLotTable :lines="inboundLotLines" :disabled="busy || connectionLost"
+        @add="addInboundLot" @remove="removeInboundLot" />
     </WorkspaceLotDialog>
   </section>
 </template>
 
 <style scoped>
+/* 审批和业务操作共用固定页脚，窄窗口自动换行，避免操作分散在明细上方。 */
+.inbound-flow-footer { width: 100%; display: grid; gap: 12px; }
+.inbound-flow-hint { margin: 0 0 16px; color: var(--workspace-field-muted); font-size: 12px; line-height: 1.6; }
+.inbound-flow-footer .inbound-flow-hint { margin: 0; }
+.inbound-flow-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; }
+.inbound-flow-actions :deep(.approval-footer) { width: auto; }
+
 /* 原因放在基础信息前；保留换行，长文本在窄窗口完整换行显示。 */
 .inbound-reopen-reason { padding: 16px; margin-bottom: 24px; border: 1px solid var(--workspace-field-border); border-radius: 12px; }
 .inbound-reopen-reason h3 { margin: 0 0 10px; }
