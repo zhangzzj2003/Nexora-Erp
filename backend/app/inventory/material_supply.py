@@ -32,8 +32,9 @@ class SupplyQuery(BaseModel):
     @field_validator('material_ids')
     @classmethod
     def valid_ids(cls, value: list[int]) -> list[int]:
-        if any(identifier <= 0 for identifier in value) or len(set(value)) != len(value):
-            raise ValueError('物料编号须为不重复的正整数')
+        # 与桌面安全整数边界一致，避免超大整数进入 SQLite 查询后触发溢出。
+        if any(not 0 < identifier <= 9_007_199_254_740_991 for identifier in value) or len(set(value)) != len(value):
+            raise ValueError('物料编号须为不重复的正安全整数')
         return value
 
 

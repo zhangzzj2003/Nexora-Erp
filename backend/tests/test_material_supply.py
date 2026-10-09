@@ -155,6 +155,7 @@ def test_permissions_and_revocation_hide_unavailable_quantities_and_sources(erp)
 
 @pytest.mark.parametrize('payload', [None, {}, {'material_ids': []}, {'material_ids': [True]},
     {'material_ids': ['1']}, {'material_ids': [-1]}, {'material_ids': [1, 1]},
-    {'material_ids': list(range(1, 102))}, {'material_ids': [1], 'permissions': ['admin']}, {'material_ids': [999999]}])
+    {'material_ids': list(range(1, 102))}, {'material_ids': [1], 'permissions': ['admin']},
+    {'material_ids': [999999]}, {'material_ids': [10**30]}])
 def test_bad_queries_are_rejected(erp, payload):
     assert erp[0].post(QUERY, headers=erp[1], json=payload).status_code == 422
