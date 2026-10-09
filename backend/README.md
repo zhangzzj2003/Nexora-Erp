@@ -365,3 +365,8 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 `POST /api/v1/warehouse-inbounds/{id}/post` 的新版批次行支持 `expected_received_quantity` 检查点。批准总量不变，本次可仅提交实际到货的明细，批次数量须在各行剩余额度内；旧快照或重复提交返回 409，超量返回 422。响应逐行增加 `received_quantity` 与 `remaining_quantity`，部分入库展示 `partially_posted`，收齐才 `posted`。部分状态从追加流水推导，原表保留旧状态约束，不补造历史库存。原批准在续收期间保持有效，部分执行事件与本次库存同事务追加；禁止撤回或取消已有实收的原单。部分冲销按实际正向流水执行，独立审批冻结实收额度，续收后不能沿用旧冲销批准。普通确认只记剩余量，多收须另外提供赠品或采购依据。
 
 v98 结构迁移只将其他入库及其冲销排除出库存来源明细单次唯一约束，其他来源继续唯一；历史流水和批次、核价等关联编号保持原样，保留索引与触发器，外键检查失败整体回滚。详见[分批规则与兼容边界](../docs/physical-lot-tracing.md#分批其他入库与多收处理)。
+
+
+## 其他入库一次性重开（v99）
+
+`app/inventory/inbounds.py` 的 `POST /api/v1/warehouse-inbounds/{id}/reopen` 要求 `other_inbound.create`，仅允许已取消或已冲销原单；提交与普通新建相同的可编辑正文，写锁内生成新草稿和唯一来源记录。重复或并发成功保存返回 409，校验失败回滚；原库存与审批历史不修改。v99 的 `warehouse_inbound_reopens` 使用原单和新单唯一约束、外键、不可改删触发器；列表及审批查询提供双向来源事件，供详情和溯源流程展示。升级不推断历史复制关系。详见[重开规则](../docs/physical-lot-tracing.md#取消与冲销重开新单v99)。

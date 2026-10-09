@@ -81,7 +81,7 @@ def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_recor
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 98:
+        if version > 99:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -2998,3 +2998,18 @@ def migrate() -> None:
             if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
                 raise RuntimeError('分批入库迁移后外键检查失败')
             db.execute('PRAGMA user_version = 98')
+
+        if version < 99:
+            # 不推断旧参考号中的重开关系，只为今后成功重开保存不可重复的来源证据。
+            db.execute('''CREATE TABLE IF NOT EXISTS warehouse_inbound_reopens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER NOT NULL UNIQUE REFERENCES warehouse_inbounds(id) CHECK(source_id <> new_id),
+                new_id INTEGER NOT NULL UNIQUE REFERENCES warehouse_inbounds(id),
+                kind TEXT NOT NULL CHECK(kind IN ('cancelled','reversed')),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            for action in ('UPDATE', 'DELETE'):
+                db.execute(f'''CREATE TRIGGER IF NOT EXISTS warehouse_inbound_reopens_no_{action.lower()}
+                    BEFORE {action} ON warehouse_inbound_reopens BEGIN
+                    SELECT RAISE(ABORT, '重开来源记录不可修改或删除'); END''')
+            db.execute('PRAGMA user_version = 99')

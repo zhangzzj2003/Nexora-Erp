@@ -1050,6 +1050,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'warehouses': return { method: 'GET', path: '/api/v1/warehouses' }
     case 'otherInbounds': return { method: 'GET', path: '/api/v1/warehouse-inbounds' }
     case 'createOtherInbound': return { method: 'POST', path: '/api/v1/warehouse-inbounds', body: payload }
+    case 'reopenOtherInbound': {
+      // 独立接口防止旧服务端将重开误当普通新建；来源 ID 不由表单正文覆盖。
+      const inboundId = positiveId(payload, 'inboundId')
+      const fields = payload as ErpOperations['reopenOtherInbound']['input']
+      return { method: 'POST', path: `/api/v1/warehouse-inbounds/${inboundId}/reopen`, body: {
+        warehouse_id: fields.warehouse_id, reason: fields.reason, note: fields.note,
+        reference: fields.reference, lines: fields.lines
+      } }
+    }
     case 'postOtherInbound': {
       const inboundId = positiveId(payload, 'inboundId')
       const source = payload as ErpOperations['postOtherInbound']['input']

@@ -23,6 +23,7 @@ from app.core.models import (
     WarehouseInbound,
     WarehouseInboundLine,
     WarehouseInboundReversal,
+    WarehouseInboundReopen,
 )
 from app.inventory.warehouse import balance, require_warehouse
 from app.inventory.lot_inputs import PhysicalLotPartInput
@@ -107,6 +108,22 @@ def received_by_line(db: Session, inbound_id: int) -> dict[int, Decimal]:
     return result
 
 
+def reopen_trace(db: Session, inbound_id: int) -> list[dict]:
+    # 原单与新单返回同一份来源事件，编号仅用于识别，跳转使用内部 ID。
+    source = aliased(WarehouseInbound)
+    target = aliased(WarehouseInbound)
+    return [dict(row) for row in db.execute(select(
+        WarehouseInboundReopen.id, WarehouseInboundReopen.source_id, WarehouseInboundReopen.new_id,
+        WarehouseInboundReopen.kind, WarehouseInboundReopen.created_at,
+        WarehouseInboundReopen.created_by, User.username.label('created_by_name'),
+        source.document_no.label('source_document_no'), target.document_no.label('new_document_no'))
+        .join(source, source.id == WarehouseInboundReopen.source_id)
+        .join(target, target.id == WarehouseInboundReopen.new_id)
+        .join(User, User.id == WarehouseInboundReopen.created_by)
+        .where((WarehouseInboundReopen.source_id == inbound_id) | (WarehouseInboundReopen.new_id == inbound_id))
+        .order_by(WarehouseInboundReopen.id)).mappings()]
+
+
 def inbound_data(db: Session, inbound_id: int) -> dict:
     row = (
         db.execute(
@@ -179,7 +196,9 @@ def inbound_data(db: Session, inbound_id: int) -> dict:
     received = received_by_line(db, inbound_id)
     # 部分入库是流水推导出的展示状态，保留旧库状态约束与原始单据，不重建历史表。
     status = 'partially_posted' if row['status'] == 'draft' and any(received.values()) else row['status']
-    return {**dict(row), 'status': status, 'approval': approval.case_data(approval.find_case(db, 'WarehouseInbound', inbound_id)),
+    trace = reopen_trace(db, inbound_id)
+    return {**dict(row), 'status': status, 'reopen_trace': trace,
+            'reopened_as_id': next((link['new_id'] for link in trace if link['source_id'] == inbound_id), None), 'approval': approval.case_data(approval.find_case(db, 'WarehouseInbound', inbound_id)),
             'reversal_approval': approval.case_data(approval.find_case(db, 'WarehouseInbound', inbound_id, 'reverse')),
             'lines': [
         {**dict(line), 'received_quantity': str(received.get(line['id'], Decimal(0))),
@@ -199,40 +218,65 @@ def list_inbounds(_: dict = Depends(require("other_inbound.view"))) -> list[dict
         return [inbound_data(db, item_id) for item_id in ids]
 
 
-@router.post("/warehouse-inbounds", status_code=201)
-def create_inbound(payload: InboundInput, user: dict = Depends(require("other_inbound.create"))) -> dict:
+def create_inbound_record(db: Session, payload: InboundInput, user_id: int) -> int:
+    # 新建与重开共用输入校验；任一失败不会留下空新单或占用重开次数。
     if len({line.material_id for line in payload.lines}) != len(payload.lines):
         raise HTTPException(422, "一张入库单不能重复选择同一物料")
+    require_warehouse(db, payload.warehouse_id)
+    for line in payload.lines:
+        if (
+            not db.execute(
+                select(literal(1)).select_from(Material).where((Material.id == line.material_id))
+            )
+            .mappings()
+            .first()
+        ):
+            raise HTTPException(422, f"物料 #{line.material_id} 不存在")
+    inbound_id = add_model(
+        db,
+        WarehouseInbound(
+            warehouse_id=payload.warehouse_id,
+            reason=payload.reason,
+            note=payload.note,
+            reference=payload.reference.strip(),
+            created_by=user_id,
+        ),
+    ).id
+    db.add_all(
+        [
+            WarehouseInboundLine(
+                inbound_id=inbound_id, material_id=line.material_id, quantity=str(line.quantity)
+            )
+            for line in payload.lines
+        ]
+    )
+    return inbound_id
+
+
+@router.post("/warehouse-inbounds", status_code=201)
+def create_inbound(payload: InboundInput, user: dict = Depends(require("other_inbound.create"))) -> dict:
     with orm_session(write=True) as db:
-        require_warehouse(db, payload.warehouse_id)
-        for line in payload.lines:
-            if (
-                not db.execute(
-                    select(literal(1)).select_from(Material).where((Material.id == line.material_id))
-                )
-                .mappings()
-                .first()
-            ):
-                raise HTTPException(422, f"物料 #{line.material_id} 不存在")
-        inbound_id = add_model(
-            db,
-            WarehouseInbound(
-                warehouse_id=payload.warehouse_id,
-                reason=payload.reason,
-                note=payload.note,
-                reference=payload.reference.strip(),
-                created_by=user["id"],
-            ),
-        ).id
-        db.add_all(
-            [
-                WarehouseInboundLine(
-                    inbound_id=inbound_id, material_id=line.material_id, quantity=str(line.quantity)
-                )
-                for line in payload.lines
-            ]
-        )
-        return inbound_data(db, inbound_id)
+        return inbound_data(db, create_inbound_record(db, payload, user['id']))
+
+
+@router.post('/warehouse-inbounds/{inbound_id}/reopen', status_code=201)
+def reopen_inbound(inbound_id: int, payload: InboundInput,
+                   user: dict = Depends(require('other_inbound.create'))) -> dict:
+    with orm_session(write=True) as db:
+        source = db.get(WarehouseInbound, inbound_id)
+        if source is None:
+            raise HTTPException(404, '其他入库单不存在')
+        if db.scalar(select(WarehouseInboundReopen.id).where(WarehouseInboundReopen.source_id == inbound_id)):
+            raise HTTPException(409, '此单据已重开为新单，每张原单只能成功重开一次')
+        reversed_id = db.scalar(select(WarehouseInboundReversal.id).where(WarehouseInboundReversal.inbound_id == inbound_id))
+        if source.status != 'cancelled' and not reversed_id:
+            raise HTTPException(409, '只能重开已取消或已冲销的其他入库单')
+        # 写锁内核对终态与一次性来源，同事务保存新草稿；原单、审批和库存流水不修改。
+        new_id = create_inbound_record(db, payload, user['id'])
+        db.add(WarehouseInboundReopen(source_id=inbound_id, new_id=new_id,
+            kind='reversed' if reversed_id else 'cancelled', created_by=user['id']))
+        db.flush()
+        return inbound_data(db, new_id)
 
 
 @router.post("/warehouse-inbounds/{inbound_id}/post")

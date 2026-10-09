@@ -108,6 +108,7 @@ export interface DocumentApprovalEvent {
   step: number; step_name: string | null; actor_id: number; actor_name: string; reason: string; evidence?: string; created_at: string
 }
 export interface DocumentApprovalRecord extends DocumentApprovalState {
+  reopen_trace?: import('./erp-api').OtherInboundReopenLink[]
   document_type: DocumentApprovalType; document_id: number; intent: DocumentApprovalIntent
   document_no: string | null; business_status: string; reversal_reason: string; reversal_evidence?: string
   summary: { label: string; value: string }[]; content_matches: boolean

@@ -205,7 +205,7 @@ def test_v98_preserves_stock_history_or_rolls_back(monkeypatch, tmp_path, invali
     with connection() as db:
         assert [tuple(row) for row in db.execute('SELECT * FROM stock_movements')] == original_rows
         assert [tuple(row) for row in db.execute('SELECT * FROM physical_lot_allocations')] == original_parts
-        assert db.execute('PRAGMA user_version').fetchone()[0] == (97 if invalid_foreign_key else 98)
+        assert db.execute('PRAGMA user_version').fetchone()[0] == (97 if invalid_foreign_key else 99)
         assert db.execute('PRAGMA foreign_keys').fetchone()[0] == 1
         assert db.execute("SELECT 1 FROM sqlite_master WHERE name='legacy_stock_time'").fetchone()
         with pytest.raises(sqlite3.IntegrityError, match='immutable'):

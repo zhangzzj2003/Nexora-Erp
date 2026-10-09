@@ -39,6 +39,7 @@ import { submitCreateDialog } from "../../../utils/create-dialog";
 // 分批入库单独核对本次实收、累计实收检查点与剩余额度。
 import { inboundReceived, inboundRemaining, inboundExcess, otherInboundLotIssue } from "./other-inbound-receiving";
 import { inboundReceivedMilli } from "../../../../../shared/receipt-lot-api";
+import OtherInboundReopenTrace from '../../../components/workspace/OtherInboundReopenTrace.vue';
 import type { InboundLotLineInput } from "../../../../../shared/receipt-lot-api";
 import type { OtherInbound } from "../../../../../shared/erp-api";
 import OtherInboundActions from "./OtherInboundActions.vue";
@@ -493,7 +494,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           v-model:show="showForm"
           :title="
             reopenSourceId
-              ? `重开为新单 · ${reopenSource ? documentLabel(reopenSource) : '原单'}`
+              ? `${reopenSource?.reversal_id ? '冲销重开新单' : '重开为新单'} · ${reopenSource ? documentLabel(reopenSource) : '原单'}`
               : '非采购来源入库'
           "
           :data="materialRows"
@@ -505,7 +506,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           :min-table-width="960"
           :hint="
             reopenSourceId
-              ? '保存后生成新单号并重新送审；原单保留已取消状态，原审批和批次记录不带入。'
+              ? '保存成功后占用原单的一次重开额度，生成新单号并重新送审；原单保留历史状态，原审批和批次记录不带入。'
               : '创建草稿后提交独立审批，批准并确认后才增加库存；这类入库不产生采购应付。'
           "
           @submit="submitCreate"
@@ -691,6 +692,11 @@ async function reverseApproved(identifier: number): Promise<void> {
         }
       "
     >
+      <template #beforeBasicInfo>
+        <OtherInboundReopenTrace v-if="detailInbound.reopen_trace?.length" :links="detailInbound.reopen_trace"
+          :current-id="detailInbound.id" :local-time="localTime" :disabled="!!pendingActionId"
+          @open="id => { detailInboundId = id; }" />
+      </template>
       <template #documentActions>
         <OtherInboundActions
           :inbound="detailInbound"

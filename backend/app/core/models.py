@@ -2178,6 +2178,18 @@ class WarehouseInbound(Base):
     cancelled_at: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class WarehouseInboundReopen(Base):
+    """成功保存时固定重开来源；唯一原单防止跨客户端重复重开。"""
+    __tablename__ = 'warehouse_inbound_reopens'
+    __table_args__ = (CheckConstraint("kind IN ('cancelled','reversed')"), CheckConstraint('source_id <> new_id'))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey('warehouse_inbounds.id'), nullable=False, unique=True)
+    new_id: Mapped[int] = mapped_column(ForeignKey('warehouse_inbounds.id'), nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class WarehouseInboundLine(Base):
     __tablename__ = "warehouse_inbound_lines"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

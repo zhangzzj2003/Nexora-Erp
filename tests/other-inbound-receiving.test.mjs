@@ -40,7 +40,7 @@ test('部分入库保留续收与独立冲销，已冲销关闭余量，不提�
   assert.equal(otherInboundGroup(partial),'pending')
   const reversed={...partial,reversal_id:4}
   assert.equal(otherInboundGroup(reversed),'reversed')
-  assert.deepEqual(otherInboundActions(reversed,permissions).map(item=>item.key),['approval'])
+  assert.deepEqual(otherInboundActions(reversed,permissions).map(item=>item.key),['approval','reopen'])
   assert.ok(!otherInboundActions(partial,{...permissions,post:false}).some(item=>item.key==='lots'))
 })
 

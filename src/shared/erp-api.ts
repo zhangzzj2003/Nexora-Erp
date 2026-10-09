@@ -363,7 +363,15 @@ export interface AccountingPeriodInput {
   code: string; name: string; start_date: string; end_date: string; reason: string
 }
 // 非采购入库沿用单据确认和冲销模式，不进入采购应付来源。
+// 重开事件独立于审批记录，原单和派生新单共同展示相同的来源证据。
+export interface OtherInboundReopenLink {
+  id: number; source_id: number; new_id: number; kind: 'cancelled' | 'reversed'
+  source_document_no: string | null; new_document_no: string | null
+  created_by: number; created_by_name: string; created_at: string
+}
 export interface OtherInbound extends NumberedDocument {
+  reopened_as_id?: number | null
+  reopen_trace?: OtherInboundReopenLink[]
   // 审批进度与仓库状态分开，未批准的草稿不能确认入库。
   approval?: DocumentApprovalState
   reversal_approval?: DocumentApprovalState
@@ -1407,6 +1415,7 @@ export interface ErpOperations extends MaterialSupplyOperations, ProductionAssoc
   warehouses: { input: undefined; output: Warehouse[] }
   otherInbounds: { input: undefined; output: OtherInbound[] }
   createOtherInbound: { input: { warehouse_id: number; reason: 'opening' | 'gift' | 'other'; note: string; reference: string; lines: { material_id: number; quantity: string }[] }; output: OtherInbound }
+  reopenOtherInbound: { input: ErpOperations['createOtherInbound']['input'] & { inboundId: number }; output: OtherInbound }
   postOtherInbound: { input: { inboundId: number; lines?: InboundLotLineInput[] }; output: OtherInbound }
   cancelOtherInbound: { input: { inboundId: number }; output: OtherInbound }
   reverseOtherInbound: { input: { inboundId: number; reason: string }; output: OtherInbound }

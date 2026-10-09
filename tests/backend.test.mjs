@@ -444,6 +444,12 @@ test('其他入库冲销只转发固定路径与原因', async (t) => {
   assert.equal(calls.at(-1).path, '/api/v1/warehouse-inbounds/4/reverse')
   assert.deepEqual(JSON.parse(calls.at(-1).body), { reason: '误录' })
   await assert.rejects(callBackend('postOtherInbound', { inboundId: '../users' }), /记录编号无效/)
+  // 重开使用专用接口，来源编号在路径，正文不带原审批或历史记录。
+  await callBackend('reopenOtherInbound',{inboundId:4,warehouse_id:1,reason:'gift',note:'更正',reference:'REF',lines:[{material_id:2,quantity:'3'}]})
+  assert.equal(calls.at(-1).path,'/api/v1/warehouse-inbounds/4/reopen')
+  assert.deepEqual(JSON.parse(calls.at(-1).body),{warehouse_id:1,reason:'gift',note:'更正',reference:'REF',lines:[{material_id:2,quantity:'3'}]})
+  await assert.rejects(callBackend('reopenOtherInbound',{inboundId:'../users'}),/记录编号无效/)
+
 })
 
 test('供应商分页通过桌面接口原样发送查询参数并保留分页元数据', async t => {

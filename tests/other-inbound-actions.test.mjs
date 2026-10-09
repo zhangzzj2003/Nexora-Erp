@@ -12,7 +12,13 @@ test('入库详情与列表共用状态操作，审批中不可取消、批准�
  for(const status of ['rejected','withdrawn']) assert.deepEqual(keys({status:'draft',approval:{status}}),['approval','cancel'])
  assert.deepEqual(keys({status:'posted'}),['approval','reversalApproval'])
  assert.deepEqual(keys({status:'posted',reversal_approval:{status:'approved'}}),['approval','reversalApproval','reverse'])
- assert.deepEqual(keys({status:'posted',reversal_id:1,reversal_approval:{status:'approved'}}),['approval'])
+ assert.deepEqual(keys({status:'posted',reversal_id:1,reversal_approval:{status:'approved'}}),['approval','reopen'])
+ // 成功重开的原单只能看历史，部分冲销也可重开但不能再确认余量。
+ for(const record of [{status:'cancelled'}, {status:'posted',reversal_id:1}, {status:'partially_posted',reversal_id:1}]) {
+  assert.deepEqual(keys({...record,reopened_as_id:10}),['approval'])
+  assert.deepEqual(keys(record,{...permissions,create:false}),['approval'])
+ }
+ assert.equal(otherInboundRowActions({status:'posted',reversal_id:1},permissions).primary.label,'冲销重开新单')
  assert.deepEqual(keys({status:'cancelled',approval:{status:'approved'}}),['approval','reopen'])
 })
 

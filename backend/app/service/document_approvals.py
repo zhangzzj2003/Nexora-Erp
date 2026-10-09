@@ -111,7 +111,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
     # 其他入库冲销冻结已入库额度，续收后明确显示内容变化，不能沿用旧批准。
     inbound_received = {}
     if document_type == 'WarehouseInbound':
-        from app.inventory.inbounds import received_by_line
+        from app.inventory.inbounds import received_by_line, reopen_trace
         inbound_received = received_by_line(db, identifier)
         if intent == 'reverse' and row:
             frozen_received = json.loads(row.snapshot_json).get('received_quantities')
@@ -202,7 +202,9 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
             'can_review': can_review,
             'can_withdraw': pending and permission in permissions and state['status'] in ('submitted', 'approved')
                 and (state['submitted_by'] == user_id or 'admin' in user['roles']),
-            'events': events}
+            'events': events,
+            **({'reopen_trace': reopen_trace(db, identifier)}
+                if document_type == 'WarehouseInbound' else {})}
 
 
 @router.get('/{document_type}/{identifier}')

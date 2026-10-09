@@ -8,6 +8,7 @@ import AppButton from '../app/AppButton.vue'
 import AppInput from '../app/AppInput.vue'
 import { usePiniaAppStore } from '../../store/app-store'
 import DocumentApprovalProgress from './DocumentApprovalProgress.vue'
+import OtherInboundReopenTrace from './OtherInboundReopenTrace.vue'
 import { approvalTargetKey } from '../../store/modules/document-approval-case-actions'
 
 // 审批复用查看详情的公共单据布局，业务内容始终来自服务端送审快照。
@@ -43,6 +44,10 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
     <template #beforeBasicInfo>
       <!-- 进度优先展示，单据正文与历史仍使用同一服务端快照。 -->
       <DocumentApprovalProgress v-if="record" :record="record" :roles="store.roles" :local-time="store.localTime" />
+      <!-- 重开是独立业务事件，不伪装为原单审批步骤；两端可查看各自真实审批。 -->
+      <OtherInboundReopenTrace v-if="record?.reopen_trace?.length" :links="record.reopen_trace"
+        :current-id="record.document_id" :local-time="store.localTime" :disabled="disabled"
+        @open="id => store.openDocumentApproval({ document_type: 'WarehouseInbound', document_id: id, intent: 'execute' })" />
       <slot />
       <p v-if="loading" role="status">正在读取审批记录…</p>
       <p v-if="error" role="alert" class="approval-error">{{ error }}</p>

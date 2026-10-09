@@ -119,7 +119,8 @@ export function createWarehouseActions(
   // 仅复制可编辑业务字段；原单身份、审批、确认记录和实物批次永远不进入新建请求。
   function prepareOtherInboundReopen(inboundId: number): boolean {
     const inbound = state.otherInbounds.value.find(item => item.id === inboundId)
-    if (!canReopenOtherInbound() || inbound?.status !== 'cancelled') return false
+    if (!canReopenOtherInbound() || !inbound || inbound.reopened_as_id
+        || (inbound.status !== 'cancelled' && !inbound.reversal_id)) return false
     state.otherInboundReopenForms.value[inboundId] ??= {
       warehouse_id: inbound.warehouse_id, reason: inbound.reason,
       note: inbound.note, reference: inbound.reference,
@@ -137,7 +138,7 @@ export function createWarehouseActions(
     if (!window.nexora || !canReopenOtherInbound()) return
     const source = state.otherInbounds.value.find(item => item.id === inboundId)
     const draft = state.otherInboundReopenForms.value[inboundId]
-    if (source?.status !== 'cancelled' || !draft) {
+    if (!source || source.reopened_as_id || (source.status !== 'cancelled' && !source.reversal_id) || !draft) {
       state.error.value = '原单状态已变化，请重新打开重开单。'
       return
     }
@@ -145,11 +146,15 @@ export function createWarehouseActions(
       || (!state.warehouses.value.some(item => item.id === draft.warehouse_id) ? '请选择可用仓库。' : '')
     if (issue) { state.error.value = issue; return }
     await perform(async () => {
-      // 走标准新建接口，由服务端生成新单号和新明细，并重新开始审批流程。
-      await window.nexora!.callApi('createOtherInbound', {
+      // 服务端同事务固定来源、校验一次性额度，并生成需独立审批的新单号。
+      const created = await window.nexora!.callApi('reopenOtherInbound', {
+        inboundId,
         warehouse_id: draft.warehouse_id, reason: draft.reason, note: draft.note, reference: draft.reference,
         lines: draft.lines.map(line => ({ material_id: line.material_id, quantity: line.quantity }))
       })
+      // 立即禁用原单入口，即使后续列表刷新失败也不能再次准备重开。
+      source.reopened_as_id = created.id
+      source.reopen_trace = created.reopen_trace
       // 失败不清空输入；成功只移除当前原单对应的重开草稿。
       if (state.otherInboundReopenForms.value[inboundId] === draft) delete state.otherInboundReopenForms.value[inboundId]
     }, '重开单已保存为新的其他入库草稿，请重新送审。')

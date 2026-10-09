@@ -16,9 +16,9 @@ export function otherInboundActions(inbound: OtherInbound, permissions: OtherInb
       actions.push({ key: 'cancel', label: '取消', variant: 'secondary' })
     }
   }
-  // 已取消单据只能另建新单，不能恢复原单或沿用原审批。
-  if (inbound.status === 'cancelled' && permissions.create) {
-    actions.push({ key: 'reopen', label: '重开为新单', variant: 'primary' })
+  // 两类终态共用一次重开额度，成功保存后的原单不再提供重开入口。
+  if ((inbound.status === 'cancelled' || inbound.reversal_id) && !inbound.reopened_as_id && permissions.create) {
+    actions.push({ key: 'reopen', label: inbound.reversal_id ? '冲销重开新单' : '重开为新单', variant: 'primary' })
   }
   // 已冲销单据不再显示重复执行按钮。
   if (['posted', 'partially_posted'].includes(inbound.status) && !inbound.reversal_id) {
