@@ -178,6 +178,7 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  store.initialDetailId=3
  html=await render()
  for(const value of ['其他入库详情','QTRK-20261007-000003','OLD-SKU','历史物料名称','2.125','历史说明','REF-3','建单人','待送审','尚未登记实物批次'])assert.ok(html.includes(value),value + ': ' + html)
+ assert.doesNotMatch(html,/冲销原因|冲销记录/)
  // 列表与详情使用同一个公共标签，防止详情退回无高亮文本。
  assert.equal((html.match(/app-status-tag--pending/g) ?? []).length, 2)
  assert.doesNotMatch(html,/添加物料|保存草稿|登记批次并确认|type="submit"/)
@@ -218,6 +219,19 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  html=await render()
  assertStatus('已冲销','reversed')
  for(const value of ['已冲销','重复录入','冲销时间','冲销人'])assert.ok(html.includes(value),value + ': ' + html)
+ // 冲销原因只出现在单号打开的详情，不占用列表操作栏；空历史原因使用占位符。
+ assert.doesNotMatch(cell('actions'),/重复录入|冲销：/)
+ const detailHtml=()=>html.slice(html.indexOf('data-modal='))
+ assert.match(detailHtml(),/冲销原因<\/span><strong[^>]*>重复录入<\/strong>/)
+ assert.equal((html.match(/重复录入/g)??[]).length,1)
+ store.otherInbounds=[{...store.otherInbounds[0],reversal_reason:null}]
+ html=await render()
+ assert.match(detailHtml(),/冲销原因<\/span><strong[^>]*>—<\/strong>/)
+ store.otherInbounds=[{...store.otherInbounds[0],reversal_reason:'重复录入'}]
+ store.initialDetailId=0
+ html=await render()
+ assert.doesNotMatch(html,/重复录入|冲销原因|冲销记录/)
+ store.initialDetailId=3
  store.otherInbounds=[{...inbound,lines:[]}]
  assert.match(await render(),/此单据暂无物料明细/)
  store.otherInbounds=[]

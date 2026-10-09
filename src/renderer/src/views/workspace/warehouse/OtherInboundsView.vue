@@ -669,9 +669,6 @@ async function reverseApproved(identifier: number): Promise<void> {
           :disabled="busy || connectionLost || !!pendingActionId"
           @action="(action) => handleInboundAction(item.id, action)"
         />
-        <small v-if="item.reversal_reason"
-          >冲销：{{ item.reversal_reason }}</small
-        >
       </template>
       <template #empty>{{
         query || statusFilter !== "all" ? "没有匹配的入库单。" : "暂无其他入库单。"
@@ -749,6 +746,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           <span>取消时间</span
           ><strong>{{ localTime(detailInbound.cancelled_at) }}</strong>
         </div>
+        <!-- 冲销信息归入只读详情，列表操作栏只保留办理入口。 -->
         <div v-if="detailInbound.reversal_id" class="inbound-detail-field">
           <span>冲销记录</span
           ><strong
