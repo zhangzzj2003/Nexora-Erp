@@ -168,7 +168,7 @@ watch(() => [selectedGeneration.value, selectedKey.value, props.record.current_s
 /* 灰线表示尚未办理，强调色线表示已经完成；当前连线的微光不代表未来步骤已完成。 */
 .approval-flow li:not(:last-child)::before, .approval-flow li:not(:last-child)::after {
   content: ''; position: absolute; top: 23px; left: calc(50% + 32px); width: calc(100% - 64px); height: 2px;
-  border-radius: 2px; background: var(--workspace-field-border); transform-origin: left; }
+  border-radius: 2px; background: var(--workspace-field-border); transform-origin: left; pointer-events: none; }
 .approval-flow li:not(:last-child)::after { background: var(--workspace-field-accent); transform: scaleX(0);
   transition: transform 450ms cubic-bezier(.16, 1, .3, 1); }
 .approval-flow li.is-completed:not(:last-child)::after { transform: scaleX(1); animation: approval-link-enter 500ms cubic-bezier(.16, 1, .3, 1) both;
@@ -195,16 +195,22 @@ watch(() => [selectedGeneration.value, selectedKey.value, props.record.current_s
 .approval-node-badge svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .approval-node-copy { padding: 0 10px; width: 100%; text-align: center; }
 .approval-node-title { display: flex; flex-direction: column; align-items: center; gap: 4px; line-height: 1.6; }
-.approval-node-title strong { font-size: 14px; font-weight: 600; color: var(--workspace-field-text); }
+.approval-node-title strong { font-size: 14px; font-weight: 600; color: var(--workspace-field-text);
+  padding-bottom: 2px; border-bottom: 2px solid transparent; }
 .approval-node-title > span { font-size: 12px; }
 .is-current .approval-node-title strong, .is-current .approval-node-title > span { color: var(--workspace-field-accent); }
 .is-rejected .approval-node-title > span { color: var(--approval-danger); }
 .approval-node-copy small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.6; }
-/* 共用按钮保持键盘语义；选中底标表示当前查看记录，光圈仍只表示业务待办。 */
+/* 整列保留点击热区但始终透明，避免宽屏选中背景遮住节点之间的流程连线。 */
 .approval-node-select { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 14px;
-  width: 100%; min-height: 140px; padding: 0 0 10px; border-radius: 8px; color: inherit; white-space: normal; }
-.approval-node-select:focus-visible { outline: 2px solid var(--workspace-field-accent); outline-offset: -2px; }
-.is-selected .approval-node-select { background: var(--app-accent-tint); box-shadow: inset 0 -2px var(--workspace-field-accent); }
+  width: 100%; min-height: 140px; padding: 0 0 10px; border-radius: 8px; color: inherit; white-space: normal;
+  background: transparent; }
+/* 记录选择只用图标外环和名称短下划线表示；持续光圈仍只对应真正的当前待办。 */
+.is-selected .approval-node-marker { box-shadow: 0 0 0 3px var(--app-accent-ring); }
+.is-selected .approval-node-title strong { border-bottom-color: var(--workspace-field-accent); }
+/* 键盘焦点定位到图标，不给整列画大框；焦点与选中记录依然可以分别辨认。 */
+.approval-node-select:focus-visible { outline: none; }
+.approval-node-select:focus-visible .approval-node-marker { outline: 2px solid var(--workspace-field-accent); outline-offset: 6px; }
 .approval-rounds { display: flex; gap: 8px; margin-top: 14px; overflow-x: auto; padding-bottom: 4px; }
 .approval-rounds .app-button { padding: 6px 10px; border-radius: 8px; color: var(--workspace-field-muted); white-space: nowrap; }
 .approval-rounds .is-active { background: var(--app-accent-tint); color: var(--workspace-field-accent); }
