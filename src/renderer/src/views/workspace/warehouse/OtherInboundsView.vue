@@ -512,6 +512,13 @@ async function reverseApproved(identifier: number): Promise<void> {
           @submit="submitCreate"
           @add-material="addMaterialRow"
         >
+          <template #beforeBasicInfo>
+            <!-- 原单冲销原因只作更正对照，不进入新单的可编辑正文或保存请求。 -->
+            <section v-if="reopenSource?.reversal_id" class="inbound-reopen-reason" aria-label="原单冲销原因">
+              <h3>原单冲销原因</h3>
+              <p>{{ reopenSource.reversal_reason || '原单未记录冲销原因。' }}</p>
+            </section>
+          </template>
           <template #basicInfo>
             <label
               >仓库<WorkspaceSelect
@@ -860,6 +867,10 @@ async function reverseApproved(identifier: number): Promise<void> {
 </template>
 
 <style scoped>
+/* 原因放在基础信息前；保留换行，长文本在窄窗口完整换行显示。 */
+.inbound-reopen-reason { padding: 16px; margin-bottom: 24px; border: 1px solid var(--workspace-field-border); border-radius: 12px; }
+.inbound-reopen-reason h3 { margin: 0 0 10px; }
+.inbound-reopen-reason p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* 多收决策与批次明细相邻，沿用现有主题变量与窄窗口换行。 */
 .inbound-excess { padding: 16px; margin-bottom: 20px; border: 1px solid var(--workspace-field-border); border-radius: 10px; }
 .inbound-excess p { margin: 8px 0; overflow-wrap: anywhere; }

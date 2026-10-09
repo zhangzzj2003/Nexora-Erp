@@ -38,7 +38,7 @@ export const usePiniaAppStore=defineStore('inbound-details-test',()=>{
  return { error,permissions,calls,fail,documentApprovalRecord,
  notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
  otherInbounds,otherInboundReopenForms,otherInboundForm:ref({lines:[{material_id:99,quantity:'7'}]}),otherInboundReversalReasons:ref({}),
- initialDetailId:ref(0),can:key=>permissions.value.includes(key),localTime:value=>value,
+ initialDetailId:ref(0),initialReopenId:ref(0),initialShowForm:ref(false),can:key=>permissions.value.includes(key),localTime:value=>value,
  prepareOtherInboundReopen(id){calls.value.push(['reopen',id]);otherInboundReopenForms.value[id]={lines:[]};return true},
  createOtherInbound(){throw Error('查看详情不应创建')},async postOtherInbound(id){update(id,'posted')},
  async cancelOtherInbound(id){update(id,'cancelled')},async reverseOtherInbound(id){calls.value.push(['reverse',id])},
@@ -62,6 +62,9 @@ export default defineComponent({props:['type','disabled','variant'],setup(p,{slo
 const modalSource = `import {defineComponent,h} from 'vue'
 export const NModal=defineComponent({props:['show','title'],setup(p,{slots,attrs}){return()=>p.show?h('section',{'data-modal':p.title},slots.default?.()):null}})
 export const NDatePicker=NModal`
+// 原因与弹窗层级使用真实页面验证；选择器浮层依赖浏览器 DOM，仅替换其控件外壳。
+const selectSource = `import {defineComponent,h} from 'vue'
+export default defineComponent({props:['modelValue','options','disabled'],setup(p){return()=>h('select',{disabled:p.disabled},(p.options??[]).map(option=>h('option',{value:option.value},option.label)))}})`
 
 const inbound = {
  id:3,document_no:'QTRK-20261007-000003',status:'draft',reason:'gift',note:'历史说明',reference:'REF-3',
@@ -79,7 +82,9 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
   transform(code,id){
    if(id.endsWith('/OtherInboundActions.vue'))return code.replace("'naive-ui'","'virtual:inbound-action-controls'")
    // 可设置初始选中 ID 来展开真实弹窗；正常打开事件另行直接触发验证。
-   if(id.endsWith('/OtherInboundsView.vue'))return code.replace('const detailInboundId = ref(0)','const detailInboundId = ref(store.initialDetailId)').replace("'naive-ui'","'virtual:inbound-detail-modal'")
+   if(id.endsWith('/OtherInboundsView.vue'))return code.replace('const detailInboundId = ref(0)','const detailInboundId = ref(store.initialDetailId)')
+    .replace('const reopenSourceId = ref(0)','const reopenSourceId = ref(store.initialReopenId)')
+    .replace('const showForm = ref(false)','const showForm = ref(store.initialShowForm)').replace("'naive-ui'","'virtual:inbound-detail-modal'")
    if(id.endsWith('/WorkspaceDocumentDialog.vue'))return code.replace("'naive-ui'","'virtual:inbound-detail-modal'")
   },
   resolveId(id,importer){
@@ -89,11 +94,12 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
    if(id.endsWith('/store/app-store')&&importer.includes('OtherInboundsView'))return '\0inbound-detail-store'
    if(id.endsWith('/DocumentApprovalDialog.vue'))return '\0inbound-approval-placeholder'
    if(id.endsWith('/WorkspaceTable.vue'))return '\0inbound-detail-table'
+   if(id.endsWith('/WorkspaceSelect.vue'))return '\0inbound-detail-select'
    if(id.endsWith('/AppButton.vue'))return '\0inbound-detail-button'
    if(id==='naive-ui'&&importer.includes('OtherInboundActions'))return '\0inbound-action-controls'
    if(id==='naive-ui'&&(importer.includes('OtherInboundsView')||importer.includes('WorkspaceDocumentDialog')))return '\0inbound-detail-modal'
   },load(id){if(id==='\0inbound-action-controls')return `import {defineComponent,h} from 'vue'; export const NDropdown=defineComponent({setup(p,{slots}){return()=>h('span',slots.default?.())}})`;if(id==='\0inbound-approval-placeholder')return 'export default {render(){return null}}';return {'\0inbound-detail-store':storeSource,'\0inbound-detail-table':tableSource,
-   '\0inbound-detail-button':buttonSource,'\0inbound-detail-modal':modalSource}[id]}
+   '\0inbound-detail-button':buttonSource,'\0inbound-detail-modal':modalSource,'\0inbound-detail-select':selectSource}[id]}
  },vue()],server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]},appType:'custom'})
  t.after(()=>server.close())
  const {usePiniaAppStore}=await server.ssrLoadModule('\0inbound-detail-store')
@@ -370,5 +376,22 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  store.otherInbounds=[inbound]
  reopen.attrs.onClick();await flush()
  assert.equal(store.calls.length,before)
+
+ // 冲销重开顶部读取原单原因，保留换行并转义文本；取消重开和普通新建不显示。
+ store.initialDetailId=0;store.initialReopenId=3;store.initialShowForm=true
+ store.otherInboundReopenForms[3]={warehouse_id:1,reason:'gift',note:'更正说明',reference:'REF',lines:[]}
+ store.otherInbounds=[{...inbound,status:'posted',reversal_id:8,reversal_reason:'重复登记\n<原单原因>'}]
+ html=await render()
+ const formHtml=()=>html.slice(html.indexOf('data-modal='))
+ assert.match(formHtml(),/冲销重开新单/)
+ assert.match(formHtml(),/重复登记\n&lt;原单原因&gt;/)
+ assert.ok(formHtml().indexOf('原单冲销原因')<formHtml().indexOf('aria-label="基础信息"'))
+ assert.equal(store.otherInboundReopenForms[3].note,'更正说明')
+ store.otherInbounds=[{...store.otherInbounds[0],reversal_reason:null}]
+ html=await render();assert.match(formHtml(),/原单未记录冲销原因。/)
+ store.otherInbounds=[{...inbound,status:'cancelled',reversal_reason:'不应展示'}]
+ html=await render();assert.doesNotMatch(formHtml(),/原单冲销原因|不应展示/)
+ store.initialReopenId=0
+ html=await render();assert.doesNotMatch(formHtml(),/原单冲销原因/)
 
 })
