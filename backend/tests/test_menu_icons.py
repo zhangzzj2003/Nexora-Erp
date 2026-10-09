@@ -57,4 +57,4 @@ def test_upgrade_v37_keeps_existing_data(monkeypatch, tmp_path, remove_v39_schem
     with connection() as db:
         assert db.execute('SELECT username FROM users').fetchone()[0] == 'retained'
         assert db.execute('SELECT COUNT(*) FROM menu_icons').fetchone()[0] == 0
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 99
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 100

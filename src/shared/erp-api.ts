@@ -290,6 +290,20 @@ export interface SubledgerOpening extends Omit<SubledgerInput, 'reason' | 'lines
   confirmed_at: string | null; cancelled_at: string | null; reversed_at: string | null
 }
 export interface SubledgerOptions extends AuxiliarySelectionOptions { accounts: LedgerAccount[]; opening_balance: OpeningBalance | null }
+export interface SubledgerAttachmentSource extends Pick<SubledgerLine, 'id' | 'kind' | 'party_id' | 'party_name' |
+  'account_id' | 'account_code' | 'account_name' | 'document_reference' | 'document_date' | 'debit' | 'credit' | 'auxiliary'> {
+  opening_id: number; opening_version: number; opening_balance_id: number; ledger_opening_version: number
+  effective_date: string; currency: 'CNY'
+}
+export interface SubledgerAttachment extends Omit<JournalAttachment, 'journal_id' | 'can_reverse'> {
+  opening_id: number; source: SubledgerAttachmentSource; source_status: 'matched' | 'changed' | 'missing'
+  current_line_id: number | null; approved_original: boolean; can_reverse: boolean
+}
+export interface SubledgerAttachmentList {
+  opening_id: number; opening_version: number; opening_status: SubledgerOpening['status']; can_modify: boolean
+  page: number; page_size: number; total: number; active_count: number; changed_count: number
+  lines: SubledgerAttachmentSource[]; items: SubledgerAttachment[]
+}
 export interface SubledgerChange extends FinanceMetadataChange<Omit<SubledgerOpening, 'created_by_name' | 'author_ids'>> {
   action: OpeningBalanceAction | 'create' | 'update' | 'withdraw'
 }
@@ -1512,6 +1526,9 @@ export interface ErpOperations extends MaterialSupplyOperations, ProductionAssoc
   reverseJournal: { input: { id: number; version: number; reference: string; journal_date: string; reason: string }; output: Journal }
   journalChanges: { input: { id: number }; output: JournalChange[] }
   journalAttachments: { input: { id: number }; output: JournalAttachmentList }
+  subledgerAttachments: { input: { id: number; page: number; page_size: number }; output: SubledgerAttachmentList }
+  addSubledgerAttachment: { input: { id: number; opening_version: number; line_id: number; file_name: string; content_base64: string; reason: string }; output: SubledgerAttachment }
+  reverseSubledgerAttachment: { input: { id: number; opening_version: number; attachmentId: number; reason: string }; output: SubledgerAttachment }
   addJournalAttachment: { input: { id: number; file_name: string; content_base64: string; reason: string }; output: JournalAttachment }
   reverseJournalAttachment: { input: { journalId: number; attachmentId: number; reason: string }; output: JournalAttachment }
   createLedgerAccount: { input: LedgerAccountInput; output: LedgerAccount }

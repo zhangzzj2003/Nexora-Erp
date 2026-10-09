@@ -73,6 +73,7 @@ from app.finance.order_settlements import router as order_settlements_router
 from app.finance.ledger import router as finance_ledger_router
 from app.finance.journals import router as journals_router
 from app.finance.journal_attachments import router as journal_attachments_router
+from app.finance.subledger_attachments import router as subledger_attachments_router
 from app.finance.ledger_reports import router as ledger_reports_router
 from app.finance.opening_balances import router as opening_balances_router
 from app.finance.period_closing import router as period_closing_router
@@ -142,6 +143,6 @@ for router in (
     purchase_returns_router, sales_router, sales_contracts_router, sales_contract_attachments_router, customer_import_router, contact_import_router, opportunity_import_router, crm_forecast_router, sales_returns_router, crm_router, crm_record_attachments_router, crm_quotes_router, crm_quote_attachments_router, crm_quote_pdf_router, after_sales_labor_router, after_sales_labor_cost_router, after_sales_margin_router, after_sales_responsibility_router, after_sales_attachments_router, after_sales_router,
     production_router, production_associations_router, work_orders_router, material_issues_router,
     material_returns_router, production_completions_router, production_costs_router, production_settlements_router, mrp_router, quality_router, equipment_procurement_router, equipment_router, equipment_hours_router, equipment_attachments_router,
-    finance_router, order_settlements_router, finance_ledger_router, journals_router, journal_attachments_router, ledger_reports_router, opening_balances_router, subledger_openings_router, subledger_settlements_router, subledger_order_settlements_router, bank_reconciliation_router, bank_balance_router, period_closing_router, business_journals_router, profit_transfers_router, statements_router, auxiliary_router, reports_router, dashboard_router,
+    finance_router, order_settlements_router, finance_ledger_router, journals_router, journal_attachments_router, subledger_attachments_router, ledger_reports_router, opening_balances_router, subledger_openings_router, subledger_settlements_router, subledger_order_settlements_router, bank_reconciliation_router, bank_balance_router, period_closing_router, business_journals_router, profit_transfers_router, statements_router, auxiliary_router, reports_router, dashboard_router,
 ):
     app.include_router(router)

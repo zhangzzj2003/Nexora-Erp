@@ -243,6 +243,8 @@ def reconcile(db: Session, record: SubledgerOpening) -> dict:
 def validate(db: Session, record: SubledgerOpening) -> dict:
     ensure_initial(db)
     ensure_date_unlocked(db, record.effective_date)
+    from app.finance.subledger_attachment_rules import validate_sources
+    validate_sources(db, record)
     mapping = controls(db, json.loads(record.control_accounts_json))
     for line in lines_for(db, record.id):
         account = mapping.get((line.kind, line.account_id))

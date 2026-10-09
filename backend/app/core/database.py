@@ -81,7 +81,7 @@ def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_recor
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 99:
+        if version > 100:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -3013,3 +3013,34 @@ def migrate() -> None:
                     BEFORE {action} ON warehouse_inbound_reopens BEGIN
                     SELECT RAISE(ABORT, '重开来源记录不可修改或删除'); END''')
             db.execute('PRAGMA user_version = 99')
+
+        if version < 100:
+            # 原件与更正仅追加；升级不修改旧批准正文和旧期间归档。
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            db.execute('''CREATE TABLE IF NOT EXISTS subledger_attachments (
+                id INTEGER PRIMARY KEY, opening_id INTEGER NOT NULL REFERENCES subledger_openings(id),
+                origin_key TEXT NOT NULL, source_fingerprint TEXT NOT NULL, source_json TEXT NOT NULL,
+                file_name TEXT NOT NULL, media_type TEXT NOT NULL, byte_count INTEGER NOT NULL CHECK(byte_count > 0 AND byte_count <= 5242880),
+                sha256 TEXT NOT NULL, content BLOB NOT NULL, reason TEXT NOT NULL,
+                created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            db.execute('''CREATE INDEX IF NOT EXISTS subledger_attachment_origin
+                ON subledger_attachments(opening_id,origin_key,id)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS subledger_attachment_reversals (
+                id INTEGER PRIMARY KEY, attachment_id INTEGER NOT NULL UNIQUE REFERENCES subledger_attachments(id),
+                reason TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            for table in ('subledger_attachments', 'subledger_attachment_reversals'):
+                for operation in ('UPDATE', 'DELETE'):
+                    db.execute(f'''CREATE TRIGGER IF NOT EXISTS {table}_immutable_{operation.lower()}
+                        BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT, 'immutable subledger evidence'); END''')
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if {'permissions', 'role_permissions'} <= tables:
+                previous = db.execute("SELECT group_code FROM permissions WHERE code='subledger_opening.view'").fetchone()
+                if previous:
+                    db.execute('INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,?)',
+                               ('subledger_opening.attachment', '维护历史原单附件', previous[0]))
+                    db.execute('''INSERT OR IGNORE INTO role_permissions(role_code,permission_code)
+                        SELECT role_code,'subledger_opening.attachment' FROM role_permissions
+                        WHERE permission_code='subledger_opening.view' AND role_code IN ('admin','finance')''')
+            db.execute('PRAGMA user_version = 100')

@@ -17,6 +17,7 @@ import { openingActionLabels, openingStatusLabels } from './opening-display'
 import { subledgerActions, subledgerKindLabels } from './subledger-display'
 import SubledgerEditor from './SubledgerEditor.vue'
 import SubledgerEvidence from './SubledgerEvidence.vue'
+import SubledgerAttachments from './SubledgerAttachments.vue'
 import SubledgerSettlements from './SubledgerSettlements.vue'
 import SubledgerOrderSettlements from './SubledgerOrderSettlements.vue'
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
@@ -34,6 +35,7 @@ const mode = ref<'balances' | 'plans' | 'payments' | 'settlements' | 'orders'>('
 const editing = ref(false)
 const preparing = ref(false)
 const detail = ref<SubledgerOpening | null>(null)
+const detailTab = ref<'evidence' | 'attachments'>('evidence')
 const detailLoading = ref(false)
 let detailTicket = 0
 const source = ref<SubledgerBalanceRow | null>(null)
@@ -84,7 +86,7 @@ function alreadyReversed(row: SubledgerPayment): boolean {
 }
 watch(() => filters.value.kind, () => { filters.value.party_id = null })
 watch(filters, () => { source.value = null }, { deep: true, flush: 'sync' })
-function closeDetail(): void { detailTicket++; detailLoading.value = false; detail.value = null; clearSubledgerDetail() }
+function closeDetail(): void { detailTicket++; detailLoading.value = false; detail.value = null; detailTab.value = 'evidence'; clearSubledgerDetail() }
 watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`, () => {
   fundCommand.value = null; editing.value = false; command.value = null; reversal.value = null; payment.value = null; source.value = null; closeDetail()
 }, { flush: 'sync' })
@@ -250,7 +252,12 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
     </NModal>
     <NModal :show="!!detail" preset="card" title="分户核对与审计" :style="modalStyle" @update:show="value => { if (!value) closeDetail() }">
       <p v-if="error" role="alert">{{ error }}</p>
-      <SubledgerEvidence v-if="detail" :record="detail" :check="check" :changes="changes" :loading="detailLoading" />
+      <div v-if="detail" class="subledger-detail-tabs" aria-label="分户核对内容">
+        <AppButton :aria-pressed="detailTab === 'evidence'" :variant="detailTab === 'evidence' ? 'primary' : 'secondary'" @click="detailTab = 'evidence'">金额核对与审计</AppButton>
+        <AppButton :aria-pressed="detailTab === 'attachments'" :variant="detailTab === 'attachments' ? 'primary' : 'secondary'" @click="detailTab = 'attachments'">原单票据附件</AppButton>
+      </div>
+      <SubledgerEvidence v-if="detail && detailTab === 'evidence'" :record="detail" :check="check" :changes="changes" :loading="detailLoading" />
+      <SubledgerAttachments v-if="detail && !detailLoading && detailTab === 'attachments'" :opening-id="detail.id" :opening-version="detail.version" />
     </NModal>
     <NModal :show="!!source" preset="card" title="历史来源与资金" :style="modalStyle" @update:show="value => { if (!value) source = null }">
       <div v-if="source" class="ledger-editor">
@@ -299,3 +306,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
     </NModal>
   </section>
 </template>
+
+<style scoped>
+.subledger-detail-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+</style>

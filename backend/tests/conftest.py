@@ -215,9 +215,10 @@ def remove_mrp_schema(remove_crm_schema):
 def remove_subledger_schema(remove_mrp_schema):
     def remove(db):
         remove_mrp_schema(db)
-        for table in ('subledger_payments', 'subledger_opening_changes', 'subledger_opening_lines', 'subledger_openings'):
+        for table in ('subledger_attachment_reversals', 'subledger_attachments',
+                      'subledger_payments', 'subledger_opening_changes', 'subledger_opening_lines', 'subledger_openings'):
             db.execute(f'DROP TABLE IF EXISTS {table}')
-        for operation in ('view', 'create', 'submit', 'review', 'confirm', 'cancel', 'reverse'):
+        for operation in ('view', 'create', 'submit', 'review', 'confirm', 'cancel', 'reverse', 'attachment'):
             code = 'subledger_opening.' + operation
             db.execute('DELETE FROM role_permissions WHERE permission_code=?', (code,))
             db.execute('DELETE FROM permissions WHERE code=?', (code,))

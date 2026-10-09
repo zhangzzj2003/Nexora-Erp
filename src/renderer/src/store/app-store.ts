@@ -59,6 +59,7 @@ import { createProfitTransferActions } from './modules/profit-transfer-actions'
 import { createStatementActions } from './modules/statement-actions'
 import { createAuxiliaryActions } from './modules/auxiliary-actions'
 import { createSubledgerActions } from './modules/subledger-actions'
+import { createSubledgerAttachmentActions } from './modules/subledger-attachment-actions'
 import { createSubledgerOrderActions } from './modules/subledger-order-actions'
 import { createMrpActions } from './modules/mrp-actions'
 import { createCrmActions } from './modules/crm-actions'
@@ -304,6 +305,7 @@ function createAppStore() {
   const statementActions = createStatementActions(state, perform)
   const auxiliaryActions = createAuxiliaryActions(state, perform)
   const subledgerActions = createSubledgerActions(state, perform)
+  const subledgerAttachmentActions = createSubledgerAttachmentActions(state)
   const subledgerOrderActions = createSubledgerOrderActions(state, perform, subledgerActions.refreshSubledgerApproval)
   const mrpActions = createMrpActions(state, perform)
   const crmActions = createCrmActions(state, perform)
@@ -399,6 +401,7 @@ function createAppStore() {
     ...statementActions,
     ...auxiliaryActions,
     ...subledgerActions,
+    ...subledgerAttachmentActions,
     ...subledgerOrderActions,
     ...mrpActions,
     ...crmActions,

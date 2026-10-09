@@ -637,13 +637,18 @@ def subledger_snapshot(db: Session, identifier: int) -> dict:
     if executed:
         authors = set(json.loads(executed.snapshot_json)['source_author_ids'])
     # 完整五百行与总账依据全部参与摘要，确认结果与基础资料名称不覆盖批准正文。
-    return {field: original[field] for field in ('reference', 'effective_date', 'opening_balance_id',
+    result = {field: original[field] for field in ('reference', 'effective_date', 'opening_balance_id',
         'opening_version', 'control_accounts', 'note', 'currency')} | {
         'source_author_ids': sorted(authors), 'ledger_basis': basis,
         'lines': [{field: line[field] for field in ('id', 'kind', 'customer_id', 'supplier_id',
             'account_id', 'account_code', 'document_reference', 'document_date', 'debit', 'credit')} | {
             'auxiliary': [{'kind': item['kind'], 'id': item['id']} for item in line['auxiliary']]}
             for line in original['lines']]}
+    from app.finance.subledger_attachment_rules import approval_evidence
+    attachments = approval_evidence(db, identifier)
+    if attachments is not None:
+        result['attachments'] = attachments
+    return result
 
 
 def opening_snapshot(db: Session, identifier: int) -> dict:

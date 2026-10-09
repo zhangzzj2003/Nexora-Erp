@@ -154,7 +154,7 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 数据库第 39 版增加成本结算、分摊、来源依赖和独立冲销表。GET `/api/v1/production-costs/settlements` 查看历史；POST 同路径传入 `work_order_id`、`reference`、可选 `note`，仅可结算全部报工、无未处理草稿且净领料全部核价的工单。成本按合格入库数量累计比例分摊到各完工批次，以分为单位处理尾差；没有合格成品时拒绝结算。完工入库在库存计价中返回 `cost_source: production_settlement` 与 `settlement_id`，内部分摊金额不由四位展示单价倒算。POST `/{id}/reverse` 按原因冲销结算，原快照保留；有关联后续有效工单结算时拒绝冲销。结算冻结该工单费用、完工来源和有关核价依赖，先冲销后才能更正。结算、冲销分别要求 `production_cost.settle`、`production_cost.reopen`，默认授予管理员和财务员；查看沿用 `production_cost.view`。成本规则与边界见 [完工成本规则](../docs/production-cost-settlement.md)。
 
-现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 197 张静态模型表及第 97 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
+现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 200 张静态模型表及第 100 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
 
 历史原单与现有订单的双向核销使用 v97 ORM 模型，业务实现位于 `finance/subledger_order_settlements.py`、`subledger_order_balances.py` 和 `order_ledger_scope.py`。从实际已过账凭证及旧订单核销链核对完整科目/辅助，独立批准后执行，影响双边余额及后续收付款限额，追加反向恢复，依赖凭证先撤销核销才能冲销。专属查看权、固定接口、迁移和明确阻止条件见[历史与订单核销规则](../docs/subledger-order-settlements.md)。
 
@@ -370,3 +370,5 @@ v98 结构迁移只将其他入库及其冲销排除出库存来源明细单次�
 ## 其他入库一次性重开（v99）
 
 `app/inventory/inbounds.py` 的 `POST /api/v1/warehouse-inbounds/{id}/reopen` 要求 `other_inbound.create`，仅允许已取消或已冲销原单；提交与普通新建相同的可编辑正文，写锁内生成新草稿和唯一来源记录。重复或并发成功保存返回 409，校验失败回滚；原库存与审批历史不修改。v99 的 `warehouse_inbound_reopens` 使用原单和新单唯一约束、外键、不可改删触发器；列表及审批查询提供双向来源事件，供详情和溯源流程展示。升级不推断历史复制关系。详见[重开规则](../docs/physical-lot-tracing.md#取消与冲销重开新单v99)。
+
+历史原单票据附件使用 v100 ORM 模型，业务实现位于 `finance/subledger_attachments.py` 和 `subledger_attachment_rules.py`。原件绑定分户方案并保存完整原单快照，来源变化阻止批准，确认后补录不改旧批准正文；新期间证据按上传及撤销各自截止时间固定。权限、下载、备份、升级兼容和限制见[历史原单票据附件](../docs/subledger-attachments.md)。

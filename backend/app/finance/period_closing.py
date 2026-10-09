@@ -106,7 +106,9 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
     subledger = active_subledger(db)
     subledger_evidence = None if subledger is None else dict(opening=subledger_snapshot(db, subledger),
         rows=[subledger_balance(db, line, period.end_date) for line in subledger_lines(db, subledger.id)])
+    from app.finance.subledger_attachment_rules import archive_evidence as subledger_attachment_evidence
     evidence = dict(period=snapshot(period), currency='CNY', time_basis='UTC',
+        subledger_attachments=subledger_attachment_evidence(db, period.end_date),
         subledger=subledger_evidence,
         after_sales=archive_cases(db, period.end_date, valuation),
         quality=[dict(disposition=model_data(record), allocations=[model_data(value) for value in db.scalars(

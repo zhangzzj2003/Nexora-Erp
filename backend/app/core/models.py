@@ -632,6 +632,33 @@ class SubledgerOpeningChange(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
+class SubledgerAttachment(Base):
+    __tablename__ = 'subledger_attachments'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # 草稿保存会重建原单行，附件因此绑定方案并固定原单正文，而不引用临时行外键。
+    opening_id: Mapped[int] = mapped_column(ForeignKey('subledger_openings.id'), nullable=False)
+    origin_key: Mapped[str] = mapped_column(Text, nullable=False)
+    source_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    source_json: Mapped[str] = mapped_column(Text, nullable=False)
+    file_name: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)
+    byte_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, deferred=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class SubledgerAttachmentReversal(Base):
+    __tablename__ = 'subledger_attachment_reversals'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attachment_id: Mapped[int] = mapped_column(ForeignKey('subledger_attachments.id'), nullable=False, unique=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class SubledgerPayment(Base):
     # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
     document_no: Mapped[str | None] = mapped_column(Text, unique=True)
