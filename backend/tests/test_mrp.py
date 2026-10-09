@@ -314,10 +314,10 @@ def test_v48_upgrade_preserves_stock_and_is_idempotent(seeded, remove_mrp_schema
     migrate()
     migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 100
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 101
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
-        assert len(Base.metadata.tables) == 200
+        assert len(Base.metadata.tables) == 202
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE role_code='planner' AND permission_code='purchase_request.create'").fetchone()[0] == 1
 
 

@@ -1,6 +1,7 @@
 import type { AppState } from '../state'
 import { watch } from 'vue'
 import type { PaymentRecord, OrderSettlementTransfer } from '../../../../shared/erp-api'
+import { fundsScopeBody } from '../../../../shared/control-balance-validation.ts'
 
 // 收付款操作独立维护；写入后由统一入口刷新服务端快照。
 export function createFinanceActions(
@@ -19,7 +20,8 @@ export function createFinanceActions(
 
   async function createPaymentRecord(): Promise<void> {
     if (!connected() || !can('finance.record')) return
-    const session = owner; const input = { ...paymentForm.value }
+    const session = owner; const input = { ...paymentForm.value,
+      ...(paymentForm.value.control_scope ? { control_scope: fundsScopeBody(paymentForm.value.control_scope) } : {}) }
     await perform(async () => {
       guard(session, 'finance.record')
       await window.nexora!.callApi('createPaymentRecord', input)
@@ -28,6 +30,7 @@ export function createFinanceActions(
       paymentForm.value.amount = ''
       paymentForm.value.reference = ''
       paymentForm.value.note = ''
+      delete paymentForm.value.control_scope
     }, '收付款草稿已保存，独立批准执行后才更新订单余额。')
   }
 

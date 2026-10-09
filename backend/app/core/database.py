@@ -81,7 +81,7 @@ def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_recor
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 100:
+        if version > 101:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -3044,3 +3044,54 @@ def migrate() -> None:
                         SELECT role_code,'subledger_opening.attachment' FROM role_permissions
                         WHERE permission_code='subledger_opening.view' AND role_code IN ('admin','finance')''')
             db.execute('PRAGMA user_version = 100')
+
+        if version < 101:
+            # 可空归属不回填旧资金；旧经济指纹和已批准正文保持原样。
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            for table in ('payment_records', 'subledger_payments'):
+                columns = {row[1] for row in db.execute(f'PRAGMA table_info({table})')}
+                if columns and 'control_scope_json' not in columns:
+                    db.execute(f'ALTER TABLE {table} ADD COLUMN control_scope_json TEXT')
+            db.execute('''CREATE TABLE IF NOT EXISTS control_balance_transfers (
+                id INTEGER PRIMARY KEY, document_no TEXT CHECK(document_no IS NULL OR length(trim(document_no)) > 0),
+                kind TEXT NOT NULL CHECK(kind IN ('receivable','payable')),
+                party_id INTEGER NOT NULL, operation TEXT NOT NULL CHECK(operation IN ('reclassify','allocate')),
+                business_date TEXT NOT NULL, from_scope_json TEXT NOT NULL, to_scope_json TEXT NOT NULL,
+                evidence_json TEXT NOT NULL, amount TEXT NOT NULL, from_delta TEXT NOT NULL,
+                reference TEXT NOT NULL, reason TEXT NOT NULL,
+                reverses_id INTEGER REFERENCES control_balance_transfers(id),
+                journal_id INTEGER UNIQUE REFERENCES journals(id),
+                status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','executed','cancelled')),
+                version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
+                created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                executed_by INTEGER REFERENCES users(id), executed_at TEXT,
+                cancelled_by INTEGER REFERENCES users(id), cancelled_at TEXT, cancellation_reason TEXT NOT NULL DEFAULT '')''')
+            db.execute('CREATE UNIQUE INDEX IF NOT EXISTS control_balance_transfers_document_no ON control_balance_transfers(document_no)')
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS control_balance_transfer_reference ON control_balance_transfers(reference) WHERE status != 'cancelled'")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS control_balance_transfer_reversal ON control_balance_transfers(reverses_id) WHERE status != 'cancelled'")
+            db.execute('''CREATE TABLE IF NOT EXISTS control_balance_transfer_changes (
+                id INTEGER PRIMARY KEY, transfer_id INTEGER NOT NULL REFERENCES control_balance_transfers(id),
+                action TEXT NOT NULL, snapshot_json TEXT NOT NULL, reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            for operation in ('UPDATE', 'DELETE'):
+                db.execute(f'''CREATE TRIGGER IF NOT EXISTS control_balance_transfer_changes_no_{operation.lower()}
+                    BEFORE {operation} ON control_balance_transfer_changes BEGIN
+                    SELECT RAISE(ABORT, 'immutable control transfer audit'); END''')
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'document_approval_policies' in tables:
+                db.execute('''INSERT OR IGNORE INTO document_approval_policies(document_type,version,steps_json)
+                    VALUES ('ControlBalanceTransfer',1,'[{"name":"批准","role":null}]')''')
+            if {'permissions', 'role_permissions'} <= tables:
+                previous = db.execute("SELECT group_code FROM permissions WHERE code='finance.view'").fetchone()
+                if previous:
+                    for action, label in (('view','查看往来余额转账'), ('create','编制往来余额转账'),
+                            ('review','审核往来余额转账'), ('verify','核准往来余额转账'), ('approve','批准往来余额转账'),
+                            ('post','办理往来余额转账'), ('reverse','更正往来余额转账')):
+                        code = 'control_transfer.' + action
+                        db.execute('INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,?)',
+                                   (code, label, previous[0]))
+                        db.execute('''INSERT OR IGNORE INTO role_permissions(role_code,permission_code)
+                            SELECT role_code,? FROM role_permissions WHERE permission_code='finance.view'
+                            AND role_code IN ('admin','finance')''', (code,))
+            db.execute('PRAGMA user_version = 101')

@@ -107,7 +107,19 @@ def precheck(db: Session, period: AccountingPeriod) -> dict:
     subledger_evidence = None if subledger is None else dict(opening=subledger_snapshot(db, subledger),
         rows=[subledger_balance(db, line, period.end_date) for line in subledger_lines(db, subledger.id)])
     from app.finance.subledger_attachment_rules import archive_evidence as subledger_attachment_evidence
+    from app.finance.control_balance_projection import executed_transfers, public_origins, saved_origin
+    from app.finance.control_balance_transfers import content as control_transfer_content
+    control_evidence = [dict(id=row.id, document_no=row.document_no, journal_id=row.journal_id,
+        executed_by=row.executed_by, executed_at=row.executed_at, **control_transfer_content(row))
+        for row in executed_transfers(db, period.end_date)]
+    affected_origins = {saved_origin(row[side]) for row in control_evidence for side in ('from_scope', 'to_scope')}
+    control_origins = [row for row in public_origins(db, period.end_date)
+        if saved_origin(row) in affected_origins] if control_evidence else []
+    for row in control_origins:
+        if row['blockers']:
+            block('control_transfer_scope', '生效转账的完整组合来源无法核对：' + '；'.join(row['blockers']))
     evidence = dict(period=snapshot(period), currency='CNY', time_basis='UTC',
+        control_transfers=control_evidence, control_transfer_origins=control_origins,
         subledger_attachments=subledger_attachment_evidence(db, period.end_date),
         subledger=subledger_evidence,
         after_sales=archive_cases(db, period.end_date, valuation),

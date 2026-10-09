@@ -23,6 +23,7 @@ from app.finance.auxiliary_rules import (AuxiliaryReference, combination,
 from app.finance.journals import JournalInput, JournalLineInput, ReasonInput, VersionInput
 from app.finance.opening_rules import active_opening, ensure_no_posted_journals
 from app.finance.subledger_rules import active_subledger, check_subledger, validate_control_mapping
+from app.finance.control_balance_funds import FundsScopeChoice, select_scope, validate_funds
 from app.reports.routes import csv_value
 
 from app.core import document_approval as approval
@@ -84,6 +85,7 @@ class PaymentInput(ReasonInput):
     action: Literal['settlement', 'refund']
     amount: str
     reference: str = Field(min_length=1, max_length=80)
+    control_scope: FundsScopeChoice | None = None
     _amount = field_validator('amount')(JournalLineInput.valid_amount.__func__)
     _reference = field_validator('reference')(JournalInput.nonblank_reference.__func__)
 
@@ -341,6 +343,12 @@ def changes(record_id: int = Path(gt=0), _: dict = Depends(require('subledger_op
 
 def validate_reversal(db: Session, record: SubledgerOpening) -> None:
     # 真实资金记录即使已冲销也必须保留历史期初，独立批准不能绕过该限制。
+    from app.core.models import ControlBalanceTransfer
+    line_ids = set(db.scalars(select(SubledgerOpeningLine.id).where(SubledgerOpeningLine.opening_id == record.id)))
+    for transfer in db.scalars(select(ControlBalanceTransfer).where(ControlBalanceTransfer.status != 'cancelled')):
+        if any(scope['source_type'] == 'historical' and scope['source_id'] in line_ids for scope in (
+                json.loads(transfer.from_scope_json), json.loads(transfer.to_scope_json))):
+            raise HTTPException(409, '期初已有余额转账草稿或执行记录，不能重设历史期初')
     ensure_no_posted_journals(db)
     ensure_date_unlocked(db, record.effective_date)
     if db.scalar(select(SubledgerOrderSettlement.id).join(SubledgerOpeningLine,
@@ -430,14 +438,20 @@ def transition(data: VersionInput, action: str, record_id: int = Path(gt=0), use
 
 def payment_data(db: Session, record: SubledgerPayment) -> dict:
     line = db.get(SubledgerOpeningLine, record.opening_line_id)
-    return dict(**model_data(record), kind=line.kind, account_id=line.account_id,
+    fields = model_data(record)
+    fields.pop('control_scope_json')
+    scope = json.loads(record.control_scope_json) if record.control_scope_json else None
+    if scope:
+        fields['control_scope'] = scope
+    return dict(**fields, kind=line.kind, account_id=scope['account_id'] if scope else line.account_id,
         party_id=line.customer_id or line.supplier_id, party_name=line_data(line)['party_name'],
-        document_reference=line.document_reference, auxiliary=json.loads(line.auxiliary_json),
+        document_reference=line.document_reference, auxiliary=scope['auxiliary'] if scope else json.loads(line.auxiliary_json),
         currency='CNY', created_by_name=db.get(User, record.created_by).username,
         approval=approval.case_data(approval.find_case(db, 'SubledgerPayment', record.id)))
 
 
-def balance(db: Session, line: SubledgerOpeningLine, to_date: str | None = None) -> dict:
+def balance(db: Session, line: SubledgerOpeningLine, to_date: str | None = None,
+            *, include_control_transfers: bool = True) -> dict:
     statement = select(SubledgerPayment).where(SubledgerPayment.opening_line_id == line.id, SubledgerPayment.status == 'executed').order_by(SubledgerPayment.id)
     if to_date:
         statement = statement.where(func.coalesce(SubledgerPayment.executed_at, SubledgerPayment.created_at) < to_date + ' 24:00:00')
@@ -451,10 +465,13 @@ def balance(db: Session, line: SubledgerOpeningLine, to_date: str | None = None)
     order_offset = line_offset(db, line.id, to_date)
     offset += order_offset
     result = line_data(line)
+    from app.finance.control_balance_projection import origin_delta
+    transfer_delta = origin_delta(db, line.kind, 'historical', line.id, to_date) if include_control_transfers else ZERO
     return dict(**result, settled_amount=f'{settled:.2f}',
         offset_amount=f'{offset:.2f}',
         order_offset_amount=f'{order_offset:.2f}',
-        outstanding_amount=f'{Decimal(result["opening_amount"]) - settled - offset:.2f}',
+        control_transfer_amount=f'{transfer_delta:.2f}',
+        outstanding_amount=f'{Decimal(result["opening_amount"]) - settled - offset + transfer_delta:.2f}',
         payments=payments, settlements=settlements)
 
 
@@ -476,13 +493,14 @@ def create_payment(data: PaymentInput, line_id: int = Path(gt=0),
             if db.get(SubledgerOpening, line.opening_id).status != 'confirmed':
                 raise HTTPException(409, '仅已确认方案的未结单据可以收付款')
             amount = Decimal(data.amount)
+            saved_scope = select_scope(db, line.kind, 'historical', line.id, data.control_scope)
             outstanding = Decimal(balance(db, line)['outstanding_amount'])
             limit = outstanding if data.action == 'settlement' else -outstanding
-            if amount > limit:
+            if saved_scope is None and amount > limit:
                 raise HTTPException(409, '收付款超过未结金额或贷方可退余额')
             record = add_model(db, SubledgerPayment(status='draft', opening_line_id=line.id, action=data.action,
                 amount=f'{amount if data.action == "settlement" else -amount:.2f}',
-                reference=data.reference, note=data.reason, created_by=user['id']))
+                reference=data.reference, note=data.reason, created_by=user['id'], control_scope_json=saved_scope))
             validate_payment(db, record)
             return payment_data(db, record)
     except IntegrityError:
@@ -502,7 +520,7 @@ def reverse_payment(data: ReasonInput, payment_id: int = Path(gt=0),
             raise HTTPException(409, '此登记已冲销或本身为冲销记录')
         record = add_model(db, SubledgerPayment(status='draft', opening_line_id=original.opening_line_id, action='reversal',
             amount=f'{-Decimal(original.amount):.2f}', reference=f'冲销 #{original.id}', note=data.reason,
-            reverses_id=original.id, created_by=user['id']))
+            reverses_id=original.id, created_by=user['id'], control_scope_json=original.control_scope_json))
         validate_payment(db, record)
         return payment_data(db, record)
 
@@ -516,17 +534,19 @@ def validate_payment(db: Session, record: SubledgerPayment) -> None:
     opening = db.get(SubledgerOpening, line.opening_id) if line else None
     if opening is None or opening.status != 'confirmed' or opening.active_key != 1:
         raise HTTPException(409, '分户原方案已失效，不能执行资金')
+    scoped = validate_funds(db, record, line.kind, 'historical', line.id)
     if record.reverses_id is not None:
         original = db.get(SubledgerPayment, record.reverses_id)
         if original is None or original.status != 'executed' or original.action == 'reversal':
             raise HTTPException(409, '原分户资金未执行或本身是反向资金')
-        if (original.opening_line_id, -Decimal(original.amount)) != (record.opening_line_id, Decimal(record.amount)):
+        if (original.opening_line_id, -Decimal(original.amount), original.control_scope_json) != (
+                record.opening_line_id, Decimal(record.amount), record.control_scope_json):
             raise HTTPException(409, '反向资金与原分户单据不一致')
         ensure_date_unlocked(db, original.executed_at or original.created_at)
         if db.scalar(select(SubledgerPayment.id).where(SubledgerPayment.reverses_id == original.id,
                 SubledgerPayment.status != 'cancelled', SubledgerPayment.id != record.id).limit(1)) is not None:
             raise HTTPException(409, '原分户资金已有有效反向草稿或记录')
-    else:
+    elif not scoped:
         outstanding = Decimal(balance(db, line)['outstanding_amount'])
         limit = outstanding if record.action == 'settlement' else -outstanding
         if abs(Decimal(record.amount)) > limit:

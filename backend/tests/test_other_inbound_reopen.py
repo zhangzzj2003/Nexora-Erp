@@ -110,7 +110,7 @@ def test_reopen_permission_missing_source_and_upgrade_evidence(inbound_client):
         db.execute('PRAGMA user_version=98')
     migrate(); migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 100
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 101
         assert db.execute('SELECT count(*) FROM warehouse_inbound_reopens').fetchone()[0] == 0
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
     new = client.post(f'/api/v1/warehouse-inbounds/{old["id"]}/reopen', headers=auth, json=body(materials[0])).json()

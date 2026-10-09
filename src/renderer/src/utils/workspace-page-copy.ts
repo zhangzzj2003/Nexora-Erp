@@ -41,6 +41,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   journals: '手工录入或按业务来源生成人民币凭证草稿，由另一账号审核后过账。冲销保留原记录与来源快照。',
   openingBalances: '首次总账启用的科目余额、独立审核与确认。',
   subledgerOpenings: '逐笔导入首次启用前的历史未结单据，与总账期初逐组合核对，独立审核后登记收付款。',
+  controlBalanceTransfers: '核对原单的控制科目、完整辅助和实际来源，分别批准转账与凭证，过账时同步生效余额。',
   financialStatements: '按公司项目编制资产负债与利润报表，核对科目与凭证来源，保留关闭期间归档。',
   auxiliaryAccounting: '按客户、供应商、部门或项目核对科目余额与原分录；档案和必填规则修改保留版本及依据。',
   ledgerReports: '核对已过账凭证的科目明细与试算平衡，按凭证日期汇总人民币金额。未结账数据可随后续过账变化。',

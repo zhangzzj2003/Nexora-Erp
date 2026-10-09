@@ -12,6 +12,7 @@ import { usePiniaAppStore } from '../../../store/app-store'
 import { datePickerString, vDateField } from '../../../utils/date-field'
 import { displayError, localTime } from '../../../utils/formatters'
 import type { OpeningBalanceAction, SubledgerOpening, SubledgerPayment, SubledgerBalanceRow, SubledgerPaymentInput } from '../../../../../shared/erp-api'
+import ControlFundsSelector from './ControlFundsSelector.vue'
 import { auxiliaryText } from './auxiliary-display'
 import { openingActionLabels, openingStatusLabels } from './opening-display'
 import { subledgerActions, subledgerKindLabels } from './subledger-display'
@@ -47,6 +48,7 @@ const fundReason = ref('')
 const reason = ref('')
 const payment = ref<SubledgerBalanceRow | null>(null)
 const paymentForm = ref<SubledgerPaymentInput>({ line_id: 0, action: 'settlement', amount: '', reference: '', reason: '' })
+const fundsReady = ref(false)
 const modalStyle = { width: 'min(1100px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' as const }
 const smallStyle = { width: 'min(600px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' as const }
 const disabled = computed(() => busy.value || connectionLost.value || loading.value)
@@ -134,11 +136,11 @@ async function confirm(): Promise<void> {
   if (saved) { command.value = null; reversal.value = null; closeDetail() }
 }
 function register(row: SubledgerBalanceRow): void {
-  payment.value = row; operationError.value = ''
+  payment.value = row; operationError.value = ''; fundsReady.value = false
   paymentForm.value = { line_id: row.id, action: Number(row.outstanding_amount) > 0 ? 'settlement' : 'refund', amount: '', reference: '', reason: '' }
 }
 async function savePayment(): Promise<void> {
-  if (disabled.value || !payment.value) return
+  if (disabled.value || !payment.value || !fundsReady.value) return
   if (await createSubledgerPayment({ ...paymentForm.value })) { payment.value = null; source.value = null; mode.value = 'payments'; await querySubledger() }
 }
 const fundCaption = (item: SubledgerPayment) => item.status === 'cancelled' ? '已取消草稿'
@@ -205,7 +207,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
         <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template>
         <template #cell-actions="{ row }"><div class="row-actions">
           <AppButton variant="text" :disabled="disabled" @click="source = row">来源与资金</AppButton>
-          <AppButton v-if="can('finance.record')" variant="text" :disabled="disabled || Number(row.outstanding_amount) === 0" @click="register(row)">登记资金</AppButton>
+          <AppButton v-if="can('finance.record')" variant="text" :disabled="disabled" @click="register(row)">登记资金</AppButton>
         </div></template>
         <template #empty>{{ !report ? '选择截止日后查询。没有已确认方案时，请先查看分户方案。' : report.opening ? '当前条件下没有历史未结单据。已结清单据仍保留在结果中。' : '尚无已启用分户期初；可在分户方案中逐笔建立历史未结来源。' }}</template>
       </WorkspaceTable>
@@ -235,7 +237,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
       <WorkspaceTable class="journal-list-table" title="分户资金记录" :columns="funds" :data="filteredFunds" :min-table-width="1350" :loading="loading">
         <template #cell-kind="{ row }">{{ subledgerKindLabels[row.kind] }}</template>
         <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
-        <template #cell-action="{ row }">{{ paymentLabel(row) }}{{ row.reverses_id ? ` · 原记录 ${relatedDocumentLabel(row, 'reverses')}` : '' }}</template>
+        <template #cell-action="{ row }">{{ paymentLabel(row) }}{{ row.reverses_id ? ` · 原记录 ${relatedDocumentLabel(row, 'reverses')}` : '' }}<p v-if="row.control_scope">固定科目 #{{ row.control_scope.account_id }} · {{ auxiliaryText(row.control_scope.auxiliary) }}</p></template>
         <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
         <template #cell-status="{ row }">{{ fundCaption(row) }} · v{{ row.version }}<small v-if="row.executed_at">执行于 {{ localTime(row.executed_at) }}</small></template>
         <template #cell-actions="{ row }"><div class="row-actions">
@@ -263,7 +265,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
       <div v-if="source" class="ledger-editor">
         <p>{{ subledgerKindLabels[source.kind] }} · {{ source.party_name }} · 原单 {{ source.document_reference }} · {{ source.document_date }}</p>
         <p>控制科目 {{ source.account_code }} · {{ source.account_name }}；{{ auxiliaryText(source.auxiliary) }}</p>
-        <p>截至 {{ report?.to_date }}（UTC）：期初 {{ source.opening_amount }}；资金净额 {{ source.settled_amount }}；核销净额 {{ source.offset_amount }}；未结 {{ source.outstanding_amount }} 元。</p>
+        <p>截至 {{ report?.to_date }}（UTC）：期初 {{ source.opening_amount }}；资金净额 {{ source.settled_amount }}；核销净额 {{ source.offset_amount }}；组合转账调整 {{ source.control_transfer_amount ?? '0.00' }}；未结 {{ source.outstanding_amount }} 元。</p>
         <WorkspaceTable title="截止日内资金记录" :columns="funds.filter(item => item.key !== 'actions')" :data="source.payments" :min-table-width="1250">
           <template #cell-kind="{ row }">{{ subledgerKindLabels[row.kind] }}</template>
           <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
@@ -297,11 +299,14 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
       <form v-if="payment" class="ledger-editor" @submit.prevent="savePayment">
         <p>{{ payment.party_name }} · 原单 {{ payment.document_reference }}。所查截止日未结 {{ payment.outstanding_amount }} 元；服务端按保存及执行时最新余额校验，草稿与批准不更新余额。</p>
         <p>{{ paymentLabel(paymentForm) }}；保存与实际执行时间由服务端分别记录（UTC），不能倒签。金额填正数；超出可收付或可退金额时会拒绝。</p>
+        <label>资金动作<WorkspaceSelect v-model="paymentForm.action" :disabled="disabled" :options="[{ value: 'settlement', label: '收款 / 付款' }, { value: 'refund', label: '退款 / 收退' }]" /></label>
+        <ControlFundsSelector v-model="paymentForm.control_scope" :query="{ kind: payment.kind, source_type: 'historical', source_id: payment.id }"
+          :action="paymentForm.action" :disabled="disabled" @ready="value => fundsReady = value" />
         <label>金额（人民币）<AppInput v-model="paymentForm.amount" required inputmode="decimal" pattern="[0-9]{1,12}(\.[0-9]{1,2})?" :disabled="disabled" /></label>
         <label>资金参考号<AppInput v-model.trim="paymentForm.reference" required maxlength="80" :disabled="disabled" /></label>
         <label>登记依据<AppInput v-model.trim="paymentForm.reason" required maxlength="200" :disabled="disabled" /></label>
         <p v-if="operationError" role="alert">{{ operationError }}</p>
-        <AppButton type="submit" variant="primary" :disabled="disabled || !paymentForm.amount || !paymentForm.reference || !paymentForm.reason">{{ busy ? '正在保存…' : '保存资金草稿' }}</AppButton>
+        <AppButton type="submit" variant="primary" :disabled="disabled || !fundsReady || !paymentForm.amount || !paymentForm.reference || !paymentForm.reason">{{ busy ? '正在保存…' : '保存资金草稿' }}</AppButton>
       </form>
     </NModal>
   </section>

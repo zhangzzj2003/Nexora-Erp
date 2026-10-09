@@ -21,6 +21,7 @@ from app.core.models import (
     JournalChange,
     BusinessJournalSource,
     ProfitTransfer,
+    ControlBalanceTransfer,
     User,
 )
 from app.core.orm import add_model, model_data, orm_session
@@ -177,6 +178,11 @@ def snapshot(db: Session, record: Journal) -> dict:
 
 def view(db: Session, record: Journal) -> dict:
     result = snapshot(db, record)
+    from app.core.models import ControlBalanceTransfer
+    transfer = db.scalar(select(ControlBalanceTransfer).where(ControlBalanceTransfer.journal_id == record.id))
+    if transfer:
+        result['control_transfer'] = {field: getattr(transfer, field) for field in (
+            'id', 'document_no', 'reverses_id', 'operation', 'status')}
     result["created_by_name"] = db.scalar(
         select(User.username).where(User.id == record.created_by)
     )
@@ -357,6 +363,7 @@ def update_journal(
                 or record.reversal_of_id is not None
                 or db.scalar(select(BusinessJournalSource.id).where(BusinessJournalSource.journal_id == record.id)) is not None
                 or db.scalar(select(ProfitTransfer.id).where(ProfitTransfer.journal_id == record.id)) is not None
+                or db.scalar(select(ControlBalanceTransfer.id).where(ControlBalanceTransfer.journal_id == record.id)) is not None
             ):
                 raise HTTPException(
                     409, "仅手工草稿或驳回凭证可编辑；业务、结转或冲销草稿需取消后重建"
@@ -389,6 +396,8 @@ def prepare_approval_action(db: Session, record: Journal, action: str, user: dic
         from app.finance.profit_transfers import validate_source as validate_transfer
         validate_source(db, record)
         validate_transfer(db, record)
+        from app.finance.control_balance_transfers import validate_journal
+        validate_journal(db, record)
         validate_for_post(db, record)
     return before
 
@@ -425,6 +434,9 @@ def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> 
         case = approval.find_case(db, 'Journal', journal_id)
         if action == 'cancel' and case and case.status in ('submitted', 'approved'):
             raise HTTPException(409, '请先撤回凭证审批，再取消草稿')
+        if action == 'cancel':
+            from app.finance.control_balance_transfers import authorize_journal_cancel
+            authorize_journal_cancel(db, record, user['id'])
         before = snapshot(db, record)
         if action == "post":
             case = approval.require_approved(db, 'Journal', journal_id, journal_snapshot(db, journal_id), user['id'])
@@ -437,6 +449,8 @@ def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> 
             validate_source(db, record)
             from app.finance.profit_transfers import validate_source as validate_transfer
             validate_transfer(db, record)
+            from app.finance.control_balance_transfers import validate_journal
+            control_transfer = validate_journal(db, record, actor_id=user['id'])
             validate_for_post(db, record)
         record.status, record.version = target[action], record.version + 1
         prefix = {
@@ -450,6 +464,9 @@ def transition(journal_id: int, data: VersionInput, user: dict, action: str) -> 
             datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         )
         db.flush()
+        if action == 'post':
+            from app.finance.control_balance_transfers import post_effect
+            post_effect(db, record, control_transfer, user['id'], data.reason)
         from app.finance.business_journals import release_source
         release_source(db, record)
         from app.finance.profit_transfers import release_source as release_transfer
@@ -518,6 +535,8 @@ def reverse(
                 raise HTTPException(409, "仅已过账的原始凭证可建立冲销")
             from app.finance.subledger_order_settlements import protect_journal
             protect_journal(db, original.id)
+            from app.finance.control_balance_transfers import protect_journal as protect_control_journal
+            protect_control_journal(db, original.id)
             if data.journal_date < original.journal_date:
                 raise HTTPException(409, "冲销日期不能早于原凭证日期")
             transfer = db.scalar(select(ProfitTransfer).where(ProfitTransfer.journal_id == original.id))

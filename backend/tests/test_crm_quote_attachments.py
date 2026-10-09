@@ -124,10 +124,10 @@ def test_v74_upgrade_is_idempotent_and_keeps_quote(seeded):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 100
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 101
         assert db.execute('SELECT status FROM crm_quotes WHERE id=?', (identifier,)).fetchone()[0] == 'draft'
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='crm_quote.attachment'").fetchone()[0] == 2
-    assert len(Base.metadata.tables) == 200
+    assert len(Base.metadata.tables) == 202
     assert client.post(path(identifier), headers=admin, json=attachment()).status_code == 201
 
 

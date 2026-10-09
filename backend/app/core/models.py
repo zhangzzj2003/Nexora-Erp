@@ -667,6 +667,8 @@ class SubledgerPayment(Base):
     opening_line_id: Mapped[int] = mapped_column(ForeignKey('subledger_opening_lines.id'), nullable=False)
     action: Mapped[str] = mapped_column(Text, nullable=False)
     amount: Mapped[str] = mapped_column(Text, nullable=False)
+    # 空值保留旧资金经济指纹；新组合资金固定真实科目、辅助及转账来源。
+    control_scope_json: Mapped[str | None] = mapped_column(Text)
     reference: Mapped[str] = mapped_column(Text, nullable=False)
     note: Mapped[str] = mapped_column(Text, nullable=False)
     reverses_id: Mapped[int | None] = mapped_column(ForeignKey('subledger_payments.id'))
@@ -1742,6 +1744,7 @@ class PaymentRecord(Base):
     order_id: Mapped[int] = mapped_column(Integer, nullable=False)
     action: Mapped[str] = mapped_column(Text, nullable=False)
     amount: Mapped[str] = mapped_column(Text, nullable=False)
+    control_scope_json: Mapped[str | None] = mapped_column(Text)
     reference: Mapped[str] = mapped_column(Text, nullable=False)
     note: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     reverses_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('payment_records.id'), nullable=True)
@@ -1755,6 +1758,56 @@ class PaymentRecord(Base):
     cancelled_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
     cancelled_at: Mapped[str | None] = mapped_column(Text)
     cancellation_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+
+
+class ControlBalanceTransfer(Base):
+    """往来组合重分类与贷方分配；只有关联凭证过账才追加业务效果。"""
+    __tablename__ = 'control_balance_transfers'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    party_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    operation: Mapped[str] = mapped_column(Text, nullable=False)
+    business_date: Mapped[str] = mapped_column(Text, nullable=False)
+    from_scope_json: Mapped[str] = mapped_column(Text, nullable=False)
+    to_scope_json: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    from_delta: Mapped[str] = mapped_column(Text, nullable=False)
+    reference: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reverses_id: Mapped[int | None] = mapped_column(ForeignKey('control_balance_transfers.id'))
+    journal_id: Mapped[int | None] = mapped_column(ForeignKey('journals.id'), unique=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'draft'"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    executed_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    executed_at: Mapped[str | None] = mapped_column(Text)
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    cancelled_at: Mapped[str | None] = mapped_column(Text)
+    cancellation_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    __table_args__ = (
+        CheckConstraint("kind IN ('receivable','payable')"),
+        CheckConstraint("operation IN ('reclassify','allocate')"),
+        CheckConstraint("status IN ('draft','executed','cancelled')"),
+        CheckConstraint('version > 0'),
+        Index('control_balance_transfer_reference', 'reference', unique=True,
+              sqlite_where=status != 'cancelled'),
+        Index('control_balance_transfer_reversal', 'reverses_id', unique=True,
+              sqlite_where=status != 'cancelled'),
+    )
+
+
+class ControlBalanceTransferChange(Base):
+    __tablename__ = 'control_balance_transfer_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    transfer_id: Mapped[int] = mapped_column(ForeignKey('control_balance_transfers.id'), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
 class OrderSettlementTransfer(Base):

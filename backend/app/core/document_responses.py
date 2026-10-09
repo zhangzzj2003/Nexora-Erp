@@ -25,6 +25,7 @@ PATH_TYPES = {
     'finance/opening-balances': 'OpeningBalance', 'finance/subledger-openings': 'SubledgerOpening',
     'payment-records': 'PaymentRecord', 'finance/payment-records': 'PaymentRecord', 'finance/order-settlements': 'OrderSettlementTransfer', 'finance/subledger-settlements': 'SubledgerSettlement',
     'finance/subledger-order-settlements': 'SubledgerOrderSettlement',
+    'finance/control-transfers': 'ControlBalanceTransfer',
 }
 COLLECTION_TYPES = {
     'quotes': 'CrmQuote', 'dispositions': 'QualityDisposition', 'jobs': 'MaintenanceJob',
@@ -132,6 +133,8 @@ def enrich_numbers(db, value, primary: str | None, path: str):
                 # 固定证据原样返回，补号不能改变快照内容或其哈希语义。
                 if key not in ('snapshot', 'before', 'after', 'evidence', 'frozen_source'):
                     child = COLLECTION_TYPES.get(key)
+                    if key == 'transfer' and path.startswith('/api/v1/finance/control-transfers'):
+                        child = 'ControlBalanceTransfer'
                     # 财务 overview 的 transfers 是订单核销，不能按同名仓库调拨覆盖主单号。
                     if key == 'transfers' and path == '/api/v1/finance/overview':
                         child = 'OrderSettlementTransfer'

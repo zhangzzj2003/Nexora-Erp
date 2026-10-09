@@ -283,7 +283,7 @@ def test_v88_migration_failure_rolls_back_all_numbering_structure(client, monkey
     monkeypatch.setattr(database, 'connection', original_connection)
     database.migrate(); database.migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 100
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 101
         assert db.execute('SELECT style FROM document_numbering_settings').fetchone()[0] is None
         assert db.execute('SELECT id,username FROM users').fetchall() == original_users
         for _, table, _, _ in DOCUMENT_TYPES:

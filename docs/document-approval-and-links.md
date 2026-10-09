@@ -169,7 +169,7 @@ v95 迁移只增加权限目录和旧审核角色对应的核准、批准授权�
 
 ## 整体验收与交付要求
 
-- 31 类覆盖，原有编号保持不变；v96 历史原单核销及 v97 历史与订单核销使用独立新号。
+- 32 类覆盖，原有编号保持不变；v96 历史原单核销及 v97 历史与订单核销使用独立新号。
 - 默认独立审批、不同审批步骤、越权、自审、旧客户端、并发与回滚测试。
 - 自动转单、审批后的仓库执行、质检后完工、退料和冲销链。
 - 收付款、核销、成本结算的待审草稿不生效，执行时重新校验。
@@ -200,7 +200,7 @@ v95 迁移只增加权限目录和旧审核角色对应的核准、批准授权�
 
 ## 现状证据
 
-- 编号类型清单：`backend/app/core/document_types.py`，共 31 类。
+- 编号类型清单：`backend/app/core/document_types.py`，共 32 类。
 - 原确认和库存事务：`backend/app/inventory/inbounds.py`、`purchase/receipts.py`、`production/material_issues.py`、`production/completions.py` 等。
 - 财务记录已改为待审草稿并在批准执行后生效：`backend/app/finance/routes.py`、`finance/subledger_openings.py`、`finance/order_settlements.py`、`finance/subledger_settlements.py`；生产成本结算见 `production/settlements.py`。
 - 已有凭证独立审批及过账：`backend/app/finance/journals.py`；既有独立审批还包括售后、维护及期初等模块。
@@ -312,3 +312,7 @@ v95 迁移只增加权限目录和旧审核角色对应的核准、批准授权�
 ## 已接入：历史原单核销（v96）
 
 `SubledgerSettlement` 使用同一草稿、送审、批准、撤回和执行门槛；查看沿用 `subledger_opening.view`，普通送审/执行为 `finance.record`，反向草稿送审/执行为 `finance.reverse`，步骤按 `finance.review/verify/approve` 授权。送审固定双方原单、完整辅助归属、金额、参考号和依据，提交及审批原因最多二百字。执行在同一 ORM 写事务内复核当前限额、期间锁和固定正文，草稿或批准不改变余额。等额反向记录另取新号并单独审批，不新增银行资金或总账来源。桌面分户期初的“原单核销”模式复用公共审批弹窗；实际接口、余额公式和回归边界见 [历史原单核销](subledger-openings.md#历史原单核销数据库-v96)。
+
+### 往来余额转账（v101）
+
+`ControlBalanceTransfer` 使用第 32 类独立编号及统一审批，固定两侧真实原单、控制科目、完整辅助、金额方向、日期及来源指纹。批准转账后生成固定 `Journal`，凭证另行批准；实际过账把两张审批执行、转账生效和审计放在同一 ORM 事务。反向转账及反向凭证均重新批准，原记录保留，下游倒序更正。权限及可用来源边界见[往来余额转账](control-balance-transfers.md)。

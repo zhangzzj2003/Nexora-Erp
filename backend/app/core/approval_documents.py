@@ -502,12 +502,16 @@ def payment_snapshot(db: Session, identifier: int) -> dict:
     source = document_source(db, 'PaymentRecord', identifier)
     original = db.get(PaymentRecord, source.reverses_id) if source.reverses_id else None
     # 身份、金额与原资金执行事实固定；余额在审批及执行时重算，不固定易变化的余额。
-    return {field: getattr(source, field) for field in ('kind', 'order_id', 'action', 'amount', 'reference', 'note', 'reverses_id')} | {
+    result = {field: getattr(source, field) for field in ('kind', 'order_id', 'action', 'amount', 'reference', 'note', 'reverses_id')} | {
         'party_id': party_data(db, source.kind, source.order_id)['party_id'],
         'source_author_ids': sorted({source.created_by, *([original.created_by] if original else []),
             *([original.executed_by] if original and original.executed_by is not None else [])}),
         'original': None if original is None else {field: getattr(original, field) for field in
             ('id', 'document_no', 'kind', 'order_id', 'action', 'amount', 'reference', 'executed_at')}}
+    if source.control_scope_json is not None:
+        import json
+        result['control_scope'] = json.loads(source.control_scope_json)
+    return result
 
 
 def settlement_snapshot(db: Session, identifier: int) -> dict:
@@ -609,13 +613,17 @@ def subledger_payment_snapshot(db: Session, identifier: int) -> dict:
     opening = db.get(SubledgerOpening, line.opening_id)
     original = db.get(SubledgerPayment, source.reverses_id) if source.reverses_id else None
     # 原单全套辅助和控制科目固定；不能把历史资金转到另一家往来对象或改换归属。
-    return {field: getattr(source, field) for field in ('opening_line_id', 'action', 'amount', 'reference', 'note', 'reverses_id')} | {
+    result = {field: getattr(source, field) for field in ('opening_line_id', 'action', 'amount', 'reference', 'note', 'reverses_id')} | {
         'line': model_data(line), 'opening': {'id': opening.id, 'document_no': opening.document_no,
             'effective_date': opening.effective_date, 'confirmed_by': opening.confirmed_by, 'confirmed_at': opening.confirmed_at},
         'source_author_ids': sorted({source.created_by, *([original.created_by] if original else []),
             *([original.executed_by] if original and original.executed_by is not None else [])}),
         'original': None if original is None else {field: getattr(original, field) for field in
             ('id', 'document_no', 'opening_line_id', 'action', 'amount', 'reference', 'executed_at')}}
+    if source.control_scope_json is not None:
+        import json
+        result['control_scope'] = json.loads(source.control_scope_json)
+    return result
 
 
 def subledger_snapshot(db: Session, identifier: int) -> dict:
@@ -699,7 +707,14 @@ def journal_snapshot(db: Session, identifier: int) -> dict:
         frozen = json.loads(case.snapshot_json)
         authors = set(frozen['source_author_ids'])
         attachments = [item for item in attachments if item.id in {row['id'] for row in frozen['attachments']}]
-    return {field: original[field] for field in ('reference', 'journal_date', 'period_id', 'note',
+    from app.core.models import ControlBalanceTransfer
+    transfer = db.scalar(select(ControlBalanceTransfer).where(ControlBalanceTransfer.journal_id == identifier))
+    transfer_content = {}
+    if transfer:
+        from app.finance.control_balance_transfers import approval_snapshot
+        transfer_content['control_transfer'] = approval_snapshot(db, transfer.id)
+        authors.update(transfer_content['control_transfer']['source_author_ids'])
+    return transfer_content | {field: original[field] for field in ('reference', 'journal_date', 'period_id', 'note',
         'currency', 'reversal_of_id', 'business_source', 'profit_transfer')} | {
         'source_author_ids': sorted(authors),
         # 基础资料更名不改变科目和辅助组合的身份；执行仍重核启用状态与辅助要求。
@@ -787,7 +802,12 @@ def sync_native_review(db: Session, document_type: str, identifier: int, action:
 
 
 # 仅登记已在原领域执行事务中接入校验的类型，避免生成无法保障执行边界的批准记录。
-_SNAPSHOTS = {'SubledgerSettlement': subledger_settlement_snapshot, 'ProductionCostSettlement': settlement_snapshot, 'OrderSettlementTransfer': order_settlement_snapshot, 'SubledgerPayment': subledger_payment_snapshot, 'PaymentRecord': payment_snapshot, 'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
+def control_transfer_snapshot(db: Session, identifier: int) -> dict:
+    from app.finance.control_balance_transfers import approval_snapshot
+    return approval_snapshot(db, identifier)
+
+
+_SNAPSHOTS = {'ControlBalanceTransfer': control_transfer_snapshot, 'SubledgerSettlement': subledger_settlement_snapshot, 'ProductionCostSettlement': settlement_snapshot, 'OrderSettlementTransfer': order_settlement_snapshot, 'SubledgerPayment': subledger_payment_snapshot, 'PaymentRecord': payment_snapshot, 'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'SubledgerOrderSettlement': subledger_order_settlement_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
               'PurchaseReturn': purchase_return_snapshot, 'WarehouseOutbound': outbound_snapshot,
@@ -921,6 +941,8 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
 
 
 def submit_permission(document_type: str, intent: str, source=None) -> str | None:
+    if document_type == 'ControlBalanceTransfer' and source is not None and source.reverses_id is not None:
+        return 'control_transfer.reverse'
     # 反向资金草稿独立送审，建单权限不能代替冲销权限。
     if document_type in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement', 'SubledgerOrderSettlement') and source is not None and source.reverses_id is not None:
         return 'finance.reverse'
@@ -941,6 +963,21 @@ def submit_permission(document_type: str, intent: str, source=None) -> str | Non
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type == 'ControlBalanceTransfer':
+        summary = [{'label': label, 'value': str(value)} for label, value in (
+            ('往来类别', '客户应收' if content['kind'] == 'receivable' else '供应商应付'),
+            ('办理方式', '原单内部余额重分类' if content['operation'] == 'reclassify' else '跨原单贷方分配'),
+            ('业务与凭证日期', content['business_date']), ('金额（元）', content['amount']),
+            ('参考号', content['reference']), ('依据', content['reason']))]
+        for key, label in (('from_scope', '来源组合'), ('to_scope', '目标组合')):
+            saved = content[key]
+            summary.append({'label': label, 'value':
+                f"{'历史原单' if saved['source_type'] == 'historical' else '订单'} #{saved['source_id']} · 科目 #{saved['account_id']} · "
+                + ' / '.join(item['name'] for item in saved['auxiliary'])})
+        if content['reverses_id']:
+            summary.append({'label': '原转账', 'value': f"#{content['reverses_id']}"})
+        summary.append({'label': '生效门槛', 'value': '批准后生成凭证；凭证另行独立审批过账，业务与总账才同时生效。'})
+        return summary
     if document_type == 'SubledgerOrderSettlement':
         line = content['line']
         proof = content['order_evidence']
@@ -984,22 +1021,34 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
             [{'label': '原核销单号', 'value': content['original']['document_no'] or f"#{content['original']['id']}"}] if content['original'] else [])
     if document_type == 'SubledgerPayment':
         import json
+        from app.core.models import LedgerAccount
         from app.finance.auxiliary_rules import LABELS
         line = content['line']
+        fixed = content.get('control_scope')
+        auxiliary = fixed['auxiliary'] if fixed else json.loads(line['auxiliary_json'])
+        account = db.get(LedgerAccount, fixed['account_id']) if fixed else None
         return [{'label': label, 'value': str(value)} for label, value in [
             ('分户期初单号', content['opening']['document_no'] or f"#{content['opening']['id']}"),
             ('历史原单', line['document_reference']), ('原单日期', line['document_date']),
-            ('控制科目', line['account_code']), ('往来对象', ' / '.join(item['name'] for item in json.loads(line['auxiliary_json']) if item['kind'] in ('customer', 'supplier')) or str(line['customer_id'] or line['supplier_id'])),
-            ('完整辅助归属', ' / '.join(f"{LABELS[item['kind']]}：{item['name']}" for item in json.loads(line['auxiliary_json']))),
+            ('控制科目', account.code if account else line['account_code']), ('往来对象', ' / '.join(item['name'] for item in auxiliary if item['kind'] in ('customer', 'supplier')) or str(line['customer_id'] or line['supplier_id'])),
+            ('完整辅助归属', ' / '.join(f"{LABELS[item['kind']]}：{item['name']}" for item in auxiliary)),
             ('金额（元）', content['amount']), ('参考号', content['reference']), ('依据', content['note']),
             ('资金动作', {'settlement': '收款 / 付款', 'refund': '退款 / 收退', 'reversal': '反向资金'}[content['action']])]] + (
             [{'label': '原资金单号', 'value': content['original']['document_no'] or f"#{content['original']['id']}"}] if content['original'] else [])
     if document_type == 'PaymentRecord':
+        from app.core.models import LedgerAccount
+        from app.finance.auxiliary_rules import LABELS
+        fixed = content.get('control_scope')
+        account = db.get(LedgerAccount, fixed['account_id']) if fixed else None
+        scope_summary = [] if fixed is None else [
+            {'label': '控制科目', 'value': account.code if account else str(fixed['account_id'])},
+            {'label': '完整辅助归属', 'value': ' / '.join(
+                f"{LABELS[item['kind']]}：{item['name']}" for item in fixed['auxiliary'])}]
         return [{'label': label, 'value': str(content[field])} for label, field in (
             ('订单内部编号', 'order_id'), ('往来对象内部编号', 'party_id'),
             ('金额（元）', 'amount'), ('参考号', 'reference'), ('备注', 'note'))] + [
             {'label': '往来类别', 'value': '客户应收' if content['kind'] == 'receivable' else '供应商应付'},
-            {'label': '资金动作', 'value': {'settlement': '收款 / 付款', 'refund': '退款 / 收退', 'reversal': '反向资金'}[content['action']]}] + (
+            {'label': '资金动作', 'value': {'settlement': '收款 / 付款', 'refund': '退款 / 收退', 'reversal': '反向资金'}[content['action']]}] + scope_summary + (
             [{'label': '原资金单号', 'value': content['original']['document_no'] or f"#{content['original']['id']}"}]
             if content['original'] else [])
     if document_type == 'SubledgerOpening':

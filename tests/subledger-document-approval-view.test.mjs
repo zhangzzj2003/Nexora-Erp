@@ -18,7 +18,7 @@ test('分户方案统一审批与独立撤销保护启用入口及失效确认�
       if(id.endsWith('/AppButton.vue'))return '\0journal-button'
       for(const file of ['SubledgerEditor.vue','SubledgerEvidence.vue','SubledgerAttachments.vue','SubledgerSettlements.vue','SubledgerOrderSettlements.vue',
         'ProfitTransferPanel.vue','ProfitTransferEvidence.vue','AuxiliarySelector.vue','AppCollapseItem.vue',
-        'DocumentApprovalDialog.vue','WorkspaceSelect.vue','AppInput.vue'])if(id.endsWith('/'+file))return '\0journal-stub'
+        'DocumentApprovalDialog.vue','ControlFundsSelector.vue','WorkspaceSelect.vue','AppInput.vue'])if(id.endsWith('/'+file))return '\0journal-stub'
     },load(id){
       if(id==='\0journal-stub')return 'export default {render:()=>null}'
       if(id==='\0journal-modal')return `import {defineComponent,h} from 'vue';export const NDatePicker={render:()=>null};export const NCheckbox={render:()=>null};export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`

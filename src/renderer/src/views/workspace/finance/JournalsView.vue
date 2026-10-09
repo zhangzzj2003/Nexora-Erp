@@ -105,9 +105,11 @@ const relatedStatus = (id: number): string => {
 const actionable = (item: Journal): JournalAction[] => {
   const actions: JournalAction[] = []
   // 独立审批使用统一弹窗；原生按钮只保留执行与取消，不能按原批准状态绕过新门槛。
-  if (item.status === 'approved' && item.approval?.status === 'approved' && can('journal.post')) actions.push('post')
+  if (item.status === 'approved' && item.approval?.status === 'approved' && can('journal.post')
+    && (!item.control_transfer || can(item.control_transfer.reverses_id ? 'control_transfer.reverse' : 'control_transfer.post'))) actions.push('post')
   if (item.status !== 'posted' && item.status !== 'cancelled' && can('journal.cancel')
-    && !['submitted', 'approved'].includes(item.approval?.status ?? '')) actions.push('cancel')
+    && !['submitted', 'approved'].includes(item.approval?.status ?? '')
+    && (!item.control_transfer || can(item.control_transfer.reverses_id ? 'control_transfer.reverse' : 'control_transfer.create'))) actions.push('cancel')
   return actions
 }
 async function edit(item?: Journal): Promise<void> {
@@ -201,7 +203,7 @@ async function confirm(): Promise<void> {
           variant="text"
           type="button"
           >原凭证{{ relatedDocumentLabel(row, 'reversal_of') }}</AppButton
-        ><span v-else-if="row.profit_transfer">损益结转 · {{ row.period_code }}</span><span v-else-if="row.business_source">{{ row.business_source.evidence.label }} {{ relatedDocumentLabel(row.business_source.evidence, 'source') }}</span><span v-else>手工录入</span
+        ><AppButton v-else-if="row.control_transfer && can('control_transfer.view')" variant="text" @click="openDocumentApproval({ document_type: 'ControlBalanceTransfer', document_id: row.control_transfer.id, intent: 'execute' })">往来余额转账 {{ row.control_transfer.document_no || '#' + row.control_transfer.id }}</AppButton><span v-else-if="row.control_transfer">往来余额转账 {{ row.control_transfer.document_no || '#' + row.control_transfer.id }}</span><span v-else-if="row.profit_transfer">损益结转 · {{ row.period_code }}</span><span v-else-if="row.business_source">{{ row.business_source.evidence.label }} {{ relatedDocumentLabel(row.business_source.evidence, 'source') }}</span><span v-else>手工录入</span
         ><AppButton
           v-if="row.reversal_journal_id"
           @click="detailId = row.reversal_journal_id"
@@ -218,7 +220,7 @@ async function confirm(): Promise<void> {
           <AppButton
             v-if="
               can('journal.create') &&
-              !row.reversal_of_id && !row.business_source && !row.profit_transfer &&
+              !row.reversal_of_id && !row.business_source && !row.profit_transfer && !row.control_transfer &&
               ['draft', 'rejected'].includes(row.status)
             "
             :disabled="busy || connectionLost || opening"
@@ -241,6 +243,7 @@ async function confirm(): Promise<void> {
               can('journal.reverse') &&
               row.status === 'posted' &&
               !row.reversal_of_id &&
+              !row.control_transfer &&
               !row.reversal_journal_id
             "
             :disabled="busy || connectionLost"

@@ -16,6 +16,8 @@ import { usePiniaAppStore } from '../../../store/app-store'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import type { PaymentRecord, OrderSettlementTransfer } from '../../../../../shared/erp-api'
+import ControlFundsSelector from './ControlFundsSelector.vue'
+import { auxiliaryText } from './auxiliary-display'
 
 // 登记与冲销集中在记录页；切换页面保留 Pinia 中的付款草稿和冲销原因。
 const store = usePiniaAppStore()
@@ -49,10 +51,12 @@ async function confirmCommand(): Promise<void> {
   if (!error.value) command.value = null
 }
 const createOpen = ref(false)
+const fundsReady = ref(false)
+watch(createOpen, () => { fundsReady.value = false; delete paymentForm.value.control_scope })
 const transferOpen = ref(false)
 async function submitCreate(): Promise<void> {
   // 断线或权限撤销时不提交；保存失败继续保留弹窗供修正。
-  if (connectionLost.value || !can('finance.record')) return
+  if (connectionLost.value || !can('finance.record') || !fundsReady.value) return
   await submitCreateDialog(createPaymentRecord, { busy, error, notice }, createOpen)
 }
 async function submitTransfer(): Promise<void> {
@@ -149,6 +153,8 @@ const transferColumns = [
                 }
               ]"
           /></label>
+          <ControlFundsSelector v-if="createOpen" v-model="paymentForm.control_scope" :query="{ kind: paymentForm.kind, source_type: 'order', source_id: paymentForm.order_id }"
+            :action="paymentForm.action" :disabled="busy || connectionLost" @ready="value => fundsReady = value" />
           <label
             >金额（元）<AppInput
               v-model.trim="paymentForm.amount"
@@ -168,7 +174,7 @@ const transferColumns = [
         </div>
         <AppButton
           type="submit"
-          :disabled="busy || connectionLost || !financeAccounts.length"
+          :disabled="busy || connectionLost || !financeAccounts.length || !fundsReady"
           variant="primary"
         >
           保存收付款草稿
@@ -241,6 +247,7 @@ const transferColumns = [
             <span v-if="item.reverses_id">· 冲销记录 {{ relatedDocumentLabel(item, 'reverses') }}</span>
             <span v-if="item.note">· {{ item.note }}</span>
           </p>
+          <p v-if="item.control_scope" class="muted">固定控制科目 #{{ item.control_scope.account_id }} · {{ auxiliaryText(item.control_scope.auxiliary) }}</p>
           <p class="muted">{{ item.status === 'draft' ? '待执行草稿' : item.status === 'cancelled' ? '已取消' : '已执行' }}
             · {{ item.status === 'executed' && !item.approval?.version ? '历史执行记录（无统一审批记录）' : item.approval?.status === 'approved' ? '已批准待执行' : item.approval?.status === 'submitted' ? '审批中' : item.approval?.status === 'executed' ? '审批已执行' : '未批准' }}
             <span v-if="item.executed_at"> · 执行时间 {{ localTime(item.executed_at) }}</span></p>

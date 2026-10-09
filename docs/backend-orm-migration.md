@@ -46,4 +46,6 @@
 
 物料目录与规格在第 94 版追加三张静态模型表：`MaterialCategory`、`MaterialSpecField`、`MaterialCategoryChange`，第 94 版时总计 195 张。物料的结构化值以经过模板严格验证的 JSON 快照保存，不解析旧描述、不重编码、不改业务外键；业务 CRUD 继续使用 ORM，版本化结构和初始目录仅在迁移层处理。旧库夹具与模型/迁移一致性断言同时更新到 v94，仍保留列、主键和存储类型核对。
 
-第 100 版新增历史原单附件及追加撤销两张静态模型表（`SubledgerAttachment`、`SubledgerAttachmentReversal`）；当前为 200 张模型表。文件绑定分户方案并固定原来源，审批兼容保留旧正文，列表不加载原字节，上传、更正、查询和下载使用 ORM，会话末尾校验日期锁。必要底层操作仅用于结构迁移及不可改写约束，见[票据附件规则](subledger-attachments.md)。
+第 100 版新增历史原单附件及追加撤销两张静态模型表（`SubledgerAttachment`、`SubledgerAttachmentReversal`）；该版为 200 张模型表。文件绑定分户方案并固定原来源，审批兼容保留旧正文，列表不加载原字节，上传、更正、查询和下载使用 ORM，会话末尾校验日期锁。必要底层操作仅用于结构迁移及不可改写约束，见[票据附件规则](subledger-attachments.md)。
+
+第 101 版新增往来余额转账及不可覆盖审计两张静态 ORM 模型表（`ControlBalanceTransfer`、`ControlBalanceTransferChange`），并为历史资金及订单资金新增可空实际组合列；当前为 202 张静态模型表。真实组合投影、双重批准、原子过账、固定组合资金及反向更正见[往来余额转账](control-balance-transfers.md)，旧资金审批正文及来源指纹不回填。

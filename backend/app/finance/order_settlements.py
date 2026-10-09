@@ -130,6 +130,9 @@ def validate_transfer(db: Session, record: OrderSettlementTransfer) -> None:
     today = datetime.now(timezone.utc).date().isoformat()
     check_subledger(db, today)
     ensure_date_unlocked(db, today)
+    from app.finance.control_balance_funds import ensure_legacy_origin
+    for identifier in (record.from_order_id, record.to_order_id):
+        ensure_legacy_origin(db, record.kind, 'order', identifier)
     source = account_data(db, record.kind, record.from_order_id)
     target = account_data(db, record.kind, record.to_order_id)
     if record.from_order_id == record.to_order_id:

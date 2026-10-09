@@ -33,4 +33,5 @@ DOCUMENT_TYPES = (
     ('OrderSettlementTransfer', 'order_settlement_transfers', 'DDHX', 'OSL'),
     ('SubledgerSettlement', 'subledger_settlements', 'LSHX', 'SLS'),
     ('SubledgerOrderSettlement', 'subledger_order_settlements', 'LSDDHX', 'SOL'),
+    ('ControlBalanceTransfer', 'control_balance_transfers', 'WLYEZZ', 'CBT'),
 )
