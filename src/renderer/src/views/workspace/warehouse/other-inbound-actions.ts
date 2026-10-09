@@ -7,12 +7,12 @@ interface InboundActionItem { key: OtherInboundAction; label: string; variant: '
 // 列表与详情共用可用操作规则，避免两处按钮随审批或仓库状态变化后产生差异。
 export function otherInboundActions(inbound: OtherInbound, permissions: OtherInboundPermissions): InboundActionItem[] {
   const actions: InboundActionItem[] = [{ key: 'approval', label: '审批记录 / 送审', variant: 'secondary' }]
-  if (inbound.status === 'draft') {
+  if (inbound.status === 'draft' || inbound.status === 'partially_posted' && !inbound.reversal_id) {
     if (inbound.approval?.status === 'approved' && permissions.post) {
-      actions.push({ key: 'post', label: '确认入库', variant: 'primary' },
-        { key: 'lots', label: '登记实物批次（可选）', variant: 'primary' })
+      actions.push({ key: 'post', label: inbound.status === 'partially_posted' ? '确认剩余入库' : '确认入库', variant: 'primary' },
+        { key: 'lots', label: inbound.status === 'partially_posted' ? '继续分批入库' : '登记实物批次（可选）', variant: 'primary' })
     }
-    if (!['submitted', 'approved'].includes(inbound.approval?.status ?? '') && permissions.cancel) {
+    if (inbound.status === 'draft' && !['submitted', 'approved'].includes(inbound.approval?.status ?? '') && permissions.cancel) {
       actions.push({ key: 'cancel', label: '取消', variant: 'secondary' })
     }
   }
@@ -21,7 +21,7 @@ export function otherInboundActions(inbound: OtherInbound, permissions: OtherInb
     actions.push({ key: 'reopen', label: '重开为新单', variant: 'primary' })
   }
   // 已冲销单据不再显示重复执行按钮。
-  if (inbound.status === 'posted' && !inbound.reversal_id) {
+  if (['posted', 'partially_posted'].includes(inbound.status) && !inbound.reversal_id) {
     actions.push({ key: 'reversalApproval', label: '冲销审批', variant: 'secondary' })
     if (inbound.reversal_approval?.status === 'approved' && permissions.reverse) {
       actions.push({ key: 'reverse', label: '执行冲销', variant: 'secondary' })

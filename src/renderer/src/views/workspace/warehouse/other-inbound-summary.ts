@@ -5,7 +5,9 @@ type InboundState = Pick<OtherInbound, 'status' | 'reversal_id'>
 
 // 仓库终态优先于审批进度；批准但尚未入库的单据仍需要继续处理。
 export function otherInboundGroup(inbound: InboundState): Exclude<OtherInboundFilter, 'all'> {
+  // 部分入库仍归未完成，冲销已收部分后则属于终态。
   if (inbound.status === 'cancelled') return 'cancelled'
+  if (inbound.reversal_id) return 'reversed'
   if (inbound.status === 'posted') return inbound.reversal_id ? 'reversed' : 'processed'
   return 'pending'
 }

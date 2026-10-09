@@ -159,7 +159,7 @@ export function createWarehouseActions(
                                   lines?: ErpOperations['postOtherInbound']['input']['lines']): Promise<void> {
     if (!window.nexora) return
     await perform(() => window.nexora!.callApi('postOtherInbound', { inboundId, lines }),
-      `其他入库单 #${inboundId} 已确认，库存流水已生成。`)
+      `其他入库单 #${inboundId} 本次入库已确认，实际入库数量已记入库存。`)
   }
 
   async function cancelOtherInbound(inboundId: number): Promise<void> {

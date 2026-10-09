@@ -18,6 +18,9 @@ test('批次数量核对使用精确小数，覆盖拆分、超量、负差异�
   }
   assert.equal(lotAllocation('bad', parts('1')).expected, '—')
   assert.equal(lotAllocation('10', []).status, 'invalid')
+  // 分批收货允许暂不登记某物料，其他十类单据继续要求至少一批。
+  assert.equal(lotAllocation('10', [], true).status, 'incomplete')
+  assert.equal(lotAllocation('10', [], true).remaining, '10')
   assert.equal(lotAllocation('20000000', parts(...Array(20).fill('1000000'))).status, 'complete')
 })
 

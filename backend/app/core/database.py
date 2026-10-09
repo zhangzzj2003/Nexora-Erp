@@ -81,10 +81,10 @@ def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_recor
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 97:
+        if version > 98:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
-        if version < 92:
-            # 资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
+        if version < 98:
+            # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
             db.execute('PRAGMA foreign_keys = OFF')
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -2970,3 +2970,31 @@ def migrate() -> None:
                         SELECT role_code,'subledger_order_settlement.view' FROM role_permissions
                         WHERE permission_code='finance.view' AND role_code IN ('admin','finance')''')
             db.execute('PRAGMA user_version = 97')
+
+
+        if version < 98:
+            # 分批其他入库允许同一原明细追加多次流水，其余单据保留原唯一约束。
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            original = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='stock_movements'").fetchone()
+            columns = {row[1] for row in db.execute('PRAGMA table_info(stock_movements)')}
+            upgraded = db.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='stock_movements_single_source_line'").fetchone()
+            # 兼容既有最小诊断夹具；已迁移结构被回退版本号时不重复重建或重复创建索引。
+            if original is not None and {'source_type', 'source_line_id'} <= columns and upgraded is None:
+                objects = [row[0] for row in db.execute(
+                    "SELECT sql FROM sqlite_master WHERE tbl_name='stock_movements' AND type IN ('index','trigger') AND sql IS NOT NULL")]
+                statement = re.sub(r'CREATE TABLE\s+"?stock_movements"?', 'CREATE TABLE stock_movements_partial_upgrade', original[0], count=1, flags=re.I)
+                statement = re.sub(r',\s*UNIQUE\s*\(source_type\s*,\s*source_line_id\s*\)', '', statement, count=1, flags=re.I)
+                db.execute(statement)
+                # 原样复制编号、数量、人员和时间，所有批次、核价与期初外键继续指向原ID。
+                db.execute('INSERT INTO stock_movements_partial_upgrade SELECT * FROM stock_movements')
+                db.execute('DROP TABLE stock_movements')
+                db.execute('ALTER TABLE stock_movements_partial_upgrade RENAME TO stock_movements')
+                for statement in objects:
+                    db.execute(statement)
+                db.execute("""CREATE UNIQUE INDEX stock_movements_single_source_line
+                    ON stock_movements(source_type,source_line_id)
+                    WHERE source_type NOT IN ('other_inbound','other_inbound_reversal')""")
+            if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
+                raise RuntimeError('分批入库迁移后外键检查失败')
+            db.execute('PRAGMA user_version = 98')

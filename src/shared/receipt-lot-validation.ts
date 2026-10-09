@@ -1,5 +1,5 @@
 import type {InboundLotLineInput, PhysicalLotPartInput, ReceiptLotLineInput} from './receipt-lot-api'
-import {receiptLotDate, receiptLotMilli} from './receipt-lot-api.ts'
+import {receiptLotDate, receiptLotMilli, inboundReceivedMilli} from './receipt-lot-api.ts'
 
 // IPC 只转发固定批次字段；渲染层无法追加任意 URL、来源编号或库存流水。
 function checkedLotLines(value: unknown, key: 'receipt_line_id' | 'inbound_line_id',
@@ -46,8 +46,16 @@ export function receiptLotBody(value: unknown): {lines: ReceiptLotLineInput[]} {
 }
 
 export function inboundLotBody(value: unknown): {lines: InboundLotLineInput[]} {
-  return {lines: checkedLotLines(value, 'inbound_line_id', '其他入库').map(line =>
-    ({inbound_line_id: line.id, lots: line.lots}))}
+  const checked = checkedLotLines(value, 'inbound_line_id', '其他入库')
+  const source = (value as {lines: Record<string, unknown>[]}).lines
+  // 新检查点只向其他入库开放，采购等原有整单协议不受影响。
+  return {lines: checked.map((line, index) => {
+    const expected = source[index]!.expected_received_quantity
+    if (expected !== undefined && (typeof expected !== 'string' || inboundReceivedMilli(expected) === null))
+      throw Error('已入库检查点无效')
+    return {inbound_line_id: line.id, lots: line.lots,
+      ...(expected === undefined ? {} : {expected_received_quantity: expected as string})}
+  })}
 }
 
 function validatePostedLots(value: unknown, documentId: number,
@@ -85,6 +93,36 @@ export function validatePostedReceiptLots(value: unknown, receiptId: number,
 
 export function validatePostedInboundLots(value: unknown, inboundId: number,
                                           requested: InboundLotLineInput[]): void {
-  validatePostedLots(value, inboundId, requested.map(line =>
+  let response = value
+  if (requested.some(line => line.expected_received_quantity !== undefined)) {
+    const invalid = () => { throw Error('服务端未固定本次其他入库的实物批次，请核对服务端版本和批次差额。') }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid()
+    const inbound = value as Record<string, unknown>
+    if (!['posted', 'partially_posted'].includes(String(inbound.status)) || !Array.isArray(inbound.lines)) return invalid()
+    // 累计实收与待入库必须守恒，服务端不能把部分实收伪报为整单完成。
+    let complete = true
+    for (const item of inbound.lines) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return invalid()
+      const row = item as Record<string, unknown>
+      const planned = typeof row.quantity === 'string' ? receiptLotMilli(row.quantity) : null
+      const received = typeof row.received_quantity === 'string' ? inboundReceivedMilli(row.received_quantity) : null
+      const remaining = typeof row.remaining_quantity === 'string' ? inboundReceivedMilli(row.remaining_quantity) : null
+      if (planned === null || received === null || remaining === null || received + remaining !== planned) return invalid()
+      complete &&= remaining === 0n
+    }
+    if (inbound.status !== (complete ? 'posted' : 'partially_posted')) return invalid()
+    // 响应保留历次批次；只核对本次追加部分，并核对累计量，拒绝旧服务器或重复旧证据。
+    const lines = requested.map(line => {
+      const actual = (inbound.lines as Record<string, unknown>[]).find(item => item?.id === line.inbound_line_id)
+      const checkpoint = line.expected_received_quantity === undefined ? null : inboundReceivedMilli(line.expected_received_quantity)
+      const received = typeof actual?.received_quantity === 'string' ? inboundReceivedMilli(actual.received_quantity) : null
+      const total = line.lots.reduce((sum, lot) => sum + (receiptLotMilli(lot.quantity) ?? 0n), 0n)
+      if (checkpoint === null || received !== checkpoint + total || !Array.isArray(actual?.physical_lots)
+          || actual.physical_lots.length < line.lots.length) return invalid()
+      return {...actual, physical_lots: actual.physical_lots.slice(-line.lots.length)}
+    })
+    response = {...inbound, status: 'posted', lines}
+  }
+  validatePostedLots(response, inboundId, requested.map(line =>
     ({id: line.inbound_line_id, lots: line.lots})), '其他入库')
 }

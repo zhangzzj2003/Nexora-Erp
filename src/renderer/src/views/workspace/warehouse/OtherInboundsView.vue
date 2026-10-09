@@ -36,10 +36,9 @@ import {
 } from "../../../utils/document-material-lines";
 import { usePiniaAppStore } from "../../../store/app-store";
 import { submitCreateDialog } from "../../../utils/create-dialog";
-import {
-  receiptLotDate,
-  receiptLotMilli,
-} from "../../../../../shared/receipt-lot-api.ts";
+// 分批入库单独核对本次实收、累计实收检查点与剩余额度。
+import { inboundReceived, inboundRemaining, inboundExcess, otherInboundLotIssue } from "./other-inbound-receiving";
+import { inboundReceivedMilli } from "../../../../../shared/receipt-lot-api";
 import type { InboundLotLineInput } from "../../../../../shared/receipt-lot-api";
 import type { OtherInbound } from "../../../../../shared/erp-api";
 import OtherInboundActions from "./OtherInboundActions.vue";
@@ -209,15 +208,50 @@ function focusNewRow(
 }
 const activeInboundId = ref(0);
 const lotDrafts = ref<InboundLotLineInput[]>([]);
+// 多收用途每次由仓库选择，只有显式选择赠品后才准备独立待审草稿。
+const excessDisposition = ref("");
+const excessOptions = [
+  { value: "gift", label: "免费赠品：另建赠品入库单" },
+  { value: "purchase", label: "需要付款：补充采购单据" },
+  { value: "return", label: "不接受：退回多收部分" },
+];
 const activeInbound = computed(
   () =>
     otherInbounds.value.find(
       (item) =>
         item.id === activeInboundId.value &&
-        item.status === "draft" &&
-        item.approval?.status === "approved",
+        ["draft", "partially_posted"].includes(item.status) &&
+        !item.reversal_id && item.approval?.status === "approved",
     ) ?? null,
 );
+const excessLines = computed(() => inboundExcess(activeInbound.value, lotDrafts.value));
+const excessHint = computed(() => ({
+  gift: "多收部分单独建立赠品入库草稿，批准后再入库；原单只登记其剩余数量。",
+  purchase: "先补充采购数量、金额和审批，再通过采购收货入库；原单只登记其剩余数量。",
+  return: "退回多收部分，并将本单批次调整为实际接受数量；退回部分不计库存。",
+})[excessDisposition.value as "gift" | "purchase" | "return"] ?? "请按本次约定选择多收用途，不自动当作赠品。");
+function startExcessGift(): void {
+  const inbound = activeInbound.value;
+  if (!inbound || excessDisposition.value !== "gift" || !excessLines.value.length ||
+      busy.value || connectionLost.value || !can("other_inbound.create")) return;
+  // 不覆盖用户正在填写的普通新建草稿，多收赠品仍需独立送审。
+  if (otherInboundForm.value.note || otherInboundForm.value.reference ||
+      otherInboundForm.value.lines.some(line => line.material_id || line.quantity)) {
+    error.value = "新建入库草稿已有内容，请先保存或处理该草稿，再登记多收赠品。";
+    return;
+  }
+  const source = documentLabel(inbound);
+  otherInboundForm.value = {
+    warehouse_id: inbound.warehouse_id, reason: "gift",
+    note: `原单 ${source} 的多收赠品，仓库本次选择免费赠品。`,
+    reference: source,
+    lines: excessLines.value.map(item => ({ material_id: item.line.material_id, quantity: item.quantity })),
+  };
+  activeInboundId.value = 0;
+  detailInboundId.value = 0;
+  reopenSourceId.value = 0;
+  showForm.value = true;
+}
 const query = ref("");
 const statusFilter = ref<OtherInboundFilter>("all");
 const searched = computed(() =>
@@ -255,11 +289,11 @@ function materialPreviewTitle(
   line: OtherInbound["lines"][number],
 ): string {
   const summary = `${line.material_name} × ${line.quantity} ${line.unit}`;
-  if (inbound.status !== "posted") return summary;
+  if (inbound.status !== "posted" && inbound.status !== "partially_posted") return summary;
   const proof = line.physical_lots?.length
     ? `实物批次：${line.physical_lots.map((lot) => `${lot.code}（${lot.quantity}；来源批号 ${lot.supplier_lot || "未提供"}）`).join("、")}`
     : "普通入库，未登记实物批次。";
-  return `${summary}\n${proof}`;
+  return `${summary}\n已入库 ${inboundReceived(line, inbound.status)} ${line.unit} · 待入库 ${inboundRemaining(line, inbound.status)} ${line.unit}\n${proof}`;
 }
 const reasonName = { opening: "期初补录", gift: "赠品", other: "其他" };
 // 详情按 ID 读取当前快照，与新建草稿、批次登记各自独立；刷新后不展示过期对象。
@@ -272,11 +306,16 @@ const detailInbound = computed(
 const detailColumns = [
   { key: "sku", title: "物料编码", width: "180" },
   { key: "name", title: "物料名称", width: "240" },
-  { key: "quantity", title: "数量", width: "110" },
+  { key: "quantity", title: "单据数量", width: "110" },
+  // 原计划与累计实收分列，生产可用量仍以库存流水为准。
+  { key: "received", title: "已入库", width: "110" },
+  { key: "remaining", title: "待入库", width: "110" },
   { key: "unit", title: "单位", width: "70" },
   { key: "lots", title: "实物批次", width: "340" },
 ];
 function inboundStatus(inbound: OtherInbound): string {
+  if (inbound.reversal_id) return "已冲销";
+  if (inbound.status === "partially_posted") return "部分入库";
   return inbound.status === "draft"
     ? {
         draft: "待送审",
@@ -294,6 +333,8 @@ function inboundStatus(inbound: OtherInbound): string {
 }
 function inboundStatusTone(inbound: OtherInbound): AppStatusTone {
   // 先判断仓库终态，避免已取消或已冲销的单据仍沿用旧审批记录的成功颜色。
+  if (inbound.reversal_id) return "reversed";
+  if (inbound.status === "partially_posted") return "ready";
   if (inbound.status === "cancelled") return "neutral";
   if (inbound.status === "posted")
     return inbound.reversal_id ? "reversed" : "success";
@@ -346,11 +387,13 @@ function startLotPost(inbound: OtherInbound): void {
   )
     return;
   activeInboundId.value = inbound.id;
-  lotDrafts.value = inbound.lines.map((line) => ({
+  excessDisposition.value = "";
+  lotDrafts.value = inbound.lines.filter((line) => inboundReceivedMilli(inboundRemaining(line)) !== 0n).map((line) => ({
     inbound_line_id: line.id,
+    expected_received_quantity: inboundReceived(line),
     lots: [
       {
-        quantity: line.quantity,
+        quantity: inboundRemaining(line),
         supplier_lot: null,
         manufactured_on: null,
         expires_on: null,
@@ -367,53 +410,21 @@ function addLot(line: InboundLotLineInput): void {
       expires_on: null,
     });
 }
-const lotIssue = computed(() => {
-  const inbound = activeInbound.value;
-  if (!inbound || lotDrafts.value.length !== inbound.lines.length)
-    return "入库单明细已经变化，请重新读取。";
-  for (const line of inbound.lines) {
-    const draft = lotDrafts.value.find(
-      (item) => item.inbound_line_id === line.id,
-    );
-    if (!draft || !draft.lots.length || draft.lots.length > 20)
-      return "每条入库明细至少登记一个实物批次。";
-    const expected = receiptLotMilli(line.quantity);
-    let total = 0n;
-    for (const part of draft.lots) {
-      const value = receiptLotMilli(part.quantity);
-      if (value === null)
-        return "批次数量须大于零、最多三位小数且不超过一百万。";
-      total += value;
-      if (part.supplier_lot && part.supplier_lot.length > 100)
-        return "来源批号不能超过 100 字。";
-      if (part.manufactured_on && !receiptLotDate(part.manufactured_on))
-        return "生产日期无效。";
-      if (part.expires_on && !receiptLotDate(part.expires_on))
-        return "失效日期无效。";
-      if (
-        part.manufactured_on &&
-        part.expires_on &&
-        part.expires_on < part.manufactured_on
-      )
-        return "失效日期不能早于生产日期。";
-    }
-    if (expected === null || total !== expected)
-      return `物料 ${line.sku} 的批次数量之和须等于 ${line.quantity}。`;
-  }
-  return "";
-});
+// 未到货物料可本次跳过，但整次确认至少包含一个正向批次。
+const lotIssue = computed(() => otherInboundLotIssue(activeInbound.value, lotDrafts.value));
 async function confirmLotPost(): Promise<void> {
   if (
     !activeInbound.value ||
     lotIssue.value ||
     busy.value ||
-    connectionLost.value
+    connectionLost.value || !can("other_inbound.post")
   )
     return;
   await postOtherInbound(
     activeInbound.value.id,
-    lotDrafts.value.map((line) => ({
+    lotDrafts.value.filter((line) => line.lots.length > 0).map((line) => ({
       inbound_line_id: line.inbound_line_id,
+      expected_received_quantity: line.expected_received_quantity,
       lots: line.lots.map((part) => ({
         quantity: part.quantity,
         supplier_lot: part.supplier_lot?.trim() || null,
@@ -422,6 +433,8 @@ async function confirmLotPost(): Promise<void> {
       })),
     })),
   );
+  // 保存成功即关闭本次登记，续收重新读取剩余量；失败仍保留原批次草稿。
+  if (!error.value) activeInboundId.value = 0;
 }
 // 执行冲销前从服务端读取已批准原因；不能使用未送审的列表输入。
 async function reverseApproved(identifier: number): Promise<void> {
@@ -631,6 +644,7 @@ async function reverseApproved(identifier: number): Promise<void> {
                 >{{ line.material_name }} × {{ line.quantity }}
                 {{ line.unit }}</span
               >
+              <small v-if="item.status === 'partially_posted'">已入库 {{ inboundReceived(line) }} · 待入库 {{ inboundRemaining(line) }}</small>
             </li>
           </ul>
           <span
@@ -756,6 +770,8 @@ async function reverseApproved(identifier: number): Promise<void> {
       >
       <template #cell-name="{ row }">{{ row.material_name }}</template>
       <template #cell-quantity="{ row }">{{ row.quantity }}</template>
+      <template #cell-received="{ row }">{{ inboundReceived(row, detailInbound.status) }}</template>
+      <template #cell-remaining="{ row }">{{ detailInbound.reversal_id ? "已关闭" : inboundRemaining(row, detailInbound.status) }}</template>
       <template #cell-unit="{ row }">{{ row.unit }}</template>
       <template #cell-lots="{ row }">
         <div
@@ -787,7 +803,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       :show="true"
       title="其他入库 · 批次登记"
       :document-number="documentLabel(activeInbound)"
-      hint="按实际入库逐行登记批次，数量之和须等于入库量。来源批号和日期缺失时留空，系统会保留独立的入库来源编号。"
+      hint="按本次实到数量登记，可以分批入库；未到货的物料可移除全部批次，留待后续到货。本次实收不得超过待入库量，多收部分由仓库确认赠品、补充采购或退回。来源批号和日期缺失时留空。"
       :busy="busy"
       :disabled="connectionLost"
       :issue="lotIssue"
@@ -799,6 +815,16 @@ async function reverseApproved(identifier: number): Promise<void> {
       "
       @submit="confirmLotPost"
     >
+      <!-- 多收数量与原批准额度分开；选择用途只准备草稿，不自动增加库存或应付。 -->
+      <div v-if="excessLines.length" class="inbound-excess" role="region" aria-label="多收部分处理">
+        <strong>多收部分如何处理</strong>
+        <p>{{ excessLines.map(item => `${item.line.sku} 多收 ${item.quantity} ${item.line.unit}`).join("；") }}</p>
+        <WorkspaceSelect v-model="excessDisposition" :options="excessOptions" placeholder="由仓库选择本次用途"
+          :disabled="busy || connectionLost" aria-label="多收部分用途" />
+        <p>{{ excessHint }}</p>
+        <AppButton v-if="excessDisposition === 'gift' && can('other_inbound.create')" type="button"
+          :disabled="busy || connectionLost" @click="startExcessGift">新建多收赠品入库单</AppButton>
+      </div>
       <WorkspaceLotLineEditor
         v-for="line in lotDrafts"
         :key="line.inbound_line_id"
@@ -815,21 +841,24 @@ async function reverseApproved(identifier: number): Promise<void> {
           activeInbound.lines.find((item) => item.id === line.inbound_line_id)
             ?.unit
         "
-        :expected="
-          activeInbound.lines.find((item) => item.id === line.inbound_line_id)
-            ?.quantity ?? ''
-        "
-        expected-label="应入库"
+        :expected="inboundRemaining(activeInbound.lines.find((item) => item.id === line.inbound_line_id)!)"
+        expected-label="待入库"
+        :allow-partial="true"
         quantity-label="批次数量"
         :disabled="busy || connectionLost"
         @add="addLot(line)"
         @remove="(index) => line.lots.splice(index, 1)"
-      />
+      >
+        单据数量 {{ activeInbound.lines.find((item) => item.id === line.inbound_line_id)?.quantity }} · 已入库 {{ line.expected_received_quantity }}；本次仅登记实际到货数量。
+      </WorkspaceLotLineEditor>
     </WorkspaceLotDialog>
   </section>
 </template>
 
 <style scoped>
+/* 多收决策与批次明细相邻，沿用现有主题变量与窄窗口换行。 */
+.inbound-excess { padding: 16px; margin-bottom: 20px; border: 1px solid var(--workspace-field-border); border-radius: 10px; }
+.inbound-excess p { margin: 8px 0; overflow-wrap: anywhere; }
 /* 列表说明只占一行，完整内容保留在悬停提示和详情中，不截断原始数据。 */
 .inbound-note {
   display: block;

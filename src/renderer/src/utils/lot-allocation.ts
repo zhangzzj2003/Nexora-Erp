@@ -16,13 +16,14 @@ function formatMilli(value: bigint): string {
   return `${sign}${absolute / 1000n}${fraction ? `.${fraction}` : ''}`
 }
 
-export function lotAllocation(expected: string, parts: readonly LotEditorPart[]) {
+export function lotAllocation(expected: string, parts: readonly LotEditorPart[], allowEmpty = false) {
   // 盘亏和负调整按差异绝对量分配；用整数千分位避免小数相加误报差额。
   const source = expected.replace(/^-/, '')
   const target = /^\d{1,15}(?:\.\d{1,3})?$/.test(source)
     ? BigInt(source.split('.')[0]) * 1000n + BigInt((source.split('.')[1] ?? '').padEnd(3, '0')) : null
   let total = 0n
-  let valid = target !== null && parts.length > 0
+  // 分批入库允许某行本次不收货；其他单据仍保留至少一批的原约束。
+  let valid = target !== null && (allowEmpty || parts.length > 0)
   for (const part of parts) {
     const quantity = receiptLotMilli(part.quantity)
     if (quantity === null) valid = false

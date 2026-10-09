@@ -373,7 +373,7 @@ export interface OtherInbound extends NumberedDocument {
   reason: 'opening' | 'gift' | 'other'
   note: string
   reference: string
-  status: 'draft' | 'posted' | 'cancelled'
+  status: 'draft' | 'partially_posted' | 'posted' | 'cancelled'
   created_by: number
   created_by_name: string
   posted_by: number | null
@@ -387,7 +387,8 @@ export interface OtherInbound extends NumberedDocument {
   reversed_by: number | null
   reversed_by_name: string | null
   reversed_at: string | null
-  lines: (ReceiptLine & {physical_lots: ReceiptPhysicalLot[]})[]
+  // 新服务端从原始库存流水返回累计实收与待入库量；旧整单响应保留兼容。
+  lines: (ReceiptLine & {physical_lots: ReceiptPhysicalLot[]; received_quantity?: string; remaining_quantity?: string})[]
 }
 // 出库确认才扣库存；后续采购退货沿用仓库确认单。
 export interface WarehouseOutbound extends NumberedDocument {

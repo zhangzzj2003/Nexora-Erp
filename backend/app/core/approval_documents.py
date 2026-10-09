@@ -820,6 +820,13 @@ def current_snapshot(db: Session, document_type: str, identifier: int) -> dict:
 
 def document_pending(db: Session, document_type: str, identifier: int, intent: str):
     source = document_source(db, document_type, identifier)
+    # 一旦有实际入库，原批准内容不能撤回或重新送审；更正须另行冲销已入库部分。
+    inbound_received = {}
+    if document_type == 'WarehouseInbound':
+        from app.inventory.inbounds import received_by_line
+        inbound_received = received_by_line(db, identifier)
+        if intent == 'execute' and any(inbound_received.values()):
+            raise HTTPException(409, '已部分入库不能撤回或重新送审，请继续入库或申请冲销')
     if document_type == 'WarehouseOutbound' and (source.source_kind not in ('other', 'purchase_return')
             or source.source_kind == 'purchase_return' and source.purchase_return_id is None):
         raise HTTPException(409, '出库单缺少有效业务来源，不能审批')
@@ -846,7 +853,8 @@ def document_pending(db: Session, document_type: str, identifier: int, intent: s
         if reversal is None:
             raise HTTPException(422, '此类单据不支持独立冲销审批')
         model, field, _ = reversal
-        if source.status != ('active' if document_type == 'ProductionCostSettlement' else 'posted') or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
+        partial_inbound = document_type == 'WarehouseInbound' and source.status == 'draft' and any(inbound_received.values())
+        if (source.status != ('active' if document_type == 'ProductionCostSettlement' else 'posted') and not partial_inbound) or db.scalar(select(model.id).where(getattr(model, field) == identifier)):
             raise HTTPException(409, '此冲销动作已处理，不能继续审批')
     elif source.status not in (('draft', 'submitted', 'approved', 'rejected')
                                if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening') else
@@ -892,6 +900,10 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
             source = document_source(db,document_type,identifier)
             content['source_author_ids'] = sorted(set(content['source_author_ids']) | ({source.executed_by} if source.executed_by is not None else set()))
         result = {'document': content, 'reversal_reason': reason.strip()}
+        if document_type == 'WarehouseInbound' and document_source(db, document_type, identifier).status == 'draft':
+            from app.inventory.inbounds import received_by_line
+            # 冲销审批冻结实际入库额度，送审后若继续到货，旧冲销批准不能扣回新的数量。
+            result['received_quantities'] = {str(key): str(value) for key, value in received_by_line(db, identifier).items()}
         if document_type in ('OpeningBalance', 'SubledgerOpening'):
             source = db.get(approval_type(document_type).model, identifier)
             result['confirmation'] = {'confirmed_by': source.confirmed_by, 'confirmed_at': source.confirmed_at}

@@ -15,7 +15,7 @@ from app.core.approval_documents import (
     current_snapshot, document_pending, document_snapshot, document_source, document_summary, submit_permission,
     native_review_evidence, sync_native_review, maintenance_execution_snapshot,
 )
-from app.core.models import DocumentApprovalEvent, DocumentApprovalPolicy, User
+from app.core.models import DocumentApprovalEvent, DocumentApprovalPolicy, User, WarehouseInboundReversal
 from app.core.orm import orm_session
 
 router = APIRouter(prefix='/api/v1/system/document-approvals')
@@ -108,6 +108,15 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
             'confirmed_by': source.confirmed_by, 'confirmed_at': source.confirmed_at}
     if intent == 'reverse' and document_type == 'MaintenanceJob' and row:
         content_matches = content_matches and workflow.digest(maintenance_execution_snapshot(db, identifier))[1] == workflow.digest(json.loads(row.snapshot_json)['execution'])[1]
+    # 其他入库冲销冻结已入库额度，续收后明确显示内容变化，不能沿用旧批准。
+    inbound_received = {}
+    if document_type == 'WarehouseInbound':
+        from app.inventory.inbounds import received_by_line
+        inbound_received = received_by_line(db, identifier)
+        if intent == 'reverse' and row:
+            frozen_received = json.loads(row.snapshot_json).get('received_quantities')
+            content_matches = content_matches and (frozen_received == {str(key): str(value) for key, value in inbound_received.items()}
+                if frozen_received is not None else source.status == 'posted')
     if state['status'] in ('rejected', 'withdrawn'):
         # 重新送审前展示当前正文；上一轮固定内容仍完整保存在不可改写的事件中。
         frozen_content = current_content
@@ -137,7 +146,15 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                   for event, name in db.execute(select(DocumentApprovalEvent, User.username)
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]
-    summary = document_summary(db, document_type, frozen_content)
+    # 部分冲销的审核摘要展示实收数量，不能把原计划数量误当本次扣库存量。
+    summary_content = frozen_content
+    if document_type == 'WarehouseInbound' and intent == 'reverse':
+        quantities = json.loads(row.snapshot_json).get('received_quantities', {}) if row else {
+            str(key): str(value) for key, value in inbound_received.items()}
+        if quantities:
+            summary_content = {**frozen_content, 'lines': [{**line, 'quantity': quantities.get(str(line['id']), '0')}
+                for line in frozen_content['lines']]}
+    summary = document_summary(db, document_type, summary_content)
     if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening') and intent == 'execute':
         # 升级前记录只作历史核对；首次送审后从不可改写的事件恢复。
         previous = native_review_evidence(db, document_type, identifier) if row is None else None
@@ -168,9 +185,16 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
         summary.extend({'label': label, 'value': str(execution[field]) if execution[field] is not None else '—'}
             for label, field in [('实际处理结果', 'solution'), ('实际工时', 'labor_hours'),
                 ('声明外委费用', 'service_amount'), ('原验收时间', 'accepted_at')])
+    # 部分入库冲销后关闭余量，审批页面也不能再提示用户继续入库。
+    business_status = source.status
+    if document_type == 'WarehouseInbound':
+        if db.scalar(select(WarehouseInboundReversal.id).where(WarehouseInboundReversal.inbound_id == identifier)):
+            business_status = 'reversed'
+        elif source.status == 'draft' and any(inbound_received.values()):
+            business_status = 'partially_posted'
     # 摘要数量来自送审快照；资料名称只用于识别，不会改变已批准的业务内容。
     return {**state, 'document_type': document_type, 'document_id': identifier, 'intent': intent,
-            'document_no': source.document_no, 'business_status': source.status,
+            'document_no': source.document_no, 'business_status': business_status,
             'summary': summary, 'content_matches': content_matches,
             'reversal_reason': json.loads(row.snapshot_json).get('reversal_reason', '') if row else '',
             **({'reversal_evidence': json.loads(row.snapshot_json).get('reversal_evidence', '') if row else ''} if document_type == 'MaintenanceJob' else {}),

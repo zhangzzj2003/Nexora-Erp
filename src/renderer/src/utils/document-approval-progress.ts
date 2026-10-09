@@ -30,7 +30,11 @@ export function documentApprovalProgress(record: DocumentApprovalRecord) {
   // 只从本次送审事件取人员；重新送审后不能把上一轮审核人算作已完成。
   const events = record.events.filter(event => event.generation === record.generation)
   const eventFor = (action: DocumentApprovalEvent['action'], step?: number) =>
-    events.find(event => event.action === action && (step === undefined || event.step === step))
+    // 分批入库会追加多次执行，节点摘要取最近一次；下方历史仍按原顺序展示全部事件。
+    (action === 'execute' ? [...events].reverse() : events).find(event => event.action === action && (step === undefined || event.step === step))
+  // 部分入库已有实际执行事件，审批批准仍覆盖后续剩余额度。
+  const partialInbound = record.document_type === 'WarehouseInbound' && record.business_status === 'partially_posted' && record.intent === 'execute'
+  const inboundClosed = record.document_type === 'WarehouseInbound' && record.business_status === 'reversed' && record.intent === 'execute'
   const interrupted = record.status === 'rejected' || record.status === 'withdrawn'
   const nodes: ApprovalProgressNode[] = [{
     key: 'submit', name: '送审', state: record.status === 'draft' ? 'current' : 'completed',
@@ -48,15 +52,15 @@ export function documentApprovalProgress(record: DocumentApprovalRecord) {
   // 未送审时服务端尚无固定步骤，使用明确的占位说明，不猜测当前审批模板。
   if (!record.steps.length) nodes.push({ key: 'approval', name: '审批', state: 'pending', caption: '送审后确定步骤', role: null })
   nodes.push({ key: 'execute', name: '业务执行', role: null,
-    state: record.status === 'executed' ? 'completed' : record.status === 'approved' ? 'current'
+    state: record.status === 'executed' ? 'completed' : inboundClosed ? 'withdrawn' : record.status === 'approved' ? 'current'
       : record.status === 'withdrawn' && record.current_step === record.steps.length ? 'withdrawn' : 'pending',
-    caption: record.status === 'executed' ? '已执行' : record.status === 'approved' ? '待执行'
+    caption: inboundClosed ? '已冲销' : record.status === 'executed' ? '已执行' : record.status === 'approved' ? partialInbound ? '部分入库，待续收' : '待执行'
       : interrupted ? '已中止' : '批准后执行', event: eventFor('execute') })
-  const summary = record.status === 'submitted' ? `当前待办：${record.steps[record.current_step]?.name ?? '审批'}`
-    : record.status === 'approved' ? '审批已完成，请在业务页面执行对应操作。'
+  const summary = inboundClosed ? '原入库已冲销，剩余数量已关闭，不能继续入库。' : record.status === 'submitted' ? `当前待办：${record.steps[record.current_step]?.name ?? '审批'}`
+    : record.status === 'approved' ? partialInbound ? '审批已完成，已入库数量可使用；剩余数量到货后继续入库。' : '审批已完成，请在业务页面执行对应操作。'
       : record.status === 'executed' ? '审批与业务执行均已完成。'
         : interrupted ? '本次审批已中止，重新送审后重新审批。' : '提交后进入审批流程。'
-  return { label: statusLabels[record.status], summary, completed: record.current_step, nodes }
+  return { label: inboundClosed ? '已冲销' : statusLabels[record.status], summary, completed: record.current_step, nodes }
 }
 
 

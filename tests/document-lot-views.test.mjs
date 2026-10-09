@@ -59,7 +59,7 @@ test('全部十一类单据接入公共批次弹窗并保留原确认载荷、�
   const html=await renderToString(app)
   assert.match(html,new RegExp(config[3]),seed.file)
   assert.match(html,/DEMO-20261007-000001/,seed.file)
-  assert.match(html,/已分配/,seed.file)
+  assert.match(html,seed.state==='otherInbounds'?/本次实收/:/已分配/,seed.file)
   assert.match(html,/数量已核对/,seed.file)
   const draft=seed.lineKey?bindings.lotDrafts.value[0].lots:bindings.lotDrafts.value
   if('lot_id' in draft[0]&&draft[0].lot_id===0)draft[0].lot_id=8
@@ -79,11 +79,35 @@ test('全部十一类单据接入公共批次弹窗并保留原确认载荷、�
    :existingOnly?{lot_id:8,quantity:'100'}
    :{...(['stocktakes','stockAdjustments','salesReturns','materialReturns'].includes(seed.state)?{lot_id:null}:{}),
      quantity:'100',supplier_lot:'SUP-42',...dates}
-  assert.deepEqual(fixture.sent[0].args[1],seed.lineKey?[{[seed.lineKey]:7,lots:[freshLot]}]:[freshLot],seed.file+' 确认载荷')
+  // 其他入库新增实收检查点，其余十类单据仍使用原协议。
+  assert.deepEqual(fixture.sent[0].args[1],seed.lineKey?[{[seed.lineKey]:7,lots:[freshLot],...(seed.state==='otherInbounds'?{expected_received_quantity:'0'}:{})}]:[freshLot],seed.file+' 确认载荷')
   assert.deepEqual(JSON.parse(JSON.stringify(bindings.lotDrafts.value)),before,seed.file+' 保存失败应保留输入')
   store.connectionLost=true;await bindings.confirmLotPost();assert.equal(fixture.sent.length,1,seed.file+' 断线禁止提交')
-  store.connectionLost=false;draft[0].quantity='99';await bindings.confirmLotPost();assert.equal(fixture.sent.length,1,seed.file+' 差额禁止提交')
+  store.connectionLost=false;draft[0].quantity=seed.state==='otherInbounds'?'101':'99';await bindings.confirmLotPost();assert.equal(fixture.sent.length,1,seed.file+' 数量约束禁止提交')
   assert.match(bindings.lotIssue.value,/100/,seed.file)
+  if(seed.state==='otherInbounds'){
+   // 多收用途由仓库显式选择；仅准备赠品草稿，不能覆盖已有草稿或直接增加原单数量。
+   draft[0].quantity='102'
+   assert.equal(bindings.excessDisposition.value,'')
+   assert.equal(bindings.excessLines.value[0].quantity,'2')
+   bindings.excessDisposition.value='purchase';bindings.startExcessGift()
+   assert.equal(bindings.showForm.value,false)
+   bindings.excessDisposition.value='gift'
+   store.otherInboundForm.note='仓库尚未保存的草稿'
+   const existing=JSON.stringify(store.otherInboundForm)
+   bindings.startExcessGift()
+   assert.equal(JSON.stringify(store.otherInboundForm),existing)
+   assert.match(store.error,/草稿已有内容/)
+   store.otherInboundForm.note=''
+   store.busy=true;bindings.startExcessGift();assert.equal(bindings.showForm.value,false)
+   store.busy=false;bindings.startExcessGift()
+   assert.equal(bindings.showForm.value,true)
+   assert.equal(store.otherInboundForm.reason,'gift')
+   assert.equal(store.otherInboundForm.reference,seed.record.document_no)
+   assert.equal(store.otherInboundForm.lines[0].quantity,'2')
+   assert.equal(store[seed.state][0].lines[0].quantity,'100')
+   assert.equal(fixture.sent.length,1)
+  }
  }
 })
 

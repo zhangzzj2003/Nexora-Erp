@@ -115,17 +115,21 @@ def find_case(db: Session, document_type: str, document_id: int,
         DocumentApprovalCase.document_id == document_id, DocumentApprovalCase.intent == intent))
 
 
-def record_author(db: Session, document_type: str, document_id: int, user_id: int) -> None:
+def record_author(db: Session, document_type: str, document_id: int, user_id: int, *, intent: str = 'execute') -> None:
     write_transaction(db)
     rule = approval_type(document_type)
     if db.get(rule.model, document_id) is None:
         raise HTTPException(404, '审批单据不存在')
     if db.get(User, user_id) is None:
         raise HTTPException(422, '单据操作人员不存在')
-    if db.scalar(select(DocumentApprovalCase.id).where(
+    active = select(DocumentApprovalCase.id).where(
             DocumentApprovalCase.document_type == document_type,
             DocumentApprovalCase.document_id == document_id,
-            DocumentApprovalCase.status.in_(('submitted', 'approved')))) is not None:
+            DocumentApprovalCase.status.in_(('submitted', 'approved')))
+    if document_type == 'WarehouseInbound' and intent == 'reverse':
+        # 部分入库的原批准仍覆盖余量，独立冲销可记录申请人，但不能编辑原单正文。
+        active = active.where(DocumentApprovalCase.intent == 'reverse')
+    if db.scalar(active) is not None:
         # 领域编辑入口在写入前调用此边界；不能先批准后再补写作者或修改内容。
         raise HTTPException(409, '单据正在审批或已批准，请先撤回后再编辑')
     key = (document_type, document_id, user_id)
@@ -186,7 +190,7 @@ def submit(db: Session, document_type: str, document_id: int, snapshot: Mapping,
     if any(type(author_id) is not int or author_id <= 0 for author_id in authors):
         raise HTTPException(422, '单据操作人员无效')
     for author_id in sorted(set([creator, user_id, *authors])):
-        record_author(db, document_type, document_id, author_id)
+        record_author(db, document_type, document_id, author_id, intent=intent)
     all_authors = list(db.scalars(select(DocumentApprovalAuthor.user_id).where(
         DocumentApprovalAuthor.document_type == document_type,
         DocumentApprovalAuthor.document_id == document_id).order_by(DocumentApprovalAuthor.user_id)))
