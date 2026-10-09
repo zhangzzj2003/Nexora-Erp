@@ -454,6 +454,8 @@ def cancel(data: VersionInput, identifier: int = Path(gt=0),
     with orm_session(write=True) as db:
         row = get_record(db, identifier, data.version)
         approval.actor(db, user['id'], 'control_transfer.reverse' if row.reverses_id else 'control_transfer.create')
+        for saved in (json.loads(row.from_scope_json), json.loads(row.to_scope_json)):
+            require_origin_view(db, user['id'], saved)
         case = approval.find_case(db, 'ControlBalanceTransfer', row.id)
         journal = db.get(Journal, row.journal_id) if row.journal_id else None
         if row.status != 'draft' or (case and case.status in ('submitted', 'approved')) or (journal and journal.status != 'cancelled'):

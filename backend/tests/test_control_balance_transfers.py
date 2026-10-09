@@ -504,3 +504,28 @@ def test_separate_page_and_source_permissions_do_not_expand_origins_or_allow_pos
     assert next(row for row in api('GET', BASE) if row['id'] == draft['id'])['status'] == 'draft'
     api('GET', BASE + '/balances?to_date=2026-02-31', expected=422)
     api('GET', BASE + '/balances?to_date=2099-01-01', expected=422)
+
+
+@pytest.mark.parametrize('source_type', ['historical', 'order'])
+def test_cancel_requires_current_origin_view_and_keeps_draft_and_audit_on_denial(cross, source_type):
+    api = cross['api']
+    row, _ = reclassify(cross, source_type=source_type)
+    required = 'subledger_opening.view' if source_type == 'historical' else 'finance.view'
+    other = 'finance.view' if source_type == 'historical' else 'subledger_opening.view'
+    permissions = ['control_transfer.view', 'control_transfer.create', other]
+    api('POST', 'roles', dict(code='cancel_operator', label='取消转账操作员', permissions=permissions), 201)
+    api('POST', 'users', dict(username='cancel_operator', password='permission-test-123', roles=['cancel_operator']), 201)
+    headers = {'Authorization': 'Bearer ' + api('POST', 'auth/login',
+        dict(username='cancel_operator', password='permission-test-123'))['token']}
+    before = api('GET', BASE + f'/{row["id"]}')
+    changes = api('GET', BASE + f'/{row["id"]}/changes')
+    payload = dict(version=row['version'], reason='取消未生效转账')
+    api('POST', BASE + f'/{row["id"]}/cancel', payload, 403, headers)
+    assert api('GET', BASE + f'/{row["id"]}') == before
+    assert api('GET', BASE + f'/{row["id"]}/changes') == changes
+    # 同一登录会话按当前权限核对，补齐原单查看权限后才能取消。
+    api('PUT', 'roles/cancel_operator', dict(label='取消转账操作员', permissions=[*permissions, required]))
+    cancelled = api('POST', BASE + f'/{row["id"]}/cancel', payload, headers=headers)
+    assert cancelled['status'] == 'cancelled' and cancelled['version'] == row['version'] + 1
+    history = api('GET', BASE + f'/{row["id"]}/changes')
+    assert len(history) == len(changes) + 1 and history[-1]['action'] == 'cancel'
