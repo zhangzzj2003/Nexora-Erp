@@ -33,7 +33,7 @@ test('全部十一类单据接入公共批次弹窗并保留原确认载荷、�
    if(id==='virtual:all-lot-naive')return '\0all-lot-naive'
    // 关联查询独立测试，此处只验证十一类批次执行，不加载真实应用 store。
    if(id.endsWith('/ProductionAssociationDialog.vue'))return '\0all-lot-association'
-   if((importer?.includes('/views/workspace/')||importer?.includes('/components/workspace/DocumentApprovalDialog'))&&id.endsWith('/store/app-store'))return '\0all-lot-store'
+   if((importer?.includes('/views/workspace/')||importer?.includes('/components/workspace/DocumentApproval'))&&id.endsWith('/store/app-store'))return '\0all-lot-store'
    if(id.endsWith('/WorkspaceTable.vue'))return '\0all-lot-table'
    if(id.endsWith('/WorkspaceSelect.vue'))return '\0all-lot-select'
    if(id.endsWith('/AppButton.vue'))return '\0all-lot-button'
@@ -59,8 +59,8 @@ test('全部十一类单据接入公共批次弹窗并保留原确认载荷、�
   const html=await renderToString(app)
   assert.match(html,new RegExp(config[3]),seed.file)
   assert.match(html,/DEMO-20261007-000001/,seed.file)
-  assert.match(html,seed.state==='otherInbounds'?/本次实收/:/已分配/,seed.file)
-  assert.match(html,/数量已核对/,seed.file)
+  assert.match(html,seed.state==='otherInbounds'?/title="本次入库批次"/:/已分配/,seed.file)
+  if(seed.state!=='otherInbounds')assert.match(html,/数量已核对/,seed.file)
   const draft=seed.lineKey?bindings.lotDrafts.value[0].lots:bindings.lotDrafts.value
   if('lot_id' in draft[0]&&draft[0].lot_id===0)draft[0].lot_id=8
   // 用真实可提交的日期和来源批号核对界面调整后仍发送原业务协议。

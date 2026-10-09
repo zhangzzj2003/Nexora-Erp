@@ -8,6 +8,8 @@ import AppButton from '../app/AppButton.vue'
 
 // 节点点击仅筛选只读记录，不提供跳步、批准或业务执行入口。
 const props = defineProps<{
+  // 详情已提供业务操作时，提示直接指向同一弹窗；历史轮次仍使用原历史说明。
+  executionHint?: string
   record: DocumentApprovalRecord
   roles: readonly Pick<Role, 'code' | 'label'>[]
   localTime: (value: string) => string
@@ -59,7 +61,7 @@ watch(() => [selectedGeneration.value, selectedKey.value, props.record.current_s
         第 {{ generation }} 次送审<span v-if="generation === record.generation"> · 当前</span>
       </AppButton>
     </div>
-    <p class="approval-progress-summary" role="status" aria-live="polite">{{ progress.summary }}</p>
+    <p class="approval-progress-summary" role="status" aria-live="polite">{{ executionHint && progress.isCurrent && record.status === 'approved' ? executionHint : progress.summary }}</p>
     <!-- 所有窗口都保留横向流程；独立滚动区域支持键盘，节点同时保留文字状态。 -->
     <div v-if="progress.nodes.length" ref="flowViewport" class="approval-flow-viewport" tabindex="0"
       role="region" aria-label="审批流程（可左右滚动）">

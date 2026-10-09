@@ -10,7 +10,7 @@ import vue from '@vitejs/plugin-vue'
 test('其他入库列表区分待登记、已登记和旧单未分配批次',async t=>{
   const fixture=`import {defineStore} from 'pinia';import {ref} from 'vue';
   export const usePiniaAppStore=defineStore('inbound-lot-ui-test',()=>({
-    error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
+    documentApprovalTarget:ref(null),documentApprovalLoading:ref(false),error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
     otherInbounds:ref([]),otherInboundForm:ref({lines:[]}),otherInboundReversalReasons:ref({}),
     can:code=>code==='other_inbound.post',localTime:value=>value,
     createOtherInbound(){},postOtherInbound(){},cancelOtherInbound(){},reverseOtherInbound(){}
@@ -18,7 +18,7 @@ test('其他入库列表区分待登记、已登记和旧单未分配批次',asy
   const server=await createServer({configFile:false,plugins:[{
     name:'other-inbound-lot-fixture',enforce:'pre',resolveId(id,importer){
       if(importer?.includes('/warehouse/OtherInboundsView')&&id.endsWith('/store/app-store'))return '\0other-inbound-store'
-      if(id.endsWith('/DocumentApprovalDialog.vue'))return '\0inbound-approval-placeholder'
+      if(id.endsWith('/DocumentApprovalPanel.vue'))return '\0inbound-approval-placeholder'
       if(id.endsWith('/WorkspaceTable.vue'))return '\0other-inbound-table'
       if(id==='naive-ui'&&importer?.includes('OtherInboundsView'))return '\0other-inbound-naive'
     },load(id){if(id==='\0inbound-approval-placeholder')return 'export default {render(){return null}}';if(id==='\0other-inbound-store')return fixture
