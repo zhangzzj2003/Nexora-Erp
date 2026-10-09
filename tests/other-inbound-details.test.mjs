@@ -23,7 +23,8 @@ test('物料摘要不吞占列内余量，窄列可收缩且余项标签保持�
  // 不增长才能让标签跟随内容，同时允许文本收缩，保留窄列的省略能力。
  assert.deepEqual(preview.flex.split(/\s+/),['0','1','auto'])
  assert.equal(preview['min-width'],'0')
- assert.equal(declarations('.inbound-material-summary').gap,'8px')
+ // 摘要与余项标签保留明确的 20px 间距；文本仍可收缩，不能挤掉窄列中的标签。
+ assert.equal(declarations('.inbound-material-summary').gap,'20px')
  assert.equal(declarations('.inbound-material-more').flex,'none')
  assert.equal(declarations('.inbound-material-text')['text-overflow'],'ellipsis')
 })
