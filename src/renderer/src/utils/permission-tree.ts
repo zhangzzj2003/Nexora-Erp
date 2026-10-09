@@ -12,6 +12,33 @@ export interface PermissionModule {
   documents: PermissionDocument[]
 }
 
+export interface PermissionOperationGroup {
+  code: 'read-write' | 'approval'
+  label: string
+  permissions: Permission[]
+}
+
+// 中文名称允许管理员修改；用稳定的操作代码分类，避免改名后审核权限混入读写权限。
+const approvalActions = new Set(['review', 'verify', 'approve'])
+
+export function documentPermissionGroups(document: PermissionDocument): PermissionOperationGroup[] {
+  const groups: PermissionOperationGroup[] = [
+    { code: 'read-write', label: '读写操作', permissions: [] },
+    { code: 'approval', label: '审核操作', permissions: [] }
+  ]
+  for (const permission of document.permissions) {
+    const action = permission.code.slice(permission.code.lastIndexOf('.') + 1)
+    // 确认、冲销和检验属于业务执行；仅审核、核准、批准归入审核组。
+    groups[approvalActions.has(action) ? 1 : 0].permissions.push(permission)
+  }
+  // 不显示空分类，旧服务端和新操作代码仍保留全部授权叶子。
+  return groups.filter((group) => group.permissions.length > 0)
+}
+
+export function operationGroupPermissionCodes(group: PermissionOperationGroup): string[] {
+  return group.permissions.map((permission) => permission.code)
+}
+
 const moduleOrder = ['warehouse', 'catalog', 'purchase', 'sales', 'finance', 'production', 'system', 'other']
 
 function modulePosition(code: string): number {
