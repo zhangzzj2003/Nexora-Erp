@@ -3,9 +3,20 @@ import { test } from 'node:test'
 import { createAppState } from '../src/renderer/src/store/state.ts'
 import { createMaterialSupplyActions } from '../src/renderer/src/store/modules/material-supply-actions.ts'
 import { materialSupplyBody, validateMaterialSupply } from '../src/shared/material-supply-api.ts'
-import { materialSupplyId, materialSupplyColumns } from '../src/renderer/src/utils/material-supply-row.ts'
+import { materialSupplyId, materialSupplyColumns, formatMaterialSupplyQuantity } from '../src/renderer/src/utils/material-supply-row.ts'
 import { callBackend } from '../src/main/backend.ts'
 import { previewResponse } from '../scripts/site-preview/fixtures.mjs'
+
+// 数量展示去掉多余零，但不得取整、隐藏真实小数、丢失大数精度或将无权限显示成零。
+test('供需数量精简整数和小数尾零，保留负数、大数精度与权限提示', () => {
+  for (const [value, expected] of [
+    ['100.000', '100'], ['0.000', '0'], ['1000', '1000'], ['1.500', '1.5'],
+    ['1.050', '1.05'], ['0.001', '0.001'], ['0.100', '0.1'], ['100.101', '100.101'],
+    ['-12.300', '-12.3'], ['-100.000', '-100'], ['-0.000', '0'],
+    ['9007199254740993.125', '9007199254740993.125'],
+    ['9007199254740993.000', '9007199254740993'], [null, '无权限'],
+  ]) assert.equal(formatMaterialSupplyQuantity(value), expected)
+})
 
 // 预览数量必须与明细相符，且不能因开放只读供需而放行任何业务写入。
 test('仓库、采购与计划的示例供需响应守恒，业务写入保持隔离', () => {

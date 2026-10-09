@@ -5,6 +5,7 @@ import { NModal } from 'naive-ui'
 import AppButton from '../app/AppButton.vue'
 import WorkspaceTable from './WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../store/app-store'
+import { formatMaterialSupplyQuantity } from '../../utils/material-supply-row'
 import { materialSupplyPhases, materialSupplyLabels, materialSupplyKindLabels } from '../../../../shared/material-supply-api'
 
 const props = withDefaults(defineProps<{ materialId: number; active?: boolean }>(), { active: true })
@@ -33,7 +34,7 @@ const columns = [{key: 'phase', title: '阶段', width: '100'}, {key: 'source', 
     :aria-label="`${entry?.row.name ?? '当前物料'}物料供需，点击查看来源`" @click="showDetails">
     <span v-for="phase in materialSupplyPhases" :key="phase" class="supply-count">
       <span>{{ materialSupplyLabels[phase] }}</span>
-      <strong>{{ connectionLost ? '—' : loading ? '…' : error ? '—' : entry ? (entry.row[`${phase}_quantity`] ?? '无权限') : '—' }}</strong>
+      <strong>{{ connectionLost ? '—' : loading ? '…' : error ? '—' : entry ? formatMaterialSupplyQuantity(entry.row[`${phase}_quantity`]) : '—' }}</strong>
     </span>
     <span class="supply-caption">{{ connectionLost ? '连接已断开' : error ? '读取失败，点击重试' : '全仓 · 查看来源' }}</span>
   </AppButton>
@@ -49,12 +50,13 @@ const columns = [{key: 'phase', title: '阶段', width: '100'}, {key: 'source', 
       <p v-if="loading" role="status">正在读取当前供需…</p>
       <div v-if="entry" class="supply-cards">
         <div v-for="phase in materialSupplyPhases" :key="phase"><span>{{ materialSupplyLabels[phase] }}</span>
-          <strong>{{ entry.row[`${phase}_quantity`] ?? '无权限' }}</strong></div>
+          <strong>{{ formatMaterialSupplyQuantity(entry.row[`${phase}_quantity`]) }}</strong></div>
       </div>
       <p class="supply-explanation">库存为账面结存；计划中为已生效的采购计划尚未正式下单部分；待回料为已采购未到货；待入库为合格已收货或已批准采购入库单尚未入库。生产待退料独立统计。预计数量不能直接当作可用库存。</p>
       <WorkspaceTable title="数值来源" :data="entry?.row.sources ?? []" :columns="columns" :loading="loading" :min-table-width="510"
         empty-text="没有正数量的采购来源或库存流水；无权限的阶段不返回来源。">
         <template #cell-phase="{row}">{{ materialSupplyLabels[row.phase] }}</template>
+        <template #cell-quantity="{row}">{{ formatMaterialSupplyQuantity(row.quantity) }}</template>
         <template #cell-source="{row}"><strong>{{ row.warehouse_name ?? `${materialSupplyKindLabels[row.kind]} · ${row.document_no ?? '#' + row.document_id}` }}</strong>
           <small v-if="row.reference">{{ row.reference }}</small></template>
       </WorkspaceTable>
