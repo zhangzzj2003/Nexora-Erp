@@ -114,8 +114,10 @@ function submit(): void {
 
 <style scoped>
 /* 只让内容区滚动，长明细和窄窗口下仍能直接访问保存、收起按钮。 */
-.document-form { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 172px); }
-.document-body { min-height: 0; overflow-y: auto; }
+/* 由卡片实际剩余高度分配空间，标题换行或页脚增高时也不会裁掉正文。 */
+.document-form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* 留白属于正文并随内容滚走，避免标题下方和页脚上方形成固定遮挡带。 */
+.document-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px; }
 .document-basic-grid :deep(> .document-basic-extra) { grid-column: 1 / -1; }
 .document-fields { display: block; min-width: 0; margin: 0; padding: 0; border: 0; }
 .document-basic h3, .document-lines h3 { margin: 0 0 18px; font-size: 15px; }
@@ -137,21 +139,24 @@ function submit(): void {
 .document-count { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 7px;
   color: var(--workspace-field-accent); background: var(--app-accent-tint); font-size: 12px; font-weight: 500; }
 .document-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 18px;
-  margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--workspace-field-border); }
+  margin: 0 24px 24px; padding-top: 18px; border-top: 1px solid var(--workspace-field-border); }
 .document-footer p { margin: 0; font-size: 12px; line-height: 1.6; }
 .document-actions { display: flex; justify-content: flex-end; gap: 10px; margin-left: auto; }
 @media (max-width: 850px) {
   .document-basic--readonly .document-basic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 650px) {
+  .document-body { padding: 16px; }
   .document-basic { padding: 16px; }
   .document-basic .form-grid { grid-template-columns: 1fr; }
-  .document-footer { flex-direction: column; align-items: stretch; gap: 12px; }
+  .document-footer { flex-direction: column; align-items: stretch; gap: 12px; margin: 0 16px 16px; }
   .document-actions { margin-left: 0; }
 }
 </style>
 
 <style>
-/* Naive UI 卡片内容允许收缩，弹窗高度由视口限制，不让页脚滚出屏幕。 */
-.n-modal.n-card.workspace-document-dialog > .n-card-content { min-height: 0; overflow: clip; }
+/* 外层不留固定内边距；正文负责可滚动留白，页脚自行保留按钮周围的空间。 */
+.n-modal.n-card.workspace-document-dialog > .n-card-content {
+  display: flex; flex-direction: column; min-height: 0; overflow: clip; padding: 0;
+}
 </style>
