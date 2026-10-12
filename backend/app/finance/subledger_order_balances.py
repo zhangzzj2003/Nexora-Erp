@@ -54,8 +54,8 @@ def order_offsets(db: Session, kind: str, identifier: int, to_date: str | None =
             sum((Decimal(row.amount) for row in rows if row.direction == 'historical_credit'), ZERO))
 
 
-def active_records(db: Session) -> list[SubledgerOrderSettlement]:
-    reversals = set(db.scalars(select(SubledgerOrderSettlement.reverses_id).where(
-        SubledgerOrderSettlement.status == 'executed', SubledgerOrderSettlement.reverses_id.is_not(None))))
-    return [row for row in db.scalars(executed(db).where(SubledgerOrderSettlement.reverses_id.is_(None)))
+def active_records(db: Session, to_date: str | None = None) -> list[SubledgerOrderSettlement]:
+    reversals = set(db.scalars(executed(db, to_date).with_only_columns(SubledgerOrderSettlement.reverses_id)
+        .where(SubledgerOrderSettlement.reverses_id.is_not(None))))
+    return [row for row in db.scalars(executed(db, to_date).where(SubledgerOrderSettlement.reverses_id.is_(None)))
         if row.id not in reversals]

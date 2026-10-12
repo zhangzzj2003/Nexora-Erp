@@ -124,3 +124,5 @@
 生产工单和完工单的“关联单据”共用 `ProductionAssociationDialog.vue`，复用只读 `WorkspaceDocumentDialog`，由 Pinia 的 `production-association-actions.ts` 管理查询与会话失效。来源证据、未分配缺口和主动加载的采购参考分别显示，均明确工单范围；该弹窗不提供建单、补证或审批动作。
 
 仓库、采购单据弹窗和 MRP 物料表共用当前供需列，显示全仓库存、采购计划、待回料及采购待入库；点击查看来源，历史正文与计划快照保持原样。口径与读取边界见 [物料当前供需](../../../../../docs/material-supply.md)。
+
+`finance/ControlBalanceTransfersView.vue` 对应 `/workspace/control-balance-transfers`，独立 `control_transfer.view`，Pinia 操作在 `control-balance-actions.ts`。先核对原单和完整组合，分别批准转账及固定凭证，凭证过账才生效；来源与审计、实际凭证和截止日分组均可读取。`ControlFundsSelector.vue` 复用于订单资金和历史资金，转账后的原单必须显式选择真实组合；迟到结果、实例证书变化、撤权及断线不得开放保存。规则见[往来余额转账](../../../../../docs/control-balance-transfers.md)。

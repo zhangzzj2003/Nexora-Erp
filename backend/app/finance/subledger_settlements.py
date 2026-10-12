@@ -65,6 +65,9 @@ def validate_settlement(db: Session, record: SubledgerSettlement) -> None:
     source, target = (db.get(SubledgerOpeningLine, identifier) for identifier in (record.from_line_id, record.to_line_id))
     if source is None or target is None:
         raise HTTPException(404, '历史分户原单不存在')
+    from app.finance.control_balance_funds import ensure_legacy_origin
+    for line in (source, target):
+        ensure_legacy_origin(db, line.kind, 'historical', line.id)
     opening = db.get(SubledgerOpening, source.opening_id)
     if opening.status != 'confirmed' or opening.active_key != 1 or source.opening_id != target.opening_id:
         raise HTTPException(409, '双方原单须来自同一有效已确认分户方案')

@@ -159,6 +159,23 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   store.documentApprovalRecord.can_review=false;store.documentApprovalRecord.business_status='converted'
   assert.match(await render(), /已处理单据保留原业务记录/)
 
+  // 主分支新增的转账审批也通过复用控件校验，抽取组件不能放宽原必填依据。
+  store.documentApprovalTarget={document_type:'ControlBalanceTransfer',document_id:1,intent:'execute'}
+  store.documentApprovalRecord={...store.documentApprovalRecord,document_type:'ControlBalanceTransfer',
+    business_status:'draft',version:1,status:'draft',can_submit:true,can_review:false}
+  html=await render()
+  assert.match(html,/转账操作依据（必填）/);assert.match(html,/maxlength="200"/)
+  assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
+  store.documentApprovalReasons['ControlBalanceTransfer:1:execute']='核对转出和转入余额组合'
+  assert.doesNotMatch(await render(),/<button[^>]*disabled[^>]*>提交审批/)
+  store.documentApprovalRecord.can_submit=false;store.documentApprovalRecord.can_review=true
+  store.documentApprovalReasons['ControlBalanceTransfer:1:execute']=''
+  html=await render()
+  assert.match(html,/<button[^>]*disabled[^>]*>审核/)
+  assert.match(html,/<button[^>]*disabled[^>]*>驳回/)
+  store.documentApprovalReasons['ControlBalanceTransfer:1:execute']='已核对原单与转账依据'
+  assert.doesNotMatch(await render(),/<button[^>]*disabled[^>]*>审核/)
+
   // 售后意见沿用原二百字约束，已收件的旧单据不补造新批准。
   store.documentApprovalTarget={document_type:'AfterSalesCase',document_id:1,intent:'execute'}
   store.documentApprovalRecord={...store.documentApprovalRecord,document_type:'AfterSalesCase',

@@ -91,6 +91,10 @@ def document_access(db, document_type: str, identifier: int, user_id: int):
     if document_type == 'CrmQuote':
         from app.sales.crm_rules import get_record
         get_record(db, 'quote', identifier, user=user)
+    if document_type == 'ControlBalanceTransfer':
+        from app.finance.control_balance_transfers import require_origin_view
+        for saved in (json.loads(source.from_scope_json), json.loads(source.to_scope_json)):
+            require_origin_view(db, user_id, saved)
     return rule, user, source
 
 
@@ -232,13 +236,15 @@ def act_document_approval(document_type: str, identifier: int,
             json.loads(row.snapshot_json).get('reversal_evidence', '') if row else '')
         reason = payload.reason if action == 'submit' else (
             json.loads(row.snapshot_json).get('reversal_reason', '') if row else '')
-        if document_type in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement'):
+        if document_type in ('PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement', 'ControlBalanceTransfer'):
             if document_type == 'PaymentRecord':
                 from app.finance.routes import validate_payment
             elif document_type == 'OrderSettlementTransfer':
                 from app.finance.order_settlements import validate_transfer as validate_payment
             elif document_type == 'SubledgerSettlement':
                 from app.finance.subledger_settlements import validate_settlement as validate_payment
+            elif document_type == 'ControlBalanceTransfer':
+                from app.finance.control_balance_transfers import validate_transfer as validate_payment
             else:
                 from app.finance.subledger_openings import validate_payment
             permission = submit_permission(document_type, payload.intent, source) or rule.submit_permission

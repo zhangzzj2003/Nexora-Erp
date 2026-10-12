@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.models import JournalLine, OrderSettlementTransfer, PaymentRecord
 from app.finance.auxiliary_rules import combination, snapshot_values
-from app.finance.business_journals import active_bindings
+from app.finance.business_journals import bindings_at
 from app.finance.business_sources import ROLE_LABELS, business_sources
 from app.finance.routes import financial_entries, party_data
 from app.finance.subledger_order_balances import active_records, order_id
@@ -86,8 +86,9 @@ def control_proof(db: Session, source: dict, binding, kind: str, today: str) -> 
     return line, auxiliary
 
 
-def project_orders(db: Session, start_date: str) -> dict[tuple[str, int], OrderScope]:
-    today = datetime.now(timezone.utc).date().isoformat()
+def project_orders(db: Session, start_date: str, to_date: str | None = None,
+                   *, include_control_transfers: bool = True, for_funds: bool = False) -> dict[tuple[str, int], OrderScope]:
+    today = to_date or datetime.now(timezone.utc).date().isoformat()
     result: dict[tuple[str, int], OrderScope] = {}
 
     def owner(kind: str, identifier: int) -> OrderScope:
@@ -98,14 +99,17 @@ def project_orders(db: Session, start_date: str) -> dict[tuple[str, int], OrderS
         return result[key]
 
     for entry in financial_entries(db):
-        if entry['order_id'] is not None:
+        if entry['order_id'] is not None and entry['posted_at'][:10] <= today:
             scope = owner(entry['kind'], entry['order_id'])
             if entry['amount'] is None:
                 scope.block('订单有尚未定价的业务来源')
     for payment in db.scalars(select(PaymentRecord).where(PaymentRecord.status == 'executed')):
-        owner(payment.kind, payment.order_id)
-    bindings = active_bindings(db)
+        if (payment.executed_at or payment.created_at)[:10] <= today:
+            owner(payment.kind, payment.order_id)
+    bindings = bindings_at(db, to_date)
     for source in business_sources(db).values():
+        if source['source_date'] > today:
+            continue
         allocations: dict[tuple[str, int], Decimal] = {}
         for entry in source['business']:
             if entry['order_id'] is not None and entry['amount'] is not None:
@@ -127,10 +131,25 @@ def project_orders(db: Session, start_date: str) -> dict[tuple[str, int], OrderS
                 problem = '订单来源尚有缺价或成本依据缺口'
             elif source['key'] not in bindings:
                 problem = '订单来源尚无有效已过账凭证'
+            elif bindings[source['key']][1].status != 'posted':
+                problem = '订单来源凭证尚未过账'
             elif kind not in source['roles']:
                 problem = '订单来源没有可分配的往来用途分录'
             if problem:
-                scope.block(f"{source['label']} #{source['source_id']}：{problem}")
+                pending_funds = (source['source_type'] == 'payment_record'
+                    and source['records'][0].get('control_scope')
+                    and source['source_date'] >= start_date and not source['blockers']
+                    and (source['key'] not in bindings or bindings[source['key']][1].status != 'posted'))
+                if not (for_funds and pending_funds):
+                    scope.block(f"{source['label']} #{source['source_id']}：{problem}")
+                if pending_funds:
+                    # 已办理但待过账的组合资金先扣业务额度，同时保留总账缺口阻止新转账。
+                    frozen = source['records'][0]['control_scope']
+                    key = scope_key(frozen['account_id'], frozen['auxiliary'])
+                    group = scope.groups.setdefault(key, ScopeGroup(frozen['account_id'], frozen['auxiliary']))
+                    group.amount += value
+                    group.evidence.append(dict(type='pending_payment', payment_id=source['source_id'],
+                        date=source['source_date'], amount=f'{value:.2f}'))
                 continue
             try:
                 line, auxiliary = control_proof(db, source, bindings[source['key']], kind, today)
@@ -152,8 +171,8 @@ def project_orders(db: Session, start_date: str) -> dict[tuple[str, int], OrderS
 
     # 已有订单间核销只保存订单身份。完整来源都属于唯一同组合时才可重放其归属。
     # 无法确定的旧事实明确阻止新抵销，不能把当前通用映射填进历史记录。
-    transfers = list(db.scalars(select(OrderSettlementTransfer).where(OrderSettlementTransfer.status == 'executed')
-        .order_by(OrderSettlementTransfer.id)))
+    transfers = [row for row in db.scalars(select(OrderSettlementTransfer).where(OrderSettlementTransfer.status == 'executed')
+        .order_by(OrderSettlementTransfer.id)) if (row.executed_at or row.created_at)[:10] <= today]
     reversed_ids = {row.reverses_id for row in transfers if row.reverses_id is not None}
     for transfer in transfers:
         if transfer.reverses_id is not None or transfer.id in reversed_ids:
@@ -212,12 +231,15 @@ def project_orders(db: Session, start_date: str) -> dict[tuple[str, int], OrderS
             for group in scope.groups.values():
                 group.evidence = [proofs[key] for key in sorted(proofs)]
 
-    for record in active_records(db):
+    for record in active_records(db, to_date):
         scope = owner(record.kind, order_id(record))
         auxiliary = json.loads(record.auxiliary_json)
         key = scope_key(record.account_id, auxiliary)
         group = scope.groups.setdefault(key, ScopeGroup(record.account_id, auxiliary))
         group.amount += Decimal(record.amount) * (1 if record.direction == 'order_credit' else -1)
+    if include_control_transfers:
+        from app.finance.control_balance_projection import apply_order_transfers
+        apply_order_transfers(db, result, today)
     return result
 
 

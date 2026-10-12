@@ -93,6 +93,9 @@ def validate_settlement(db: Session, record: SubledgerOrderSettlement,
     if opening.status != 'confirmed' or opening.active_key != 1:
         raise HTTPException(409, '历史原单须来自有效已确认分户方案')
     identifier = order_id(record)
+    from app.finance.control_balance_funds import ensure_legacy_origin
+    ensure_legacy_origin(db, line.kind, 'historical', line.id)
+    ensure_legacy_origin(db, record.kind, 'order', identifier)
     party = party_data(db, record.kind, identifier)
     if record.kind != line.kind or party['party_id'] != (line.customer_id or line.supplier_id):
         raise HTTPException(409, '历史原单与订单须为同类同一实际往来对象')
@@ -255,7 +258,7 @@ def protect_journal(db: Session, journal_id: int) -> None:
     if not protected:
         return
     opening = db.scalar(select(SubledgerOpening).where(SubledgerOpening.active_key == 1))
-    scopes = project_orders(db, opening.effective_date)
+    scopes = project_orders(db, opening.effective_date, include_control_transfers=False)
     if any((scope.kind, scope.order_id) in protected and any(proof.get('journal_id') == journal_id
             for group in scope.groups.values() for proof in group.evidence) for scope in scopes.values()):
         raise HTTPException(409, '此凭证属于已执行历史核销的关联订单依据，请先独立撤销该核销')

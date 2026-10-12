@@ -15,7 +15,7 @@ test('资金页面保护独立批准执行、草稿取消与原记录反向入�
       if(importer?.includes('/PaymentRecordsView.vue') && id.endsWith('/store/app-store'))return '\0payment-store'
       if(id.endsWith('/WorkspaceTable.vue'))return '\0payment-table'
       if(id.endsWith('/AppButton.vue'))return '\0payment-button'
-      for(const file of ['DocumentApprovalDialog.vue','AppInput.vue','WorkspaceSelect.vue'])if(id.endsWith('/'+file))return '\0payment-stub'
+      for(const file of ['DocumentApprovalDialog.vue','ControlFundsSelector.vue','AppInput.vue','WorkspaceSelect.vue'])if(id.endsWith('/'+file))return '\0payment-stub'
     },load(id){
       if(id==='\0payment-stub')return 'export default {render:()=>null}'
       if(id==='\0payment-modal')return `import {defineComponent,h} from 'vue';export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`

@@ -10,6 +10,7 @@ import type { MaterialCategoryInput, MaterialSpecFieldInput, MaterialCategoryCha
 import type { MaterialUnit } from '../../../shared/material-unit-api'
 import type {EquipmentOverview,EquipmentDetail,EquipmentForms,EquipmentEntity} from '../../../shared/equipment-api'
 import type {DashboardPeriod, DashboardResult} from '../../../shared/dashboard-api'
+import type { ControlBalanceTransfer, ControlBalanceOptions, ControlBalanceReport, ControlTransferChange } from '../../../shared/control-balance-api'
 import type { CrmOptions, CrmOverview, CrmForecast, CrmKind, CrmRecord, CrmChange, CrmForms, CrmEditTarget, CustomerOwnerChange } from '../../../shared/crm-api'
 import type { QualityOverview, QualityEvidence, QualityDraft } from '../../../shared/quality-api'
 import type { AfterSalesOverview, AfterSalesEvidence, AfterSalesDraft } from '../../../shared/after-sales-api'
@@ -265,6 +266,15 @@ export function createAppState() {
   const subledgerOrderOptions = ref<SubledgerOrderOptions | null>(null)
   const subledgerOrderLoading = ref(false)
   const subledgerOrderError = ref('')
+  const controlBalanceTransfers = ref<ControlBalanceTransfer[]>([])
+  const controlBalanceOptions = ref<ControlBalanceOptions | null>(null)
+  const controlBalanceReport = ref<ControlBalanceReport | null>(null)
+  const controlBalanceDetail = ref<ControlBalanceTransfer | null>(null)
+  const controlBalanceJournal = ref<Journal | null>(null)
+  const controlBalanceChanges = ref<ControlTransferChange[]>([])
+  const controlBalanceLoading = ref(false)
+  const controlBalanceReportLoading = ref(false)
+  const controlBalanceError = ref('')
   const subledgerChanges = ref<SubledgerChange[]>([])
   const subledgerCheck = ref<SubledgerReconciliation | null>(null)
   const subledgerLoading = ref(false)
@@ -405,7 +415,7 @@ export function createAppState() {
     reason: '',
     lines: [] as { receipt_line_id: number; quantity: string }[]
   })
-  const paymentForm = ref({
+  const paymentForm = ref<ErpOperations['createPaymentRecord']['input']>({
     kind: 'receivable' as 'receivable' | 'payable',
     order_id: 0,
     action: 'settlement' as 'settlement' | 'refund',
@@ -687,6 +697,15 @@ export function createAppState() {
     subledgerOrderOptions,
     subledgerOrderLoading,
     subledgerOrderError,
+    controlBalanceTransfers,
+    controlBalanceOptions,
+    controlBalanceReport,
+    controlBalanceDetail,
+    controlBalanceJournal,
+    controlBalanceChanges,
+    controlBalanceLoading,
+    controlBalanceReportLoading,
+    controlBalanceError,
     subledgerChanges,
     subledgerCheck,
     subledgerLoading,

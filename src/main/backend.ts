@@ -32,12 +32,14 @@ import {validateContactImportPreview,validateContactImportResult} from '../share
 import {validateOpportunityImportPreview,validateOpportunityImportResult} from '../shared/opportunity-import-validation.ts'
 import {validateCrmForecast} from '../shared/crm-forecast-validation.ts'
 import {validateJournalAttachmentResult} from '../shared/journal-attachment-validation.ts'
+import {validateSubledgerAttachmentResult} from '../shared/subledger-attachment-validation.ts'
 import {validateAfterSalesAttachmentResult} from '../shared/after-sales-attachment-validation.ts'
 import {validateCrmQuoteAttachmentResult} from '../shared/crm-quote-attachment-validation.ts'
 import {validateSalesContractAttachmentResult} from '../shared/sales-contract-attachment-validation.ts'
 import {validateCrmRecordAttachmentResult} from '../shared/crm-record-attachment-validation.ts'
 import type {CrmAttachmentKind} from '../shared/crm-api.ts'
 import {validateEquipmentAttachmentResult} from '../shared/equipment-attachment-validation.ts'
+import { controlTransferBody, controlId, controlText, controlDate, fundsScopeBody, validateControlBalanceResult } from '../shared/control-balance-validation.ts'
 import type {EquipmentAttachmentKind} from '../shared/equipment-api.ts'
 import { request as httpsRequest } from 'node:https'
 import { createHash } from 'node:crypto'
@@ -178,7 +180,7 @@ export async function fetchCrmQuotePdf(value: unknown): Promise<{ id: number; by
     && (target === null ? selectedTarget === null : sameBackendIdentity(selectedTarget, target)) }
 }
 
-async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | 'crm-quote' | 'crm-record' | 'equipment' | 'sales-contract', documentValue: unknown,
+async function fetchStoredAttachment(documentType: 'subledger' | 'journal' | 'after-sales' | 'crm-quote' | 'crm-record' | 'equipment' | 'sales-contract', documentValue: unknown,
     attachmentValue: unknown, recordKind?: CrmAttachmentKind | EquipmentAttachmentKind, orderValue?: unknown): Promise<{
   documentId: number; attachmentId: number; extension: string; bytes: Buffer; isCurrent: () => boolean
 }> {
@@ -190,7 +192,9 @@ async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | '
   const target = selectedTarget
   let response: Response
   try {
-    const path = documentType === 'journal'
+    const path = documentType === 'subledger'
+      ? `/api/v1/finance/subledger-openings/${documentId}/attachments/${attachmentId}`
+      : documentType === 'journal'
       ? `/api/v1/finance/journals/${documentId}/attachments/${attachmentId}`
       : documentType === 'after-sales'
         ? `/api/v1/after-sales/cases/${documentId}/attachments/${attachmentId}`
@@ -251,6 +255,11 @@ async function fetchStoredAttachment(documentType: 'journal' | 'after-sales' | '
 export async function fetchJournalAttachment(journalValue: unknown, attachmentValue: unknown) {
   const file = await fetchStoredAttachment('journal', journalValue, attachmentValue)
   return { ...file, journalId: file.documentId }
+}
+
+export async function fetchSubledgerAttachment(openingValue: unknown, attachmentValue: unknown) {
+  const file = await fetchStoredAttachment('subledger', openingValue, attachmentValue)
+  return { ...file, openingId: file.documentId }
 }
 
 export async function fetchAfterSalesAttachment(caseValue: unknown, attachmentValue: unknown) {
@@ -1235,6 +1244,32 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'subledgerSettlements': return { method: 'GET', path: '/api/v1/finance/subledger-settlements' }
     case 'subledgerOrderSettlements': return { method: 'GET', path: '/api/v1/finance/subledger-order-settlements' }
     case 'subledgerOrderOptions': return { method: 'GET', path: '/api/v1/finance/subledger-order-settlements/options' }
+    case 'controlBalanceTransfers': return { method: 'GET', path: '/api/v1/finance/control-transfers' }
+    case 'controlBalanceOptions': return { method: 'GET', path: '/api/v1/finance/control-transfers/options' }
+    case 'controlBalanceDetail': return { method: 'GET', path: `/api/v1/finance/control-transfers/${positiveId(payload, 'id')}` }
+    case 'controlBalanceChanges': return { method: 'GET', path: `/api/v1/finance/control-transfers/${positiveId(payload, 'id')}/changes` }
+    case 'queryControlBalances': return { method: 'GET', path: '/api/v1/finance/control-transfers/balances?to_date=' + controlDate((payload as ErpOperations['queryControlBalances']['input']).to_date) }
+    case 'controlBalanceFundsOptions': {
+      const row = payload as ErpOperations['controlBalanceFundsOptions']['input']
+      if (!['receivable', 'payable'].includes(row.kind) || !['historical', 'order'].includes(row.source_type)) throw Error('资金原单类别无效。')
+      return { method: 'GET', path: `/api/v1/finance/control-transfers/funds-options?kind=${row.kind}&source_type=${row.source_type}&source_id=${controlId(row.source_id)}` }
+    }
+    case 'createControlBalanceTransfer': return { method: 'POST', path: '/api/v1/finance/control-transfers', body: controlTransferBody(payload) }
+    case 'generateControlBalanceJournal': {
+      const row = payload as ErpOperations['generateControlBalanceJournal']['input']
+      return { method: 'POST', path: `/api/v1/finance/control-transfers/${controlId(row.id)}/generate`, body: {
+        version: controlId(row.version), reference: controlText(row.reference, 80), reason: controlText(row.reason, 200) } }
+    }
+    case 'reverseControlBalanceTransfer': {
+      const row = payload as ErpOperations['reverseControlBalanceTransfer']['input']
+      return { method: 'POST', path: `/api/v1/finance/control-transfers/${controlId(row.id)}/reverse`, body: {
+        version: controlId(row.version), business_date: controlDate(row.business_date), reference: controlText(row.reference, 80), reason: controlText(row.reason, 200) } }
+    }
+    case 'cancelControlBalanceTransfer': {
+      const row = payload as ErpOperations['cancelControlBalanceTransfer']['input']
+      return { method: 'POST', path: `/api/v1/finance/control-transfers/${controlId(row.id)}/cancel`, body: {
+        version: controlId(row.version), reason: controlText(row.reason, 200) } }
+    }
     case 'createSubledgerOrderSettlement': {
       const row = payload as ErpOperations['createSubledgerOrderSettlement']['input']
       if (!['historical_credit', 'order_credit'].includes(row.direction)) throw Error('历史与订单核销方向无效')
@@ -1307,9 +1342,9 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       return { method: 'POST', path: '/api/v1/finance/subledger-openings/query', body: { to_date, kind, party_id } }
     }
     case 'createSubledgerPayment': {
-      const { action: command, amount, reference, reason } = payload as ErpOperations['createSubledgerPayment']['input']
+      const { action: command, amount, reference, reason, control_scope } = payload as ErpOperations['createSubledgerPayment']['input']
       return { method: 'POST', path: `/api/v1/finance/subledger-openings/lines/${positiveId(payload, 'line_id')}/payments`,
-        body: { action: command, amount, reference, reason } }
+        body: { action: command, amount, reference, reason, ...(control_scope === undefined ? {} : { control_scope: fundsScopeBody(control_scope) }) } }
     }
     case 'changeSubledgerPaymentStatus': {
       const row = payload as ErpOperations['changeSubledgerPaymentStatus']['input']
@@ -1345,6 +1380,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'journalOptions': return { method: 'GET', path: '/api/v1/finance/journals/options' }
     case 'journalChanges': return { method: 'GET', path: `/api/v1/finance/journals/${positiveId(payload, 'id')}/changes` }
     case 'journalAttachments': return { method: 'GET', path: `/api/v1/finance/journals/${positiveId(payload, 'id')}/attachments` }
+    case 'subledgerAttachments': {
+      const page = positiveId(payload,'page'), pageSize = positiveId(payload,'page_size')
+      if (page > 1000000 || pageSize > 100) throw Error('附件分页参数无效')
+      return {method:'GET',path:`/api/v1/finance/subledger-openings/${positiveId(payload,'id')}/attachments?page=${page}&page_size=${pageSize}`}
+    }
+    case 'addSubledgerAttachment': return {method:'POST',path:`/api/v1/finance/subledger-openings/${positiveId(payload,'id')}/attachments`,
+      body:{...attachmentBody(payload),opening_version:positiveId(payload,'opening_version'),line_id:positiveId(payload,'line_id')}}
+    case 'reverseSubledgerAttachment': return {method:'POST',path:`/api/v1/finance/subledger-openings/${positiveId(payload,'id')}/attachments/${positiveId(payload,'attachmentId')}/reverse`,
+      body:{opening_version:positiveId(payload,'opening_version'),reason:bankText((payload as ErpOperations['reverseSubledgerAttachment']['input']).reason,'撤销原因',200)}}
     case 'addJournalAttachment': return { method: 'POST', path: `/api/v1/finance/journals/${positiveId(payload, 'id')}/attachments`,
       body: attachmentBody(payload) }
     case 'reverseJournalAttachment': {
@@ -1387,7 +1431,13 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'reverseBankLedgerMatch': return { method: 'POST', path: `/api/v1/finance/bank-balance/ledger-matches/${positiveId(payload, 'groupId')}/reverse`, body: bankBalanceBody(payload, 'reason') }
     case 'createBankBalanceReport': return { method: 'POST', path: '/api/v1/finance/bank-balance/reports', body: bankBalanceBody(payload, 'report') }
     case 'decideBankBalanceReport': return { method: 'POST', path: `/api/v1/finance/bank-balance/reports/${positiveId(payload, 'reportId')}/decision`, body: bankBalanceBody(payload, 'decision') }
-    case 'createPaymentRecord': return { method: 'POST', path: '/api/v1/finance/payment-records', body: payload }
+    case 'createPaymentRecord': {
+      const row = payload as ErpOperations['createPaymentRecord']['input']
+      if (!['receivable', 'payable'].includes(row.kind) || !['settlement', 'refund'].includes(row.action)) throw Error('资金类别或动作无效。')
+      return { method: 'POST', path: '/api/v1/finance/payment-records', body: { kind: row.kind, order_id: positiveId(row, 'order_id'),
+        action: row.action, amount: row.amount, reference: row.reference, note: row.note,
+        ...(row.control_scope === undefined ? {} : { control_scope: fundsScopeBody(row.control_scope) }) } }
+    }
     case 'changePaymentRecordStatus': {
       // 只开放固定资金动作，不能用路径片段或客户端批准字段绕过服务端。
       const row = payload as ErpOperations['changePaymentRecordStatus']['input']
@@ -1681,7 +1731,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
         ...(publicAction ? {} : { Authorization: `Bearer ${activeToken}` })
       }, request.body, action === 'saveDocumentNumbering' ? 120000 : action === 'addJournalAttachment' || action === 'addAfterSalesAttachment'
         || action === 'addCrmQuoteAttachment' || action === 'addCrmRecordAttachment' || action === 'addEquipmentAttachment'
-        || action === 'addSalesContractAttachment' ? 30000 : 10000)
+        || action === 'addSalesContractAttachment' || action === 'addSubledgerAttachment' ? 30000 : 10000)
   } catch {
     throw new Error('无法连接服务端，请检查网络、服务状态和证书。')
   }
@@ -1816,6 +1866,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   }
   validateInventoryWarningResult(action,data)
   validatePhysicalLotResult(action,data)
+  validateControlBalanceResult(action,data)
   validateEquipmentResult(action,data)
   validateMaterialCategoryResult(action, data)
   validateMaterialResult(action, data)
@@ -1829,6 +1880,9 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   if (action === 'journalAttachments' || action === 'addJournalAttachment' || action === 'reverseJournalAttachment') {
     validateJournalAttachmentResult(action, data,
       positiveId(payload, action === 'reverseJournalAttachment' ? 'journalId' : 'id'))
+  }
+  if (action === 'subledgerAttachments' || action === 'addSubledgerAttachment' || action === 'reverseSubledgerAttachment') {
+    validateSubledgerAttachmentResult(action,data,positiveId(payload,'id'))
   }
   if (action === 'afterSalesAttachments' || action === 'addAfterSalesAttachment' || action === 'reverseAfterSalesAttachment') {
     validateAfterSalesAttachmentResult(action, data,

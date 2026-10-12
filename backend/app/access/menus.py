@@ -32,6 +32,7 @@ MENU_KEYS = {
     'route:auxiliaryAccounting',
     'route:openingBalances',
     'route:subledgerOpenings',
+    'route:controlBalanceTransfers',
     'route:accountingPeriods',
     'route:goodsReceipts',
     'route:home',

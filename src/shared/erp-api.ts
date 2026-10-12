@@ -27,6 +27,7 @@ import type { QualityOperations, QualityTreatment, QualityKind, ReworkCostSource
 import type { AfterSalesOperations } from './after-sales-api'
 import type { EquipmentOperations } from './equipment-api'
 import type { DashboardOperations } from './dashboard-api'
+import type { ControlBalanceOperations, FundsFrozenScope, FundsScopeChoice } from './control-balance-api'
 // 桌面端与本地服务共用的数据契约；渲染进程不能自行指定请求地址。
 // 账号资料与登录名分开，工号可为空；非空工号由服务端保证唯一。
 export interface UserProfile { full_name: string; employee_no: string; phone: string }
@@ -158,6 +159,7 @@ export interface Journal extends NumberedDocument {
   lines: JournalLine[]; total_debit: string; total_credit: string
   business_source?: { key: string; evidence: BusinessJournalEvidence; mapping: BusinessJournalMapping; policy_version: number } | null
   profit_transfer?: { period_id: number; evidence: ProfitTransferEvidence; policy: ProfitTransferPolicy } | null
+  control_transfer?: { id: number; document_no: string | null; reverses_id: number | null; operation: 'reclassify' | 'allocate'; status: 'draft' | 'executed' | 'cancelled' }
 }
 export interface JournalAttachment {
   can_reverse?: boolean
@@ -290,10 +292,24 @@ export interface SubledgerOpening extends Omit<SubledgerInput, 'reason' | 'lines
   confirmed_at: string | null; cancelled_at: string | null; reversed_at: string | null
 }
 export interface SubledgerOptions extends AuxiliarySelectionOptions { accounts: LedgerAccount[]; opening_balance: OpeningBalance | null }
+export interface SubledgerAttachmentSource extends Pick<SubledgerLine, 'id' | 'kind' | 'party_id' | 'party_name' |
+  'account_id' | 'account_code' | 'account_name' | 'document_reference' | 'document_date' | 'debit' | 'credit' | 'auxiliary'> {
+  opening_id: number; opening_version: number; opening_balance_id: number; ledger_opening_version: number
+  effective_date: string; currency: 'CNY'
+}
+export interface SubledgerAttachment extends Omit<JournalAttachment, 'journal_id' | 'can_reverse'> {
+  opening_id: number; source: SubledgerAttachmentSource; source_status: 'matched' | 'changed' | 'missing'
+  current_line_id: number | null; approved_original: boolean; can_reverse: boolean
+}
+export interface SubledgerAttachmentList {
+  opening_id: number; opening_version: number; opening_status: SubledgerOpening['status']; can_modify: boolean
+  page: number; page_size: number; total: number; active_count: number; changed_count: number
+  lines: SubledgerAttachmentSource[]; items: SubledgerAttachment[]
+}
 export interface SubledgerChange extends FinanceMetadataChange<Omit<SubledgerOpening, 'created_by_name' | 'author_ids'>> {
   action: OpeningBalanceAction | 'create' | 'update' | 'withdraw'
 }
-export interface SubledgerPaymentInput { line_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; reason: string }
+export interface SubledgerPaymentInput { line_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; reason: string; control_scope?: FundsScopeChoice }
 export interface SubledgerPayment extends NumberedDocument {
   // 草稿及审批不产生资金事实；执行时间用于未结余额与来源凭证。
   status: 'draft' | 'executed' | 'cancelled'; version: number; approval?: DocumentApprovalState
@@ -301,6 +317,7 @@ export interface SubledgerPayment extends NumberedDocument {
   id: number; opening_line_id: number; action: 'settlement' | 'refund' | 'reversal'; amount: string; reference: string; note: string
   reverses_id: number | null; created_by: number; created_by_name: string; created_at: string; currency: 'CNY'
   kind: SubledgerKind; account_id: number; party_id: number; party_name: string; document_reference: string; auxiliary: AuxiliarySnapshot[]
+  control_scope?: FundsFrozenScope
 }
 export interface SubledgerQuery { to_date: string; kind: SubledgerKind | null; party_id: number | null }
 export interface SubledgerSettlementInput { from_line_id: number; to_line_id: number; amount: string; reference: string; reason: string }
@@ -312,7 +329,7 @@ export interface SubledgerSettlement extends SubledgerSettlementInput, NumberedD
   cancelled_by: number | null; cancelled_at: string | null; cancellation_reason: string
 }
 export interface SubledgerBalanceRow extends SubledgerLine {
-  settled_amount: string; offset_amount: string; order_offset_amount?: string; outstanding_amount: string
+  settled_amount: string; offset_amount: string; order_offset_amount?: string; control_transfer_amount?: string; outstanding_amount: string
   payments: SubledgerPayment[]; settlements: SubledgerSettlement[]
 }
 export type SubledgerOrderDirection = 'historical_credit' | 'order_credit'
@@ -695,11 +712,13 @@ export interface FinanceAccount {
   settled_amount: string
   credit_used_amount: string
   debt_covered_amount: string
+  control_transfer_amount?: string
   outstanding_amount: string
   source_keys: string[]
 }
 // 原收付款和冲销均为独立、不可编辑的记录，负金额表示退款或反向冲销。
 export interface PaymentRecord extends NumberedDocument {
+  control_scope?: FundsFrozenScope
   // 草稿金额不进入余额，审批与业务执行版本分别校验。
   status: 'draft' | 'executed' | 'cancelled'
   version: number
@@ -1352,7 +1371,7 @@ export interface ReportResult {
   csv: string
 }
 
-export interface ErpOperations extends MaterialSupplyOperations, ProductionAssociationOperations, DocumentApprovalOperations, DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations {
+export interface ErpOperations extends MaterialSupplyOperations, ProductionAssociationOperations, DocumentApprovalOperations, DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations, ControlBalanceOperations {
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
   login: { input: { username: string; password: string }; output: User }
@@ -1512,6 +1531,9 @@ export interface ErpOperations extends MaterialSupplyOperations, ProductionAssoc
   reverseJournal: { input: { id: number; version: number; reference: string; journal_date: string; reason: string }; output: Journal }
   journalChanges: { input: { id: number }; output: JournalChange[] }
   journalAttachments: { input: { id: number }; output: JournalAttachmentList }
+  subledgerAttachments: { input: { id: number; page: number; page_size: number }; output: SubledgerAttachmentList }
+  addSubledgerAttachment: { input: { id: number; opening_version: number; line_id: number; file_name: string; content_base64: string; reason: string }; output: SubledgerAttachment }
+  reverseSubledgerAttachment: { input: { id: number; opening_version: number; attachmentId: number; reason: string }; output: SubledgerAttachment }
   addJournalAttachment: { input: { id: number; file_name: string; content_base64: string; reason: string }; output: JournalAttachment }
   reverseJournalAttachment: { input: { journalId: number; attachmentId: number; reason: string }; output: JournalAttachment }
   createLedgerAccount: { input: LedgerAccountInput; output: LedgerAccount }
@@ -1542,7 +1564,7 @@ export interface ErpOperations extends MaterialSupplyOperations, ProductionAssoc
   reverseBankLedgerMatch: { input: { groupId: number; reason: string }; output: NonNullable<BankLedgerMatchGroup['reversal']> }
   createBankBalanceReport: { input: BankBalanceInput & { reason: string }; output: Omit<BankBalanceReport, 'created_by_name' | 'stale' | 'decisions'> }
   decideBankBalanceReport: { input: { reportId: number; action: 'approve' | 'reject'; reason: string }; output: Omit<BankBalanceReport['decisions'][number], 'created_by_name'> }
-  createPaymentRecord: { input: { kind: 'receivable' | 'payable'; order_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; note: string }; output: PaymentRecord }
+  createPaymentRecord: { input: { kind: 'receivable' | 'payable'; order_id: number; action: 'settlement' | 'refund'; amount: string; reference: string; note: string; control_scope?: FundsScopeChoice }; output: PaymentRecord }
   reversePaymentRecord: { input: { paymentId: number; reason: string }; output: PaymentRecord }
   changePaymentRecordStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: PaymentRecord }
   createOrderSettlement: { input: { kind: 'receivable' | 'payable'; from_order_id: number; to_order_id: number; amount: string; reference: string; reason: string }; output: OrderSettlementTransfer }

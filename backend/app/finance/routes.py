@@ -24,6 +24,7 @@ from pydantic import ConfigDict
 from app.access.security import current_user
 
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
+from app.finance.control_balance_funds import FundsScopeChoice, select_scope, validate_funds
 
 
 def money(value: Decimal) -> str:
@@ -32,12 +33,14 @@ def money(value: Decimal) -> str:
 
 
 class PaymentInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     kind: str
     order_id: int = Field(gt=0)
     action: str
     amount: Decimal
     reference: str = Field(min_length=1, max_length=100)
     note: str = Field(default="", max_length=200)
+    control_scope: FundsScopeChoice | None = None
 
     @field_validator("kind")
     @classmethod
@@ -234,12 +237,15 @@ def account_data(db: Session, kind: str, order_id: int,
     historical_credit_used, historical_debt_covered = order_offsets(db, kind, order_id)
     credit_used += historical_credit_used
     debt_covered += historical_debt_covered
+    from app.finance.control_balance_projection import origin_delta
+    transfer_delta = origin_delta(db, kind, 'order', order_id)
     return {"kind": kind, "order_id": order_id, **dict(row), "currency": "CNY",
             "business_amount": money(billed), "settled_amount": money(settled),
             "credit_used_amount": money(credit_used), "debt_covered_amount": money(debt_covered),
             "historical_credit_used_amount": money(historical_credit_used),
             "historical_debt_covered_amount": money(historical_debt_covered),
-            "outstanding_amount": money(billed - settled + credit_used - debt_covered),
+            "control_transfer_amount": money(transfer_delta),
+            "outstanding_amount": money(billed - settled + credit_used - debt_covered + transfer_delta),
             "source_keys": [item["key"] for item in source]}
 
 
@@ -255,7 +261,12 @@ def payment_data(db: Session, payment_id: int) -> dict:
     record = db.get(PaymentRecord, payment_id)
     if record is None:
         raise HTTPException(404, '收付款记录不存在')
-    return {**model_data(record), 'created_by_name': db.get(User, record.created_by).username,
+    fields = model_data(record)
+    fields.pop('control_scope_json')
+    if record.control_scope_json is not None:
+        import json
+        fields['control_scope'] = json.loads(record.control_scope_json)
+    return {**fields, 'created_by_name': db.get(User, record.created_by).username,
             'approval': approval.case_data(approval.find_case(db, 'PaymentRecord', record.id)),
             **party_data(db, record.kind, record.order_id), 'currency': 'CNY'}
 
@@ -300,13 +311,14 @@ def create_payment_record(payload: PaymentInput, user: dict = Depends(require("f
         if not account['source_keys']:
             raise HTTPException(409, '订单尚无已确认且已定价的业务单据')
         outstanding = Decimal(account['outstanding_amount'])
-        if payload.action == 'settlement' and payload.amount > outstanding:
+        saved_scope = select_scope(db, payload.kind, 'order', payload.order_id, payload.control_scope)
+        if saved_scope is None and payload.action == 'settlement' and payload.amount > outstanding:
             raise HTTPException(409, '收付款金额超过订单未结金额')
-        if payload.action == 'refund' and payload.amount > -outstanding:
+        if saved_scope is None and payload.action == 'refund' and payload.amount > -outstanding:
             raise HTTPException(409, '退款金额超过订单贷方余额')
         signed = payload.amount if payload.action == 'settlement' else -payload.amount
         record = PaymentRecord(status='draft', kind=payload.kind, order_id=payload.order_id, action=payload.action,
-            amount=money(signed), reference=payload.reference, note=payload.note.strip(), created_by=user['id'])
+            amount=money(signed), reference=payload.reference, note=payload.note.strip(), created_by=user['id'], control_scope_json=saved_scope)
         validate_payment(db, record)
         try:
             db.add(record)
@@ -332,7 +344,7 @@ def reverse_payment_record(payment_id: int, payload: ReversalInput,
         # 反向记录保留原编号、操作者与原因，不改写或删除历史金额。
         record = PaymentRecord(status='draft', kind=original.kind, order_id=original.order_id, action='reversal',
             amount=money(-Decimal(original.amount)), reference=f'冲销 #{payment_id}',
-            note=payload.reason, reverses_id=payment_id, created_by=user['id'])
+            note=payload.reason, reverses_id=payment_id, created_by=user['id'], control_scope_json=original.control_scope_json)
         validate_payment(db, record)
         db.add(record)
         db.flush()
@@ -348,17 +360,19 @@ def validate_payment(db: Session, record: PaymentRecord) -> None:
     if not account['source_keys']:
         raise HTTPException(409, '订单尚无已确认且已定价的业务单据')
     amount = Decimal(record.amount)
+    scoped = validate_funds(db, record, record.kind, 'order', record.order_id)
     if record.reverses_id is not None:
         original = db.get(PaymentRecord, record.reverses_id)
         if original is None or original.status != 'executed' or original.action == 'reversal':
             raise HTTPException(409, '原资金尚未执行或本身是冲销')
-        if (original.kind, original.order_id, -Decimal(original.amount)) != (record.kind, record.order_id, amount):
+        if (original.kind, original.order_id, -Decimal(original.amount), original.control_scope_json) != (
+                record.kind, record.order_id, amount, record.control_scope_json):
             raise HTTPException(409, '反向资金与原记录不一致')
         ensure_date_unlocked(db, original.executed_at or original.created_at)
         if db.scalar(select(PaymentRecord.id).where(PaymentRecord.reverses_id == original.id,
                 PaymentRecord.status != 'cancelled', PaymentRecord.id != record.id).limit(1)) is not None:
             raise HTTPException(409, '原资金已有有效冲销草稿或记录')
-    else:
+    elif not scoped:
         outstanding = Decimal(account['outstanding_amount'])
         limit = outstanding if record.action == 'settlement' else -outstanding
         if abs(amount) > limit:

@@ -1,4 +1,4 @@
-import type { ErpOperations, JournalAttachment, SalesOrderContractAttachment } from './erp-api'
+import type { ErpOperations, JournalAttachment, SubledgerAttachment, SalesOrderContractAttachment } from './erp-api'
 import type { AfterSalesAttachment } from './after-sales-api'
 import type { CrmAttachmentKind, CrmQuoteAttachment, CrmRecordAttachment } from './crm-api'
 import type { EquipmentAttachment, EquipmentAttachmentKind } from './equipment-api'
@@ -51,6 +51,8 @@ export interface DesktopApi {
   saveReportCsv: (fileName: string, csv: string) => Promise<string | null>
   saveCrmQuotePdf: (id: number) => Promise<string | null>
   uploadJournalAttachment: (journalId: number, reason: string) => Promise<JournalAttachment | null>
+  uploadSubledgerAttachment: (openingId: number, openingVersion: number, lineId: number, reason: string) => Promise<SubledgerAttachment | null>
+  saveSubledgerAttachment: (openingId: number, attachmentId: number) => Promise<boolean>
   saveJournalAttachment: (journalId: number, attachmentId: number) => Promise<string | null>
   uploadAfterSalesAttachment: (caseId: number, reason: string) => Promise<AfterSalesAttachment | null>
   saveAfterSalesAttachment: (caseId: number, attachmentId: number) => Promise<string | null>

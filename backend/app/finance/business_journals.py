@@ -79,6 +79,20 @@ def active_bindings(db: Session) -> dict[str, tuple[BusinessJournalSource, Journ
         and posted_reversal(db, journal.id) is None}
 
 
+def bindings_at(db: Session, to_date: str | None = None) -> dict[str, tuple[BusinessJournalSource, Journal]]:
+    if to_date is None:
+        return active_bindings(db)
+    result = {}
+    for source, journal in db.execute(select(BusinessJournalSource, Journal).join(
+            Journal, Journal.id == BusinessJournalSource.journal_id).where(
+            Journal.status == 'posted', Journal.journal_date <= to_date).order_by(Journal.id)):
+        reversal = db.scalar(select(Journal.id).where(Journal.reversal_of_id == journal.id,
+            Journal.status == 'posted', Journal.journal_date <= to_date))
+        if reversal is None:
+            result[source.source_key] = source, journal
+    return result
+
+
 def minimum_date(db: Session, source: dict) -> str:
     dates = [source['source_date']]
     for journal in db.scalars(select(Journal).join(BusinessJournalSource,
@@ -91,6 +105,8 @@ def minimum_date(db: Session, source: dict) -> str:
 
 
 def inferred_partners(db: Session, source: dict) -> list[AuxiliaryReference]:
+    if source['source_type'] in ('payment_record', 'subledger_payment') and source['records'][0].get('control_scope'):
+        return [AuxiliaryReference(kind=item['kind'], id=item['id']) for item in source['records'][0]['control_scope']['auxiliary']]
     if source['source_type'] == 'subledger_payment':
         return [AuxiliaryReference(kind=item['kind'], id=item['id']) for item in source['records'][0]['auxiliary']]
     pairs = {(item['kind'], item['party_id']) for item in source['business']}
@@ -108,7 +124,8 @@ def inferred_partners(db: Session, source: dict) -> list[AuxiliaryReference]:
 def source_auxiliary(db: Session, source: dict, role: str, selections: dict) -> list[AuxiliaryReference]:
     defaults = {item.kind: item for item in inferred_partners(db, source)}
     for item in selections.get(role, []):
-        if source['source_type'] == 'subledger_payment' and (item.kind not in defaults or defaults[item.kind].id != item.id):
+        fixed_funds = source['source_type'] == 'subledger_payment' or source['source_type'] == 'payment_record' and source['records'][0].get('control_scope')
+        if fixed_funds and (item.kind not in defaults or defaults[item.kind].id != item.id):
             raise HTTPException(409, '分户收付款须沿用原始未结单据的完整辅助归属')
         if item.kind in ('customer', 'supplier') and (item.kind not in defaults or defaults[item.kind].id != item.id):
             raise HTTPException(409, '辅助往来对象须与真实业务来源一致')
@@ -122,6 +139,9 @@ def source_mapping(source: dict, configured: dict) -> dict:
         # 历史资金始终结清原单科目；通用映射变化不能搬走其期初余额。
         record = source['records'][0]
         mapping[record['kind']] = record['account_id']
+    elif source['source_type'] == 'payment_record' and source['records'][0].get('control_scope'):
+        record = source['records'][0]
+        mapping[record['kind']] = record['control_scope']['account_id']
     return mapping
 
 

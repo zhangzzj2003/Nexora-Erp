@@ -99,7 +99,7 @@ export const englishCopy: Readonly<Record<string, string>> = {
   '供应商管理': 'Suppliers', '单位管理': 'Units', '物料分类与规格': 'Material categories and specifications', '客户资料': 'Customers', '采购管理': 'Purchasing', '采购申请': 'Purchase requests', '采购订单': 'Purchase orders', '采购收货': 'Goods receiving',
   '采购入库': 'Purchase receipts', '采购报表': 'Purchase reports', '采购退货': 'Purchase returns', '销售管理': 'Sales', '客户关系与报价': 'CRM and quotations',
   '售后退换修': 'After-sales service', '销售订单': 'Sales orders', '销售出库': 'Sales shipments', '销售退货': 'Sales returns', '财务管理': 'Finance',
-  '总账凭证': 'Journal entries', '期初余额': 'Opening balances', '分户期初': 'Subledger openings', '总账报表': 'Ledger reports', '财务报表': 'Financial statements',
+  '总账凭证': 'Journal entries', '期初余额': 'Opening balances', '分户期初': 'Subledger openings', '往来余额转账': 'Control balance transfers', '总账报表': 'Ledger reports', '财务报表': 'Financial statements',
   '辅助核算': 'Auxiliary accounting', '总账科目': 'Ledger accounts', '会计期间': 'Accounting periods', '库存计价': 'Inventory valuation', '应收应付': 'Receivables and payables',
   '收付款记录': 'Payment records', '银行勾对': 'Bank statement matching', '银行余额调节': 'Bank balance reconciliation', '应收应付来源': 'Receivable and payable sources', '生产管理': 'Production', '生产 BOM': 'Production BOM', '生产工单': 'Work orders',
   '生产领料': 'Material issues', '生产退料': 'Material returns', '完工与质检': 'Completion and quality', '生产成本': 'Production costs', '物料需求计划': 'Material planning',

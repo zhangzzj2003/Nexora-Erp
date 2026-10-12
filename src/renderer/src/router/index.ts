@@ -39,6 +39,7 @@ const workspaceRouteComponents = {
   journals: () => import('../views/workspace/finance/JournalsView.vue'),
   openingBalances: () => import('../views/workspace/finance/OpeningBalancesView.vue'),
   subledgerOpenings: () => import('../views/workspace/finance/SubledgerOpeningsView.vue'),
+  controlBalanceTransfers: () => import('../views/workspace/finance/ControlBalanceTransfersView.vue'),
   materialPlanning: () => import('../views/workspace/production/MaterialPlanningView.vue'),
   qualityDisposition: () => import('../views/workspace/production/QualityDispositionView.vue'),
   equipmentMaintenance: () => import('../views/workspace/production/EquipmentMaintenanceView.vue'),

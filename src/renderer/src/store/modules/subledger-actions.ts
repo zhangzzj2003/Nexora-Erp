@@ -3,6 +3,7 @@ import type { OpeningBalanceAction, SubledgerOpening, SubledgerPaymentInput, Sub
 import type { SubledgerSettlement, SubledgerSettlementInput } from '../../../../shared/erp-api'
 import type { AppState } from '../state'
 import { displayError } from '../../utils/formatters.ts'
+import { fundsScopeBody } from '../../../../shared/control-balance-validation.ts'
 
 export function createSubledgerActions(state: AppState, perform: (action: () => Promise<unknown>, success: string) => Promise<void>) {
   let owner = 0; let readTicket = 0; let queryTicket = 0; let detailTicket = 0; let editTicket = 0; let loadingTicket = 0
@@ -150,7 +151,8 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
     reverseSubledgerSettlement: (id: number, reason: string) => write('finance.reverse',
       () => window.nexora!.callApi('reverseSubledgerSettlement', { id, reason }), '反向核销草稿已保存，批准执行后恢复双方余额。'),
     createSubledgerPayment: (input: SubledgerPaymentInput) => write('finance.record',
-      () => window.nexora!.callApi('createSubledgerPayment', { ...input }), '分户资金草稿已保存，独立批准后执行才更新余额。'),
+      () => window.nexora!.callApi('createSubledgerPayment', { ...input,
+        ...(input.control_scope ? { control_scope: fundsScopeBody(input.control_scope) } : {}) }), '分户资金草稿已保存，独立批准后执行才更新余额。'),
     changeSubledgerPaymentStatus: (item: SubledgerPayment, action: 'post' | 'cancel', reason: string) => {
       if (item.status !== 'draft' || action === 'post' && item.approval?.status !== 'approved'
         || action === 'cancel' && ['submitted','approved'].includes(item.approval?.status ?? '')) return Promise.resolve(false)
