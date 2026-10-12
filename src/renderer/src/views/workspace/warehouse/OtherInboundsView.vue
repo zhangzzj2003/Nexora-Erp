@@ -860,9 +860,10 @@ async function reverseApproved(identifier: number): Promise<void> {
             />
           </template>
           <template #cell-actions="{ row }">
-            <AppButton
+            <!-- 移除使用公共按钮的完整点击区域，原有禁用与删行规则保持。 -->
+            <AppButton size="small"
               type="button"
-              variant="text"
+              variant="secondary"
               :disabled="busy || connectionLost"
               :aria-label="`移除${row.material?.name ?? '物料'}`"
               @click="editorForm.lines.splice(row.index, 1)"

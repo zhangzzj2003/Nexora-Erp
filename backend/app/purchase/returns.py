@@ -1,13 +1,14 @@
 """采购退货单：以原入库行为来源，确认后追加负向库存流水。"""
 
 from app.core.document_responses import NumberedRoute
+from app.purchase.pricing import purchase_amount
 # 退货转单与仓库扣库存各有独立批准，两个边界均在原写事务内校验。
 from app.core import document_approval as approval
 from app.core.approval_documents import purchase_return_snapshot, outbound_snapshot, document_snapshot
 from sqlalchemy import select, update, func, literal, and_, or_
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.engine import RowMapping
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -210,7 +211,8 @@ def purchase_return_data(db: Session, return_id: int) -> dict:
             Material.name.label("material_name"),
             Material.unit,
             PurchaseReturnLine.quantity,
-            PurchaseOrderLine.unit_price,
+            PurchaseOrderLine.unit_price, PurchaseOrderLine.pricing_mode,
+            PurchaseOrderLine.quantity.label("order_quantity"), PurchaseOrderLine.line_total.label("order_total"),
         )
         .select_from(PurchaseReturnLine)
         .join(ReceiptLine, (ReceiptLine.id == PurchaseReturnLine.receipt_line_id))
@@ -223,9 +225,7 @@ def purchase_return_data(db: Session, return_id: int) -> dict:
         price = item["unit_price"]
         line_total = None
         if price is not None:
-            line_total = (Decimal(item["quantity"]) * Decimal(price)).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
+            line_total = purchase_amount(item["quantity"], price, item["order_quantity"], item["order_total"], item["pricing_mode"])
             total += line_total
         else:
             # 历史自由入库无采购单价，金额保持未知，不能伪造为零元。

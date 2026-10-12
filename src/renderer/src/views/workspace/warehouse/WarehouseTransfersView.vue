@@ -329,11 +329,12 @@ const approvalLabels = {
             required /></label
       ></template>
       <template #cell-actions="{ row: { line, index } }"
-        ><AppButton
+        ><!-- 移除沿用主线完整点击区域，保留原有禁用与删行规则。 -->
+        <AppButton size="small"
           type="button"
           :disabled="busy || connectionLost || transferForm.lines.length === 1"
           @click="transferForm.lines.splice(index, 1)"
-          variant="text"
+          variant="secondary"
         >
           移除
         </AppButton></template

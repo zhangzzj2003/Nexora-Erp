@@ -17,7 +17,7 @@ window.nexora = { platform: 'darwin', callApi: async (operation, payload) => pre
 const pinia = createPinia()
 const app = createApp(App).use(pinia)
 const store = usePiniaAppStore(pinia)
-const permissions = [...new Set(workspaceRoutes.map(route => route.permission).filter(Boolean)), 'catalog.manage', 'journal.create', 'journal.submit', 'journal.review', 'journal.post', 'business_journal.view', 'other_inbound.create', 'purchase_order.create', 'mrp.create']
+const permissions = [...new Set(workspaceRoutes.map(route => route.permission).filter(Boolean)), 'catalog.manage', 'journal.create', 'journal.submit', 'journal.review', 'journal.post', 'business_journal.view', 'other_inbound.create', 'purchase_order.create', 'purchase_request.create', 'mrp.create']
 store.$patch({
   user: { id: 3, username: '示例管理员', roles: ['admin'], permissions, is_active: true },
   screen: 'app', server: { id: 'site-preview', name: '界面预览 · 示例数据', version: '0.1.0', fingerprint: 'sample-only' },

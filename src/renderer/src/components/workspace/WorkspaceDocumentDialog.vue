@@ -2,13 +2,16 @@
 import { NModal } from 'naive-ui'
 import AppButton from '../app/AppButton.vue'
 import WorkspaceTable from './WorkspaceTable.vue'
+import type { WorkspaceTableColumn } from '../../utils/table-columns'
 
 // 单据弹窗只统一布局和交互边界，基础字段、物料选择及保存业务仍由页面提供。
 const props = withDefaults(defineProps<{
   show: boolean
   title: string
   data: TRow[]
-  columns: readonly { key: string; title: string; width?: string }[]
+  columns: readonly WorkspaceTableColumn[]
+  // 透传金额汇总，表格统一呈现大写及小写总额。
+  amountTotal?: string | null
   busy?: boolean
   disabled?: boolean
   submitDisabled?: boolean
@@ -78,7 +81,7 @@ function submit(): void {
           </section>
           <!-- 分隔线明确区分单据头与物料明细，避免两类信息混在同一张表单中。 -->
           <hr v-if="showLines" class="document-divider" />
-          <WorkspaceTable v-if="showLines" :title="linesTitle" :data="data" :columns="columns" :min-table-width="minTableWidth" stretch-columns
+          <WorkspaceTable v-if="showLines" :title="linesTitle" :data="data" :columns="columns" :amount-total="amountTotal" :min-table-width="minTableWidth" stretch-columns
             :empty-text="readOnly ? '此单据暂无物料明细。' : emptyText" class="document-lines" :material-supply="materialSupply" :material-supply-active="show" :material-id="materialId">
             <template #heading><h3>{{ linesTitle }} <span class="document-count">{{ data.length }} 项</span></h3></template>
             <template v-if="!readOnly || $slots.documentActions" #actions>

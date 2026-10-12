@@ -35,6 +35,12 @@
 }
 
 * { box-sizing: border-box; }
+/* Electron 使用 Chromium：清零纵向宽度，保留横向拖动空间及滚轮、键盘滚动。 */
+*::-webkit-scrollbar { width: 0; height: 8px; }
+/* 自定义原生条尺寸后需显式绘制横向手柄，避免 Chromium 留下可滚动但不可见的空轨道。 */
+*::-webkit-scrollbar-thumb:horizontal { border-radius: 4px; background: var(--workspace-field-muted); }
+/* Naive UI 自绘轨道独立于原生滚动条；只隐藏纵向轨道，不改滚动容器和横向轨道。 */
+:root .n-scrollbar-rail--vertical { display: none !important; }
 body { margin: 0; min-width: 320px; }
 /* 公共卡片弹窗跟随工作台主题，统一圆角和层级，避免组件库默认灰色割裂界面。 */
 :root {

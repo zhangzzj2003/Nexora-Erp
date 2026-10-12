@@ -13,7 +13,7 @@ from app.core.approval_documents import current_snapshot
 from app.access.security import require
 from app.core.models import CrmQuote, CrmQuoteLine, CrmChange, Material
 from app.core.orm import orm_session, add_model
-from app.purchase.orders import PurchaseOrderLineInput
+from app.purchase.pricing import UnitPriceLineInput
 from app.sales.orders import SalesOrderInput, create_sales_order_in_session
 from app.sales.crm_rules import StrictInput, VersionInput, valid_date, today, json_text, get_record, require_customer, require_contact, require_open_opportunity, raw_data, record_data, audit
 
@@ -28,12 +28,12 @@ class QuoteLineInput(StrictInput):
     @field_validator('quantity')
     @classmethod
     def quantity_rule(cls, value: Decimal):
-        return PurchaseOrderLineInput.valid_quantity(value)
+        return UnitPriceLineInput.valid_quantity(value)
 
     @field_validator('unit_price')
     @classmethod
     def price_rule(cls, value: Decimal):
-        return PurchaseOrderLineInput.valid_unit_price(value)
+        return UnitPriceLineInput.valid_unit_price(value)
 
 
 class QuoteInput(StrictInput):

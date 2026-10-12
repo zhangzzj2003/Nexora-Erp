@@ -412,13 +412,14 @@ const approvalLabels = {
                 required /></label
           ></template>
           <template #cell-actions="{ row: { line, index } }"
-            ><AppButton
+            ><!-- 移除使用公共按钮的完整点击区域，原有禁用与删行规则保持。 -->
+            <AppButton size="small"
               type="button"
               :disabled="
                 busy || connectionLost || adjustmentForm.lines.length === 1
               "
               @click="adjustmentForm.lines.splice(index, 1)"
-              variant="text"
+              variant="secondary"
               >移除</AppButton
             ></template
           >

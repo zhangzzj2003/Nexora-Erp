@@ -127,6 +127,14 @@
 
 `finance/ControlBalanceTransfersView.vue` 对应 `/workspace/control-balance-transfers`，独立 `control_transfer.view`，Pinia 操作在 `control-balance-actions.ts`。先核对原单和完整组合，分别批准转账及固定凭证，凭证过账才生效；来源与审计、实际凭证和截止日分组均可读取。`ControlFundsSelector.vue` 复用于订单资金和历史资金，转账后的原单必须显式选择真实组合；迟到结果、实例证书变化、撤权及断线不得开放保存。规则见[往来余额转账](../../../../../docs/control-balance-transfers.md)。
 
+采购申请、申请转订单和直接采购订单共用 `WorkspacePurchasePriceInput.vue`：单价、总价分列且均可编辑，改哪项就自动计算另一项，不显示算法选择器；数量变化时沿用最后编辑的价格依据。总价列固定在最右侧。价格及计价方式保留在 Pinia 行草稿中，保存失败或收起弹窗不丢失；零数量的转单行跳过价格必填并不提交。十进制预览由 `utils/purchase-pricing.ts` 计算，最终校验及计算以服务端为准。
+
+`composables/use-document-material-details.ts` 管理物料详情的单行展开状态，其他入库、采购申请和采购订单复用 `WorkspaceMaterialSelect` 的 `compact` / `update:compact` 接口；新增行会收起旧行，摘要保留“查看资料”，删除行按对象引用维护展开状态。原其他入库入口保留兼容导出。表格明细的“移除”统一使用 `AppButton` 标准小按钮，保持最后一行、忙碌和断线时的原禁用规则。
+
+公共 `WorkspaceTable` 的可选 `amountTotal` 属性在表格右下角显示“大写：xxx　¥ xxxxxxx元”，大写在前、数字在后，不随列横向滚动。`WorkspaceDocumentDialog` 透传此属性和完整列定义。采购页面按所有有效行的总价即时汇总，删行、改单价、改总价或改数量后自动更新；转单的零数量行不参与汇总。金额按整数分累加，未定价或非法行显示“待完善 / —”，不会伪造完整合计。
+
+采购单价与总价使用公共 `AppInlineNumber.vue`：默认显示无输入框边界的数字，点击或键盘激活进入输入，实时更新另一价格和总计，失焦或 Enter 回到文本态；Escape 恢复本次编辑前的金额与计价依据。隐藏状态保留原生表单校验，提交缺价时自动展开错误字段。采购数量仅保留表头，输入使用无障碍名称，不重复展示列标题。
+
 ## 公共搜索与筛选
 
 `components/workspace/WorkspaceSearchFilters.vue` 由需要搜索或筛选的页面自行引入；工作台页面继续通过路由动态导入，公共组件不在根组件全局装配。其他页面的接入可以逐步进行。

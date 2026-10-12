@@ -1,15 +1,16 @@
 """采购订单及入库关联；订单数量只由已确认入库单消耗。"""
 
 from app.core.document_responses import NumberedRoute
+from app.purchase.pricing import PurchasePricingInput, pricing_values, purchase_amount
 # 审批核对与原业务写入共用一个事务，旧客户端也不能跳过批准直接执行。
 from app.core import document_approval as approval
 from app.core.approval_documents import purchase_order_snapshot, purchase_request_snapshot
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.orm import orm_session, add_model
 from app.core.models import (
@@ -33,26 +34,16 @@ from app.access.security import require
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
-class PurchaseOrderLineInput(BaseModel):
+class PurchaseOrderLineInput(PurchasePricingInput):
     material_id: int = Field(gt=0)
     purchase_request_line_id: int | None = Field(default=None, gt=0)
-    quantity: Decimal
-    unit_price: Decimal
 
-    @field_validator("quantity")
-    @classmethod
-    def valid_quantity(cls, value: Decimal) -> Decimal:
-        if not value.is_finite() or value <= 0 or value > 1_000_000 or value.as_tuple().exponent < -3:
-            raise ValueError("数量须大于零、最多三位小数且不超过一百万")
-        return value
-
-    @field_validator("unit_price")
-    @classmethod
-    def valid_unit_price(cls, value: Decimal) -> Decimal:
-        # 单价保留四位小数，金额展示按人民币分四舍五入。
-        if not value.is_finite() or value < 0 or value > 1_000_000_000 or value.as_tuple().exponent < -4:
-            raise ValueError("单价须非负、最多四位小数且不超过十亿")
-        return value
+    @model_validator(mode='after')
+    def require_price(self):
+        # 申请可暂不定价，但正式订单草稿必须明确金额（允许零价）。
+        if self.unit_price is None:
+            raise ValueError('采购订单须填写单价或总价')
+        return self
 
 
 class PurchaseOrderInput(BaseModel):
@@ -136,7 +127,7 @@ def order_data(db: Session, order_id: int) -> dict:
             Material.name.label("material_name"),
             Material.unit,
             PurchaseOrderLine.quantity,
-            PurchaseOrderLine.unit_price,
+            PurchaseOrderLine.unit_price, PurchaseOrderLine.pricing_mode, PurchaseOrderLine.line_total,
             PurchaseOrderRequestLink.purchase_request_line_id,
         )
         .select_from(PurchaseOrderLine)
@@ -149,10 +140,9 @@ def order_data(db: Session, order_id: int) -> dict:
         .order_by(PurchaseOrderLine.id)
     ).mappings():
         quantity = Decimal(entry["quantity"])
-        price = Decimal(entry["unit_price"])
         received = received_quantity(db, entry["id"])
         returned = returned_quantity(db, entry["id"])
-        line_total = (quantity * price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        line_total = purchase_amount(entry["quantity"], entry["unit_price"], entry["quantity"], entry["line_total"], entry["pricing_mode"])
         total += line_total
         lines.append(
             {
@@ -379,7 +369,7 @@ def create_purchase_order(
                     purchase_order_id=cursor.id,
                     material_id=line.material_id,
                     quantity=str(line.quantity),
-                    unit_price=str(line.unit_price),
+                    **pricing_values(line),
                 ),
             ).id
             if line.purchase_request_line_id is not None:

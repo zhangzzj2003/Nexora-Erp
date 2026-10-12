@@ -104,7 +104,8 @@ function removeComponent(index: number): void {
           type="number" min="0.001" max="1000000" step="0.001" required />
       </template>
       <template #cell-actions="{ row: { index } }">
-        <AppButton type="button" variant="text" :disabled="busy || connectionLost || bomForm.lines.length === 1"
+        <!-- 移除使用公共按钮的完整点击区域，原有禁用与删行规则保持。 -->
+        <AppButton size="small" type="button" variant="secondary" :disabled="busy || connectionLost || bomForm.lines.length === 1"
           @click="removeComponent(index)">移除</AppButton>
       </template>
     </WorkspaceDocumentDialog>

@@ -66,6 +66,8 @@ Vue 页面 → Pinia 状态与操作 → 受限 preload → Electron 主进程
 
 ### 前端开发约定
 
+桌面应用全局隐藏原生及 Naive UI 的垂直滚动条，页面、弹窗、侧栏和设置面板仍可通过滚轮、触控板及键盘纵向滚动。全局规则清零原生纵向滚动条宽度、隐藏自绘纵向轨道，不修改滚动容器的 `overflow`；原生水平滚动条保留 8px 高度及跟随主题的可见手柄，公共表格的独立水平拖动条保持原样。原生滚动条规则面向 Electron 的 Chromium 渲染环境。
+
 页面放在 `views/workspace/` 对应业务域，仅本页使用的数据和样式与页面同目录。共享组件按 `app/`、`feedback/`、`workspace/` 分类；组件级逻辑放 `composables/`，辅助函数放 `utils/`。见 [引导目录](../src/renderer/src/views/onboarding/README.md)、[工作台目录](../src/renderer/src/views/workspace/README.md)。
 
 公共 `WorkspaceTable` 对同时包含 `document` 与 `actions` 的单据列表默认固定左侧单据列、右侧操作列，中间区域使用 VXE 内部横向滚动，底部滚动条与表体位置同步。列配置可用 `fixed: 'left' | 'right' | false` 显式指定或关闭固定；没有这两个单据列的表格保持原行为。固定模式未指定宽度的列按 `minTableWidth / 列数` 分配基础宽度，复杂业务应提供明确列宽。

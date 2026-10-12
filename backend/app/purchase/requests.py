@@ -1,6 +1,7 @@
 """采购申请审批与分批转单数量查询。"""
 
 from app.core.document_responses import NumberedRoute
+from app.purchase.pricing import PurchasePricingInput, pricing_values
 # 本模块保留申请数量和转单规则，审批统一从带版本的公共入口完成。
 from app.core import document_approval as approval
 from sqlalchemy import select, update, delete, func, literal
@@ -30,16 +31,8 @@ UserReviewer = aliased(User)
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
-class RequestLineInput(BaseModel):
+class RequestLineInput(PurchasePricingInput):
     material_id: int = Field(gt=0)
-    quantity: Decimal
-
-    @field_validator("quantity")
-    @classmethod
-    def valid_quantity(cls, value: Decimal) -> Decimal:
-        if not value.is_finite() or value <= 0 or value > 1_000_000 or value.as_tuple().exponent < -3:
-            raise ValueError("数量须大于零、最多三位小数且不超过一百万")
-        return value
 
 
 class PurchaseRequestInput(BaseModel):
@@ -120,6 +113,7 @@ def request_data(db: Session, request_id: int) -> dict:
             Material.name.label("material_name"),
             Material.unit,
             PurchaseRequestLine.quantity,
+            PurchaseRequestLine.unit_price, PurchaseRequestLine.line_total, PurchaseRequestLine.pricing_mode,
         )
         .select_from(PurchaseRequestLine)
         .join(Material, (Material.id == PurchaseRequestLine.material_id))
@@ -172,7 +166,7 @@ def create_purchase_request_in_session(db: Session, payload: PurchaseRequestInpu
     db.add_all(
         [
             PurchaseRequestLine(
-                purchase_request_id=cursor.id, material_id=line.material_id, quantity=str(line.quantity)
+                purchase_request_id=cursor.id, material_id=line.material_id, quantity=str(line.quantity), **pricing_values(line)
             )
             for line in payload.lines
         ]
@@ -219,7 +213,7 @@ def update_purchase_request(
         db.add_all(
             [
                 PurchaseRequestLine(
-                    purchase_request_id=request_id, material_id=line.material_id, quantity=str(line.quantity)
+                    purchase_request_id=request_id, material_id=line.material_id, quantity=str(line.quantity), **pricing_values(line)
                 )
                 for line in payload.lines
             ]
