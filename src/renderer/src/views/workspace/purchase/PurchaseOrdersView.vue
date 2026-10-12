@@ -1,24 +1,34 @@
 <script setup lang="ts">
+// 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
+import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 批准与业务执行分开，审批入口复用共享 Pinia 和固定内容弹窗。
-import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
+import DocumentApprovalDialog from "../../../components/workspace/DocumentApprovalDialog.vue";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
-import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
+import {
+  documentSearch,
+  documentLabel,
+  relatedDocumentLabel,
+} from "../../../../../shared/document-numbering";
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
-import AppInput from '../../../components/app/AppInput.vue'
+import AppInput from "../../../components/app/AppInput.vue";
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
-import AppButton from '../../../components/app/AppButton.vue'
+import AppButton from "../../../components/app/AppButton.vue";
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
-import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+import WorkspaceSelect from "../../../components/workspace/WorkspaceSelect.vue";
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
-import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
+import WorkspaceMaterialSelect from "../../../components/workspace/WorkspaceMaterialSelect.vue";
 // 单据统一使用固定关闭区、基础信息和物料明细表格。
-import { documentRows } from '../../../utils/document-rows'
-import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
-import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
-import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
-import { computed, ref } from 'vue'
-import { useAppStore, usePiniaAppStore } from '../../../store/app-store'
-import { submitCreateDialog } from '../../../utils/create-dialog'
+import { documentRows } from "../../../utils/document-rows";
+import WorkspaceDocumentDialog from "../../../components/workspace/WorkspaceDocumentDialog.vue";
+import WorkspaceTable from "../../../components/workspace/WorkspaceTable.vue";
+import {
+  recordColumns,
+  matchesRecordQuery,
+} from "../../../utils/workspace-records";
+import type { WorkspaceTableColumn } from "../../../utils/table-columns";
+import { computed, ref } from "vue";
+import { useAppStore, usePiniaAppStore } from "../../../store/app-store";
+import { submitCreateDialog } from "../../../utils/create-dialog";
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
 const {
@@ -34,138 +44,162 @@ const {
   localTime,
   createPurchaseOrder,
   confirmPurchaseOrder,
-  cancelPurchaseOrder
-} = useAppStore()
+  cancelPurchaseOrder,
+} = useAppStore();
 
-const store = usePiniaAppStore()
+const store = usePiniaAppStore();
+
+// 详情弹窗由审批目标驱动；页脚业务按钮按当前单据与意图（执行/冲销）展示。
+const detailItem = computed(() =>
+  findDocumentApprovalItem(store.documentApprovalTarget, "PurchaseOrder", purchaseOrders.value),
+);
+const detailIntent = computed(
+  () => store.documentApprovalTarget?.intent ?? "execute",
+);
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
-const createOpen = ref(false)
+const createOpen = ref(false);
 async function submitCreate(): Promise<void> {
-  await submitCreateDialog(createPurchaseOrder, { busy, error, notice }, createOpen)
+  await submitCreateDialog(
+    createPurchaseOrder,
+    { busy, error, notice },
+    createOpen,
+  );
 }
 // 只筛选当前列表快照，原有单据状态与跨页面草稿保持不变。
-const recordQuery = ref('')
+const recordQuery = ref("");
 const filteredRecords = computed(() =>
   purchaseOrders.value.filter((item) =>
-    matchesRecordQuery(recordQuery.value, [documentSearch(item), item.id,
+    matchesRecordQuery(recordQuery.value, [
+      documentSearch(item),
+      item.id,
       item.supplier_name,
       item.created_by_name,
       item.reference,
-      ...item.lines.map((line) => line.material_name)
-    ])
-  )
-)
+      ...item.lines.map((line) => line.material_name),
+    ]),
+  ),
+);
 // 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
-const purchaseFormRows = computed(() => documentRows(purchaseForm.value.lines))
+const purchaseFormRows = computed(() => documentRows(purchaseForm.value.lines));
 const purchaseFormColumns = [
-  { key: 'material', title: '物料 / 资料', width: '470' },
-  { key: 'unit', title: '单位', width: '70' },
-  { key: 'quantity', title: '数量', width: '150' },
-  { key: 'unitPrice', title: '单价（元）', width: '150' },
-  { key: 'actions', title: '操作', width: '90' },
-]
+  { key: "material", title: "物料 / 资料", width: "470" },
+  { key: "unit", title: "单位", width: "70" },
+  { key: "quantity", title: "数量", width: "150" },
+  { key: "unitPrice", title: "单价（元）", width: "150" },
+  { key: "actions", title: "操作", width: "90" },
+];
+// 操作列只保留查看详情入口，业务操作统一移入详情页脚；其余列沿用公共单据列表布局。
+const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
+  (column): WorkspaceTableColumn =>
+    column.key === "actions"
+      ? { key: "actions", title: "查看", width: "72", align: "center" }
+      : column,
+);
 </script>
 
 <template>
   <section class="stack">
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-        <WorkspaceDocumentDialog
-          material-supply
-          v-if="can('purchase_order.create')"
-          v-model:show="createOpen"
-          title="新建采购订单"
-          :data="purchaseFormRows"
-          :columns="purchaseFormColumns"
-          :busy="busy"
-          :disabled="connectionLost"
-          :submit-disabled="!suppliers.length || !materials.length"
-          submit-label="保存草稿"
-          :min-table-width="1000"
-          :add-disabled="purchaseForm.lines.length >= 100"
-          @add-material="
-            purchaseForm.lines.push({
-              material_id: 0,
-              quantity: '1',
-              unit_price: '0'
-            })
-          "
-          @submit="submitCreate"
+    <WorkspaceDocumentDialog
+      material-supply
+      v-if="can('purchase_order.create')"
+      v-model:show="createOpen"
+      title="新建采购订单"
+      :data="purchaseFormRows"
+      :columns="purchaseFormColumns"
+      :busy="busy"
+      :disabled="connectionLost"
+      :submit-disabled="!suppliers.length || !materials.length"
+      submit-label="保存草稿"
+      :min-table-width="1000"
+      :add-disabled="purchaseForm.lines.length >= 100"
+      @add-material="
+        purchaseForm.lines.push({
+          material_id: 0,
+          quantity: '1',
+          unit_price: '0',
+        })
+      "
+      @submit="submitCreate"
+    >
+      <template #basicInfo
+        ><label
+          >供应商<WorkspaceSelect
+            :disabled="busy || connectionLost"
+            v-model="purchaseForm.supplier_id"
+            required
+            :options="[
+              { label: '选择供应商'.trim(), value: 0, disabled: true },
+              ...suppliers.map((item) => ({
+                label: item.name.trim(),
+                value: item.id,
+              })),
+            ]" /></label
+        ><label
+          >参考单号（可选）<AppInput
+            :disabled="busy || connectionLost"
+            v-model.trim="purchaseForm.reference"
+            maxlength="100"
+        /></label>
+      </template>
+      <template #cell-material="{ row: { line, index } }"
+        ><label
+          >物料<WorkspaceMaterialSelect
+            :disabled="busy || connectionLost"
+            :materials="materials"
+            v-model="line.material_id"
+            required
+            :options="[
+              { label: '选择物料'.trim(), value: 0, disabled: true },
+              ...materials.map((item) => ({
+                label: (item.sku + ' · ' + item.name).trim(),
+                value: item.id,
+              })),
+            ]" /></label
+      ></template>
+      <template #cell-quantity="{ row: { line, index } }"
+        ><label
+          >数量<AppInput
+            :disabled="busy || connectionLost"
+            v-model.trim="line.quantity"
+            type="number"
+            min="0.001"
+            max="1000000"
+            step="0.001"
+            required /></label
+      ></template>
+      <template #cell-unitPrice="{ row: { line, index } }"
+        ><label
+          >单价（元）<AppInput
+            :disabled="busy || connectionLost"
+            v-model.trim="line.unit_price"
+            type="number"
+            min="0"
+            max="1000000000"
+            step="0.0001"
+            required /></label
+      ></template>
+      <template #cell-actions="{ row: { line, index } }"
+        ><AppButton
+          type="button"
+          :disabled="busy || connectionLost || purchaseForm.lines.length === 1"
+          @click="purchaseForm.lines.splice(index, 1)"
+          variant="text"
         >
-          <template #basicInfo
-            ><label
-              >供应商<WorkspaceSelect
-                :disabled="busy || connectionLost"
-                v-model="purchaseForm.supplier_id"
-                required
-                :options="[
-                  { label: '选择供应商'.trim(), value: 0, disabled: true },
-                  ...suppliers.map((item) => ({ label: item.name.trim(), value: item.id }))
-                ]" /></label
-            ><label
-              >参考单号（可选）<AppInput
-                :disabled="busy || connectionLost"
-                v-model.trim="purchaseForm.reference"
-                maxlength="100"
-            /></label>
-          </template>
-          <template #cell-material="{ row: { line, index } }"
-            ><label
-              >物料<WorkspaceMaterialSelect
-                :disabled="busy || connectionLost"
-                :materials="materials"
-                v-model="line.material_id"
-                required
-                :options="[
-                  { label: '选择物料'.trim(), value: 0, disabled: true },
-                  ...materials.map((item) => ({
-                    label: (item.sku + ' · ' + item.name).trim(),
-                    value: item.id
-                  }))
-                ]" /></label
-          ></template>
-          <template #cell-quantity="{ row: { line, index } }"
-            ><label
-              >数量<AppInput
-                :disabled="busy || connectionLost"
-                v-model.trim="line.quantity"
-                type="number"
-                min="0.001"
-                max="1000000"
-                step="0.001"
-                required /></label
-          ></template>
-          <template #cell-unitPrice="{ row: { line, index } }"
-            ><label
-              >单价（元）<AppInput
-                :disabled="busy || connectionLost"
-                v-model.trim="line.unit_price"
-                type="number"
-                min="0"
-                max="1000000000"
-                step="0.0001"
-                required /></label
-          ></template>
-          <template #cell-actions="{ row: { line, index } }"
-            ><AppButton
-              type="button"
-              :disabled="busy || connectionLost || purchaseForm.lines.length === 1"
-              @click="purchaseForm.lines.splice(index, 1)"
-              variant="text"
-            >
-              移除
-            </AppButton></template
-          >
-          <template #cell-unit="{ row: { line } }">{{
-            materials.find((item) => item.id === line.material_id)?.unit ?? '—'
-          }}</template>
-        </WorkspaceDocumentDialog>
+          移除
+        </AppButton></template
+      >
+      <template #cell-unit="{ row: { line } }">{{
+        materials.find((item) => item.id === line.material_id)?.unit ?? "—"
+      }}</template>
+    </WorkspaceDocumentDialog>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"
       title="采购订单"
       :data="filteredRecords"
-      :columns="recordColumns"
+      :columns="columns"
       :min-table-width="1100"
     >
       <template #actions>
@@ -188,9 +222,23 @@ const purchaseFormColumns = [
 
       <template #cell-document="{ row: item }">
         <div>
-          <strong>{{ documentLabel(item) }} · {{ item.supplier_name }}</strong>
+          <!-- 单号直接打开只读详情，与操作列「查看」并存两个入口。 -->
+          <AppButton
+            type="button"
+            variant="text"
+            :disabled="busy || connectionLost"
+            :aria-label="`查看单据 ${documentLabel(item)} 详情`"
+            @click="
+              store.openDocumentApproval({
+                document_type: 'PurchaseOrder',
+                document_id: item.id,
+                intent: 'execute',
+              })
+            "
+            >{{ documentLabel(item) }}</AppButton
+          ><strong> · {{ item.supplier_name }}</strong>
           <span v-if="item.purchase_request_id" class="muted">
-            · 采购申请 {{ relatedDocumentLabel(item, 'purchase_request') }}
+            · 采购申请 {{ relatedDocumentLabel(item, "purchase_request") }}
           </span>
           <p class="muted">
             {{ localTime(item.created_at) }} · 创建人
@@ -204,11 +252,18 @@ const purchaseFormColumns = [
         <span class="pill" :class="item.status">
           {{
             {
-              draft: ({ submitted: '审批中', approved: '已批准待确认', rejected: '已驳回', withdrawn: '已撤回', draft: '待送审', executed: '已执行' })[item.approval?.status ?? 'draft'],
-              confirmed: '待入库',
-              partially_received: '部分入库',
-              received: '全部入库',
-              cancelled: '已取消'
+              draft: {
+                submitted: "审批中",
+                approved: "已批准待确认",
+                rejected: "已驳回",
+                withdrawn: "已撤回",
+                draft: "待送审",
+                executed: "已执行",
+              }[item.approval?.status ?? "draft"],
+              confirmed: "待入库",
+              partially_received: "部分入库",
+              received: "全部入库",
+              cancelled: "已取消",
             }[item.status]
           }}
         </span>
@@ -216,51 +271,81 @@ const purchaseFormColumns = [
       <template #cell-details="{ row: item }">
         <div class="workspace-record-lines">
           <span v-for="line in item.lines" :key="line.id">
-            {{ line.material_name }} 已入 {{ line.received_quantity }}/{{ line.quantity }}
+            {{ line.material_name }} 已入 {{ line.received_quantity }}/{{
+              line.quantity
+            }}
             {{ line.unit }} · 已退 {{ line.returned_quantity }} · 净入
-            {{ line.net_received_quantity }} · ¥{{ line.unit_price }}/{{ line.unit }}
+            {{ line.net_received_quantity }} · ¥{{ line.unit_price }}/{{
+              line.unit
+            }}
           </span>
         </div>
       </template>
       <template #cell-actions="{ row: item }">
-        <div class="form-actions">
-          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
-            @click="store.openDocumentApproval({ document_type: 'PurchaseOrder', document_id: item.id, intent: 'execute' })">
-            {{ item.status === 'draft' ? '单据审批' : '审批记录' }}
-          </AppButton>
-          <AppButton
-            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('purchase_order.confirm')"
-            type="button"
-            :disabled="busy || connectionLost"
-            @click="confirmPurchaseOrder(item.id)"
-            variant="primary"
-            size="small"
-          >
-            确认订单
-          </AppButton>
-          <AppButton
-            v-if="['draft', 'confirmed'].includes(item.status) && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('purchase_order.cancel')"
-            type="button"
-            :disabled="busy || connectionLost"
-            @click="cancelPurchaseOrder(item.id)"
-            variant="secondary"
-            size="small"
-          >
-            取消订单
-          </AppButton>
-        </div>
+        <!-- 行内只保留查看入口，业务操作统一移入详情页脚。 -->
+        <AppButton
+          type="button"
+          variant="secondary"
+          size="small"
+          :disabled="busy || connectionLost"
+          :aria-label="`查看单据 ${documentLabel(item)} 详情`"
+          @click="
+            store.openDocumentApproval({
+              document_type: 'PurchaseOrder',
+              document_id: item.id,
+              intent: 'execute',
+            })
+          "
+          >查看</AppButton
+        >
       </template>
       <template #empty>
-        <strong>{{ recordQuery ? '没有匹配的记录' : '暂无采购订单记录' }}</strong>
+        <strong>{{
+          recordQuery ? "没有匹配的记录" : "暂无采购订单记录"
+        }}</strong>
         <span>
           {{
             recordQuery
-              ? '可调整单号、名称或物料关键词后重新搜索。'
-              : '业务记录生成后，可在这里查看明细与处理状态。'
+              ? "可调整单号、名称或物料关键词后重新搜索。"
+              : "业务记录生成后，可在这里查看明细与处理状态。"
           }}
         </span>
       </template>
     </WorkspaceTable>
-    <DocumentApprovalDialog />
+    <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
+    <DocumentApprovalDialog>
+      <template #footerActions>
+        <template v-if="detailItem">
+          <AppButton
+            v-if="
+              detailIntent === 'execute' &&
+              detailItem.status === 'draft' &&
+              detailItem.approval?.status === 'approved' &&
+              can('purchase_order.confirm')
+            "
+            type="button"
+            variant="primary"
+            :disabled="busy || connectionLost"
+            @click="confirmPurchaseOrder(detailItem.id)"
+            >确认订单</AppButton
+          >
+          <AppButton
+            v-if="
+              detailIntent === 'execute' &&
+              ['draft', 'confirmed'].includes(detailItem.status) &&
+              !['submitted', 'approved'].includes(
+                detailItem.approval?.status ?? '',
+              ) &&
+              can('purchase_order.cancel')
+            "
+            type="button"
+            variant="secondary"
+            :disabled="busy || connectionLost"
+            @click="cancelPurchaseOrder(detailItem.id)"
+            >取消订单</AppButton
+          >
+        </template>
+      </template>
+    </DocumentApprovalDialog>
   </section>
 </template>

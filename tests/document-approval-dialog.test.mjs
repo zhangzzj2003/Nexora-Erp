@@ -39,8 +39,8 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   const { usePiniaAppStore } = await server.ssrLoadModule('\0approval-dialog-store')
   const pinia = createPinia(), store = usePiniaAppStore(pinia)
   const { default: Dialog } = await server.ssrLoadModule('/src/renderer/src/components/workspace/DocumentApprovalDialog.vue')
-  const render = () => renderToString(createSSRApp({ render: () => h(Dialog) }).use(pinia))
-  store.documentApprovalRecord = { document_type: 'WarehouseInbound', document_no: 'QTRK-20261007-000001', intent: 'execute', business_status: 'draft',
+  const render = (slots) => renderToString(createSSRApp({ render: () => h(Dialog, null, slots) }).use(pinia))
+  store.documentApprovalRecord = { document_type: 'WarehouseInbound', document_id: 1, document_no: 'QTRK-20261007-000001', intent: 'execute', business_status: 'draft',
     summary: [{label:'仓库',value:'主仓库'},{label:'用途',value:'赠品'},{label:'入库说明',value:'完整说明'.repeat(40)},
       {label:'参考号',value:'REF-1'},{label:'入库明细',value:'电阻 × 100 个'}], content_matches: true,
     version: 1, generation: 1, status: 'submitted', current_step: 0, steps: [{ name: '审核', role: 'admin' }, { name: '批准', role: null }],
@@ -66,17 +66,40 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.equal((html.match(/class="approval-stage-icon"/g) ?? []).length, 4)
   assert.ok(html.indexOf('审批记录') < html.indexOf('document-footer'))
   assert.doesNotMatch(html, /保存草稿|添加物料|type="submit"/)
+  // 公共页脚必须等待属于当前单据及意图的读取结果，不能沿用列表缓存暴露写入。
+  const businessSlot = { footerActions: () => h('button', '业务操作测试入口') }
+  const savedRecord = { ...store.documentApprovalRecord }
+  assert.match(await render(businessSlot), /业务操作测试入口/)
+  for (const override of [
+    { documentApprovalLoading: true },
+    { documentApprovalError: '读取失败' },
+    { connectionLost: true },
+    { documentApprovalRecord: null },
+    { documentApprovalRecord: { ...savedRecord, document_id: 2 } },
+    { documentApprovalRecord: { ...savedRecord, document_type: 'PurchaseOrder' } },
+    { documentApprovalRecord: { ...savedRecord, intent: 'reverse' } },
+  ]) {
+    Object.assign(store, override)
+    assert.doesNotMatch(await render(businessSlot), /业务操作测试入口/)
+    Object.assign(store, { documentApprovalLoading: false, documentApprovalError: '', connectionLost: false, documentApprovalRecord: savedRecord })
+  }
+  // 就绪门槛只校验读取归属，不能误禁用草稿或正文变化后的取消、编辑入口。
+  store.documentApprovalRecord = { ...savedRecord, status: 'draft', content_matches: false }
+  assert.match(await render(businessSlot), /业务操作测试入口/)
+  store.documentApprovalRecord = savedRecord
   // 忙碌状态禁止关闭；断线仍可收起，而审批按钮保持禁用。
   const { captured } = await server.ssrLoadModule('\0approval-dialog-modal')
   const { calls } = await server.ssrLoadModule('\0approval-dialog-store')
   store.busy = true
-  await render()
+  html = await render()
+  assert.match(html, /<button[^>]*disabled[^>]*>关闭</)
   assert.equal(captured.props.closable, false)
   captured.attrs['onUpdate:show'](false)
   assert.deepEqual(calls, [])
   store.busy = false
   store.connectionLost = true
-  await render()
+  html = await render()
+  assert.doesNotMatch(html, /<button[^>]*disabled[^>]*>关闭</)
   captured.attrs['onUpdate:show'](false)
   assert.deepEqual(calls, ['close'])
   store.connectionLost = false
@@ -88,6 +111,7 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.match(html, /role="alert"[^>]*>读取失败/)
   assert.match(html, /电阻 × 100 个/)
   assert.match(html, /<button[^>]*disabled[^>]*>刷新记录/)
+  assert.doesNotMatch(html, /<button[^>]*disabled[^>]*>关闭</)
   store.documentApprovalLoading = false
   store.documentApprovalError = ''
   store.documentApprovalRecord.can_review = true

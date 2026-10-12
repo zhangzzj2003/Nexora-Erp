@@ -1,98 +1,221 @@
 <script setup lang="ts">
+// 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
+import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
-import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
+import {
+  documentSearch,
+  documentLabel,
+} from "../../../../../shared/document-numbering";
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
-import AppInput from '../../../components/app/AppInput.vue'
+import AppInput from "../../../components/app/AppInput.vue";
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
-import AppButton from '../../../components/app/AppButton.vue'
+import AppButton from "../../../components/app/AppButton.vue";
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
-import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+import WorkspaceSelect from "../../../components/workspace/WorkspaceSelect.vue";
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
-import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
-import { computed, ref } from 'vue'
-import { storeToRefs } from 'pinia'
-import { NPopconfirm } from 'naive-ui'
+import WorkspaceMaterialSelect from "../../../components/workspace/WorkspaceMaterialSelect.vue";
+import { computed, ref } from "vue";
+import { storeToRefs } from "pinia";
+import { NPopconfirm } from "naive-ui";
 // 单据统一使用固定关闭区、基础信息和物料明细表格。
-import { documentRows } from '../../../utils/document-rows'
-import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
-import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import { documentRows } from "../../../utils/document-rows";
+import type { WorkspaceTableColumn } from "../../../utils/table-columns";
+import WorkspaceDocumentDialog from "../../../components/workspace/WorkspaceDocumentDialog.vue";
+import WorkspaceTable from "../../../components/workspace/WorkspaceTable.vue";
 // 统一弹窗读取真实版本和审批历史，不在列表保留另一套批准操作。
-import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
-import type { PurchaseRequest } from '../../../../../shared/erp-api'
-import { usePiniaAppStore } from '../../../store/app-store'
-import { submitCreateDialog } from '../../../utils/create-dialog'
+import DocumentApprovalDialog from "../../../components/workspace/DocumentApprovalDialog.vue";
+import type { PurchaseRequest } from "../../../../../shared/erp-api";
+import { usePiniaAppStore } from "../../../store/app-store";
+import { submitCreateDialog } from "../../../utils/create-dialog";
 
-const store = usePiniaAppStore()
-const { busy, error, notice, connectionLost, materials, suppliers, purchaseRequests, purchaseRequestForm,
-  requestConversionForm } = storeToRefs(store)
-const { can, localTime, editPurchaseRequest, savePurchaseRequest, cancelPurchaseRequest,
-  selectRequestConversion, convertPurchaseRequest } = store
-const query = ref('')
-const showForm = ref(false)
-const conversionOpen = ref(false)
-const filtered = computed(() => purchaseRequests.value.filter((item) =>
-  [documentSearch(item), item.id, item.reference, item.note, item.status, ...item.lines.map((line) => line.material_name)]
-    .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
-const selectedRequest = computed(() => purchaseRequests.value.find((item) => item.id === requestConversionForm.value.requestId))
-const columns = [
-  { key: 'id', title: '申请' }, { key: 'status', title: '状态' },
-  { key: 'lines', title: '明细与待转数量' }, { key: 'actions', title: '操作' }
-]
-const statusName = { draft: '草稿', submitted: '待审批', approved: '已批准', rejected: '已驳回', cancelled: '已取消' }
+const store = usePiniaAppStore();
+const {
+  busy,
+  error,
+  notice,
+  connectionLost,
+  materials,
+  suppliers,
+  purchaseRequests,
+  purchaseRequestForm,
+  requestConversionForm,
+} = storeToRefs(store);
+const {
+  can,
+  localTime,
+  editPurchaseRequest,
+  savePurchaseRequest,
+  cancelPurchaseRequest,
+  selectRequestConversion,
+  convertPurchaseRequest,
+} = store;
+const query = ref("");
+const showForm = ref(false);
+const conversionOpen = ref(false);
+const filtered = computed(() =>
+  purchaseRequests.value.filter((item) =>
+    [
+      documentSearch(item),
+      item.id,
+      item.reference,
+      item.note,
+      item.status,
+      ...item.lines.map((line) => line.material_name),
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(query.value.trim().toLowerCase()),
+  ),
+);
+const selectedRequest = computed(() =>
+  purchaseRequests.value.find(
+    (item) => item.id === requestConversionForm.value.requestId,
+  ),
+);
+// 详情弹窗由审批目标驱动；页脚业务按钮按当前单据与意图（执行/冲销）展示。
+const detailItem = computed(() =>
+  findDocumentApprovalItem(store.documentApprovalTarget, "PurchaseRequest", purchaseRequests.value),
+);
+const detailIntent = computed(
+  () => store.documentApprovalTarget?.intent ?? "execute",
+);
+const columns: readonly WorkspaceTableColumn[] = [
+  { key: "id", title: "申请" },
+  { key: "status", title: "状态" },
+  { key: "lines", title: "明细与待转数量" },
+  { key: "actions", title: "查看", width: "72", align: "center" },
+];
+const statusName = {
+  draft: "草稿",
+  submitted: "待审批",
+  approved: "已批准",
+  rejected: "已驳回",
+  cancelled: "已取消",
+};
 
-const approvalNames = { draft: '未送审', submitted: '审批中', approved: '已批准，待转单',
-  rejected: '已驳回', withdrawn: '已撤回', executed: '已开始转单' }
+const approvalNames = {
+  draft: "未送审",
+  submitted: "审批中",
+  approved: "已批准，待转单",
+  rejected: "已驳回",
+  withdrawn: "已撤回",
+  executed: "已开始转单",
+};
 // 拆单可以继续消费同一份批准需求，每张新订单仍独立送审；缺少审批状态时不放行。
 function canConvert(item: PurchaseRequest): boolean {
-  return item.status === 'approved' && ['approved', 'executed'].includes(item.approval?.status ?? '')
-    && item.lines.some((line) => Number(line.remaining_quantity) > 0) && can('purchase_order.create')
+  return (
+    item.status === "approved" &&
+    ["approved", "executed"].includes(item.approval?.status ?? "") &&
+    item.lines.some((line) => Number(line.remaining_quantity) > 0) &&
+    can("purchase_order.create")
+  );
 }
-const conversionAllowed = computed(() => !!selectedRequest.value && canConvert(selectedRequest.value))
+const conversionAllowed = computed(
+  () => !!selectedRequest.value && canConvert(selectedRequest.value),
+);
 
 function openEditor(requestId?: number): void {
   // 收起后再次打开同一份草稿不重新初始化；切换新单或其他申请才载入对应表单。
-  if (purchaseRequestForm.value.requestId !== (requestId ?? null)) editPurchaseRequest(requestId)
-  showForm.value = true
+  if (purchaseRequestForm.value.requestId !== (requestId ?? null))
+    editPurchaseRequest(requestId);
+  showForm.value = true;
 }
 
 function openConversion(requestId: number): void {
-  const item = purchaseRequests.value.find((row) => row.id === requestId)
-  if (!item || !canConvert(item) || busy.value || connectionLost.value) return
-  selectRequestConversion(requestId)
-  conversionOpen.value = true
+  const item = purchaseRequests.value.find((row) => row.id === requestId);
+  if (!item || !canConvert(item) || busy.value || connectionLost.value) return;
+  selectRequestConversion(requestId);
+  conversionOpen.value = true;
 }
 
 async function submitConversion(): Promise<void> {
   // 弹窗打开后发生撤回或权限变化，也不能提交过期的批准。
-  if (!conversionAllowed.value || busy.value || connectionLost.value) return
-  await submitCreateDialog(convertPurchaseRequest, { busy, error, notice }, conversionOpen)
+  if (!conversionAllowed.value || busy.value || connectionLost.value) return;
+  await submitCreateDialog(
+    convertPurchaseRequest,
+    { busy, error, notice },
+    conversionOpen,
+  );
 }
 
 async function save(): Promise<void> {
-  await savePurchaseRequest()
+  await savePurchaseRequest();
   // 写入失败时保留输入；只有服务端刷新后的申请已存在才关闭表单。
-  if (!store.error && !store.connectionLost) showForm.value = false
+  if (!store.error && !store.connectionLost) showForm.value = false;
 }
 // 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
-const purchaseRequestFormRows = computed(() => documentRows(purchaseRequestForm.value.lines))
+const purchaseRequestFormRows = computed(() =>
+  documentRows(purchaseRequestForm.value.lines),
+);
 const purchaseRequestFormColumns = [
-  { key: 'material', title: '物料 / 资料', width: '470' },
-  { key: 'unit', title: '单位', width: '70' },
-  { key: 'quantity', title: '申请数量', width: '150' },
-  { key: 'actions', title: '操作', width: '90' },
-]
+  { key: "material", title: "物料 / 资料", width: "470" },
+  { key: "unit", title: "单位", width: "70" },
+  { key: "quantity", title: "申请数量", width: "150" },
+  { key: "actions", title: "操作", width: "90" },
+];
 // 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
-const requestConversionFormRows = computed(() => documentRows(requestConversionForm.value.lines))
+const requestConversionFormRows = computed(() =>
+  documentRows(requestConversionForm.value.lines),
+);
 const requestConversionFormColumns = [
-  { key: 'material', title: '物料', width: '300' },
-  { key: 'quantity', title: '本次数量', width: '150' },
-  { key: 'unitPrice', title: '单价（元）', width: '150' },
-]
+  { key: "material", title: "物料", width: "300" },
+  { key: "quantity", title: "本次数量", width: "150" },
+  { key: "unitPrice", title: "单价（元）", width: "150" },
+];
 </script>
 
 <template>
   <section class="stack">
-    <DocumentApprovalDialog />
+    <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
+    <DocumentApprovalDialog>
+      <template #footerActions>
+        <template v-if="detailItem">
+          <AppButton
+            v-if="
+              detailIntent === 'execute' &&
+              ['draft', 'rejected'].includes(detailItem.status) &&
+              can('purchase_request.create')
+            "
+            type="button"
+            variant="secondary"
+            :disabled="busy || connectionLost"
+            @click="openEditor(detailItem.id)"
+            >修改</AppButton
+          >
+          <AppButton
+            v-if="detailIntent === 'execute' && canConvert(detailItem)"
+            type="button"
+            variant="primary"
+            :disabled="busy || connectionLost"
+            @click="openConversion(detailItem.id)"
+            >转订单</AppButton
+          >
+          <NPopconfirm
+            v-if="
+              detailIntent === 'execute' &&
+              detailItem.status !== 'cancelled' &&
+              !['submitted', 'approved'].includes(
+                detailItem.approval?.status ?? '',
+              ) &&
+              can('purchase_request.cancel')
+            "
+            positive-text="确认"
+            negative-text="返回"
+            @positive-click="cancelPurchaseRequest(detailItem.id)"
+          >
+            <template #trigger
+              ><AppButton
+                :disabled="busy || connectionLost"
+                variant="secondary"
+                type="button"
+                >取消申请</AppButton
+              ></template
+            >
+            已关联有效订单的申请无法取消。确认取消这张申请？
+          </NPopconfirm>
+        </template>
+      </template>
+    </DocumentApprovalDialog>
     <!-- 列表保留操作与筛选，页面标题在卡片外统一显示。 -->
     <WorkspaceTable
       :show-title="false"
@@ -112,7 +235,9 @@ const requestConversionFormColumns = [
         >
       </template>
       <template #filters>
-        <label>搜索申请<AppInput v-model="query" placeholder="单号、物料或状态" /></label>
+        <label
+          >搜索申请<AppInput v-model="query" placeholder="单号、物料或状态"
+        /></label>
       </template>
       <template #beforeTable>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
@@ -120,7 +245,9 @@ const requestConversionFormColumns = [
           material-supply
           v-if="showForm && can('purchase_request.create')"
           v-model:show="showForm"
-          :title="purchaseRequestForm.requestId ? '修改采购申请' : '新建采购申请'"
+          :title="
+            purchaseRequestForm.requestId ? '修改采购申请' : '新建采购申请'
+          "
           :data="purchaseRequestFormRows"
           :columns="purchaseRequestFormColumns"
           :busy="busy"
@@ -129,7 +256,9 @@ const requestConversionFormColumns = [
           submit-label="保存草稿"
           :min-table-width="1000"
           :add-disabled="purchaseRequestForm.lines.length >= 100"
-          @add-material="purchaseRequestForm.lines.push({ material_id: 0, quantity: '1' })"
+          @add-material="
+            purchaseRequestForm.lines.push({ material_id: 0, quantity: '1' })
+          "
           @submit="save"
         >
           <template #basicInfo
@@ -157,8 +286,8 @@ const requestConversionFormColumns = [
                   { label: '选择物料', value: 0, disabled: true },
                   ...materials.map((item) => ({
                     label: (item.sku + ' · ' + item.name).trim(),
-                    value: item.id
-                  }))
+                    value: item.id,
+                  })),
                 ]" /></label
           ></template>
           <template #cell-quantity="{ row: { line, index } }"
@@ -175,14 +304,16 @@ const requestConversionFormColumns = [
           <template #cell-actions="{ row: { line, index } }"
             ><AppButton
               type="button"
-              :disabled="busy || connectionLost || purchaseRequestForm.lines.length === 1"
+              :disabled="
+                busy || connectionLost || purchaseRequestForm.lines.length === 1
+              "
               @click="purchaseRequestForm.lines.splice(index, 1)"
               variant="text"
               >移除</AppButton
             ></template
           >
           <template #cell-unit="{ row: { line } }">{{
-            materials.find((item) => item.id === line.material_id)?.unit ?? '—'
+            materials.find((item) => item.id === line.material_id)?.unit ?? "—"
           }}</template>
         </WorkspaceDocumentDialog>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
@@ -196,7 +327,12 @@ const requestConversionFormColumns = [
           :busy="busy"
           :disabled="connectionLost"
           :submit-disabled="
-            busy || connectionLost || !conversionAllowed || !requestConversionForm.lines.some((line) => Number(line.quantity) > 0)
+            busy ||
+            connectionLost ||
+            !conversionAllowed ||
+            !requestConversionForm.lines.some(
+              (line) => Number(line.quantity) > 0,
+            )
           "
           submit-label="生成订单草稿"
           :min-table-width="800"
@@ -212,7 +348,10 @@ const requestConversionFormColumns = [
                 required
                 :options="[
                   { label: '选择供应商', value: 0, disabled: true },
-                  ...suppliers.map((item) => ({ label: item.name, value: item.id }))
+                  ...suppliers.map((item) => ({
+                    label: item.name,
+                    value: item.id,
+                  })),
                 ]"
             /></label>
             <label
@@ -222,12 +361,16 @@ const requestConversionFormColumns = [
                 maxlength="100"
             /></label>
             <div class="document-basic-extra">
-              <p class="muted">本批不采购的明细填 0；可再次从剩余数量生成其他订单。</p>
+              <p class="muted">
+                本批不采购的明细填 0；可再次从剩余数量生成其他订单。
+              </p>
             </div>
           </template>
           <template #cell-material="{ row: { line, index } }"
             ><span>{{
-              selectedRequest.lines.find((item) => item.id === line.purchase_request_line_id)?.material_name
+              selectedRequest.lines.find(
+                (item) => item.id === line.purchase_request_line_id,
+              )?.material_name
             }}</span></template
           >
           <template #cell-quantity="{ row: { line, index } }"
@@ -255,61 +398,62 @@ const requestConversionFormColumns = [
         </WorkspaceDocumentDialog>
       </template>
       <template #cell-id="{ row: item }"
-        ><strong>{{ documentLabel(item) }}</strong
+        ><!-- 单号直接打开只读详情，与操作列「查看」并存两个入口。 -->
+        <AppButton
+          type="button"
+          variant="text"
+          :disabled="busy || connectionLost"
+          :aria-label="`查看单据 ${documentLabel(item)} 详情`"
+          @click="
+            store.openDocumentApproval({
+              document_type: 'PurchaseRequest',
+              document_id: item.id,
+              intent: 'execute',
+            })
+          "
+          >{{ documentLabel(item) }}</AppButton
         ><small v-if="item.reference">{{ item.reference }}</small
-        ><small>{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small></template
+        ><small
+          >{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small
+        ></template
       >
       <template #cell-status="{ row: item }"
-        ><span class="pill" :class="item.status">{{ statusName[item.status] }}</span
-        ><small>{{ approvalNames[item.approval?.status ?? 'draft'] }}</small>
-        <small v-if="item.review_reason">{{ item.review_reason }}</small></template
+        ><span class="pill" :class="item.status">{{
+          statusName[item.status]
+        }}</span
+        ><small>{{ approvalNames[item.approval?.status ?? "draft"] }}</small>
+        <small v-if="item.review_reason">{{
+          item.review_reason
+        }}</small></template
       >
       <template #cell-lines="{ row: item }"
         ><div v-for="line in item.lines" :key="line.id">
-          {{ line.material_name }}：申请 {{ line.quantity }} {{ line.unit }}，待转
+          {{ line.material_name }}：申请 {{ line.quantity }}
+          {{ line.unit }}，待转
           {{ line.remaining_quantity }}
         </div></template
       >
-      <template #cell-actions="{ row: item }"
-        ><div class="form-actions">
-          <AppButton
-            v-if="['draft', 'rejected'].includes(item.status) && can('purchase_request.create')"
-            :disabled="busy || connectionLost"
-            @click="openEditor(item.id)"
-            variant="text"
-            type="button"
-            >修改</AppButton
-          >
-          <AppButton
-            v-if="can('purchase_request.view')"
-            :disabled="busy || connectionLost"
-            @click="store.openDocumentApproval({ document_type: 'PurchaseRequest', document_id: item.id, intent: 'execute' })"
-            variant="text" type="button">单据审批</AppButton>
-          <AppButton
-            v-if="canConvert(item)"
-            :disabled="busy || connectionLost"
-            @click="openConversion(item.id)"
-            variant="text"
-            type="button"
-            >转订单</AppButton
-          >
-          <NPopconfirm
-            v-if="item.status !== 'cancelled' && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('purchase_request.cancel')"
-            positive-text="确认"
-            negative-text="返回"
-            @positive-click="cancelPurchaseRequest(item.id)"
-          >
-            <template #trigger
-              ><AppButton :disabled="busy || connectionLost" variant="text" type="button"
-                >取消申请</AppButton
-              ></template
-            >
-            已关联有效订单的申请无法取消。确认取消这张申请？
-          </NPopconfirm>
-        </div>
-</template
-      >
-      <template #empty>{{ query ? '没有匹配的采购申请。' : '暂无采购申请。' }}</template>
+      <template #cell-actions="{ row: item }">
+        <!-- 行内只保留查看入口，业务操作统一移入详情页脚。 -->
+        <AppButton
+          type="button"
+          variant="secondary"
+          size="small"
+          :disabled="busy || connectionLost"
+          :aria-label="`查看单据 ${documentLabel(item)} 详情`"
+          @click="
+            store.openDocumentApproval({
+              document_type: 'PurchaseRequest',
+              document_id: item.id,
+              intent: 'execute',
+            })
+          "
+          >查看</AppButton
+        >
+      </template>
+      <template #empty>{{
+        query ? "没有匹配的采购申请。" : "暂无采购申请。"
+      }}</template>
     </WorkspaceTable>
   </section>
 </template>

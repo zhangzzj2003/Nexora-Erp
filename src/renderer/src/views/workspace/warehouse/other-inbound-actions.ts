@@ -29,15 +29,3 @@ export function otherInboundActions(inbound: OtherInbound, permissions: OtherInb
   }
   return actions
 }
-
-// 表格优先排列常用动作；次要动作按列宽展开或进入菜单，取消与冲销不作为默认主操作。
-export function otherInboundRowActions(inbound: OtherInbound, permissions: OtherInboundPermissions) {
-  const actions = otherInboundActions(inbound, permissions)
-  const primary = actions.find(item => item.key === 'post')
-    ?? actions.find(item => item.key === 'reopen') ?? actions[0]!
-  return {
-    primary: { ...primary, label: primary.key === 'approval'
-      ? (inbound.status === 'draft' ? '审批 / 送审' : '审批记录') : primary.label },
-    more: actions.filter(item => item.key !== primary.key)
-  }
-}
