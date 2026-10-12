@@ -326,8 +326,10 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog>
       <template #footerActions>
+        <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
           <AppButton
+            tone="success"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'draft' &&
@@ -341,6 +343,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             >确认订单</AppButton
           >
           <AppButton
+            tone="warning"
             v-if="
               detailIntent === 'execute' &&
               ['draft', 'confirmed'].includes(detailItem.status) &&

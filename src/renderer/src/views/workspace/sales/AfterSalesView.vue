@@ -434,9 +434,11 @@ onUnmounted(() => store.clearAfterSalesDetail());
         >
       </WorkspaceTable>
       <AfterSalesEvidenceView v-if="detail" :row="detail" />
+      <!-- 操作色与详情一致：更正/驳回为红色、取消为橙色、执行为绿色、编辑为蓝色。 -->
       <!-- 证据面板统一承载该售后单的阶段操作，行内不再堆叠按钮。 -->
       <div v-if="detail" class="after-toolbar">
         <AppButton
+          tone="info"
           v-if="
             store.can('after_sales.create') &&
             ['draft', 'rejected'].includes(detail.status)
@@ -445,6 +447,7 @@ onUnmounted(() => store.clearAfterSalesDetail());
           @click="editRecord(detail.id)"
           >修订</AppButton
         ><AppButton
+          tone="info"
           :disabled="disabled"
           @click="
             store.openDocumentApproval({
@@ -455,6 +458,7 @@ onUnmounted(() => store.clearAfterSalesDetail());
           "
           >单据审批</AppButton
         ><AppButton
+          tone="error"
           v-if="detail.status === 'closed' && store.can('after_sales.reverse')"
           :disabled="disabled"
           @click="
@@ -466,6 +470,13 @@ onUnmounted(() => store.clearAfterSalesDetail());
           "
           >结案更正审批</AppButton
         ><AppButton
+          :tone="
+            action === 'reverse' || action === 'reject'
+              ? 'error'
+              : action === 'cancel'
+                ? 'warning'
+                : action === 'submit' ? 'info' : 'success'
+          "
           v-for="action in actions(detail)"
           :key="action"
           :disabled="disabled"
@@ -589,6 +600,13 @@ onUnmounted(() => store.clearAfterSalesDetail());
           <AppButton
             type="submit"
             variant="primary"
+            :tone="
+              command.action === 'reverse' || command.action === 'reject'
+                ? 'error'
+                : command.action === 'cancel'
+                  ? 'warning'
+                  : command.action === 'submit' ? 'info' : 'success'
+            "
             :disabled="
               busy ||
               connectionLost ||

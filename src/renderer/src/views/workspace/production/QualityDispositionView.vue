@@ -347,9 +347,11 @@ onUnmounted(() => store.clearQualityDetail());
         }}</template>
       </WorkspaceTable>
       <QualityEvidenceView v-if="detail" :row="detail" />
+      <!-- 操作色与详情一致：更正/驳回为红色、取消为橙色、执行为绿色、编辑为蓝色。 -->
       <!-- 证据面板统一承载该处置单的阶段操作，行内不再堆叠按钮。 -->
       <div v-if="detail" class="quality-toolbar">
         <AppButton
+          tone="info"
           size="small"
           :disabled="disabled"
           @click="
@@ -361,6 +363,7 @@ onUnmounted(() => store.clearQualityDetail());
           "
           >单据审批</AppButton
         ><AppButton
+          tone="error"
           v-if="detail.status === 'posted' && store.can('quality.reverse')"
           size="small"
           :disabled="disabled"
@@ -373,6 +376,7 @@ onUnmounted(() => store.clearQualityDetail());
           "
           >处置更正审批</AppButton
         ><AppButton
+          tone="info"
           v-if="
             store.can('quality.create') &&
             ['draft', 'rejected'].includes(detail.status)
@@ -382,6 +386,13 @@ onUnmounted(() => store.clearQualityDetail());
           @click="editRecord(detail.id)"
           >修订</AppButton
         ><AppButton
+          :tone="
+            action === 'reverse' || action === 'reject'
+              ? 'error'
+              : action === 'cancel'
+                ? 'warning'
+                : action === 'submit' ? 'info' : 'success'
+          "
           v-for="action in actions(detail)"
           :key="action"
           size="small"
@@ -434,6 +445,13 @@ onUnmounted(() => store.clearQualityDetail());
         <AppButton
           type="submit"
           variant="primary"
+          :tone="
+            command.action === 'reverse' || command.action === 'reject'
+              ? 'error'
+              : command.action === 'cancel'
+                ? 'warning'
+                : command.action === 'submit' ? 'info' : 'success'
+          "
           :disabled="
             disabled || (command.action !== 'reverse' && !reason.trim())
           "

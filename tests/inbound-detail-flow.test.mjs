@@ -105,3 +105,43 @@ test('统一批次表保持物料身份与草稿引用，空行可恢复，拆�
  while(first.lots.length<20)first.lots.push({quantity:'0.001'})
  b.add(first);assert.deepEqual(adds,[8])
 })
+
+// 直接渲染截图对应详情，验证动作色从业务配置传到按钮且不改变操作门槛。
+test('其他入库详情的确认、取消、冲销与重开使用不同语义色，断线仍禁用',async t=>{
+ const server=await environment(t),pinia=createPinia()
+ const {usePiniaAppStore}=await server.ssrLoadModule('\0flow-store'),store=usePiniaAppStore(pinia)
+ const {buttons}=await server.ssrLoadModule('\0flow-AppButton')
+ const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/OtherInboundsView.vue')
+ const render=async()=>{
+  buttons.length=0
+  const Open={...View,async setup(p,c){const b=View.setup(p,c);await b.openInboundDetail(1);return b}}
+  await renderToString(createSSRApp({render:()=>h(Open)}).use(pinia))
+ }
+ const button=label=>buttons.find(b=>b.text===label)
+ await render()
+ assert.equal(button('取消').attrs.tone,'warning')
+ assert.equal(button('提交审批').attrs.tone,'info')
+ const inbound=store.otherInbounds[0]
+ inbound.approval={status:'approved'}
+ await render()
+ assert.equal(button('确认入库').attrs.tone,'success')
+ assert.equal(button('登记实物批次（可选）').attrs.tone,'info')
+ assert.equal(button('取消'),undefined)
+ inbound.status='posted';inbound.approval={status:'executed'}
+ await render()
+ assert.equal(button('冲销审批').attrs.tone,'error')
+ assert.equal(button('执行冲销'),undefined)
+ inbound.reversal_approval={status:'approved'}
+ await render()
+ assert.equal(button('执行冲销').attrs.tone,'error')
+ store.connectionLost=true
+ await render()
+ assert.equal(button('执行冲销').p.disabled,true)
+ assert.equal(button('冲销审批').p.disabled,true)
+ store.connectionLost=false
+ inbound.reversal_id=10
+ await render()
+ assert.equal(button('冲销重开新单').attrs.tone,'info')
+ assert.equal(button('执行冲销'),undefined)
+ assert.equal(button('冲销审批'),undefined)
+})

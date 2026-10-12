@@ -205,8 +205,10 @@ const approvalLabels = {
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog>
       <template #footerActions>
+        <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
           <AppButton
+            tone="info"
             v-if="detailIntent === 'execute'"
             type="button"
             variant="secondary"
@@ -231,6 +233,7 @@ const approvalLabels = {
             >处理不合格品</RouterLink
           >
           <AppButton
+            tone="success"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'inspected' &&
@@ -244,6 +247,7 @@ const approvalLabels = {
             >确认完工</AppButton
           >
           <AppButton
+            tone="info"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'inspected' &&
@@ -258,6 +262,7 @@ const approvalLabels = {
             >指定实物批次（可选）</AppButton
           >
           <AppButton
+            tone="warning"
             v-if="
               detailIntent === 'execute' &&
               (detailItem.status === 'draft' ||
@@ -275,6 +280,7 @@ const approvalLabels = {
           >
           <!-- 冲销另行送审；完成后保留查询入口而不允许再次执行。 -->
           <AppButton
+            tone="error"
             v-if="
               detailIntent === 'execute' && detailItem.status === 'reversed'
             "
@@ -291,6 +297,7 @@ const approvalLabels = {
             >冲销审批记录</AppButton
           >
           <AppButton
+            tone="error"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'posted' &&
@@ -309,6 +316,7 @@ const approvalLabels = {
             >冲销审批</AppButton
           >
           <AppButton
+            tone="info"
             v-if="detailIntent === 'reverse'"
             type="button"
             variant="secondary"
@@ -323,6 +331,7 @@ const approvalLabels = {
             >查看完工审批</AppButton
           >
           <AppButton
+            tone="error"
             v-if="
               detailIntent === 'reverse' &&
               detailItem.status === 'posted' &&
@@ -367,7 +376,11 @@ const approvalLabels = {
                 maxlength="200"
               />
             </label>
-            <AppButton type="submit" :disabled="busy" variant="primary"
+            <AppButton
+              tone="info"
+              type="submit"
+              :disabled="busy"
+              variant="primary"
               >记录质检结果</AppButton
             >
           </form>

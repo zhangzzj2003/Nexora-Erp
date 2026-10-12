@@ -1133,6 +1133,7 @@ async function reverseApproved(identifier: number): Promise<void> {
               :key="action.key"
               type="button"
               :variant="action.variant"
+              :tone="action.tone"
               :disabled="detailActionsDisabled"
               @click="
                 detailInbound &&

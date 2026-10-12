@@ -300,8 +300,10 @@ async function reverseApproved(identifier: number): Promise<void> {
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog>
       <template #footerActions>
+        <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
           <AppButton
+            tone="success"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'draft' &&
@@ -315,6 +317,7 @@ async function reverseApproved(identifier: number): Promise<void> {
             >确认退货</AppButton
           >
           <AppButton
+            tone="info"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'draft' &&
@@ -328,6 +331,7 @@ async function reverseApproved(identifier: number): Promise<void> {
             >指定实物批次（可选）</AppButton
           >
           <AppButton
+            tone="warning"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'draft' &&
@@ -344,6 +348,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           >
           <!-- 冲销完成后仍可查批准人员和固定原因，查询入口沿用本单查看权限。 -->
           <AppButton
+            tone="error"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'posted' &&
@@ -364,6 +369,7 @@ async function reverseApproved(identifier: number): Promise<void> {
             }}</AppButton
           >
           <AppButton
+            tone="info"
             v-if="detailIntent === 'reverse'"
             type="button"
             variant="secondary"
@@ -378,6 +384,7 @@ async function reverseApproved(identifier: number): Promise<void> {
             >查看退货审批</AppButton
           >
           <AppButton
+            tone="error"
             v-if="
               detailIntent === 'reverse' &&
               !detailItem.reversal_id &&

@@ -522,8 +522,10 @@ const approvalLabels = {
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog>
       <template #footerActions>
+        <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
           <AppButton
+            tone="success"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'draft' &&
@@ -537,6 +539,7 @@ const approvalLabels = {
             >确认调拨</AppButton
           >
           <AppButton
+            tone="info"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'draft' &&
@@ -550,6 +553,7 @@ const approvalLabels = {
             >指定实物批次（可选）</AppButton
           >
           <AppButton
+            tone="error"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'posted' &&
@@ -570,6 +574,7 @@ const approvalLabels = {
             }}</AppButton
           >
           <AppButton
+            tone="info"
             v-if="detailIntent === 'reverse'"
             type="button"
             variant="secondary"
@@ -584,6 +589,7 @@ const approvalLabels = {
             >查看调拨审批</AppButton
           >
           <AppButton
+            tone="error"
             v-if="
               detailIntent === 'reverse' &&
               !detailItem.reversal_id &&

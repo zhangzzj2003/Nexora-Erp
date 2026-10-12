@@ -101,8 +101,10 @@ const approvalLabels = {
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog>
       <template #footerActions>
+        <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
           <AppButton
+            tone="info"
             v-if="detailIntent === 'execute'"
             type="button"
             variant="secondary"
@@ -116,6 +118,7 @@ const approvalLabels = {
             >关联单据</AppButton
           >
           <AppButton
+            tone="success"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'draft' &&
@@ -129,6 +132,7 @@ const approvalLabels = {
             >下达</AppButton
           >
           <AppButton
+            tone="info"
             v-if="
               detailIntent === 'execute' &&
               (detailItem.status === 'released' ||
@@ -145,6 +149,7 @@ const approvalLabels = {
             >创建领料单</AppButton
           >
           <AppButton
+            tone="info"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'in_progress' &&
@@ -158,6 +163,7 @@ const approvalLabels = {
             >创建完工单</AppButton
           >
           <AppButton
+            tone="warning"
             v-if="
               detailIntent === 'execute' &&
               (detailItem.status === 'draft' ||

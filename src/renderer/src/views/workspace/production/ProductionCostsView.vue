@@ -789,8 +789,10 @@ const filteredEntries = computed(() =>
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog>
       <template #footerActions>
+        <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
           <AppButton
+            tone="success"
             v-if="
               detailIntent === 'execute' &&
               mayExecuteSettlement(detailItem, 'post')
@@ -802,6 +804,7 @@ const filteredEntries = computed(() =>
             >确认结算</AppButton
           >
           <AppButton
+            tone="warning"
             v-if="
               detailIntent === 'execute' &&
               mayExecuteSettlement(detailItem, 'cancel')
@@ -814,6 +817,7 @@ const filteredEntries = computed(() =>
           >
           <!-- 冲销另行送审；完成后保留查询入口而不允许再次执行。 -->
           <AppButton
+            tone="error"
             v-if="
               detailIntent === 'execute' &&
               ['active', 'reversed'].includes(detailItem.status)
@@ -833,6 +837,7 @@ const filteredEntries = computed(() =>
             }}</AppButton
           >
           <AppButton
+            tone="info"
             v-if="detailIntent === 'reverse'"
             type="button"
             variant="secondary"
@@ -847,6 +852,7 @@ const filteredEntries = computed(() =>
             >查看结算审批</AppButton
           >
           <AppButton
+            tone="error"
             v-if="
               detailIntent === 'reverse' &&
               detailItem.status === 'active' &&

@@ -50,6 +50,9 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.match(html, /审批中/)
   assert.match(html, /电阻 × 100 个/)
   assert.match(html, /撤回审批/)
+  // 实际审批按钮输出语义色，默认刷新和关闭不带业务色。
+  assert.match(html, /<button[^>]*tone="warning"[^>]*>撤回审批/)
+  assert.doesNotMatch(html, /<button[^>]*tone="[^"]+"[^>]*>(?:刷新记录|关闭)</)
   assert.doesNotMatch(html, /<button[^>]*>驳回<|<button[^>]*>审核<|审批意见（/)
   assert.match(html, /workspace-document-dialog/)
   assert.match(html, /document-basic--readonly/)
@@ -118,6 +121,8 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   html = await render()
   assert.match(html, /<button[^>]*disabled[^>]*>驳回/)
   assert.match(html, /<button[^>]*>审核/)
+  assert.match(html, /<button[^>]*tone="error"[^>]*disabled[^>]*>驳回/)
+  assert.match(html, /<button[^>]*tone="success"[^>]*>审核/)
   // 自定义名称不替代动作名称，核准按钮仍按服务端 action 呈现。
   store.documentApprovalRecord.steps[0] = {name:'负责人确认',role:null,action:'verify'}
   assert.match(await render(), /<button[^>]*>核准/)
@@ -145,6 +150,7 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   store.documentApprovalRecord = { ...store.documentApprovalRecord, intent: 'reverse', status: 'draft', can_submit: true, can_withdraw: false }
   html = await render()
   assert.match(html, /冲销原因（必填）/)
+  assert.match(html, /<button[^>]*tone="error"[^>]*disabled[^>]*>提交审批/)
   assert.match(html, /<button[^>]*disabled[^>]*>提交审批/)
   // 已处理的旧生产工单保留原流程；未质检完工明确提示业务前置。
   store.documentApprovalTarget = { document_type: 'WorkOrder', document_id: 1, intent: 'execute' }
@@ -173,6 +179,7 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   store.documentApprovalRecord = {...store.documentApprovalRecord, document_type:'CrmQuote', business_status:'draft', can_submit:true}
   html = await render()
   assert.match(html, /报价操作依据（必填）/)
+  assert.match(html, /<button[^>]*tone="info"[^>]*>提交审批/)
   assert.match(html, /<button[^>]*disabled[^>]*>提交审批/)
   store.documentApprovalReasons['CrmQuote:1:execute'] = '核对报价附件与条款'
   assert.doesNotMatch(await render(), /<button[^>]*disabled[^>]*>提交审批/)

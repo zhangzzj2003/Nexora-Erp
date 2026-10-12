@@ -344,8 +344,10 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog>
       <template #footerActions>
+        <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
           <AppButton
+            tone="info"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'draft' &&
@@ -359,6 +361,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             >生成出库草稿</AppButton
           >
           <AppButton
+            tone="warning"
             v-if="
               detailIntent === 'execute' &&
               detailItem.status === 'draft' &&
@@ -377,6 +380,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             >取消</AppButton
           >
           <AppButton
+            tone="error"
             v-if="detailIntent === 'execute' && detailItem.status === 'posted'"
             type="button"
             variant="secondary"
@@ -393,6 +397,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             }}</AppButton
           >
           <AppButton
+            tone="info"
             v-if="detailIntent === 'reverse'"
             type="button"
             variant="secondary"
@@ -407,6 +412,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             >查看退货审批</AppButton
           >
           <AppButton
+            tone="error"
             v-if="
               detailIntent === 'reverse' &&
               detailItem.status === 'posted' &&
