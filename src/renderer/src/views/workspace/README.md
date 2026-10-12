@@ -8,7 +8,7 @@
 | `warehouse/` | `InventoryOverviewView.vue` | 查看当前库存与库存流水 |
 | `warehouse/` | `InventoryWarningsView.vue` | 按仓库现存量与阈值识别缺货/低库存，页内配置、启停及中文修订证据；工作台窗口定时读取并在状态新发生或恶化时提醒 |
 | `warehouse/` | `PhysicalLotsView.vue` | 按仓库和物料核对批次结存、未分配差额、历史未识别期初和逐笔来源；支持历史期初现场补证与升级后未分配流水逐笔补证、先入后出成对及多笔成组补证，不推断旧单据的真实批号 |
-| `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，确认时登记多批实物来源并按原批次冲销 |
+| `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，按处理人、仓库、来源及本地日期范围与搜索/状态组合筛选，确认时登记多批实物来源并按原批次冲销 |
 | `warehouse/` | `WarehouseTransfersView.vue` | 建立调拨草稿、逐行选择实物批次确认及按原批次冲销 |
 | `warehouse/` | `InventoryStocktakesView.vue` | 建立库存盘点，逐行核对盘盈/盘亏实物批次并确认，沿原批次冲销 |
 | `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，`utils/material-form.ts` 管理共享草稿与搜索，`MaterialSpecificationsEditor.vue` 按模板维护动态规格与扩展属性；展示关联供应商；沿用 `/workspace/catalog` 地址 |
@@ -126,3 +126,11 @@
 仓库、采购单据弹窗和 MRP 物料表共用当前供需列，显示全仓库存、采购计划、待回料及采购待入库；点击查看来源，历史正文与计划快照保持原样。口径与读取边界见 [物料当前供需](../../../../../docs/material-supply.md)。
 
 `finance/ControlBalanceTransfersView.vue` 对应 `/workspace/control-balance-transfers`，独立 `control_transfer.view`，Pinia 操作在 `control-balance-actions.ts`。先核对原单和完整组合，分别批准转账及固定凭证，凭证过账才生效；来源与审计、实际凭证和截止日分组均可读取。`ControlFundsSelector.vue` 复用于订单资金和历史资金，转账后的原单必须显式选择真实组合；迟到结果、实例证书变化、撤权及断线不得开放保存。规则见[往来余额转账](../../../../../docs/control-balance-transfers.md)。
+
+## 公共搜索与筛选
+
+`components/workspace/WorkspaceSearchFilters.vue` 由需要搜索或筛选的页面自行引入；工作台页面继续通过路由动态导入，公共组件不在根组件全局装配。其他页面的接入可以逐步进行。
+
+组件通过 `v-model:query` 和 `v-model:filters` 接收页面条件，`fields` 只渲染页面传入的字段；省略字段即可只显示搜索。字段支持 `select`（`key`、`label`、`options`）和 `date`（`key`、`label`、可选 `minKey` / `maxKey`）。选择器保留原值类型；日期使用 `YYYY-MM-DD` 字符串，清空恢复空字符串。`reset` 事件交由页面处理；`disabled` 会同时保护控件与事件。`issue` 可显示日期范围等业务校验提示。
+
+其他入库在完整可见 Pinia 快照上取关键词、状态和四项条件的交集后分页；任一条件变化回到第一页，重置清空全部条件与状态。处理人与时间沿用当前列表的 `created_by` / `created_at`，并非入库确认人或确认时间。处理人选项按账号 ID 去重，仓库选项兼容历史单据中的仓库；来源为期初补录、赠品、其他。日期按设备本地时区匹配，开始/结束日均包含全天，可只填一端；倒置范围提示错误并显示空结果。概览统计始终来自完整快照，详情及新建/重开草稿独立于筛选。

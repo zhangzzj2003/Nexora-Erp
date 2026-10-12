@@ -81,7 +81,7 @@ export const receivablesPayables = { currency: 'CNY', receivable_amount: '0.00',
 // 供需预览只使用虚构数量与来源，不读取正式服务端数据。
 export const supplyPreviewInbounds = [{
   id: 901, document_no: 'QTRK-DEMO-000901', reason: 'other', status: 'draft', note: '物料供需界面示例',
-  reference: 'SUPPLY-DEMO', warehouse_id: 1, warehouse_name: '电子原料仓', created_by_name: '示例管理员',
+  reference: 'SUPPLY-DEMO', warehouse_id: 1, warehouse_name: '电子原料仓', created_by: 3, created_by_name: '示例管理员',
   created_at: createdAt, posted_at: null, cancelled_at: null, reversal_id: null,
   approval: {status: 'draft'},
   lines: materials.slice(0, 3).map((row, index) => ({id: 901 + index, material_id: row.id, sku: row.sku,

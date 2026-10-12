@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import {
-  documentSearch,
   documentLabel,
 } from "../../../../../shared/document-numbering";
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -21,7 +20,11 @@ import WorkspaceTable from "../../../components/workspace/WorkspaceTable.vue";
 // 标题概览复用公共组件，业务状态分组仍由本页定义。
 import WorkspaceSummaryFilters from "../../../components/workspace/WorkspaceSummaryFilters.vue";
 import type { WorkspaceSummaryFilterOption } from "../../../components/workspace/WorkspaceSummaryFilters.vue";
-import { otherInboundGroup, otherInboundSummary, type OtherInboundFilter } from "./other-inbound-summary";
+import { otherInboundSummary, type OtherInboundFilter } from "./other-inbound-summary";
+// 搜索筛选由页面按需接入；业务匹配规则独立于公共工具栏和单据草稿。
+import WorkspaceSearchFilters from "../../../components/workspace/WorkspaceSearchFilters.vue";
+import type { WorkspaceSearchFilterField } from "../../../utils/workspace-search-filters";
+import { emptyOtherInboundFilters, filterOtherInbounds, otherInboundDateIssue, otherInboundOperatorOptions, otherInboundWarehouseOptions } from "./other-inbound-filters";
 import { useLocalPagination } from "../../../composables/use-local-pagination";
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import DocumentApprovalPanel from "../../../components/workspace/DocumentApprovalPanel.vue";
@@ -261,21 +264,25 @@ function startExcessGift(): void {
 }
 const query = ref("");
 const statusFilter = ref<OtherInboundFilter>("all");
-const searched = computed(() =>
-  otherInbounds.value.filter((item) =>
-    [
-      documentSearch(item),
-      item.id,
-      item.reference,
-      item.warehouse_name,
-      item.note,
-      ...item.lines.map((line) => line.material_name),
-    ]
-      .join(" ")
-      .toLowerCase()
-      .includes(query.value.trim().toLowerCase()),
-  ),
-);
+const listFilters = ref(emptyOtherInboundFilters());
+const dateIssue = computed(() => otherInboundDateIssue(listFilters.value));
+const filterFields = computed<WorkspaceSearchFilterField[]>(() => [
+  { kind: "select", key: "operatorId", label: "处理人", options: otherInboundOperatorOptions(otherInbounds.value) },
+  { kind: "select", key: "warehouseId", label: "仓库", options: otherInboundWarehouseOptions(otherInbounds.value, warehouses.value) },
+  { kind: "select", key: "source", label: "来源", options: [
+    { value: null, label: "全部来源" }, { value: "opening", label: "期初补录" },
+    { value: "gift", label: "赠品" }, { value: "other", label: "其他" },
+  ] },
+  { kind: "date", key: "fromDate", label: "开始日期", maxKey: "toDate" },
+  { kind: "date", key: "toDate", label: "结束日期", minKey: "fromDate" },
+]);
+const resetDisabled = computed(() => !query.value && statusFilter.value === "all" &&
+  Object.values(listFilters.value).every(value => value === null || value === ""));
+function resetFilters(): void {
+  query.value = "";
+  listFilters.value = emptyOtherInboundFilters();
+  statusFilter.value = "all";
+}
 // 概览不受搜索或分页影响；列表按所选分类和关键词取交集。
 const summary = computed(() => otherInboundSummary(otherInbounds.value));
 const summaryOptions = computed<WorkspaceSummaryFilterOption<OtherInboundFilter>[]>(() => [
@@ -285,9 +292,9 @@ const summaryOptions = computed<WorkspaceSummaryFilterOption<OtherInboundFilter>
   { key: "cancelled", label: "已取消", count: summary.value.cancelled, hint: "已取消的入库单据", tone: "neutral" },
   { key: "reversed", label: "已冲销", count: summary.value.reversed, hint: "已入库后完成冲销的单据", tone: "reversed" }
 ]);
-const filtered = computed(() => searched.value.filter(item => statusFilter.value === "all" || otherInboundGroup(item) === statusFilter.value));
-// 关键词和状态共同决定分页身份，任一筛选变化均回到首页。
-const paginationFilter = computed(() => JSON.stringify([query.value, statusFilter.value]));
+const filtered = computed(() => filterOtherInbounds(otherInbounds.value, query.value, listFilters.value, statusFilter.value));
+// 关键词、状态和全部筛选共同决定分页身份，任一条件变化均回到首页。
+const paginationFilter = computed(() => JSON.stringify([query.value, statusFilter.value, listFilters.value]));
 // 仅对筛选后的展示数据分页，完整入库快照和详情、重开草稿保持独立。
 const { rows, total, page, pageSize, changePage } = useLocalPagination(filtered, paginationFilter);
 // 列表保持两行摘要，批次证据放入悬停说明，完整物料与批次仍由详情展示。
@@ -542,11 +549,16 @@ async function reverseApproved(identifier: number): Promise<void> {
         >
       </template>
       <template #filters>
-        <label
-          >搜索入库单<AppInput
-            v-model="query"
-            placeholder="单号、参考号、仓库或物料"
-        /></label>
+        <WorkspaceSearchFilters
+          v-model:query="query"
+          v-model:filters="listFilters"
+          :fields="filterFields"
+          search-label="搜索入库单"
+          search-placeholder="单号、参考号、仓库或物料"
+          :issue="dateIssue"
+          :reset-disabled="resetDisabled"
+          @reset="resetFilters"
+        />
       </template>
       <template #beforeTable>
         <WorkspaceDocumentDialog

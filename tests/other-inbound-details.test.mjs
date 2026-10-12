@@ -5,6 +5,7 @@ import { parse } from '@vue/compiler-sfc'
 import postcss from 'postcss'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
+import { setup as setupSsrStyles } from '@css-render/vue3-ssr'
 import { createPinia } from 'pinia'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -68,7 +69,7 @@ export default defineComponent({props:['modelValue','options','disabled'],setup(
 
 const inbound = {
  id:3,document_no:'QTRK-20261007-000003',status:'draft',reason:'gift',note:'历史说明',reference:'REF-3',
- warehouse_name:'主仓库',created_by_name:'建单人',created_at:'2026-10-07T06:00:00Z',
+ warehouse_id:1,warehouse_name:'主仓库',created_by:1,created_by_name:'建单人',created_at:'2026-10-07T06:00:00Z',
  posted_at:null,posted_by_name:null,cancelled_at:null,reversal_id:null,
  lines:[{id:7,material_id:1,sku:'OLD-SKU',material_name:'历史物料名称',quantity:'2.125',unit:'件',physical_lots:[]}]
 }
@@ -108,7 +109,8 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  const {buttons}=await server.ssrLoadModule('\0inbound-detail-button')
  const {tables}=await server.ssrLoadModule('\0inbound-detail-table')
  let vnode
- const render=()=>{tables.length=0;buttons.length=0;vnode=h(View);return renderToString(createSSRApp({render:()=>vnode}).use(pinia))}
+ // 筛选工具栏使用真实日期控件，为无浏览器的渲染提供其官方样式收集器。
+ const render=()=>{tables.length=0;buttons.length=0;vnode=h(View);const app=createSSRApp({render:()=>vnode}).use(pinia);setupSsrStyles(app);return renderToString(app)}
  store.otherInbounds=[structuredClone(inbound)]
  const draft=JSON.stringify(store.otherInboundForm)
  store.connectionLost=true
@@ -150,7 +152,20 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  // 隐藏项只进入悬停说明，不能增加列表的可见行数。
  assert.doesNotMatch(cell('lines').replace(/<[^>]*>/g,''),/明细物料3|明细物料4/)
  assert.match(cell('lines'),/title="明细物料3[^"]*明细物料4/)
+ // 真实页面接入四项筛选及重置，详情和 Pinia 草稿不被条件更新改写。
  const setup=vnode.component.setupState
+ assert.deepEqual(setup.filterFields.map(field=>field.key),['operatorId','warehouseId','source','fromDate','toDate'])
+ setup.listFilters={operatorId:1,warehouseId:1,source:'gift',fromDate:'2026-10-07',toDate:'2026-10-07'}
+ assert.equal(setup.filtered.length,1)
+ setup.listFilters={...setup.listFilters,operatorId:2}
+ assert.equal(setup.filtered.length,0)
+ assert.deepEqual(setup.summary,{all:1,pending:1,processed:0,cancelled:0,reversed:0})
+ setup.query='隐藏关键词';setup.statusFilter='processed'
+ setup.resetFilters()
+ assert.equal(setup.query,'');assert.equal(setup.statusFilter,'all')
+ assert.deepEqual(setup.listFilters,{operatorId:null,warehouseId:null,source:null,fromDate:'',toDate:''})
+ assert.equal(setup.filtered.length,1)
+ assert.equal(JSON.stringify(store.otherInboundForm),draft)
  for(const query of ['HIDDEN-REF','明细物料4']) {
   setup.query=query
   assert.equal(setup.filtered.length,1)
