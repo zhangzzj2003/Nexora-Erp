@@ -89,7 +89,8 @@ const purchaseRequestFormColumns: readonly WorkspaceTableColumn[] = [
   { key: 'quantity', title: '申请数量', width: '110' },
   { key: 'unitPrice', title: '单价（元）', width: '150' },
   { key: 'actions', title: '操作', width: '80' },
-  { key: 'lineTotal', title: '总价（元）', width: '160', fixed: 'right', align: 'right' },
+  // 总价采用紧凑列宽，保留右侧固定；长金额可点击进入输入框查看和编辑。
+  { key: 'lineTotal', title: '总价（元）', width: '120', fixed: 'right', align: 'right' },
 ]
 // 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
 const requestConversionFormTotal = computed(() => sumMoney(requestConversionForm.value.lines.filter(line => Number(line.quantity) > 0).map(line => line.unit_price === '' ? '' : line.line_total)))
@@ -98,7 +99,8 @@ const requestConversionFormColumns: readonly WorkspaceTableColumn[] = [
   { key: 'material', title: '物料', width: '300' },
   { key: 'quantity', title: '本次数量', width: '150' },
   { key: 'unitPrice', title: '单价（元）', width: '150' },
-  { key: 'lineTotal', title: '总价（元）', width: '160', fixed: 'right', align: 'right' },
+  // 总价采用紧凑列宽，保留右侧固定；长金额可点击进入输入框查看和编辑。
+  { key: 'lineTotal', title: '总价（元）', width: '120', fixed: 'right', align: 'right' },
 ]
 // 新增或查看另一行时自动收起上一行；用对象引用避免删除中间行后展开错料。
 const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => purchaseRequestForm.value.lines)

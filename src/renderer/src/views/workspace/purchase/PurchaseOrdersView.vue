@@ -72,7 +72,8 @@ const purchaseFormColumns: readonly WorkspaceTableColumn[] = [
   { key: 'quantity', title: '数量', width: '110' },
   { key: 'unitPrice', title: '单价（元）', width: '150' },
   { key: 'actions', title: '操作', width: '80' },
-  { key: 'lineTotal', title: '总价（元）', width: '160', fixed: 'right', align: 'right' },
+  // 总价采用紧凑列宽，保留右侧固定；长金额可点击进入输入框查看和编辑。
+  { key: 'lineTotal', title: '总价（元）', width: '120', fixed: 'right', align: 'right' },
 ]
 // 新增或查看另一行时自动收起上一行；用对象引用避免删除中间行后展开错料。
 const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => purchaseForm.value.lines)
