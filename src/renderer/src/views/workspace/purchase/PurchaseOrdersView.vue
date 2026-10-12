@@ -141,6 +141,7 @@ function addPricedMaterial(): void {
                   }))
                 ]" /></label
           ></template>
+          <!-- 隐藏数量步进箭头，仍保留原生数字类型、精度和范围校验。 -->
           <template #cell-quantity="{ row: { line, index } }"
             ><AppInput
                 aria-label="数量"
@@ -148,6 +149,7 @@ function addPricedMaterial(): void {
                 :model-value="line.quantity"
                 @update:model-value="(value) => { line.quantity = value; recalculatePurchasePrice(line) }"
                 type="number"
+                hide-number-controls
                 min="0.001"
                 max="1000000"
                 step="0.001"

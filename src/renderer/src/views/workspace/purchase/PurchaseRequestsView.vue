@@ -188,6 +188,7 @@ function addPricedMaterial(): void {
                   }))
                 ]" /></label
           ></template>
+          <!-- 隐藏数量步进箭头，仍保留原生数字类型、精度和范围校验。 -->
           <template #cell-quantity="{ row: { line, index } }"
             ><AppInput
                 aria-label="申请数量"
@@ -195,6 +196,7 @@ function addPricedMaterial(): void {
                 :model-value="line.quantity"
                 @update:model-value="(value) => { line.quantity = value; recalculatePurchasePrice(line) }"
                 type="number"
+                hide-number-controls
                 min="0.001"
                 max="1000000"
                 step="0.001"
@@ -265,6 +267,7 @@ function addPricedMaterial(): void {
               selectedRequest.lines.find((item) => item.id === line.purchase_request_line_id)?.material_name
             }}</span></template
           >
+          <!-- 隐藏数量步进箭头，仍保留原生数字类型、精度和范围校验。 -->
           <template #cell-quantity="{ row: { line, index } }"
             ><AppInput
                 aria-label="本次数量"
@@ -272,6 +275,7 @@ function addPricedMaterial(): void {
                 :model-value="line.quantity"
                 @update:model-value="(value) => { line.quantity = value; recalculatePurchasePrice(line) }"
                 type="number"
+                hide-number-controls
                 min="0"
                 max="1000000"
                 step="0.001"
