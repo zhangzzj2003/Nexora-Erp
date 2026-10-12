@@ -10,6 +10,7 @@ import { createPinia } from 'pinia'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { shortLocalTime } from '../src/renderer/src/utils/formatters.ts'
+import { materialSupplyColumns } from '../src/renderer/src/utils/material-supply-row.ts'
 
 test('物料摘要不吞占列内余量，窄列可收缩且余项标签保持可见', () => {
  const source=readFileSync(new URL('../src/renderer/src/views/workspace/warehouse/OtherInboundsView.vue',import.meta.url),'utf8')
@@ -200,6 +201,9 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  html=await render()
  for(const value of ['其他入库详情','QTRK-20261007-000003','OLD-SKU','历史物料名称','2.125','历史说明','REF-3','建单人','待送审','尚未登记实物批次'])assert.ok(html.includes(value),value + ': ' + html)
  assert.doesNotMatch(html,/冲销原因|冲销记录/)
+ // 使用实际页面列定义与公共组装规则，防止供需列被追加回末尾或重复出现。
+ assert.deepEqual(materialSupplyColumns(vnode.component.setupState.detailColumns,true).map(column=>column.key),
+  ['sku','name','quantity','received','remaining','unit','materialSupply','lots'])
  // 列表与详情使用同一个公共标签，防止详情退回无高亮文本。
  assert.equal((html.match(/app-status-tag--pending/g) ?? []).length, 2)
  assert.doesNotMatch(html,/添加物料|保存草稿|登记批次并确认|type="submit"/)

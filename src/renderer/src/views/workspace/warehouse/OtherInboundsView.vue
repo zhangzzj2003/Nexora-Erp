@@ -543,6 +543,8 @@ const detailColumns = [
   { key: "received", title: "已入库", width: "110" },
   { key: "remaining", title: "待入库", width: "110" },
   { key: "unit", title: "单位", width: "70" },
+  // 详情先查看全仓供需，再核对实物批次；其他页面继续沿用公共表格的默认顺序。
+  { key: "materialSupply", title: "物料供需（全仓）", width: "290" },
   { key: "lots", title: "实物批次", width: "340" },
 ];
 function inboundStatus(inbound: OtherInbound): string {
