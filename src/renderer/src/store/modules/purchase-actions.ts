@@ -1,3 +1,5 @@
+// 价格草稿只提交当前计价依据，失败时保留原行及用户输入。
+import { newPurchasePriceLine, purchasePricePayload, restorePurchasePrice, proratePurchaseTotal } from '../../utils/purchase-pricing.ts'
 import type { AppState } from '../state'
 import type {ReceiptLotLineInput} from '../../../../shared/receipt-lot-api'
 
@@ -64,15 +66,15 @@ export function createPurchaseActions(
       requestId: request.id,
       reference: request.reference,
       note: request.note,
-      lines: request.lines.map((line) => ({ material_id: line.material_id, quantity: line.quantity }))
-    } : { requestId: null, reference: '', note: '', lines: [{ material_id: 0, quantity: '1' }] }
+      lines: request.lines.map((line) => ({ material_id: line.material_id, ...restorePurchasePrice(line) }))
+    } : { requestId: null, reference: '', note: '', lines: [newPurchasePriceLine()] }
   }
 
   async function savePurchaseRequest(): Promise<void> {
     if (!window.nexora) return
     const { requestId, reference, note, lines } = purchaseRequestForm.value
     await perform(async () => {
-      const payload = { reference, note, lines: lines.map((line) => ({ ...line })) }
+      const payload = { reference, note, lines: lines.map((line) => ({ material_id: line.material_id, quantity: line.quantity, ...purchasePricePayload(line) })) }
       if (requestId) await window.nexora!.callApi('updatePurchaseRequest', { requestId, ...payload })
       else await window.nexora!.callApi('createPurchaseRequest', payload)
       editPurchaseRequest()
@@ -113,8 +115,9 @@ export function createPurchaseActions(
       lines: request?.lines.filter((line) => Number(line.remaining_quantity) > 0).map((line) => ({
         material_id: line.material_id,
         purchase_request_line_id: line.id,
-        quantity: line.remaining_quantity,
-        unit_price: '0'
+        ...restorePurchasePrice({ ...line, quantity: line.remaining_quantity,
+          line_total: line.pricing_mode === 'total' && line.line_total
+            ? proratePurchaseTotal(line.line_total, line.quantity, line.remaining_quantity) : line.line_total })
       })) ?? []
     }
   }
@@ -129,7 +132,8 @@ export function createPurchaseActions(
         purchase_request_id: form.requestId,
         supplier_id: form.supplier_id,
         reference: form.reference,
-        lines: lines.map((line) => ({ ...line }))
+        lines: lines.map((line) => ({ material_id: line.material_id, purchase_request_line_id: line.purchase_request_line_id,
+          quantity: line.quantity, ...purchasePricePayload(line) }))
       })
       selectRequestConversion(0)
     }, '采购订单草稿已由申请生成。')
@@ -195,13 +199,13 @@ export function createPurchaseActions(
         lines: purchaseForm.value.lines.map((line) => ({
           material_id: line.material_id,
           quantity: line.quantity,
-          unit_price: line.unit_price
+          ...purchasePricePayload(line)
         }))
       })
       purchaseForm.value = {
         supplier_id: 0,
         reference: '',
-        lines: [{ material_id: 0, quantity: '1', unit_price: '0' }]
+        lines: [newPurchasePriceLine()]
       }
     }, '采购订单草稿已创建。')
   }

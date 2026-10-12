@@ -61,10 +61,14 @@ def purchase_request_snapshot(db: Session, identifier: int) -> dict:
         MaintenanceChange.action.in_(('create', 'edit', 'submit')))))
     for job in jobs:
         authors.update(maintenance_snapshot(db, job.id)['source_author_ids'])
+    priced = {line.id: line for line in db.scalars(select(PurchaseRequestLine).where(
+        PurchaseRequestLine.purchase_request_id == identifier)) if line.unit_price is not None}
     # 转单进度不属于需求正文；其他建议的转换人员也不改变本单的批准摘要。
     return {'reference': source.reference, 'note': source.note, 'source_author_ids': sorted(authors),
             'mrp_conversion_ids': [row.id for row in conversions], 'maintenance_job_ids': [row.id for row in jobs],
-            'lines': [dict(row) for row in db.execute(select(
+            'lines': [{**dict(row), **({'unit_price': priced[row.id].unit_price,
+                'line_total': priced[row.id].line_total, 'pricing_mode': priced[row.id].pricing_mode}
+                if row.id in priced else {})} for row in db.execute(select(
                 PurchaseRequestLine.id, PurchaseRequestLine.material_id, PurchaseRequestLine.quantity)
                 .where(PurchaseRequestLine.purchase_request_id == identifier).order_by(PurchaseRequestLine.id)).mappings()]}
 
@@ -79,6 +83,12 @@ def purchase_order_snapshot(db: Session, identifier: int) -> dict:
             PurchaseOrderRequestLink.purchase_order_line_id == PurchaseOrderLine.id)
         .where(PurchaseOrderLine.purchase_order_id == identifier)
         .order_by(PurchaseOrderLine.id)).mappings()]
+    # 总价模式冻结原始金额；旧按单价订单不增加字段，历史批准继续有效。
+    totals = {row.id: row for row in db.scalars(select(PurchaseOrderLine).where(
+        PurchaseOrderLine.purchase_order_id == identifier, PurchaseOrderLine.pricing_mode == 'total'))}
+    for line in lines:
+        if line['id'] in totals:
+            line.update(pricing_mode='total', line_total=totals[line['id']].line_total)
     # 采购订单批准不能由申请编制人完成；原申请的编制范围沿来源关系恢复。
     requests = list(db.scalars(select(PurchaseRequest).join(PurchaseRequestLine,
         PurchaseRequestLine.purchase_request_id == PurchaseRequest.id)
@@ -1267,6 +1277,8 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
         value = (f"合格 {line['accepted_quantity']}{unit}；拒收 {line['rejected_quantity']}{unit}；原因 {line['rejection_reason'] or '—'}"
                  if document_type == 'PurchaseGoodsReceipt' else (f"账面 {line['book_quantity']}{unit}；实盘 {line['counted_quantity']}{unit}；差异 {Decimal(line['counted_quantity']) - Decimal(line['book_quantity'])}{unit}"
                        if document_type == 'Stocktake' else line['quantity'] + unit))
+        if document_type in ('PurchaseRequest', 'PurchaseOrder') and line.get('line_total') is not None:
+            value += f"；总价 ¥{line['line_total']}"
         if 'unit_price' in line:
             value += f"；单价 ¥{line['unit_price']}" if line['unit_price'] is not None else '；原价待核对'
         if document_type == 'SalesOrder' and line['warranty_days'] is not None:

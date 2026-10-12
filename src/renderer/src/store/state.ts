@@ -1,3 +1,5 @@
+import { newPurchasePriceLine } from '../utils/purchase-pricing.ts'
+import type { PurchasePriceDraft } from '../utils/purchase-pricing.ts'
 import type {MaterialSupplyRow} from '../../../shared/material-supply-api'
 import type { ProductionAssociationTarget, ProductionAssociations } from '../../../shared/production-association-api'
 import type { DocumentNumberingConfig } from '../../../shared/document-numbering'
@@ -395,19 +397,19 @@ export function createAppState() {
   const purchaseForm = ref({
     supplier_id: 0,
     reference: '',
-    lines: [{ material_id: 0, quantity: '1', unit_price: '0' }]
+    lines: [newPurchasePriceLine()]
   })
   const purchaseRequestForm = ref({
     requestId: null as number | null,
     reference: '',
     note: '',
-    lines: [{ material_id: 0, quantity: '1' }]
+    lines: [newPurchasePriceLine()]
   })
   const requestConversionForm = ref({
     requestId: 0,
     supplier_id: 0,
     reference: '',
-    lines: [] as { material_id: number; purchase_request_line_id: number; quantity: string; unit_price: string }[]
+    lines: [] as (PurchasePriceDraft & { material_id: number; purchase_request_line_id: number })[]
   })
   const requestRejectReasons = ref<Record<number, string>>({})
   const purchaseReturnForm = ref({

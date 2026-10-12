@@ -1,6 +1,7 @@
 """从已确认业务单据推导应收应付，保留每笔金额的原始单据来源。"""
 
 from app.core.document_responses import NumberedRoute
+from app.purchase.pricing import purchase_amount
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -104,7 +105,9 @@ def entry(row: dict, kind: str, source_type: str, sign: int) -> dict:
         "sku": row["sku"],
         "quantity": row["quantity"],
         "unit_price": row["unit_price"],
-        "amount": amount(row["quantity"], row["unit_price"], sign),
+        "amount": (str(purchase_amount(row["quantity"], row["unit_price"], row.get("order_quantity"),
+            row.get("order_total"), row.get("pricing_mode")) * sign)
+            if row.get("pricing_mode") == "total" else amount(row["quantity"], row["unit_price"], sign)),
         "currency": "CNY",
         "posted_by": row["posted_by"],
         "posted_at": row["posted_at"],
@@ -146,7 +149,8 @@ def purchase_sources(db: Session, *, returned: bool, reversed: bool) -> list[dic
     stmt = select(line.id.label('source_line_id'), source.id.label('source_id'),
         PurchaseOrderLine.purchase_order_id.label('order_id'), Supplier.id.label('party_id'),
         Supplier.name.label('party_name'), ReceiptLine.material_id, Material.sku, line.quantity,
-        PurchaseOrderLine.unit_price, (source.created_by if reversed else source.posted_by).label('posted_by'),
+        PurchaseOrderLine.quantity.label("order_quantity"), PurchaseOrderLine.line_total.label("order_total"),
+        PurchaseOrderLine.pricing_mode, PurchaseOrderLine.unit_price, (source.created_by if reversed else source.posted_by).label('posted_by'),
         (source.created_at if reversed else source.posted_at).label('posted_at')).select_from(line)
     if returned:
         stmt = stmt.join(PurchaseReturn, PurchaseReturn.id == PurchaseReturnLine.purchase_return_id)

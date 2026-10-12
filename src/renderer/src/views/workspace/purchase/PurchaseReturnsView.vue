@@ -156,11 +156,12 @@ const purchaseReturnFormColumns = [
                 required /></label
           ></template>
           <template #cell-actions="{ row: { line, index } }"
-            ><AppButton
+            ><!-- 移除使用公共按钮的完整点击区域，原有禁用与删行规则保持。 -->
+            <AppButton size="small"
               :disabled="busy || connectionLost"
               type="button"
               @click="purchaseReturnForm.lines.splice(index, 1)"
-              variant="text"
+              variant="secondary"
             >
               移除
             </AppButton></template

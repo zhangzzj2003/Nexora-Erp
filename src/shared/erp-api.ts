@@ -586,7 +586,18 @@ export interface GoodsReceipt extends NumberedDocument {
   lines: GoodsReceiptLine[]
 }
 // 申请的已转数量包含未取消的订单草稿，由服务端在写事务内核算。
-export interface PurchaseRequestLine extends ReceiptLine {
+// 采购申请可暂不定价；总价模式由服务端计算单价并保存原始总额。
+export interface PurchasePricingFields {
+  pricing_mode?: 'unit_price' | 'total'
+  unit_price?: string | null
+  line_total?: string | null
+}
+export interface PurchasePricingInput {
+  pricing_mode?: 'unit_price' | 'total'
+  unit_price?: string
+  line_total?: string
+}
+export interface PurchaseRequestLine extends ReceiptLine, PurchasePricingFields {
   ordered_quantity: string
   remaining_quantity: string
 }
@@ -612,6 +623,7 @@ export interface PurchaseRequest extends NumberedDocument {
 }
 // 已入库数量由服务端按确认单据汇总，前端只展示而不自行累计。
 export interface PurchaseOrderLine extends ReceiptLine {
+  pricing_mode?: 'unit_price' | 'total'
   purchase_request_line_id: number | null
   unit_price: string
   received_quantity: string
@@ -1612,13 +1624,13 @@ export interface ErpOperations extends MaterialSupplyOperations, ProductionAssoc
   reversePurchaseReturn: { input: { returnId: number; reason: string }; output: PurchaseReturn }
   purchaseOrders: { input: undefined; output: PurchaseOrder[] }
   purchaseRequests: { input: undefined; output: PurchaseRequest[] }
-  createPurchaseRequest: { input: { reference: string; note: string; lines: { material_id: number; quantity: string }[] }; output: PurchaseRequest }
-  updatePurchaseRequest: { input: { requestId: number; reference: string; note: string; lines: { material_id: number; quantity: string }[] }; output: PurchaseRequest }
+  createPurchaseRequest: { input: { reference: string; note: string; lines: ({ material_id: number; quantity: string } & PurchasePricingInput)[] }; output: PurchaseRequest }
+  updatePurchaseRequest: { input: { requestId: number; reference: string; note: string; lines: ({ material_id: number; quantity: string } & PurchasePricingInput)[] }; output: PurchaseRequest }
   submitPurchaseRequest: { input: { requestId: number }; output: PurchaseRequest }
   approvePurchaseRequest: { input: { requestId: number }; output: PurchaseRequest }
   rejectPurchaseRequest: { input: { requestId: number; reason: string }; output: PurchaseRequest }
   cancelPurchaseRequest: { input: { requestId: number }; output: PurchaseRequest }
-  createPurchaseOrder: { input: { supplier_id: number; purchase_request_id?: number; reference: string; lines: { material_id: number; purchase_request_line_id?: number; quantity: string; unit_price: string }[] }; output: PurchaseOrder }
+  createPurchaseOrder: { input: { supplier_id: number; purchase_request_id?: number; reference: string; lines: ({ material_id: number; purchase_request_line_id?: number; quantity: string } & PurchasePricingInput)[] }; output: PurchaseOrder }
   confirmPurchaseOrder: { input: { orderId: number }; output: PurchaseOrder }
   cancelPurchaseOrder: { input: { orderId: number }; output: PurchaseOrder }
   salesOrders: { input: undefined; output: SalesOrder[] }

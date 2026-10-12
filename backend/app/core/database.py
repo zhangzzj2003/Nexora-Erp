@@ -81,7 +81,7 @@ def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_recor
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 101:
+        if version > 102:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -3095,3 +3095,15 @@ def migrate() -> None:
                             SELECT role_code,? FROM role_permissions WHERE permission_code='finance.view'
                             AND role_code IN ('admin','finance')''', (code,))
             db.execute('PRAGMA user_version = 101')
+
+        if version < 102:
+            # 只增加可空价格和默认计价方式，不重算历史金额或审批快照。
+            for table in ('purchase_request_lines', 'purchase_order_lines'):
+                columns = {row[1] for row in db.execute(f'PRAGMA table_info({table})')}
+                if not columns:
+                    continue
+                for name, definition in (('pricing_mode', "TEXT NOT NULL DEFAULT 'unit_price'"),
+                                         ('line_total', 'TEXT'), ('unit_price', 'TEXT')):
+                    if name not in columns:
+                        db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
+            db.execute('PRAGMA user_version = 102')

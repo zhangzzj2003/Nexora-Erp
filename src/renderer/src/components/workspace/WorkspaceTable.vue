@@ -15,6 +15,7 @@ import 'vxe-table/es/table/style.css'
 import WorkspacePagination from './WorkspacePagination.vue'
 import { materialSupplyId, materialSupplyColumns } from '../../utils/material-supply-row'
 import AppButton from '../app/AppButton.vue'
+import { uppercaseMoney } from '../../utils/money-summary'
 import { tableScrollbarMetrics } from '../../utils/table-scrollbar'
 import { clearTableColumnWidths, MAX_TABLE_COLUMN_WIDTH, MIN_TABLE_COLUMN_WIDTH, readTableColumnWidths,
   resolveTableColumnWidths, saveTableColumnWidths, tableColumnWidthKey, tableWidthStorage,
@@ -29,6 +30,8 @@ const WorkspaceMaterialSupplyCell = defineAsyncComponent(() => import('./Workspa
 
 const props = withDefaults(defineProps<{
   title: string
+  // undefined 不显示金额汇总；null 表示尚有未填写或非法金额。
+  amountTotal?: string | null
   // 主列表可隐藏重复标题，保留页面顶部品牌标题及表格无障碍名称。
   showTitle?: boolean
   description?: string
@@ -299,12 +302,17 @@ defineSlots<{
     </div>
     <input v-if="scrollMax > 0" class="workspace-table-scrollbar" type="range" min="0" :max="scrollMax" :value="scrollPosition"
       :style="{ '--scroll-thumb-width': `${scrollThumbWidth}px` }" :aria-label="`${title}表格横向滚动`" @input="scrollFromControl" />
-    <footer v-if="pagination || $slots.footer || hasCustomColumnWidths" class="workspace-table-footer">
+    <footer v-if="pagination || $slots.footer || hasCustomColumnWidths || amountTotal !== undefined" class="workspace-table-footer">
       <WorkspacePagination v-if="pagination" class="workspace-table-pagination" v-bind="pagination"
         :disabled="loading || pagination.disabled" @change="(page, size) => emit('pageChange', page, size)" />
       <!-- 恢复入口只在本机存在自定义列宽时出现，位于右下角并避开业务工具栏。 -->
       <AppButton v-if="hasCustomColumnWidths" class="workspace-table-reset-widths" type="button" size="small"
         quaternary :disabled="resizingColumn" @click="resetColumnWidths">恢复默认列宽</AppButton>
+      <!-- 金额摘要在公共表格右下角独立排列，不跟随横向滚动；大写在前、数字在后。 -->
+      <div v-if="amountTotal !== undefined" class="workspace-table-money" role="status" aria-label="物料金额合计">
+        <span>大写：{{ uppercaseMoney(amountTotal) }}</span>
+        <strong>¥ {{ amountTotal ?? '—' }}元</strong>
+      </div>
       <div v-if="$slots.footer" class="workspace-table-footer-content"><slot name="footer" /></div>
     </footer>
   </section>
@@ -331,6 +339,8 @@ defineSlots<{
 .workspace-table-footer { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; margin-top: 16px; container-type: inline-size; }
 .workspace-table-pagination { grid-column: 2; grid-row: 1; min-width: 0; }
 .workspace-table-reset-widths { grid-column: 3; grid-row: 1; justify-self: end; white-space: nowrap; }
+.workspace-table-money { grid-column: 1 / -1; display: flex; justify-content: flex-end; align-items: baseline; gap: 18px; flex-wrap: wrap; text-align: right; overflow-wrap: anywhere; color: var(--workspace-field-text); }
+.workspace-table-money strong { white-space: nowrap; font-size: 16px; }
 .workspace-table-footer-content { grid-column: 1 / -1; min-width: 0; }
 /* 依据表格实际宽度换行，侧栏或嵌套弹窗也不会让恢复按钮遮住分页。 */
 @container (max-width: 760px) {

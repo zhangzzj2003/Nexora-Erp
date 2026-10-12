@@ -1,4 +1,11 @@
 <script setup lang="ts">
+// 采购申请、转单与直接采购共用计价输入和十进制计算，保留原草稿行。
+import WorkspacePurchasePriceInput from '../../../components/workspace/WorkspacePurchasePriceInput.vue'
+import { sumMoney } from '../../../utils/money-summary'
+import type { WorkspaceTableColumn } from '../../../utils/table-columns'
+import { newPurchasePriceLine, recalculatePurchasePrice } from '../../../utils/purchase-pricing'
+import { useDocumentMaterialDetails } from '../../../composables/use-document-material-details'
+
 // 批准与业务执行分开，审批入口复用共享 Pinia 和固定内容弹窗。
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
@@ -57,14 +64,24 @@ const filteredRecords = computed(() =>
   )
 )
 // 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
+const purchaseFormTotal = computed(() => sumMoney(purchaseForm.value.lines.map(line => line.unit_price === '' ? '' : line.line_total)))
 const purchaseFormRows = computed(() => documentRows(purchaseForm.value.lines))
-const purchaseFormColumns = [
-  { key: 'material', title: '物料 / 资料', width: '470' },
-  { key: 'unit', title: '单位', width: '70' },
-  { key: 'quantity', title: '数量', width: '150' },
+const purchaseFormColumns: readonly WorkspaceTableColumn[] = [
+  { key: 'material', title: '物料 / 资料', width: '330' },
+  { key: 'unit', title: '单位', width: '60' },
+  { key: 'quantity', title: '数量', width: '110' },
   { key: 'unitPrice', title: '单价（元）', width: '150' },
-  { key: 'actions', title: '操作', width: '90' },
+  { key: 'actions', title: '操作', width: '80' },
+  { key: 'lineTotal', title: '总价（元）', width: '160', fixed: 'right', align: 'right' },
 ]
+// 新增或查看另一行时自动收起上一行；用对象引用避免删除中间行后展开错料。
+const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => purchaseForm.value.lines)
+function addPricedMaterial(): void {
+  if (busy.value || connectionLost.value || purchaseForm.value.lines.length >= 100) return
+  const line = newPurchasePriceLine()
+  purchaseForm.value.lines.push(line)
+  showLine(purchaseForm.value.lines.at(-1)!)
+}
 </script>
 
 <template>
@@ -77,19 +94,14 @@ const purchaseFormColumns = [
           title="新建采购订单"
           :data="purchaseFormRows"
           :columns="purchaseFormColumns"
+          :amount-total="purchaseFormTotal"
           :busy="busy"
           :disabled="connectionLost"
           :submit-disabled="!suppliers.length || !materials.length"
           submit-label="保存草稿"
-          :min-table-width="1000"
+          :min-table-width="1200"
           :add-disabled="purchaseForm.lines.length >= 100"
-          @add-material="
-            purchaseForm.lines.push({
-              material_id: 0,
-              quantity: '1',
-              unit_price: '0'
-            })
-          "
+          @add-material="addPricedMaterial"
           @submit="submitCreate"
         >
           <template #basicInfo
@@ -114,7 +126,11 @@ const purchaseFormColumns = [
               >物料<WorkspaceMaterialSelect
                 :disabled="busy || connectionLost"
                 :materials="materials"
+                :categories="store.materialCategories"
                 v-model="line.material_id"
+                :compact="activeLine !== line"
+                @update:compact="(value) => setCompact(line, value)"
+                @change="showLine(line)"
                 required
                 :options="[
                   { label: '选择物料'.trim(), value: 0, disabled: true },
@@ -125,33 +141,29 @@ const purchaseFormColumns = [
                 ]" /></label
           ></template>
           <template #cell-quantity="{ row: { line, index } }"
-            ><label
-              >数量<AppInput
+            ><AppInput
+                aria-label="数量"
                 :disabled="busy || connectionLost"
-                v-model.trim="line.quantity"
+                :model-value="line.quantity"
+                @update:model-value="(value) => { line.quantity = value; recalculatePurchasePrice(line) }"
                 type="number"
                 min="0.001"
                 max="1000000"
                 step="0.001"
-                required /></label
-          ></template>
-          <template #cell-unitPrice="{ row: { line, index } }"
-            ><label
-              >单价（元）<AppInput
-                :disabled="busy || connectionLost"
-                v-model.trim="line.unit_price"
-                type="number"
-                min="0"
-                max="1000000000"
-                step="0.0001"
-                required /></label
-          ></template>
+                required /></template>
+          <template #cell-unitPrice="{ row: { line } }">
+            <WorkspacePurchasePriceInput field="unit_price" :line="line" :disabled="busy || connectionLost" required />
+          </template>
+          <template #cell-lineTotal="{ row: { line } }">
+            <WorkspacePurchasePriceInput field="line_total" :line="line" :disabled="busy || connectionLost" required />
+          </template>
           <template #cell-actions="{ row: { line, index } }"
-            ><AppButton
+            ><!-- 移除使用公共按钮的完整点击区域，原有禁用与删行规则保持。 -->
+            <AppButton size="small"
               type="button"
               :disabled="busy || connectionLost || purchaseForm.lines.length === 1"
               @click="purchaseForm.lines.splice(index, 1)"
-              variant="text"
+              variant="secondary"
             >
               移除
             </AppButton></template

@@ -63,12 +63,19 @@ class CostInput(BaseModel):
         return value.strip()
 
 
-def purchase_prices(session: Session) -> dict[int, Decimal]:
-    return {movement_id: Decimal(price) for movement_id, price in session.execute(
-        select(StockMovement.id, PurchaseOrderLine.unit_price)
+def purchase_values(session: Session) -> dict[int, tuple[Decimal, Decimal]]:
+    result = {}
+    for movement_id, quantity, price, mode, order_quantity, total in session.execute(
+        select(StockMovement.id, StockMovement.quantity, PurchaseOrderLine.unit_price,
+               PurchaseOrderLine.pricing_mode, PurchaseOrderLine.quantity, PurchaseOrderLine.line_total)
         .join(ReceiptOrderLink, ReceiptOrderLink.receipt_line_id == StockMovement.source_line_id)
         .join(PurchaseOrderLine, PurchaseOrderLine.id == ReceiptOrderLink.purchase_order_line_id)
-        .where(StockMovement.source_type == 'receipt'))}
+        .where(StockMovement.source_type == 'receipt')):
+        # 先乘数量再除原数量，保留原始总价带来的精度；不能使用展示单价重算库存价值。
+        value = (Decimal(quantity) * Decimal(total) / Decimal(order_quantity)
+                 if mode == 'total' and total is not None else Decimal(quantity) * Decimal(price))
+        result[movement_id] = (value / Decimal(quantity), value)
+    return result
 
 
 def linked_source_lines(session: Session) -> dict[tuple[str, int], tuple[str, int]]:
@@ -92,7 +99,7 @@ def calculate_valuation(session: Session, *, through_date: str | None = None) ->
     rates = {}
     for row in session.scalars(select(InventoryCostInput).order_by(InventoryCostInput.id)):
         rates[row.movement_id] = (Decimal(row.unit_cost), row.id)
-    order_prices = purchase_prices(session)
+    order_values = purchase_values(session)
     linked = linked_source_lines(session)
     allocations = {row.movement_id: model_data(row) for row in session.scalars(select(ProductionCostAllocation).join(ProductionCostSettlement, ProductionCostSettlement.id == ProductionCostAllocation.settlement_id).where(
         ProductionCostSettlement.status == 'active',
@@ -132,8 +139,8 @@ def calculate_valuation(session: Session, *, through_date: str | None = None) ->
                 cost_source = 'production_settlement'
                 movement_dependencies = {('settlement', allocation['settlement_id'])}
                 movement_dependencies.update(settlement_dependencies.get(allocation['settlement_id'], set()))
-            elif row["id"] in order_prices:
-                unit_cost = order_prices[row["id"]]
+            elif row["id"] in order_values:
+                unit_cost = order_values[row["id"]][0]
                 cost_source = "purchase_order"
                 movement_dependencies = set()
             elif row["id"] in rates:
@@ -163,7 +170,8 @@ def calculate_valuation(session: Session, *, through_date: str | None = None) ->
                 if unit_cost is None:
                     cost_source = "unpriced"
         # 分摊额以分为最小单位；内部单价保持精度，不能由四位展示单价倒算金额。
-        amount = (Decimal(allocation['amount']) if allocation is not None
+        amount = (order_values[row['id']][1] if row['id'] in order_values
+                  else Decimal(allocation['amount']) if allocation is not None
                   else quantity * unit_cost if unit_cost is not None else None)
         after_quantity = before_quantity + quantity
         if after_quantity == 0:
@@ -234,7 +242,7 @@ def record_cost(payload: CostInput,
         ensure_movement_unlocked(session, movement.id)
         if Decimal(movement.quantity) <= 0 or movement.source_type not in MANUAL_SOURCES:
             raise HTTPException(409, "此流水的成本须沿用原单据或移动平均，不可人工核价")
-        if payload.movement_id in purchase_prices(session):
+        if payload.movement_id in purchase_values(session):
             raise HTTPException(409, "采购订单已有单价，不能覆盖原始价格")
         dependency = session.scalar(select(ProductionSettlementDependency.settlement_id).join(ProductionCostSettlement, ProductionCostSettlement.id == ProductionSettlementDependency.settlement_id).where(
             ProductionCostSettlement.status == 'active',

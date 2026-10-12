@@ -29,7 +29,7 @@ from app.core.models import (
 )
 from app.inventory.warehouse import TransferLineInput, balance, require_warehouse
 from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
-from app.purchase.orders import PurchaseOrderLineInput
+from app.purchase.pricing import UnitPriceLineInput
 from app.sales.returns import returned_quantity
 from app.access.security import require
 from app.sales.customer_scope import (visible_customers, visible_customer_ids,
@@ -68,7 +68,7 @@ class CustomerOwnerInput(BaseModel):
         return value.strip()
 
 
-class SalesOrderLineInput(PurchaseOrderLineInput):
+class SalesOrderLineInput(UnitPriceLineInput):
     warranty_days: int | None = Field(default=None, ge=1, le=36500, strict=True)
     warranty_basis: str = Field(default='', max_length=400)
 

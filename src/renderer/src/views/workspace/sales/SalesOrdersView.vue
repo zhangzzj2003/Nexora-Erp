@@ -251,11 +251,12 @@ const approvalLabels = { draft: '未送审', submitted: '审批中', approved: '
                 :required="line.warranty_days !== null" /></label
           ></template>
           <template #cell-actions="{ row: { line, index } }"
-            ><AppButton
+            ><!-- 移除使用公共按钮的完整点击区域，原有禁用与删行规则保持。 -->
+            <AppButton size="small"
               type="button"
               :disabled="busy || connectionLost || salesForm.lines.length === 1"
               @click="salesForm.lines.splice(index, 1)"
-              variant="text"
+              variant="secondary"
             >
               移除
             </AppButton></template

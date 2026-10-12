@@ -1380,6 +1380,10 @@ class PurchaseOrderLine(Base):
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
     unit_price: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # 计价依据独立保存；旧数据默认按单价，申请可保持未定价。
+    pricing_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'unit_price'"))
+    line_total: Mapped[str | None] = mapped_column(Text)
+
 
 class SalesReturnLine(Base):
     __tablename__ = 'sales_return_lines'
@@ -2183,6 +2187,11 @@ class PurchaseRequestLine(Base):
     )
     material_id: Mapped[int] = mapped_column(Integer, ForeignKey("materials.id"), nullable=False)
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # 计价依据独立保存；旧数据默认按单价，申请可保持未定价。
+    pricing_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'unit_price'"))
+    line_total: Mapped[str | None] = mapped_column(Text)
+    unit_price: Mapped[str | None] = mapped_column(Text)
 
 
 class MaintenancePurchaseRequest(Base):
