@@ -30,6 +30,9 @@ test('台账翻页只请求目标页，每页条数和筛选变化回首页', as
   assert.equal(calls[0][0], 'inventoryLedger')
   assert.deepEqual(calls[0][1], { page: 2, page_size: 20, warehouse_id: null, material_id: null, from_date: null, to_date: null, source_type: null })
   assert.equal(state.ledgerResult.value.rows[0].id, 2)
+  // 常规权限刷新会替换用户对象，同身份和权限不应清空已查询的页。
+  state.user.value = { ...state.user.value }
+  assert.equal(state.ledgerResult.value.rows[0].id, 2)
   await actions.queryLedger(3, 10)
   assert.equal(calls[1][1].page, 1)
   assert.equal(calls[1][1].page_size, 10)
@@ -41,6 +44,8 @@ test('台账翻页只请求目标页，每页条数和筛选变化回首页', as
   await actions.queryLedger()
   assert.equal(calls.at(-1)[1].warehouse_id, 2)
   assert.equal(calls.at(-1)[1].page, 1)
+  state.server.value = { id: 'another-instance' }
+  assert.deepEqual(state.ledgerResult.value.rows, [])
 })
 
 test('台账末页回退采用服务端页码，失败隐藏旧结果并保留目标页重试', async t => {

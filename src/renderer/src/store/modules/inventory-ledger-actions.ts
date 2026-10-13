@@ -19,7 +19,9 @@ export function createInventoryLedgerActions(state: AppState) {
     const { warehouse_id, material_id, from_date, to_date, source_type } = state.ledgerQuery.value
     return [warehouse_id, material_id, from_date, to_date, source_type]
   }, () => { state.ledgerQuery.value.page = 1; invalidate() }, { flush: 'sync' })
-  watch(() => [state.user.value?.id, state.user.value?.permissions.join('|'), state.connectionLost.value],
+  // 同一账号刷新 me 快照不应清空当前页；仅真实会话边界变化使响应失效。
+  watch(() => JSON.stringify([state.user.value?.id, state.user.value?.permissions.join('|'),
+    state.connectionLost.value, state.server.value?.id]),
     invalidate, { flush: 'sync' })
 
   async function queryLedger(page = 1, pageSize = state.ledgerQuery.value.page_size): Promise<void> {

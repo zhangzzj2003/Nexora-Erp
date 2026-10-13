@@ -36,6 +36,9 @@ for (const [label, prefix, method, operation, factory, pageResult] of [
     assert.equal(calls[0][1].page, 2)
     assert.equal(calls[0][1].page_size, 20)
     assert.equal(state[prefix + 'Result'].value.total, 65)
+    // 同账号例行刷新不改变分页快照，避免登录或全局刷新期间出现空表。
+    state.user.value = { ...state.user.value }
+    assert.equal(state[prefix + 'Result'].value.total, 65)
     await actions[method](5, 10)
     assert.equal(calls[1][1].page, 1)
     assert.equal(calls[1][1].page_size, 10)
@@ -54,6 +57,8 @@ for (const [label, prefix, method, operation, factory, pageResult] of [
     assert.equal(state[prefix + 'Error'].value, '')
     assert.equal(state[prefix + 'Result'].value.page, 2)
     assert.equal(calls.at(-1)[1].warehouse_id, 2)
+    state.server.value = { id: 'another-instance' }
+    assert.equal(state[prefix + 'Result'].value, null)
   })
   test(`${label}丢弃慢响应、变更筛选和退出后的晚到响应`, async t => {
     const { state, actions } = setup(t, factory)
