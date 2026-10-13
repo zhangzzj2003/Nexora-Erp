@@ -1,18 +1,17 @@
 import type { ReportQuery } from '../../../../shared/erp-api'
 import type { AppState } from '../state'
 
-// 报表查询和导出都只使用服务端返回的同一个结果快照。
+// 采购报表继续导出查询快照；库存报表分页与完整导出由独立操作模块维护。
 export function createReportActions(
   state: AppState,
   perform: (action: () => Promise<unknown>, success: string) => Promise<void>
 ) {
-  const { purchaseReportQuery, inventoryReportQuery,
-    purchaseReportResult, inventoryReportResult, notice } = state
+  const { purchaseReportQuery, purchaseReportResult, notice } = state
 
-  async function run(domain: 'purchase' | 'inventory'): Promise<void> {
+  async function run(): Promise<void> {
     if (!window.nexora) return
-    const query = domain === 'purchase' ? purchaseReportQuery : inventoryReportQuery
-    const result = domain === 'purchase' ? purchaseReportResult : inventoryReportResult
+    const query = purchaseReportQuery
+    const result = purchaseReportResult
     await perform(async () => {
       const filters: ReportQuery = { ...query.value,
         from_date: query.value.from_date || null,
@@ -21,9 +20,9 @@ export function createReportActions(
     }, '报表已更新。')
   }
 
-  async function exportResult(domain: 'purchase' | 'inventory'): Promise<void> {
+  async function exportResult(): Promise<void> {
     if (!window.nexora) return
-    const result = (domain === 'purchase' ? purchaseReportResult : inventoryReportResult).value
+    const result = purchaseReportResult.value
     if (!result) return
     let saved = false
     await perform(async () => {
@@ -33,10 +32,5 @@ export function createReportActions(
     if (!saved && notice.value === 'CSV 已保存。') notice.value = ''
   }
 
-  return {
-    queryPurchaseReport: () => run('purchase'),
-    queryInventoryReport: () => run('inventory'),
-    exportPurchaseReport: () => exportResult('purchase'),
-    exportInventoryReport: () => exportResult('inventory')
-  }
+  return { queryPurchaseReport: run, exportPurchaseReport: exportResult }
 }

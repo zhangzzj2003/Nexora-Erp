@@ -5,7 +5,7 @@ from decimal import Decimal
 from sqlalchemy import event
 from fastapi.testclient import TestClient
 
-from app.core.models import StockMovement
+from app.core.models import StockMovement, Material
 from app.core.orm import orm_session, engine_for
 from app.core.database import database_path
 from app.main import app
@@ -148,3 +148,84 @@ def test_ledger_default_order_empty_pages_and_invalid_pagination(inventory):
     for invalid in ({'page': 0}, {'page': -1}, {'page': 1.5},
                     {'page_size': 0}, {'page_size': 101}, {'page_size': 'wrong'}):
         assert client.post(path, json=invalid).status_code == 422
+
+
+def add_paged_materials():
+    # 构造超过一页的物料，保留原夹具中的零库存物料和跨仓流水。
+    with orm_session(write=True) as db:
+        for index in range(25):
+            material = Material(sku=f'PAGE-{index:03}', name=f'分页物料 {index}', unit='件')
+            db.add(material)
+            db.flush()
+            db.add(StockMovement(warehouse_id=1, material_id=material.id,
+                quantity='100000000000000000.001' if index == 0 else '0.001',
+                source_type='adjustment', source_id=index + 1, source_line_id=index + 1,
+                created_by=None, created_at='2026-01-31 12:00:00'))
+
+
+def test_stock_overview_pages_and_global_statistics(inventory):
+    client, material, empty, warehouse = inventory
+    add_paged_materials()
+    path = '/api/v1/stock/query'
+    first = client.post(path, json={}).json()
+    last = client.post(path, json={'page': 999}).json()
+    assert (first['total'], first['page'], first['page_size']) == (27, 1, 20)
+    assert (last['page'], len(last['items'])) == (2, 7)
+    assert first['summary'] == last['summary'] == {
+        'material_count': 27, 'posted_receipt_count': 0, 'movement_count': 29}
+    combined = first['items'] + last['items']
+    assert len({row['id'] for row in combined}) == 27
+    assert [row['sku'] for row in combined] == sorted(row['sku'] for row in combined)
+    quantities = {row['id']: row['quantity'] for row in combined}
+    assert quantities[material] == '1.000' and quantities[empty] == '0'
+    assert next(row for row in combined if row['sku'] == 'PAGE-000')['quantity'] == '100000000000000000.001'
+    scoped = client.post(path, json={'warehouse_id': warehouse, 'page_size': 100}).json()
+    assert next(row for row in scoped['items'] if row['id'] == material)['quantity'] == '0.600'
+    assert next(row for row in scoped['items'] if row['sku'] == 'PAGE-000')['quantity'] == '0'
+    assert scoped['summary'] == first['summary']
+    for invalid in ({'warehouse_id': 999999}, {'page': 0}, {'page_size': 101}):
+        assert client.post(path, json=invalid).status_code == 422
+    client.headers.pop('Authorization')
+    assert client.post(path, json={}).status_code == 401
+
+
+@pytest.mark.parametrize('kind', ['inventory_balance', 'stock_flow'])
+def test_inventory_report_database_pages_match_complete_export(inventory, kind):
+    client, *_ = inventory
+    add_paged_materials()
+    path = '/api/v1/reports/inventory/query'
+    filters = {'kind': kind, 'from_date': '2026-01-31', 'to_date': '2026-01-31'}
+    statements = []
+    engine = engine_for(database_path().resolve())
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+    event.listen(engine, 'before_cursor_execute', capture)
+    try:
+        first = client.post(path, json={**filters, 'page_size': 10}).json()
+    finally:
+        event.remove(engine, 'before_cursor_execute', capture)
+    assert any('LIMIT' in sql and 'OFFSET' in sql for sql in statements)
+    assert 'csv' not in first
+    assert first['total'] == (54 if kind == 'inventory_balance' else 27)
+    combined = list(first['rows'])
+    for page in range(2, (first['total'] + 9) // 10 + 1):
+        result = client.post(path, json={**filters, 'page': page, 'page_size': 10}).json()
+        assert result['page'] == page and result['total'] == first['total']
+        combined.extend(result['rows'])
+    # 导出是完整筛选结果，与各页合并后的数值相符，不随页码截断。
+    exported = client.post('/api/v1/reports/query', json=filters).json()
+    by_pair = lambda rows: {(row['warehouse'], row['material']): row for row in rows}
+    assert len(combined) == len(by_pair(combined)) == first['total']
+    assert by_pair(combined) == by_pair(exported['rows'])
+    import csv
+    from io import StringIO
+    assert len(list(csv.reader(StringIO(exported['csv'].removeprefix('\ufeff'))))) == first['total'] + 1
+    last = client.post(path, json={**filters, 'page': 999, 'page_size': 10}).json()
+    assert last['page'] == (first['total'] + 9) // 10
+    blank = client.post(path, json={**filters, 'material_id': 999999, 'page': 4}).json()
+    assert blank['rows'] == [] and blank['page'] == 1 and blank['total'] == 0
+    for invalid in ({'page': 0}, {'page_size': 101}, {'kind': 'purchase_orders'},
+                    {'from_date': '2026-02-01', 'to_date': '2026-01-31'}):
+        assert client.post(path, json={**filters, **invalid}).status_code == 422
+    client.headers.pop('Authorization')
+    assert client.post(path, json=filters).status_code == 401

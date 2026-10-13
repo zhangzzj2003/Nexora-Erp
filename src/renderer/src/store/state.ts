@@ -68,6 +68,7 @@ import type {
   GoodsReceipt,
   InventoryCostInput,
   InventoryValuationReport,
+  StockQuery, StockPageResult, InventoryReportQuery, InventoryReportResult,
   LedgerResult,
   LedgerQuery,
   Material,
@@ -229,6 +230,11 @@ export function createAppState() {
   const supplierMaterials = ref<SupplierMaterial[]>([])
   const suppliers = ref<Supplier[]>([])
   const stock = ref<Stock[]>([])
+  // 页面独立保存分页快照，翻页不覆盖其他业务使用的库存资料。
+  const stockOverviewQuery = ref<StockQuery>({ warehouse_id: null, page: 1, page_size: 20 })
+  const stockOverviewResult = ref<StockPageResult | null>(null)
+  const stockOverviewLoading = ref(false)
+  const stockOverviewError = ref('')
   const inventoryValuation = ref<InventoryValuationReport | null>(null)
   const inventoryCostInputs = ref<InventoryCostInput[]>([])
   const inventoryCostForm = ref({ movement_id: 0, unit_cost: '', reference: '', reason: '' })
@@ -240,10 +246,13 @@ export function createAppState() {
   const stockAdjustments = ref<StockAdjustment[]>([])
   const purchaseReportQuery = ref<ReportQuery>({ kind: 'purchase_requests', warehouse_id: null,
     material_id: null, supplier_id: null, from_date: null, to_date: null })
-  const inventoryReportQuery = ref<ReportQuery>({ kind: 'inventory_balance', warehouse_id: null,
+  const inventoryReportQuery = ref<InventoryReportQuery>({ page: 1, page_size: 20, kind: 'inventory_balance', warehouse_id: null,
     material_id: null, supplier_id: null, from_date: null, to_date: null })
   const purchaseReportResult = ref<ReportResult | null>(null)
-  const inventoryReportResult = ref<ReportResult | null>(null)
+  const inventoryReportResult = ref<InventoryReportResult | null>(null)
+  const inventoryReportLoading = ref(false)
+  const inventoryReportExporting = ref(false)
+  const inventoryReportError = ref('')
   const ledgerQuery = ref<LedgerQuery>({ page: 1, page_size: 20, warehouse_id: null, material_id: null,
     from_date: null, to_date: null, source_type: null })
   const otherInbounds = ref<OtherInbound[]>([])
@@ -642,7 +651,7 @@ export function createAppState() {
     materialFieldDraft, materialFieldEditorOpen, materialCategoryChanges,
     suppliers,
     supplierMaterials,
-    stock,
+    stock, stockOverviewQuery, stockOverviewResult, stockOverviewLoading, stockOverviewError,
     inventoryValuation,
     inventoryCostInputs,
     inventoryCostForm,
@@ -652,7 +661,7 @@ export function createAppState() {
     purchaseReportQuery,
     inventoryReportQuery,
     purchaseReportResult,
-    inventoryReportResult,
+    inventoryReportResult, inventoryReportLoading, inventoryReportExporting, inventoryReportError,
     ledgerQuery,
     otherInbounds,
     warehouseOutbounds,

@@ -45,6 +45,8 @@ import { createWorkspaceRefresh } from './workspace-refresh'
 import { createConnectionActions } from './connection-actions'
 import { createCatalogActions } from './modules/catalog-actions'
 import { createPurchaseActions } from './modules/purchase-actions'
+import { createStockOverviewActions } from './modules/stock-overview-actions'
+import { createInventoryReportActions } from './modules/inventory-report-actions'
 import { createInventoryLedgerActions } from './modules/inventory-ledger-actions'
 import { createWarehouseActions } from './modules/warehouse-actions'
 import { createReportActions } from './modules/report-actions'
@@ -295,6 +297,8 @@ function createAppStore() {
 
   const catalogActions = createCatalogActions(state, perform)
   const purchaseActions = createPurchaseActions(state, perform)
+  const stockOverviewActions = createStockOverviewActions(state)
+  const inventoryReportActions = createInventoryReportActions(state)
   const inventoryLedgerActions = createInventoryLedgerActions(state)
   const warehouseActions = createWarehouseActions(state, perform)
   const reportActions = createReportActions(state, perform)
@@ -400,6 +404,8 @@ function createAppStore() {
     ...purchaseActions,
     ...warehouseActions,
     ...inventoryLedgerActions,
+    ...stockOverviewActions,
+    ...inventoryReportActions,
     ...reportActions,
     ...financeActions,
     ...bankReconciliationActions,

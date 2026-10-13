@@ -17,7 +17,7 @@ const props = defineProps<{ domain: 'purchase' | 'inventory' }>()
 const store = usePiniaAppStore()
 const { busy, connectionLost, suppliers, warehouses, materials,
   purchaseReportQuery, inventoryReportQuery,
-  purchaseReportResult, inventoryReportResult } = storeToRefs(store)
+  purchaseReportResult, inventoryReportResult, inventoryReportLoading, inventoryReportExporting, inventoryReportError } = storeToRefs(store)
 const { queryPurchaseReport, queryInventoryReport,
   exportPurchaseReport, exportInventoryReport } = store
 const query = computed(() => props.domain === 'purchase' ? purchaseReportQuery.value : inventoryReportQuery.value)
@@ -29,14 +29,17 @@ const kinds = props.domain === 'purchase'
   : [{ value: 'inventory_balance', label: '库存余额' },
     { value: 'stock_flow', label: '收发存' }]
 const title = props.domain === 'purchase' ? '采购报表' : '库存报表'
+const loading = computed(() => props.domain === 'purchase' ? busy.value : inventoryReportLoading.value || inventoryReportExporting.value)
+// 库存分页只复用公共表格的页脚；采购报表保持原有完整查询行为。
+const pagination = computed(() => props.domain === 'inventory' ? { page: inventoryReportQuery.value.page,
+  pageSize: inventoryReportQuery.value.page_size, total: inventoryReportResult.value?.total ?? 0, disabled: connectionLost.value } : undefined)
 const run = (): Promise<void> => props.domain === 'purchase' ? queryPurchaseReport() : queryInventoryReport()
 const exportCsv = (): Promise<void> => props.domain === 'purchase' ? exportPurchaseReport() : exportInventoryReport()
-// 筛选变化后清除旧快照，避免用户把旧行误认为新条件的查询结果。
-watch(query, () => {
-  if (props.domain === 'purchase') purchaseReportResult.value = null
-  else inventoryReportResult.value = null
+// 库存筛选失效由 Pinia 同步处理，页码变化不能清空刚返回的分页快照。
+if (props.domain === 'purchase') watch(purchaseReportQuery, () => {
+  purchaseReportResult.value = null
 }, { deep: true })
-onMounted(() => { void run() })
+onMounted(() => { void (props.domain === 'inventory' ? queryInventoryReport(inventoryReportQuery.value.page) : run()) })
 </script>
 
 <template>
@@ -45,13 +48,17 @@ onMounted(() => { void run() })
     :title="title"
     :columns="result?.columns ?? []"
     :data="result?.rows ?? []"
-    :loading="busy"
+    :loading="loading"
+    :error="domain === 'inventory' ? inventoryReportError : ''"
+    :pagination="pagination"
+    @page-change="queryInventoryReport"
     :min-table-width="1050"
   >
     <template #actions>
       <AppButton
-        :disabled="busy || connectionLost || !result"
+        :disabled="loading || connectionLost || !result"
         @click="exportCsv"
+        :title="domain === 'inventory' ? '按当前筛选重新查询并导出全部记录' : undefined"
         variant="secondary"
         type="button"
         >导出 CSV</AppButton
@@ -123,10 +130,13 @@ onMounted(() => { void run() })
       /></label>
     </template>
     <template #filterActions
-      ><AppButton :disabled="busy || connectionLost" @click="run" variant="primary" type="button"
+      ><AppButton :disabled="loading || connectionLost" @click="run" variant="primary" type="button"
         >查询</AppButton
       ></template
     >
+    <template v-if="domain === 'inventory'" #errorActions>
+      <AppButton :disabled="loading || connectionLost" @click="queryInventoryReport(inventoryReportQuery.page)" variant="secondary" size="small">重新查询</AppButton>
+    </template>
     <template #empty>筛选范围内暂无记录。</template>
   </WorkspaceTable>
 </template>
