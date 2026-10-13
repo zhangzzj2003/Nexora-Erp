@@ -233,7 +233,10 @@ export function createAppState() {
   const inventoryCostInputs = ref<InventoryCostInput[]>([])
   const inventoryCostForm = ref({ movement_id: 0, unit_cost: '', reference: '', reason: '' })
   const movements = ref<Movement[]>([])
-  const ledgerResult = ref<LedgerResult>({ groups: [], rows: [] })
+  // 台账分页与加载状态独立保存，翻页无需触发全工作台刷新。
+  const ledgerResult = ref<LedgerResult>({ groups: [], rows: [], total: 0, page: 1, page_size: 20 })
+  const ledgerLoading = ref(false)
+  const ledgerError = ref('')
   const stockAdjustments = ref<StockAdjustment[]>([])
   const purchaseReportQuery = ref<ReportQuery>({ kind: 'purchase_requests', warehouse_id: null,
     material_id: null, supplier_id: null, from_date: null, to_date: null })
@@ -241,7 +244,7 @@ export function createAppState() {
     material_id: null, supplier_id: null, from_date: null, to_date: null })
   const purchaseReportResult = ref<ReportResult | null>(null)
   const inventoryReportResult = ref<ReportResult | null>(null)
-  const ledgerQuery = ref<LedgerQuery>({ warehouse_id: null, material_id: null,
+  const ledgerQuery = ref<LedgerQuery>({ page: 1, page_size: 20, warehouse_id: null, material_id: null,
     from_date: null, to_date: null, source_type: null })
   const otherInbounds = ref<OtherInbound[]>([])
   const warehouseOutbounds = ref<WarehouseOutbound[]>([])
@@ -644,7 +647,7 @@ export function createAppState() {
     inventoryCostInputs,
     inventoryCostForm,
     movements,
-    ledgerResult,
+    ledgerResult, ledgerLoading, ledgerError,
     stockAdjustments,
     purchaseReportQuery,
     inventoryReportQuery,

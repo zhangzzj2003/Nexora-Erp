@@ -1,10 +1,13 @@
 """库存 ORM 查询保留跨仓精度、日期边界和无操作人的历史流水。"""
 
 import pytest
+from decimal import Decimal
+from sqlalchemy import event
 from fastapi.testclient import TestClient
 
 from app.core.models import StockMovement
-from app.core.orm import orm_session
+from app.core.orm import orm_session, engine_for
+from app.core.database import database_path
 from app.main import app
 
 
@@ -76,3 +79,59 @@ def test_inventory_queries_require_login(inventory):
     assert client.get('/api/v1/stock').status_code == 401
     assert client.get('/api/v1/movements').status_code == 401
     assert client.post('/api/v1/inventory-ledger/query', json={}).status_code == 401
+
+
+def test_ledger_pagination_preserves_exact_balances_and_full_summary(inventory):
+    client, material, _, _ = inventory
+    # 同时覆盖超大精确小数、同秒多条流水、页边界与期初；不依赖浮点近似。
+    with orm_session(write=True) as db:
+        for index in range(25):
+            db.add(StockMovement(warehouse_id=1, material_id=material,
+                quantity='100000000000000000.001' if index == 0 else '0.001',
+                source_type='adjustment', source_id=index + 1, source_line_id=index + 1,
+                created_by=None, created_at='2026-02-02 12:00:00'))
+    path = '/api/v1/inventory-ledger/query'
+    filters = {'warehouse_id': 1, 'material_id': material, 'from_date': '2026-02-02', 'page_size': 10}
+    statements = []
+    engine = engine_for(database_path().resolve())
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+    event.listen(engine, 'before_cursor_execute', capture)
+    try:
+        first = client.post(path, json=filters).json()
+    finally:
+        event.remove(engine, 'before_cursor_execute', capture)
+    # 真正的数据库分页必须带 LIMIT/OFFSET，而不是在全量响应上切片。
+    assert any('LIMIT' in sql and 'OFFSET' in sql and 'created_by_name' in sql for sql in statements)
+    second = client.post(path, json={**filters, 'page': 2}).json()
+    last = client.post(path, json={**filters, 'page': 999}).json()
+    assert (first['total'], first['page'], first['page_size']) == (25, 1, 10)
+    assert [len(page['rows']) for page in (first, second, last)] == [10, 10, 5]
+    assert last['page'] == 3
+    combined = first['rows'] + second['rows'] + last['rows']
+    assert len({row['id'] for row in combined}) == 25
+    assert [row['id'] for row in combined] == sorted((row['id'] for row in combined), reverse=True)
+    assert first['groups'] == second['groups'] == last['groups']
+    assert first['groups'][0]['opening_quantity'] == '0.400'
+    assert first['groups'][0]['closing_quantity'] == '100000000000000000.425'
+    assert [Decimal(row['balance_quantity']) for row in combined] == [
+        Decimal('100000000000000000.425') - Decimal('0.001') * index for index in range(25)]
+    # 来源筛选改变的是累计范围，分页不能混入其他来源的期初。
+    only_source = client.post(path, json={**filters, 'source_type': 'adjustment', 'page': 2}).json()
+    assert only_source['total'] == 25
+    assert only_source['groups'][0]['opening_quantity'] == '0'
+    assert only_source['rows'][0]['balance_quantity'] == '100000000000000000.015'
+
+
+def test_ledger_default_order_empty_pages_and_invalid_pagination(inventory):
+    client, _, empty, _ = inventory
+    path = '/api/v1/inventory-ledger/query'
+    result = client.post(path, json={}).json()
+    # 外仓流水后写入但时间较早，必须按时间排序，不能单纯按 ID 倒序。
+    assert [row['source_id'] for row in result['rows']] == [3, 4, 2, 1]
+    assert (result['page'], result['page_size'], result['total']) == (1, 20, 4)
+    blank = client.post(path, json={'material_id': empty, 'page': 4}).json()
+    assert blank == {'rows': [], 'groups': [], 'total': 0, 'page': 1, 'page_size': 20}
+    for invalid in ({'page': 0}, {'page': -1}, {'page': 1.5},
+                    {'page_size': 0}, {'page_size': 101}, {'page_size': 'wrong'}):
+        assert client.post(path, json=invalid).status_code == 422

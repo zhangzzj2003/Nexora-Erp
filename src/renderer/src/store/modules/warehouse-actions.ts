@@ -17,8 +17,6 @@ export function createWarehouseActions(
     otherInboundReversalReasons,
     otherOutboundForm,
     otherOutboundReversalReasons,
-    ledgerResult,
-    ledgerQuery,
     adjustmentForm,
     adjustmentDecisionReasons,
     adjustmentReversalReasons,
@@ -90,18 +88,6 @@ export function createWarehouseActions(
     const reason = adjustmentReversalReasons.value[adjustmentId]?.trim() ?? ''
     await perform(() => window.nexora!.callApi('reverseStockAdjustment', { adjustmentId, reason }),
       `调整单 #${adjustmentId} 已冲销。`)
-  }
-
-  async function queryLedger(): Promise<void> {
-    if (!window.nexora) return
-    await perform(async () => {
-      // 复制当前筛选条件，避免跨进程发送 Vue 响应式代理对象。
-      ledgerResult.value = await window.nexora!.callApi('inventoryLedger', {
-        ...ledgerQuery.value,
-        from_date: ledgerQuery.value.from_date || null,
-        to_date: ledgerQuery.value.to_date || null
-      })
-    }, '库存台账已更新。')
   }
 
   async function createOtherInbound(): Promise<void> {
@@ -374,7 +360,6 @@ export function createWarehouseActions(
     loadAvailableAdjustmentLots,
     postStockAdjustment,
     reverseStockAdjustment,
-    queryLedger,
     createOtherInbound,
     prepareOtherInboundReopen,
     createReopenedOtherInbound,

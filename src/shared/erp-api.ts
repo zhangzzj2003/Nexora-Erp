@@ -1358,8 +1358,11 @@ export interface LedgerRow {
   created_by_name: string | null
   balance_quantity: string
 }
-export interface LedgerResult { groups: LedgerGroup[]; rows: LedgerRow[] }
+// 汇总覆盖完整筛选范围，rows 仅包含服务端返回的当前页。
+export interface LedgerResult { groups: LedgerGroup[]; rows: LedgerRow[]; total: number; page: number; page_size: number }
 export interface LedgerQuery {
+  page: number
+  page_size: number
   warehouse_id: number | null
   material_id: number | null
   from_date: string | null

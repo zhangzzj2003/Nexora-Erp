@@ -28,7 +28,7 @@ def test_ledger_filters_and_balances(monkeypatch, tmp_path):
         client.post(f"{base}/warehouse-outbounds/{outbound}/post", headers=auth)
         filters = {"warehouse_id": 1, "material_id": material}
         result = client.post(f"{base}/inventory-ledger/query", headers=auth, json=filters).json()
-        assert [row["balance_quantity"] for row in result["rows"]] == ["5", "3"]
+        assert [row["balance_quantity"] for row in result["rows"]] == ["3", "5"]
         assert result["groups"][0]["opening_quantity"] == "0"
         assert result["groups"][0]["closing_quantity"] == "3"
         assert client.post(f"{base}/inventory-ledger/query", headers=auth, json={
