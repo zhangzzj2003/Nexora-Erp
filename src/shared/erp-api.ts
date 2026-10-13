@@ -1341,6 +1341,9 @@ export interface LedgerGroup {
   unit: string
   opening_quantity: string
   closing_quantity: string
+  // 完整期间的收入和发出供收发存复用，不受明细页码影响。
+  inbound_quantity: string
+  outbound_quantity: string
 }
 export interface LedgerRow {
   id: number

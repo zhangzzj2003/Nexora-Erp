@@ -77,15 +77,22 @@ def query_ledger(filters: LedgerQuery,
                 "warehouse_id": item["warehouse_id"], "warehouse_name": item["warehouse_name"],
                 "material_id": item["material_id"], "sku": item["sku"],
                 "material_name": item["material_name"], "unit": item["unit"],
-                "opening_quantity": Decimal(0), "closing_quantity": Decimal(0)})
+                "opening_quantity": Decimal(0), "closing_quantity": Decimal(0),
+                "inbound_quantity": Decimal(0), "outbound_quantity": Decimal(0)})
             quantity = Decimal(item["quantity"])
             if filters.from_date and item["created_at"][:10] < str(filters.from_date):
                 group["opening_quantity"] += quantity
+            else:
+                # 收发存复用完整期间汇总，不能从当前页明细反算收入和发出。
+                group['inbound_quantity'] += max(quantity, Decimal(0))
+                group['outbound_quantity'] += max(-quantity, Decimal(0))
             group["closing_quantity"] += quantity
             if item['id'] in page_rows:
                 page_rows[item['id']]['balance_quantity'] = str(group['closing_quantity'])
         for group in groups.values():
             group["closing_quantity"] = str(group["closing_quantity"])
             group["opening_quantity"] = str(group["opening_quantity"])
+            group['inbound_quantity'] = str(group['inbound_quantity'])
+            group['outbound_quantity'] = str(group['outbound_quantity'])
         return {"groups": list(groups.values()), "rows": rows,
                 "total": total, "page": page, "page_size": filters.page_size}

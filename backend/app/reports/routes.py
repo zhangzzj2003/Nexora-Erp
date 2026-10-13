@@ -326,23 +326,17 @@ def flow_rows(filters: ReportQuery, user: dict) -> list[dict[str, str]]:
         ),
         user,
     )
-    flow: dict[tuple[int, int], tuple[Decimal, Decimal]] = {}
-    for row in ledger["rows"]:
-        key = (row["warehouse_id"], row["material_id"])
-        inbound, outbound = flow.get(key, (Decimal(0), Decimal(0)))
-        quantity = Decimal(row["quantity"])
-        flow[key] = (inbound + max(quantity, Decimal(0)), outbound + max(-quantity, Decimal(0)))
     result = []
     for group in ledger["groups"]:
-        inbound, outbound = flow.get((group["warehouse_id"], group["material_id"]), (Decimal(0), Decimal(0)))
+        # 台账明细已分页，收发存必须读取完整期间汇总，避免漏算其他页的流水。
         result.append(
             {
                 "warehouse": group["warehouse_name"],
                 "material": f"{group['sku']} · {group['material_name']}",
                 "unit": group["unit"],
                 "opening": group["opening_quantity"],
-                "inbound": str(inbound),
-                "outbound": str(outbound),
+                "inbound": group['inbound_quantity'],
+                "outbound": group['outbound_quantity'],
                 "closing": group["closing_quantity"],
             }
         )

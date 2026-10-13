@@ -121,6 +121,19 @@ def test_ledger_pagination_preserves_exact_balances_and_full_summary(inventory):
     assert only_source['total'] == 25
     assert only_source['groups'][0]['opening_quantity'] == '0'
     assert only_source['rows'][0]['balance_quantity'] == '100000000000000000.015'
+    # 报表曾从台账 rows 累计，分页后必须仍覆盖超过 20 条的期间流水和导出。
+    with orm_session(write=True) as db:
+        db.add(StockMovement(warehouse_id=1, material_id=material, quantity='-0.005',
+            source_type='shipment', source_id=999, source_line_id=999, created_by=None,
+            created_at='2026-02-03 12:00:00'))
+    flow = client.post('/api/v1/reports/query', json={
+        'kind': 'stock_flow', 'warehouse_id': 1, 'material_id': material,
+        'from_date': '2026-02-02', 'to_date': '2026-02-03'}).json()
+    assert flow['rows'][0]['opening'] == '0.400'
+    assert flow['rows'][0]['inbound'] == '100000000000000000.025'
+    assert flow['rows'][0]['outbound'] == '0.005'
+    assert flow['rows'][0]['closing'] == '100000000000000000.420'
+    assert '100000000000000000.025' in flow['csv']
 
 
 def test_ledger_default_order_empty_pages_and_invalid_pagination(inventory):
