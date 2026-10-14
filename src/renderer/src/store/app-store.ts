@@ -45,6 +45,9 @@ import { createWorkspaceRefresh } from './workspace-refresh'
 import { createConnectionActions } from './connection-actions'
 import { createCatalogActions } from './modules/catalog-actions'
 import { createPurchaseActions } from './modules/purchase-actions'
+import { createStockOverviewActions } from './modules/stock-overview-actions'
+import { createInventoryReportActions } from './modules/inventory-report-actions'
+import { createInventoryLedgerActions } from './modules/inventory-ledger-actions'
 import { createWarehouseActions } from './modules/warehouse-actions'
 import { createReportActions } from './modules/report-actions'
 import { createFinanceActions } from './modules/finance-actions'
@@ -279,6 +282,8 @@ function createAppStore() {
     busy.value = true
     error.value = ''
     notice.value = ''
+    // 固定本次写入所属的详情；成功、冲突或网络异常后均重读审批，不能留下旧执行状态。
+    const refreshApproval = documentApprovalActions.captureDocumentApprovalRefresh()
     try {
       await action()
       await refreshData()
@@ -286,12 +291,15 @@ function createAppStore() {
     } catch (cause) {
       error.value = displayError(cause)
     } finally {
-      busy.value = false
+      try { await refreshApproval() } finally { busy.value = false }
     }
   }
 
   const catalogActions = createCatalogActions(state, perform)
   const purchaseActions = createPurchaseActions(state, perform)
+  const stockOverviewActions = createStockOverviewActions(state)
+  const inventoryReportActions = createInventoryReportActions(state)
+  const inventoryLedgerActions = createInventoryLedgerActions(state)
   const warehouseActions = createWarehouseActions(state, perform)
   const reportActions = createReportActions(state, perform)
   const financeActions = createFinanceActions(state, perform)
@@ -330,7 +338,7 @@ function createAppStore() {
         await controlBalanceActions.loadControlBalanceJournal(target.document_id)
       if (target.document_type === 'MrpPlan') await mrpActions.refreshMrpApproval(target.document_id)
       if (target.document_type === 'QualityDisposition') await qualityActions.refreshQualityApproval(target.document_id)
-    }) }
+    }, () => workspaceRouter.currentRoute.value.path) }
   const equipmentActions = createEquipmentActions(state, perform)
   const materialSupplyActions = createMaterialSupplyActions(state)
   const dashboardActions = createDashboardActions(state)
@@ -395,6 +403,9 @@ function createAppStore() {
     ...catalogActions,
     ...purchaseActions,
     ...warehouseActions,
+    ...inventoryLedgerActions,
+    ...stockOverviewActions,
+    ...inventoryReportActions,
     ...reportActions,
     ...financeActions,
     ...bankReconciliationActions,

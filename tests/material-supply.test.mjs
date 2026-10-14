@@ -130,6 +130,15 @@ test('共享供需列放在操作之前，关闭时不改变原表格布局', ()
   assert.deepEqual(displayed.map(row => row.key), ['sku', 'materialSupply', 'actions'])
   assert.equal(displayed[2].fixed, 'right'); assert.equal(columns.length, 2)
   assert.deepEqual(materialSupplyColumns(columns.slice(0, 1), true).map(row => row.key), ['sku', 'materialSupply'])
+  // 显式供需列保持位置及自定义宽度，重复组装也不能产生第二列。
+  const positioned = Object.freeze([
+    {key:'sku',title:'物料编码'},
+    {key:'materialSupply',title:'物料供需（全仓）',width:'290'},
+    {key:'lots',title:'实物批次',width:'340'},
+  ])
+  assert.equal(materialSupplyColumns(positioned,true),positioned)
+  assert.equal(materialSupplyColumns(materialSupplyColumns(positioned,true),true),positioned)
+  assert.deepEqual(columns.map(column=>column.key),['sku','actions'])
 })
 
 test('可见物料共用一个刷新时钟，重复行不重复请求，关闭后释放定时读取', async t => {

@@ -10,16 +10,15 @@ import { datePickerString, vDateField } from '../../../utils/date-field'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { movementTypeLabels, movementTypeLabel } from '../../../utils/formatters'
 
 const store = usePiniaAppStore()
-const { busy, connectionLost, error, warehouses, materials, ledgerQuery, ledgerResult } = storeToRefs(store)
+const { connectionLost, warehouses, materials, ledgerQuery, ledgerResult, ledgerLoading, ledgerError } = storeToRefs(store)
 const { queryLedger, localTime } = store
-const ledgerError = ref('')
 const columns = [
   { key: 'time', title: '时间' }, { key: 'warehouse', title: '仓库' },
   { key: 'material', title: '物料' }, { key: 'source', title: '来源单据' },
@@ -31,15 +30,8 @@ const groupColumns = [
   { key: 'opening', title: '期初' }, { key: 'closing', title: '期末' }
 ]
 const sourceOptions = Object.entries(movementTypeLabels)
-// 查询失败时隐藏上次筛选的结果，避免把旧流水误读为本次查询结果。
-async function runLedgerQuery(): Promise<void> {
-  ledgerError.value = ''
-  await queryLedger()
-  ledgerError.value = error.value
-}
-
-// 页面首次打开读取服务端结果；筛选和表格使用同一份台账快照。
-onMounted(() => { void runLedgerQuery() })
+// 首次进入沿用已选页；点击查询回到首页，翻页只请求目标页。
+onMounted(() => { void queryLedger(ledgerQuery.value.page) })
 </script>
 
 <template>
@@ -50,7 +42,9 @@ onMounted(() => { void runLedgerQuery() })
       title="库存台账"
       :columns="columns"
       :error="ledgerError"
-      :loading="busy"
+      :loading="ledgerLoading"
+      :pagination="{ page: ledgerQuery.page, pageSize: ledgerQuery.page_size, total: ledgerResult.total, disabled: connectionLost }"
+      @page-change="queryLedger"
       :min-table-width="1000"
     >
       <template #filters>
@@ -114,8 +108,8 @@ onMounted(() => { void runLedgerQuery() })
       </template>
       <template #filterActions
         ><AppButton
-          :disabled="busy || connectionLost"
-          @click="runLedgerQuery"
+          :disabled="ledgerLoading || connectionLost"
+          @click="queryLedger()"
           variant="primary"
           type="button"
           >查询台账</AppButton
@@ -139,8 +133,8 @@ onMounted(() => { void runLedgerQuery() })
       </template>
       <template #errorActions>
         <AppButton
-          :disabled="busy || connectionLost"
-          @click="runLedgerQuery"
+          :disabled="ledgerLoading || connectionLost"
+          @click="queryLedger(ledgerQuery.page)"
           variant="secondary"
           size="small"
           type="button"
@@ -150,7 +144,7 @@ onMounted(() => { void runLedgerQuery() })
     </WorkspaceTable>
     <!-- 先筛选再查看流水与汇总，避免期初期末把查询入口挤到页面下方。 -->
     <WorkspaceTable
-      v-if="!ledgerError && ledgerResult.groups.length"
+      v-if="!ledgerLoading && !ledgerError && ledgerResult.groups.length"
       title="期初期末"
       :columns="groupColumns"
       :data="ledgerResult.groups"

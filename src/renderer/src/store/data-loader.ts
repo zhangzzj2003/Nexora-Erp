@@ -16,7 +16,6 @@ export function createDataLoader(
     stock,
     inventoryValuation,
     inventoryCostInputs,
-    movements,
     otherInbounds,
     warehouseOutbounds,
     stockAdjustments,
@@ -117,6 +116,7 @@ export function createDataLoader(
     await loadPermissions()
     state.menuIcons.value = await window.nexora.callApi('menuIcons', undefined)
     // 页面只显示当前角色可访问的入口；数据访问仍以服务端授权为准。
+    // 总览卡片已由分页接口返回统计，统一刷新不再下载全量库存流水。
     if (can('inventory.view')) {
       ;[
         materials.value,
@@ -126,7 +126,6 @@ export function createDataLoader(
         supplierMaterials.value,
         stock.value,
         receipts.value,
-        movements.value,
         warehouses.value,
         transfers.value,
         purchaseOrders.value,
@@ -145,7 +144,6 @@ export function createDataLoader(
             : undefined
         ),
         window.nexora.callApi('receipts', undefined),
-        window.nexora.callApi('movements', undefined),
         window.nexora.callApi('warehouses', undefined),
         window.nexora.callApi('transfers', undefined),
         window.nexora.callApi('purchaseOrders', undefined),

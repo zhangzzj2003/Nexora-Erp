@@ -19,6 +19,8 @@ export function materialSupplyId(row: unknown): number {
 // 供需列参与公共列宽管理，不改写页面保存的原列定义。
 export function materialSupplyColumns(columns: readonly WorkspaceTableColumn[], enabled: boolean): readonly WorkspaceTableColumn[] {
   if (!enabled) return columns
+  // 页面显式安排供需列时保留其位置和列宽，避免公共表格再次追加同名列。
+  if (columns.some(column => column.key === 'materialSupply')) return columns
   const result = [...columns]
   const index = result.findIndex(column => column.key === 'actions')
   result.splice(index < 0 ? result.length : index, 0, {key: 'materialSupply', title: '物料供需（全仓）', width: '290'})

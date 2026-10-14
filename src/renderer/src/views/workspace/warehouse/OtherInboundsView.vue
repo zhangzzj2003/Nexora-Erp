@@ -1,8 +1,6 @@
 <script setup lang="ts">
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
-import {
-  documentLabel,
-} from "../../../../../shared/document-numbering";
+import { documentLabel } from "../../../../../shared/document-numbering";
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from "../../../components/app/AppInput.vue";
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -20,11 +18,20 @@ import WorkspaceTable from "../../../components/workspace/WorkspaceTable.vue";
 // 标题概览复用公共组件，业务状态分组仍由本页定义。
 import WorkspaceSummaryFilters from "../../../components/workspace/WorkspaceSummaryFilters.vue";
 import type { WorkspaceSummaryFilterOption } from "../../../components/workspace/WorkspaceSummaryFilters.vue";
-import { otherInboundSummary, type OtherInboundFilter } from "./other-inbound-summary";
+import {
+  otherInboundSummary,
+  type OtherInboundFilter,
+} from "./other-inbound-summary";
 // 搜索筛选由页面按需接入；业务匹配规则独立于公共工具栏和单据草稿。
 import WorkspaceSearchFilters from "../../../components/workspace/WorkspaceSearchFilters.vue";
 import type { WorkspaceSearchFilterField } from "../../../utils/workspace-search-filters";
-import { emptyOtherInboundFilters, filterOtherInbounds, otherInboundDateIssue, otherInboundOperatorOptions, otherInboundWarehouseOptions } from "./other-inbound-filters";
+import {
+  emptyOtherInboundFilters,
+  filterOtherInbounds,
+  otherInboundDateIssue,
+  otherInboundOperatorOptions,
+  otherInboundWarehouseOptions,
+} from "./other-inbound-filters";
 import { useLocalPagination } from "../../../composables/use-local-pagination";
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import DocumentApprovalPanel from "../../../components/workspace/DocumentApprovalPanel.vue";
@@ -40,12 +47,16 @@ import {
 import { usePiniaAppStore } from "../../../store/app-store";
 import { submitCreateDialog } from "../../../utils/create-dialog";
 // 分批入库单独核对本次实收、累计实收检查点与剩余额度。
-import { inboundReceived, inboundRemaining, inboundExcess, otherInboundLotIssue } from "./other-inbound-receiving";
+import {
+  inboundReceived,
+  inboundRemaining,
+  inboundExcess,
+  otherInboundLotIssue,
+} from "./other-inbound-receiving";
 import { inboundReceivedMilli } from "../../../../../shared/receipt-lot-api";
-import OtherInboundReopenTrace from '../../../components/workspace/OtherInboundReopenTrace.vue';
+import OtherInboundReopenTrace from "../../../components/workspace/OtherInboundReopenTrace.vue";
 import type { InboundLotLineInput } from "../../../../../shared/receipt-lot-api";
 import type { OtherInbound } from "../../../../../shared/erp-api";
-import OtherInboundActions from "./OtherInboundActions.vue";
 import {
   otherInboundActions,
   type OtherInboundAction,
@@ -68,6 +79,8 @@ const {
   otherInboundReversalReasons,
   documentApprovalTarget,
   documentApprovalLoading,
+  documentApprovalRecord,
+  documentApprovalError,
 } = storeToRefs(store);
 const {
   can,
@@ -118,7 +131,8 @@ async function handleInboundAction(
   identifier: number,
   action: OtherInboundAction,
 ): Promise<void> {
-  if (busy.value || connectionLost.value || pendingActionId.value) return;
+  // 点击时再次核对读取结果，避免刷新、断线或切换详情后执行旧按钮的事件。
+  if (detailActionsDisabled.value || identifier !== detailInboundId.value) return;
   const inbound = otherInbounds.value.find((item) => item.id === identifier);
   if (
     !inbound ||
@@ -130,16 +144,17 @@ async function handleInboundAction(
   pendingActionId.value = identifier;
   try {
     if (action === "approval" || action === "reversalApproval") {
-      await openInboundDetail(identifier, action === "approval" ? "execute" : "reverse");
+      await openInboundDetail(
+        identifier,
+        action === "approval" ? "execute" : "reverse",
+      );
     } else if (action === "post") {
       await postOtherInbound(identifier);
       if (detailApprovalMatches.value) await store.loadDocumentApproval();
-    }
-    else if (action === "cancel") {
+    } else if (action === "cancel") {
       await cancelOtherInbound(identifier);
       if (detailApprovalMatches.value) await store.loadDocumentApproval();
-    }
-    else if (action === "lots") startLotPost(inbound);
+    } else if (action === "lots") startLotPost(inbound);
     else if (action === "reopen") {
       if (!store.prepareOtherInboundReopen(identifier)) return;
       reopenSourceId.value = identifier;
@@ -230,31 +245,57 @@ const activeInbound = computed(
       (item) =>
         item.id === activeInboundId.value &&
         ["draft", "partially_posted"].includes(item.status) &&
-        !item.reversal_id && item.approval?.status === "approved",
+        !item.reversal_id &&
+        item.approval?.status === "approved",
     ) ?? null,
 );
-const excessLines = computed(() => inboundExcess(activeInbound.value, lotDrafts.value));
-const excessHint = computed(() => ({
-  gift: "多收部分单独建立赠品入库草稿，批准后再入库；原单只登记其剩余数量。",
-  purchase: "先补充采购数量、金额和审批，再通过采购收货入库；原单只登记其剩余数量。",
-  return: "退回多收部分，并将本单批次调整为实际接受数量；退回部分不计库存。",
-})[excessDisposition.value as "gift" | "purchase" | "return"] ?? "请按本次约定选择多收用途，不自动当作赠品。");
+const excessLines = computed(() =>
+  inboundExcess(activeInbound.value, lotDrafts.value),
+);
+const excessHint = computed(
+  () =>
+    ({
+      gift: "多收部分单独建立赠品入库草稿，批准后再入库；原单只登记其剩余数量。",
+      purchase:
+        "先补充采购数量、金额和审批，再通过采购收货入库；原单只登记其剩余数量。",
+      return:
+        "退回多收部分，并将本单批次调整为实际接受数量；退回部分不计库存。",
+    })[excessDisposition.value as "gift" | "purchase" | "return"] ??
+    "请按本次约定选择多收用途，不自动当作赠品。",
+);
 function startExcessGift(): void {
   const inbound = activeInbound.value;
-  if (!inbound || excessDisposition.value !== "gift" || !excessLines.value.length ||
-      busy.value || connectionLost.value || !can("other_inbound.create")) return;
+  if (
+    !inbound ||
+    excessDisposition.value !== "gift" ||
+    !excessLines.value.length ||
+    busy.value ||
+    connectionLost.value ||
+    !can("other_inbound.create")
+  )
+    return;
   // 不覆盖用户正在填写的普通新建草稿，多收赠品仍需独立送审。
-  if (otherInboundForm.value.note || otherInboundForm.value.reference ||
-      otherInboundForm.value.lines.some(line => line.material_id || line.quantity)) {
-    error.value = "新建入库草稿已有内容，请先保存或处理该草稿，再登记多收赠品。";
+  if (
+    otherInboundForm.value.note ||
+    otherInboundForm.value.reference ||
+    otherInboundForm.value.lines.some(
+      (line) => line.material_id || line.quantity,
+    )
+  ) {
+    error.value =
+      "新建入库草稿已有内容，请先保存或处理该草稿，再登记多收赠品。";
     return;
   }
   const source = documentLabel(inbound);
   otherInboundForm.value = {
-    warehouse_id: inbound.warehouse_id, reason: "gift",
+    warehouse_id: inbound.warehouse_id,
+    reason: "gift",
     note: `原单 ${source} 的多收赠品，仓库本次选择免费赠品。`,
     reference: source,
-    lines: excessLines.value.map(item => ({ material_id: item.line.material_id, quantity: item.quantity })),
+    lines: excessLines.value.map((item) => ({
+      material_id: item.line.material_id,
+      quantity: item.quantity,
+    })),
   };
   activeInboundId.value = 0;
   if (detailApprovalMatches.value) store.closeDocumentApproval();
@@ -267,17 +308,43 @@ const statusFilter = ref<OtherInboundFilter>("all");
 const listFilters = ref(emptyOtherInboundFilters());
 const dateIssue = computed(() => otherInboundDateIssue(listFilters.value));
 const filterFields = computed<WorkspaceSearchFilterField[]>(() => [
-  { kind: "select", key: "operatorId", label: "处理人", options: otherInboundOperatorOptions(otherInbounds.value) },
-  { kind: "select", key: "warehouseId", label: "仓库", options: otherInboundWarehouseOptions(otherInbounds.value, warehouses.value) },
-  { kind: "select", key: "source", label: "来源", options: [
-    { value: null, label: "全部来源" }, { value: "opening", label: "期初补录" },
-    { value: "gift", label: "赠品" }, { value: "other", label: "其他" },
-  ] },
+  {
+    kind: "select",
+    key: "operatorId",
+    label: "处理人",
+    options: otherInboundOperatorOptions(otherInbounds.value),
+  },
+  {
+    kind: "select",
+    key: "warehouseId",
+    label: "仓库",
+    options: otherInboundWarehouseOptions(
+      otherInbounds.value,
+      warehouses.value,
+    ),
+  },
+  {
+    kind: "select",
+    key: "source",
+    label: "来源",
+    options: [
+      { value: null, label: "全部来源" },
+      { value: "opening", label: "期初补录" },
+      { value: "gift", label: "赠品" },
+      { value: "other", label: "其他" },
+    ],
+  },
   { kind: "date", key: "fromDate", label: "开始日期", maxKey: "toDate" },
   { kind: "date", key: "toDate", label: "结束日期", minKey: "fromDate" },
 ]);
-const resetDisabled = computed(() => !query.value && statusFilter.value === "all" &&
-  Object.values(listFilters.value).every(value => value === null || value === ""));
+const resetDisabled = computed(
+  () =>
+    !query.value &&
+    statusFilter.value === "all" &&
+    Object.values(listFilters.value).every(
+      (value) => value === null || value === "",
+    ),
+);
 function resetFilters(): void {
   query.value = "";
   listFilters.value = emptyOtherInboundFilters();
@@ -285,25 +352,69 @@ function resetFilters(): void {
 }
 // 概览不受搜索或分页影响；列表按所选分类和关键词取交集。
 const summary = computed(() => otherInboundSummary(otherInbounds.value));
-const summaryOptions = computed<WorkspaceSummaryFilterOption<OtherInboundFilter>[]>(() => [
-  { key: "all", label: "全部单据", count: summary.value.all, hint: "全部可见入库单据；点击清除状态筛选" },
-  { key: "pending", label: "未处理", count: summary.value.pending, hint: "尚未完成入库，包含待送审、审批中、已批准、已驳回和已撤回", tone: "pending" },
-  { key: "processed", label: "已处理", count: summary.value.processed, hint: "已确认入库且未冲销", tone: "success" },
-  { key: "cancelled", label: "已取消", count: summary.value.cancelled, hint: "已取消的入库单据", tone: "neutral" },
-  { key: "reversed", label: "已冲销", count: summary.value.reversed, hint: "已入库后完成冲销的单据", tone: "reversed" }
+const summaryOptions = computed<
+  WorkspaceSummaryFilterOption<OtherInboundFilter>[]
+>(() => [
+  {
+    key: "all",
+    label: "全部单据",
+    count: summary.value.all,
+    hint: "全部可见入库单据；点击清除状态筛选",
+  },
+  {
+    key: "pending",
+    label: "未处理",
+    count: summary.value.pending,
+    hint: "尚未完成入库，包含待送审、审批中、已批准、已驳回和已撤回",
+    tone: "pending",
+  },
+  {
+    key: "processed",
+    label: "已处理",
+    count: summary.value.processed,
+    hint: "已确认入库且未冲销",
+    tone: "success",
+  },
+  {
+    key: "cancelled",
+    label: "已取消",
+    count: summary.value.cancelled,
+    hint: "已取消的入库单据",
+    tone: "neutral",
+  },
+  {
+    key: "reversed",
+    label: "已冲销",
+    count: summary.value.reversed,
+    hint: "已入库后完成冲销的单据",
+    tone: "reversed",
+  },
 ]);
-const filtered = computed(() => filterOtherInbounds(otherInbounds.value, query.value, listFilters.value, statusFilter.value));
+const filtered = computed(() =>
+  filterOtherInbounds(
+    otherInbounds.value,
+    query.value,
+    listFilters.value,
+    statusFilter.value,
+  ),
+);
 // 关键词、状态和全部筛选共同决定分页身份，任一条件变化均回到首页。
-const paginationFilter = computed(() => JSON.stringify([query.value, statusFilter.value, listFilters.value]));
+const paginationFilter = computed(() =>
+  JSON.stringify([query.value, statusFilter.value, listFilters.value]),
+);
 // 仅对筛选后的展示数据分页，完整入库快照和详情、重开草稿保持独立。
-const { rows, total, page, pageSize, changePage } = useLocalPagination(filtered, paginationFilter);
+const { rows, total, page, pageSize, changePage } = useLocalPagination(
+  filtered,
+  paginationFilter,
+);
 // 列表保持两行摘要，批次证据放入悬停说明，完整物料与批次仍由详情展示。
 function materialPreviewTitle(
   inbound: OtherInbound,
   line: OtherInbound["lines"][number],
 ): string {
   const summary = `${line.material_name} × ${line.quantity} ${line.unit}`;
-  if (inbound.status !== "posted" && inbound.status !== "partially_posted") return summary;
+  if (inbound.status !== "posted" && inbound.status !== "partially_posted")
+    return summary;
   const proof = line.physical_lots?.length
     ? `实物批次：${line.physical_lots.map((lot) => `${lot.code}（${lot.quantity}；来源批号 ${lot.supplier_lot || "未提供"}）`).join("、")}`
     : "普通入库，未登记实物批次。";
@@ -321,14 +432,39 @@ const detailInbound = computed(
 const detailApprovalIntent = ref<"execute" | "reverse">("execute");
 const detailApprovalMatches = computed(() => {
   const target = documentApprovalTarget.value;
-  return !!target && target.document_type === "WarehouseInbound" &&
-    target.document_id === detailInboundId.value && target.intent === detailApprovalIntent.value;
+  return (
+    !!target &&
+    target.document_type === "WarehouseInbound" &&
+    target.document_id === detailInboundId.value &&
+    target.intent === detailApprovalIntent.value
+  );
 });
-const detailActions = computed(() => detailInbound.value
-  ? otherInboundActions(detailInbound.value, inboundPermissions.value).filter(action =>
-      action.key !== "approval" && (detailApprovalIntent.value === "execute" ||
-        !["post", "lots", "cancel", "reversalApproval"].includes(action.key))) : []);
-async function openInboundDetail(identifier: number, intent: "execute" | "reverse" = "execute"): Promise<void> {
+// 独立入库详情也必须完成审批读取；读取失败时不能只靠列表缓存恢复确认入口。
+const detailActionsDisabled = computed(() => {
+  const record = documentApprovalRecord.value;
+  return busy.value || connectionLost.value || !!pendingActionId.value ||
+    documentApprovalLoading.value || !!documentApprovalError.value ||
+    !detailApprovalMatches.value || !record ||
+    record.document_type !== "WarehouseInbound" ||
+    record.document_id !== detailInboundId.value ||
+    record.intent !== detailApprovalIntent.value;
+});
+const detailActions = computed(() =>
+  detailInbound.value
+    ? otherInboundActions(detailInbound.value, inboundPermissions.value).filter(
+        (action) =>
+          action.key !== "approval" &&
+          (detailApprovalIntent.value === "execute" ||
+            !["post", "lots", "cancel", "reversalApproval"].includes(
+              action.key,
+            )),
+      )
+    : [],
+);
+async function openInboundDetail(
+  identifier: number,
+  intent: "execute" | "reverse" = "execute",
+): Promise<void> {
   // 查看已加载详情不依赖联网；切换单据先清理旧请求，避免旧审批显示在新单上。
   if (pendingActionId.value && pendingActionId.value !== identifier) return;
   if (busy.value || connectionLost.value) {
@@ -339,9 +475,12 @@ async function openInboundDetail(identifier: number, intent: "execute" | "revers
   store.closeDocumentApproval();
   detailInboundId.value = identifier;
   detailApprovalIntent.value = intent;
-  if (!connectionLost.value) await store.openDocumentApproval({
-    document_type: "WarehouseInbound", document_id: identifier, intent,
-  });
+  if (!connectionLost.value)
+    await store.openDocumentApproval({
+      document_type: "WarehouseInbound",
+      document_id: identifier,
+      intent,
+    });
 }
 function closeInboundDetail(): void {
   if (busy.value || pendingActionId.value) return;
@@ -349,22 +488,52 @@ function closeInboundDetail(): void {
   detailInboundId.value = 0;
 }
 // 路由卸载和会话切换清理本页审批目标，保留其他页面拥有的目标。
-onUnmounted(() => { if (detailApprovalMatches.value) store.closeDocumentApproval(); });
-watch(() => `${store.server?.id}:${store.server?.fingerprint}:${store.user?.id}`, (value, previous) => {
-  if (value !== previous) detailInboundId.value = 0;
+onUnmounted(() => {
+  if (detailApprovalMatches.value) store.closeDocumentApproval();
 });
-const inboundLotLines = computed(() => lotDrafts.value.flatMap(draft => {
-  const line = activeInbound.value?.lines.find(item => item.id === draft.inbound_line_id);
-  return line ? [{ id: line.id, sku: line.sku, name: line.material_name, unit: line.unit,
-    expected: inboundRemaining(line), lots: draft.lots }] : [];
-}));
+watch(
+  () => `${store.server?.id}:${store.server?.fingerprint}:${store.user?.id}`,
+  (value, previous) => {
+    if (value !== previous) detailInboundId.value = 0;
+  },
+);
+const inboundLotLines = computed(() =>
+  lotDrafts.value.flatMap((draft) => {
+    const line = activeInbound.value?.lines.find(
+      (item) => item.id === draft.inbound_line_id,
+    );
+    return line
+      ? [
+          {
+            id: line.id,
+            sku: line.sku,
+            name: line.material_name,
+            unit: line.unit,
+            expected: inboundRemaining(line),
+            lots: draft.lots,
+          },
+        ]
+      : [];
+  }),
+);
 function addInboundLot(identifier: number): void {
-  const line = lotDrafts.value.find(item => item.inbound_line_id === identifier);
+  const line = lotDrafts.value.find(
+    (item) => item.inbound_line_id === identifier,
+  );
   if (line && !busy.value && !connectionLost.value) addLot(line);
 }
 function removeInboundLot(identifier: number, index: number): void {
-  const line = lotDrafts.value.find(item => item.inbound_line_id === identifier);
-  if (line && !busy.value && !connectionLost.value && index >= 0 && index < line.lots.length) line.lots.splice(index, 1);
+  const line = lotDrafts.value.find(
+    (item) => item.inbound_line_id === identifier,
+  );
+  if (
+    line &&
+    !busy.value &&
+    !connectionLost.value &&
+    index >= 0 &&
+    index < line.lots.length
+  )
+    line.lots.splice(index, 1);
 }
 const detailColumns = [
   { key: "sku", title: "物料编码", width: "180" },
@@ -374,6 +543,8 @@ const detailColumns = [
   { key: "received", title: "已入库", width: "110" },
   { key: "remaining", title: "待入库", width: "110" },
   { key: "unit", title: "单位", width: "70" },
+  // 详情先查看全仓供需，再核对实物批次；其他页面继续沿用公共表格的默认顺序。
+  { key: "materialSupply", title: "物料供需（全仓）", width: "290" },
   { key: "lots", title: "实物批次", width: "340" },
 ];
 function inboundStatus(inbound: OtherInbound): string {
@@ -420,9 +591,9 @@ const columns: readonly WorkspaceTableColumn[] = [
   { key: "operator", title: "处理人", width: "100", align: "center" },
   { key: "source", title: "仓库与来源", width: "180" },
   { key: "lines", title: "物料明细", width: "310" },
-  // 时间紧邻操作并固定在右侧，横向查看物料时仍能对照创建时间。
+  // 时间紧邻查看入口并固定在右侧，横向查看物料时仍能对照创建时间。
   { key: "time", title: "时间", width: "120", fixed: "right", align: "center" },
-  { key: "actions", title: "操作", width: "200", align: "center" },
+  { key: "actions", title: "查看", width: "72", align: "center" },
 ];
 // 写入失败时保留表单，成功后才关闭弹窗。
 async function submitCreate(): Promise<void> {
@@ -451,18 +622,20 @@ function startLotPost(inbound: OtherInbound): void {
     return;
   activeInboundId.value = inbound.id;
   excessDisposition.value = "";
-  lotDrafts.value = inbound.lines.filter((line) => inboundReceivedMilli(inboundRemaining(line)) !== 0n).map((line) => ({
-    inbound_line_id: line.id,
-    expected_received_quantity: inboundReceived(line),
-    lots: [
-      {
-        quantity: inboundRemaining(line),
-        supplier_lot: null,
-        manufactured_on: null,
-        expires_on: null,
-      },
-    ],
-  }));
+  lotDrafts.value = inbound.lines
+    .filter((line) => inboundReceivedMilli(inboundRemaining(line)) !== 0n)
+    .map((line) => ({
+      inbound_line_id: line.id,
+      expected_received_quantity: inboundReceived(line),
+      lots: [
+        {
+          quantity: inboundRemaining(line),
+          supplier_lot: null,
+          manufactured_on: null,
+          expires_on: null,
+        },
+      ],
+    }));
 }
 function addLot(line: InboundLotLineInput): void {
   if (line.lots.length < 20)
@@ -474,27 +647,32 @@ function addLot(line: InboundLotLineInput): void {
     });
 }
 // 未到货物料可本次跳过，但整次确认至少包含一个正向批次。
-const lotIssue = computed(() => otherInboundLotIssue(activeInbound.value, lotDrafts.value));
+const lotIssue = computed(() =>
+  otherInboundLotIssue(activeInbound.value, lotDrafts.value),
+);
 async function confirmLotPost(): Promise<void> {
   if (
     !activeInbound.value ||
     lotIssue.value ||
     busy.value ||
-    connectionLost.value || !can("other_inbound.post")
+    connectionLost.value ||
+    !can("other_inbound.post")
   )
     return;
   await postOtherInbound(
     activeInbound.value.id,
-    lotDrafts.value.filter((line) => line.lots.length > 0).map((line) => ({
-      inbound_line_id: line.inbound_line_id,
-      expected_received_quantity: line.expected_received_quantity,
-      lots: line.lots.map((part) => ({
-        quantity: part.quantity,
-        supplier_lot: part.supplier_lot?.trim() || null,
-        manufactured_on: part.manufactured_on,
-        expires_on: part.expires_on,
+    lotDrafts.value
+      .filter((line) => line.lots.length > 0)
+      .map((line) => ({
+        inbound_line_id: line.inbound_line_id,
+        expected_received_quantity: line.expected_received_quantity,
+        lots: line.lots.map((part) => ({
+          quantity: part.quantity,
+          supplier_lot: part.supplier_lot?.trim() || null,
+          manufactured_on: part.manufactured_on,
+          expires_on: part.expires_on,
+        })),
       })),
-    })),
   );
   // 保存成功即关闭本次登记，续收重新读取剩余量；失败仍保留原批次草稿。
   if (!error.value) {
@@ -527,7 +705,10 @@ async function reverseApproved(identifier: number): Promise<void> {
   <section class="stack">
     <!-- 延后解析外壳目标，直接复用本页筛选状态；切换路由不会留下旧统计。 -->
     <Teleport defer to="#workspace-page-summary">
-      <WorkspaceSummaryFilters v-model="statusFilter" :options="summaryOptions" />
+      <WorkspaceSummaryFilters
+        v-model="statusFilter"
+        :options="summaryOptions"
+      />
     </Teleport>
     <WorkspaceTable
       :show-title="false"
@@ -587,9 +768,15 @@ async function reverseApproved(identifier: number): Promise<void> {
         >
           <template #beforeBasicInfo>
             <!-- 原单冲销原因只作更正对照，不进入新单的可编辑正文或保存请求。 -->
-            <section v-if="reopenSource?.reversal_id" class="inbound-reopen-reason" aria-label="原单冲销原因">
+            <section
+              v-if="reopenSource?.reversal_id"
+              class="inbound-reopen-reason"
+              aria-label="原单冲销原因"
+            >
               <h3>原单冲销原因</h3>
-              <p>{{ reopenSource.reversal_reason || '原单未记录冲销原因。' }}</p>
+              <p>
+                {{ reopenSource.reversal_reason || "原单未记录冲销原因。" }}
+              </p>
             </section>
           </template>
           <template #basicInfo>
@@ -726,7 +913,10 @@ async function reverseApproved(identifier: number): Promise<void> {
                 >{{ line.material_name }} × {{ line.quantity }}
                 {{ line.unit }}</span
               >
-              <small v-if="item.status === 'partially_posted'">已入库 {{ inboundReceived(line) }} · 待入库 {{ inboundRemaining(line) }}</small>
+              <small v-if="item.status === 'partially_posted'"
+                >已入库 {{ inboundReceived(line) }} · 待入库
+                {{ inboundRemaining(line) }}</small
+              >
             </li>
           </ul>
           <span
@@ -744,20 +934,25 @@ async function reverseApproved(identifier: number): Promise<void> {
         </div>
       </template>
       <template #cell-actions="{ row: item }">
-        <OtherInboundActions
-          compact
-          :inbound="item"
-          :permissions="inboundPermissions"
+        <!-- 行内只保留查看入口，业务操作统一在详情弹窗内完成。 -->
+        <AppButton
+          type="button"
+          variant="secondary"
+          size="small"
           :disabled="busy || connectionLost || !!pendingActionId"
-          @action="(action) => handleInboundAction(item.id, action)"
-        />
+          :aria-label="`查看单据 ${documentLabel(item)} 详情`"
+          @click="openInboundDetail(item.id)"
+          >查看</AppButton
+        >
       </template>
       <template #empty>{{
-        query || statusFilter !== "all" ? "没有匹配的入库单。" : "暂无其他入库单。"
+        query || statusFilter !== "all"
+          ? "没有匹配的入库单。"
+          : "暂无其他入库单。"
       }}</template>
     </WorkspaceTable>
     <WorkspaceDocumentDialog
-          material-supply
+      material-supply
       v-if="detailInbound && !activeInbound"
       :show="true"
       read-only
@@ -773,12 +968,31 @@ async function reverseApproved(identifier: number): Promise<void> {
       "
     >
       <template #beforeBasicInfo>
-        <DocumentApprovalPanel v-if="detailApprovalMatches" part="progress" live-details
-          :execution-hint="detailInbound.status === 'draft' ? '审批已完成，请使用下方操作办理入库。' : undefined" />
-        <p v-else class="inbound-flow-hint" role="status">{{ connectionLost ? '连接恢复后可刷新审批记录，当前可查看已加载详情。' : '审批记录尚未加载，请刷新记录后操作。' }}</p>
-        <OtherInboundReopenTrace v-if="detailInbound.reopen_trace?.length" :links="detailInbound.reopen_trace"
-          :current-id="detailInbound.id" :local-time="localTime" :disabled="!!pendingActionId"
-          @open="id => openInboundDetail(id)" />
+        <DocumentApprovalPanel
+          v-if="detailApprovalMatches"
+          part="progress"
+          live-details
+          :execution-hint="
+            detailInbound.status === 'draft'
+              ? '审批已完成，请使用下方操作办理入库。'
+              : undefined
+          "
+        />
+        <p v-else class="inbound-flow-hint" role="status">
+          {{
+            connectionLost
+              ? "连接恢复后可刷新审批记录，当前可查看已加载详情。"
+              : "审批记录尚未加载，请刷新记录后操作。"
+          }}
+        </p>
+        <OtherInboundReopenTrace
+          v-if="detailInbound.reopen_trace?.length"
+          :links="detailInbound.reopen_trace"
+          :current-id="detailInbound.id"
+          :local-time="localTime"
+          :disabled="!!pendingActionId"
+          @open="(id) => openInboundDetail(id)"
+        />
       </template>
       <template #basicInfo>
         <div class="inbound-detail-field">
@@ -846,8 +1060,14 @@ async function reverseApproved(identifier: number): Promise<void> {
       >
       <template #cell-name="{ row }">{{ row.material_name }}</template>
       <template #cell-quantity="{ row }">{{ row.quantity }}</template>
-      <template #cell-received="{ row }">{{ inboundReceived(row, detailInbound.status) }}</template>
-      <template #cell-remaining="{ row }">{{ detailInbound.reversal_id ? "已关闭" : inboundRemaining(row, detailInbound.status) }}</template>
+      <template #cell-received="{ row }">{{
+        inboundReceived(row, detailInbound.status)
+      }}</template>
+      <template #cell-remaining="{ row }">{{
+        detailInbound.reversal_id
+          ? "已关闭"
+          : inboundRemaining(row, detailInbound.status)
+      }}</template>
       <template #cell-unit="{ row }">{{ row.unit }}</template>
       <template #cell-lots="{ row }">
         <div
@@ -877,23 +1097,65 @@ async function reverseApproved(identifier: number): Promise<void> {
       <template #footer>
         <!-- 下一步集中到固定页脚；批准不自动加库存，仓库在这里继续入库。 -->
         <div class="inbound-flow-footer">
-          <p class="inbound-flow-hint" role="status">{{ detailApprovalIntent === 'reverse' ? '当前查看冲销审批，批准后可执行冲销。' : detailInbound.approval?.status === 'approved' && !detailInbound.reversal_id && ['draft', 'partially_posted'].includes(detailInbound.status) ? '审批已通过，请确认入库；需要分批收货时填写本次批次。' : `当前状态：${inboundStatus(detailInbound)}` }}</p>
+          <p class="inbound-flow-hint" role="status">
+            {{
+              detailApprovalIntent === "reverse"
+                ? "当前查看冲销审批，批准后可执行冲销。"
+                : detailInbound.approval?.status === "approved" &&
+                    !detailInbound.reversal_id &&
+                    ["draft", "partially_posted"].includes(detailInbound.status)
+                  ? "审批已通过，请确认入库；需要分批收货时填写本次批次。"
+                  : `当前状态：${inboundStatus(detailInbound)}`
+            }}
+          </p>
           <div class="inbound-flow-actions" role="group" aria-label="单据操作">
-            <DocumentApprovalPanel v-if="detailApprovalMatches" part="actions" />
-            <AppButton v-else type="button" :disabled="busy || connectionLost || !!pendingActionId"
-              @click="detailInbound && openInboundDetail(detailInbound.id, detailApprovalIntent)">刷新记录</AppButton>
-            <AppButton v-if="detailApprovalIntent === 'reverse'" type="button" :disabled="busy || connectionLost || !!pendingActionId"
-              @click="detailInbound && openInboundDetail(detailInbound.id)">查看入库审批</AppButton>
-            <AppButton v-for="action in detailActions" :key="action.key" type="button" :variant="action.variant"
-              :disabled="busy || connectionLost || !!pendingActionId || documentApprovalLoading"
-              @click="detailInbound && handleInboundAction(detailInbound.id, action.key)">{{ action.label }}</AppButton>
-            <AppButton type="button" :disabled="busy || !!pendingActionId" @click="closeInboundDetail">关闭</AppButton>
+            <DocumentApprovalPanel
+              v-if="detailApprovalMatches"
+              part="actions"
+            />
+            <AppButton
+              v-else
+              type="button"
+              :disabled="busy || connectionLost || !!pendingActionId"
+              @click="
+                detailInbound &&
+                openInboundDetail(detailInbound.id, detailApprovalIntent)
+              "
+              >刷新记录</AppButton
+            >
+            <AppButton
+              v-if="detailApprovalIntent === 'reverse'"
+              type="button"
+              :disabled="busy || connectionLost || !!pendingActionId"
+              @click="detailInbound && openInboundDetail(detailInbound.id)"
+              >查看入库审批</AppButton
+            >
+            <AppButton
+              v-for="action in detailActions"
+              :key="action.key"
+              type="button"
+              :variant="action.variant"
+              :tone="action.tone"
+              :disabled="detailActionsDisabled"
+              @click="
+                detailInbound &&
+                handleInboundAction(detailInbound.id, action.key)
+              "
+              >{{ action.label }}</AppButton
+            >
+            <AppButton
+              type="button"
+              :disabled="busy || !!pendingActionId"
+              @click="closeInboundDetail"
+              >关闭</AppButton
+            >
           </div>
         </div>
       </template>
     </WorkspaceDocumentDialog>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
-    <WorkspaceLotDialog wide
+    <WorkspaceLotDialog
+      wide
       v-if="activeInbound && can('other_inbound.post')"
       :show="true"
       title="其他入库 · 批次登记"
@@ -911,36 +1173,102 @@ async function reverseApproved(identifier: number): Promise<void> {
       @submit="confirmLotPost"
     >
       <!-- 多收数量与原批准额度分开；选择用途只准备草稿，不自动增加库存或应付。 -->
-      <div v-if="excessLines.length" class="inbound-excess" role="region" aria-label="多收部分处理">
+      <div
+        v-if="excessLines.length"
+        class="inbound-excess"
+        role="region"
+        aria-label="多收部分处理"
+      >
         <strong>多收部分如何处理</strong>
-        <p>{{ excessLines.map(item => `${item.line.sku} 多收 ${item.quantity} ${item.line.unit}`).join("；") }}</p>
-        <WorkspaceSelect v-model="excessDisposition" :options="excessOptions" placeholder="由仓库选择本次用途"
-          :disabled="busy || connectionLost" aria-label="多收部分用途" />
+        <p>
+          {{
+            excessLines
+              .map(
+                (item) =>
+                  `${item.line.sku} 多收 ${item.quantity} ${item.line.unit}`,
+              )
+              .join("；")
+          }}
+        </p>
+        <WorkspaceSelect
+          v-model="excessDisposition"
+          :options="excessOptions"
+          placeholder="由仓库选择本次用途"
+          :disabled="busy || connectionLost"
+          aria-label="多收部分用途"
+        />
         <p>{{ excessHint }}</p>
-        <AppButton v-if="excessDisposition === 'gift' && can('other_inbound.create')" type="button"
-          :disabled="busy || connectionLost" @click="startExcessGift">新建多收赠品入库单</AppButton>
+        <AppButton
+          v-if="excessDisposition === 'gift' && can('other_inbound.create')"
+          type="button"
+          :disabled="busy || connectionLost"
+          @click="startExcessGift"
+          >新建多收赠品入库单</AppButton
+        >
       </div>
-      <WorkspaceInboundLotTable :lines="inboundLotLines" :disabled="busy || connectionLost"
-        @add="addInboundLot" @remove="removeInboundLot" />
+      <WorkspaceInboundLotTable
+        :lines="inboundLotLines"
+        :disabled="busy || connectionLost"
+        @add="addInboundLot"
+        @remove="removeInboundLot"
+      />
     </WorkspaceLotDialog>
   </section>
 </template>
 
 <style scoped>
 /* 审批和业务操作共用固定页脚，窄窗口自动换行，避免操作分散在明细上方。 */
-.inbound-flow-footer { width: 100%; display: grid; gap: 12px; }
-.inbound-flow-hint { margin: 0 0 16px; color: var(--workspace-field-muted); font-size: 12px; line-height: 1.6; }
-.inbound-flow-footer .inbound-flow-hint { margin: 0; }
-.inbound-flow-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; }
-.inbound-flow-actions :deep(.approval-footer) { width: auto; }
+.inbound-flow-footer {
+  width: 100%;
+  display: grid;
+  gap: 12px;
+}
+.inbound-flow-hint {
+  margin: 0 0 16px;
+  color: var(--workspace-field-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.inbound-flow-footer .inbound-flow-hint {
+  margin: 0;
+}
+.inbound-flow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+.inbound-flow-actions :deep(.approval-footer) {
+  width: auto;
+}
 
 /* 原因放在基础信息前；保留换行，长文本在窄窗口完整换行显示。 */
-.inbound-reopen-reason { padding: 16px; margin-bottom: 24px; border: 1px solid var(--workspace-field-border); border-radius: 12px; }
-.inbound-reopen-reason h3 { margin: 0 0 10px; }
-.inbound-reopen-reason p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.inbound-reopen-reason {
+  padding: 16px;
+  margin-bottom: 24px;
+  border: 1px solid var(--workspace-field-border);
+  border-radius: 12px;
+}
+.inbound-reopen-reason h3 {
+  margin: 0 0 10px;
+}
+.inbound-reopen-reason p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* 多收决策与批次明细相邻，沿用现有主题变量与窄窗口换行。 */
-.inbound-excess { padding: 16px; margin-bottom: 20px; border: 1px solid var(--workspace-field-border); border-radius: 10px; }
-.inbound-excess p { margin: 8px 0; overflow-wrap: anywhere; }
+.inbound-excess {
+  padding: 16px;
+  margin-bottom: 20px;
+  border: 1px solid var(--workspace-field-border);
+  border-radius: 10px;
+}
+.inbound-excess p {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
 /* 列表说明只占一行，完整内容保留在悬停提示和详情中，不截断原始数据。 */
 .inbound-note {
   display: block;

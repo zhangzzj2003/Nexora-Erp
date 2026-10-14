@@ -3,7 +3,7 @@
 from app.core.document_responses import NumberedRoute
 import csv
 from datetime import date
-from sqlalchemy import select, func
+from sqlalchemy import select, func, true, tuple_
 from sqlalchemy.orm import Session
 
 from decimal import Decimal
@@ -49,6 +49,13 @@ class ReportQuery(BaseModel):
     supplier_id: int | None = Field(default=None, gt=0)
     from_date: date | None = None
     to_date: date | None = None
+
+
+class InventoryReportQuery(ReportQuery):
+    # 库存报表分页独立于采购报表，保持既有采购查询和完整 CSV 导出接口。
+    kind: Literal['inventory_balance', 'stock_flow']
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
 
 
 COLUMNS = {
@@ -326,23 +333,17 @@ def flow_rows(filters: ReportQuery, user: dict) -> list[dict[str, str]]:
         ),
         user,
     )
-    flow: dict[tuple[int, int], tuple[Decimal, Decimal]] = {}
-    for row in ledger["rows"]:
-        key = (row["warehouse_id"], row["material_id"])
-        inbound, outbound = flow.get(key, (Decimal(0), Decimal(0)))
-        quantity = Decimal(row["quantity"])
-        flow[key] = (inbound + max(quantity, Decimal(0)), outbound + max(-quantity, Decimal(0)))
     result = []
     for group in ledger["groups"]:
-        inbound, outbound = flow.get((group["warehouse_id"], group["material_id"]), (Decimal(0), Decimal(0)))
+        # 台账明细已分页，收发存必须读取完整期间汇总，避免漏算其他页的流水。
         result.append(
             {
                 "warehouse": group["warehouse_name"],
                 "material": f"{group['sku']} · {group['material_name']}",
                 "unit": group["unit"],
                 "opening": group["opening_quantity"],
-                "inbound": str(inbound),
-                "outbound": str(outbound),
+                "inbound": group['inbound_quantity'],
+                "outbound": group['outbound_quantity'],
                 "closing": group["closing_quantity"],
             }
         )
@@ -357,6 +358,67 @@ def csv_value(value: str) -> str:
     ):
         return "'" + value
     return value
+
+
+@router.post('/reports/inventory/query')
+def query_inventory_report(filters: InventoryReportQuery, user: dict = Depends(current_user)) -> dict:
+    if 'inventory_report.view' not in user['permissions']:
+        raise HTTPException(403, '没有查看此报表的权限')
+    if filters.from_date and filters.to_date and filters.to_date < filters.from_date:
+        raise HTTPException(422, '结束日期不能早于开始日期')
+    with orm_session() as db:
+        # 余额报表保留全部仓库/物料组合（含零余额），收发存只列出有历史流水的组合。
+        pairs = select(Warehouse.id.label('warehouse_id'), Warehouse.name.label('warehouse'),
+            Material.id.label('material_id'), Material.sku, Material.name, Material.unit)
+        if filters.kind == 'inventory_balance':
+            pairs = pairs.select_from(Warehouse).join(Material, true())
+        else:
+            keys = select(StockMovement.warehouse_id, StockMovement.material_id)
+            if filters.to_date is not None:
+                keys = keys.where(func.date(StockMovement.created_at) <= str(filters.to_date))
+            keys = keys.distinct().subquery()
+            pairs = pairs.select_from(keys).join(Warehouse, Warehouse.id == keys.c.warehouse_id)
+            pairs = pairs.join(Material, Material.id == keys.c.material_id)
+        if filters.warehouse_id is not None:
+            pairs = pairs.where(Warehouse.id == filters.warehouse_id)
+        if filters.material_id is not None:
+            pairs = pairs.where(Material.id == filters.material_id)
+        total = db.scalar(select(func.count()).select_from(pairs.subquery())) or 0
+        page = min(filters.page, max(1, (total + filters.page_size - 1) // filters.page_size))
+        selected = db.execute(pairs.order_by(Warehouse.id, Material.sku, Material.id)
+            .offset((page - 1) * filters.page_size).limit(filters.page_size)).mappings().all()
+        totals = {(item['warehouse_id'], item['material_id']):
+            {'opening': Decimal(0), 'inbound': Decimal(0), 'outbound': Decimal(0), 'closing': Decimal(0)}
+            for item in selected}
+        if totals:
+            # 仅为当前页组合读取流水，仍按完整日期范围计算期初与期间收发，不能截断流水。
+            movements = select(StockMovement.warehouse_id, StockMovement.material_id,
+                StockMovement.quantity, StockMovement.created_at).where(
+                    tuple_(StockMovement.warehouse_id, StockMovement.material_id).in_(list(totals)))
+            if filters.to_date is not None:
+                movements = movements.where(func.date(StockMovement.created_at) <= str(filters.to_date))
+            for warehouse_id, material_id, quantity_text, created_at in db.execute(
+                    movements.execution_options(yield_per=1000)):
+                quantity = Decimal(quantity_text)
+                values = totals[warehouse_id, material_id]
+                values['closing'] += quantity
+                if filters.from_date and created_at[:10] < str(filters.from_date):
+                    values['opening'] += quantity
+                else:
+                    values['inbound'] += max(quantity, Decimal(0))
+                    values['outbound'] += max(-quantity, Decimal(0))
+        rows = []
+        for item in selected:
+            values = totals[item['warehouse_id'], item['material_id']]
+            row = {'warehouse': item['warehouse'], 'material': f"{item['sku']} · {item['name']}", 'unit': item['unit']}
+            if filters.kind == 'inventory_balance':
+                row['quantity'] = str(values['closing'])
+            else:
+                row.update({key: str(value) for key, value in values.items()})
+            rows.append(row)
+        # 分页响应不携带全量 CSV；用户点击导出时再按同一筛选调用完整报表接口。
+        return {'kind': filters.kind, 'columns': [{'key': key, 'title': title} for key, title in COLUMNS[filters.kind]],
+                'rows': rows, 'total': total, 'page': page, 'page_size': filters.page_size}
 
 
 @router.post("/reports/query")

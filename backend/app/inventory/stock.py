@@ -4,10 +4,11 @@ from app.core.document_responses import NumberedRoute
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
+from pydantic import BaseModel, Field
 
 from app.access.security import require
-from app.core.models import Material, Warehouse, StockMovement
+from app.core.models import Material, Warehouse, StockMovement, Receipt
 from app.core.orm import orm_session, model_data
 
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
@@ -31,6 +32,41 @@ MOVEMENT_LINKS = {
     'production_completion_id': ('production_completion',),
     'production_completion_reversal_id': ('production_completion_reversal',),
 }
+
+
+class StockQuery(BaseModel):
+    warehouse_id: int | None = Field(default=None, gt=0)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
+
+
+@router.post('/stock/query')
+def query_stock(filters: StockQuery, _: dict = Depends(require('inventory.view'))) -> dict:
+    with orm_session() as db:
+        if filters.warehouse_id is not None and db.get(Warehouse, filters.warehouse_id) is None:
+            raise HTTPException(422, '仓库不存在')
+        total = db.scalar(select(func.count()).select_from(Material)) or 0
+        page = min(filters.page, max(1, (total + filters.page_size - 1) // filters.page_size))
+        # 保持物料编码顺序及零库存物料；数据库只取当前页物料与其对应流水。
+        materials = db.scalars(select(Material).order_by(Material.sku, Material.id)
+            .offset((page - 1) * filters.page_size).limit(filters.page_size)).all()
+        quantities: dict[int, Decimal] = {}
+        if materials:
+            movements = select(StockMovement.material_id, StockMovement.quantity).where(
+                StockMovement.material_id.in_([material.id for material in materials]))
+            if filters.warehouse_id is not None:
+                movements = movements.where(StockMovement.warehouse_id == filters.warehouse_id)
+            # 避免 SQL 浮点累计，页内库存同样保留精确十进制数量。
+            for material_id, quantity in db.execute(movements.execution_options(yield_per=1000)):
+                quantities[material_id] = quantities.get(material_id, Decimal(0)) + Decimal(quantity)
+        items = [{key: getattr(material, key) for key in ('id', 'sku', 'name', 'unit')} |
+                 {'quantity': str(quantities.get(material.id, Decimal(0)))} for material in materials]
+        # 顶部卡片沿用原页面的全局统计口径，与当前页条数及仓库选择无关。
+        return {'items': items, 'total': total, 'page': page, 'page_size': filters.page_size,
+                'summary': {'material_count': total,
+                    'posted_receipt_count': db.scalar(select(func.count()).select_from(Receipt)
+                        .where(Receipt.status == 'posted')) or 0,
+                    'movement_count': db.scalar(select(func.count()).select_from(StockMovement)) or 0}}
 
 
 @router.get("/stock")

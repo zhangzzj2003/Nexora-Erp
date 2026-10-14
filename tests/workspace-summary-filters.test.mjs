@@ -52,5 +52,5 @@ test('统计放入标题右侧公共目标，切换页面时由路由页面卸�
   const target=shell.indexOf('id="workspace-page-summary"')
   assert.ok(target>shell.indexOf('<header v-if="!isNumberingScreen"'))
   assert.ok(target<shell.indexOf('</header>',shell.indexOf('<header v-if="!isNumberingScreen"')))
-  assert.match(view,/<Teleport defer to="#workspace-page-summary">\s*<WorkspaceSummaryFilters v-model="statusFilter" :options="summaryOptions"/)
+  assert.match(view,/<Teleport defer to="#workspace-page-summary">\s*<WorkspaceSummaryFilters\s+v-model="statusFilter"\s+:options="summaryOptions"/)
 })

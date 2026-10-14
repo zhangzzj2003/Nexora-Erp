@@ -205,6 +205,19 @@ PYTHONPATH=backend python3 -m app.backup restore --archive /path/to/instance.nex
 
 备份使用 SQLite 在线快照，并把数据库、证书和私钥放在同一归档中；归档含敏感业务数据及私钥，应存放在受控位置。恢复会校验哈希、数据库完整性和证书身份，只写入尚不存在的新目录，不覆盖运行中的原实例。恢复后还需让服务端配置指向新目录，并在启动前确认旧服务已停止。
 
+## 库存台账分页
+
+`POST /api/v1/inventory-ledger/query` 沿用 `inventory.view` 权限和仓库、物料、日期、来源筛选，新增 `page`（默认 1）与 `page_size`（默认 20，范围 1–100）。响应保留 `groups`、`rows`，增加 `total`、`page`、`page_size`；超出末页时返回最后一页，空结果返回第 1 页。流水按 `created_at DESC, id DESC` 排列，数据库仅读取当前页的完整明细。
+
+逐笔结余仍按时间正序累计，期初期末覆盖完整筛选范围，不随页码变化；`groups` 的 `inbound_quantity`、`outbound_quantity` 保存完整期间收入和发出，收发存报表直接复用，不能从当前页明细反算；指定来源时仍表示该来源累计变动。为保留字符串数量的 Decimal 精度，汇总流式遍历截止日期内的必要字段，不将全量明细装入内存。客户端复用公共分页，修改筛选或每页条数回到首页；查询失败隐藏旧结果并可重试。本次桌面端与服务端需配套更新，旧服务端缺少分页元数据时会提示升级。
+
+## 库存总览与库存报表分页
+
+- `POST /api/v1/stock/query` 使用 `inventory.view` 权限，接收可选 `warehouse_id`、`page`、`page_size`，返回 `items/total/page/page_size/summary`。物料按编码和 ID 排序，保留零库存物料，只汇总当前页物料在所选仓库的流水。`summary` 沿用原页面全局统计口径，包含全部物料数、已过账采购入库单数和库存流水数，不随翻页或仓库选择变化。
+- `POST /api/v1/reports/inventory/query` 使用 `inventory_report.view` 权限，支持 `inventory_balance` 和 `stock_flow`，保留仓库、物料和日期筛选，增加 `page/page_size`。返回 `kind/columns/rows/total/page/page_size`，按仓库 ID、物料编码和 ID 稳定排序。数据库先分页仓库/物料组合，再读取当前页组合的完整相关流水并用 Decimal 计算，余额报表保留零余额组合，收发存保留有历史流水的组合。
+- 两个接口默认第 1 页、每页 20 条，`page_size` 范围 1–100；超出末页返回最后一页，空结果返回第 1 页。旧 `/stock`、`/movements` 及采购报表接口保留；总览不再通过全量库存流水计算卡片，统一刷新也不再为卡片下载全部流水。
+- 库存报表分页响应不含全量 CSV。点击导出时，客户端按当前筛选重新调用完整 `/reports/query`，不带页码，所以导出覆盖全部筛选结果；若查询后数据发生变化，导出反映导出时重新读取的数据。筛选或会话变化会阻止旧请求弹出保存框。采购报表仍导出原查询快照中的 CSV。
+
 ## 测试
 
 从仓库根目录运行：

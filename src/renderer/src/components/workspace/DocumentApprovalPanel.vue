@@ -62,15 +62,16 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
   </template>
   <template v-else>
       <div class="approval-footer">
+        <!-- 送审区分正常与冲销意图；撤回、驳回和通过分别保留警告、危险与成功语义。 -->
         <AppButton type="button" :disabled="disabled" @click="store.loadDocumentApproval()">刷新记录</AppButton>
-        <AppButton v-if="record?.can_withdraw" type="button" :disabled="disabled"
+        <AppButton v-if="record?.can_withdraw" tone="warning" type="button" :disabled="disabled"
           @click="store.actDocumentApproval('withdraw')">撤回审批</AppButton>
-        <AppButton v-if="record?.can_submit" type="button" variant="primary"
+        <AppButton v-if="record?.can_submit" :tone="target?.intent === 'reverse' ? 'error' : 'info'" type="button" variant="primary"
           :disabled="disabled || evidenceMissing || ((reversalSubmit || quoteReasonRequired) && !reasons[key]?.trim())"
           @click="store.actDocumentApproval('submit')">提交审批</AppButton>
-        <AppButton v-if="record?.can_review" type="button" :disabled="disabled || evidenceMissing || !reasons[key]?.trim()"
+        <AppButton v-if="record?.can_review" tone="error" type="button" :disabled="disabled || evidenceMissing || !reasons[key]?.trim()"
           @click="store.actDocumentApproval('reject')">驳回</AppButton>
-        <AppButton v-if="record?.can_review" type="button" variant="primary" :disabled="disabled || evidenceMissing || (quoteReasonRequired && !reasons[key]?.trim())"
+        <AppButton v-if="record?.can_review" tone="success" type="button" variant="primary" :disabled="disabled || evidenceMissing || (quoteReasonRequired && !reasons[key]?.trim())"
           @click="store.actDocumentApproval('approve')">{{ reviewLabel }}</AppButton>
       </div>
   </template>

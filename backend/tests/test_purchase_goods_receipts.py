@@ -88,7 +88,7 @@ def test_received_goods_wait_for_warehouse_post(monkeypatch, tmp_path):
             "warehouse_id": 1, "material_id": order["lines"][0]["material_id"]}).json()
         assert [(row["source_type"], row["source_id"], row["balance_quantity"])
                 for row in ledger["rows"]] == [
-                    ("receipt", inbound_id, "6"), ("purchase_return", purchase_return["id"], "4")]
+                    ("purchase_return", purchase_return["id"], "4"), ("receipt", inbound_id, "6")]
         assert ledger["groups"][0]["closing_quantity"] == "4"
 
         # 全数拒收只记录原因，不伪造空入库单。

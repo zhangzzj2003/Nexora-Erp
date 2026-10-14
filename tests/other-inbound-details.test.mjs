@@ -10,6 +10,7 @@ import { createPinia } from 'pinia'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { shortLocalTime } from '../src/renderer/src/utils/formatters.ts'
+import { materialSupplyColumns } from '../src/renderer/src/utils/material-supply-row.ts'
 
 test('物料摘要不吞占列内余量，窄列可收缩且余项标签保持可见', () => {
  const source=readFileSync(new URL('../src/renderer/src/views/workspace/warehouse/OtherInboundsView.vue',import.meta.url),'utf8')
@@ -37,14 +38,14 @@ export const usePiniaAppStore=defineStore('inbound-details-test',()=>{
  const update=(id,status)=>{calls.value.push([status,id]); if(fail.value){error.value='操作失败';return}
  otherInbounds.value=otherInbounds.value.map(item=>item.id===id?{...item,status}:item)}
  return { error,permissions,calls,fail,documentApprovalRecord,documentApprovalTarget,documentApprovalLoading,
- notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
+ documentApprovalError:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),materials:ref([]),warehouses:ref([]),
  otherInbounds,otherInboundReopenForms,otherInboundForm:ref({lines:[{material_id:99,quantity:'7'}]}),otherInboundReversalReasons:ref({}),
  initialDetailId:ref(0),initialReopenId:ref(0),initialShowForm:ref(false),can:key=>permissions.value.includes(key),localTime:value=>value,
  prepareOtherInboundReopen(id){calls.value.push(['reopen',id]);otherInboundReopenForms.value[id]={lines:[]};return true},
  createOtherInbound(){throw Error('查看详情不应创建')},async postOtherInbound(id){update(id,'posted')},
  async cancelOtherInbound(id){update(id,'cancelled')},async reverseOtherInbound(id){calls.value.push(['reverse',id])},
- async openDocumentApproval(target){calls.value.push(['approval',target]);documentApprovalRecord.value={status:'approved',reversal_reason:'已批准原因'};return true},
- closeDocumentApproval(){calls.value.push(['closeApproval'])},async loadDocumentApproval(){calls.value.push(['refreshApproval'])}
+ async openDocumentApproval(target){calls.value.push(['approval',target]);documentApprovalTarget.value=target;documentApprovalRecord.value={...target,status:'approved',reversal_reason:'已批准原因'};return true},
+ closeDocumentApproval(){documentApprovalTarget.value=null;documentApprovalRecord.value=null;calls.value.push(['closeApproval'])},async loadDocumentApproval(){calls.value.push(['refreshApproval'])}
  }
 })`
 
@@ -200,6 +201,9 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  html=await render()
  for(const value of ['其他入库详情','QTRK-20261007-000003','OLD-SKU','历史物料名称','2.125','历史说明','REF-3','建单人','待送审','尚未登记实物批次'])assert.ok(html.includes(value),value + ': ' + html)
  assert.doesNotMatch(html,/冲销原因|冲销记录/)
+ // 使用实际页面列定义与公共组装规则，防止供需列被追加回末尾或重复出现。
+ assert.deepEqual(materialSupplyColumns(vnode.component.setupState.detailColumns,true).map(column=>column.key),
+  ['sku','name','quantity','received','remaining','unit','materialSupply','lots'])
  // 列表与详情使用同一个公共标签，防止详情退回无高亮文本。
  assert.equal((html.match(/app-status-tag--pending/g) ?? []).length, 2)
  assert.doesNotMatch(html,/添加物料|保存草稿|登记批次并确认|type="submit"/)
@@ -316,15 +320,38 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  store.permissions=['other_inbound.post','other_inbound.cancel','other_inbound.reverse']
  store.initialDetailId=3
  const approved={...structuredClone(inbound),approval:{status:'approved'}}
+ const approvalTarget={document_type:'WarehouseInbound',document_id:3,intent:'execute'}
+ const approvalRecord={...approvalTarget,status:'approved'}
+ store.documentApprovalTarget=approvalTarget
+ store.documentApprovalRecord=approvalRecord
  const flush=()=>new Promise(resolve=>setImmediate(resolve))
  const detailButton=label=>buttons.filter(button=>text(button.content)===label).at(-1)
  store.otherInbounds=[approved]
  html=await render()
- assert.equal(buttons.filter(button=>text(button.content)==='确认入库').length,2)
+ // 列表仅保留查看，确认入库只能从固定的详情页脚触发一次。
+ assert.equal(buttons.filter(button=>text(button.content)==='确认入库').length,1)
  assert.ok(html.indexOf('单据操作',html.indexOf('data-modal='))>html.indexOf('document-footer',html.indexOf('data-modal=')))
+ // 加载、读取失败、空快照与错单快照均禁用，并在事件入口防止旧按钮绕过。
+ const blockedPost=detailButton('确认入库')
+ for(const override of [
+  {documentApprovalLoading:true}, {documentApprovalError:'读取失败'},
+  {documentApprovalRecord:null}, {documentApprovalTarget:null},
+  {documentApprovalRecord:{...approvalRecord,document_id:4}},
+  {documentApprovalRecord:{...approvalRecord,document_type:'PurchaseOrder'}},
+  {documentApprovalRecord:{...approvalRecord,intent:'reverse'}},
+ ]) {
+  Object.assign(store,override)
+  await render()
+  assert.equal(detailButton('确认入库').props.disabled,true)
+  await blockedPost.attrs.onClick()
+  assert.equal(store.calls.length,0)
+  Object.assign(store,{documentApprovalLoading:false,documentApprovalError:'',documentApprovalTarget:approvalTarget,documentApprovalRecord:approvalRecord})
+ }
+ await render()
+ assert.equal(detailButton('确认入库').props.disabled,false)
  detailButton('确认入库').attrs.onClick()
  await flush()
- assert.deepEqual(store.calls.at(-1),['posted',3])
+ assert.deepEqual(store.calls.slice(-2),[['posted',3],['refreshApproval']])
  assert.equal(vnode.component.setupState.detailInbound.status,'posted')
  assert.equal(vnode.component.setupState.detailInboundId,3)
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
@@ -375,11 +402,13 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  assert.equal(store.otherInboundReversalReasons[3],'已批准原因')
  assert.equal(JSON.stringify(store.otherInboundForm),draft)
 
- // 列表与详情都能重开，点击仅打开新建表单，不修改原单或调用取消/冲销。
+ // 重开入口统一放在详情，点击仅打开新建表单，不修改原单或调用取消/冲销。
+ store.documentApprovalTarget=approvalTarget
+ store.documentApprovalRecord=approvalRecord
  store.permissions=['other_inbound.create']
  store.otherInbounds=[{...inbound,status:'cancelled'}]
  await render()
- assert.equal(buttons.filter(button=>text(button.content)==='重开为新单').length,2)
+ assert.equal(buttons.filter(button=>text(button.content)==='重开为新单').length,1)
  const reopen=detailButton('重开为新单')
  reopen.attrs.onClick();await flush()
  assert.deepEqual(store.calls.slice(-2),[['reopen',3],['closeApproval']])

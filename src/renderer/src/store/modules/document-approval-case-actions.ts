@@ -7,7 +7,7 @@ import { displayError } from '../../utils/formatters.ts'
 export function approvalTargetKey(target: DocumentApprovalTarget): string {
   return `${target.document_type}:${target.document_id}:${target.intent}`
 }
-export function createDocumentApprovalCaseActions(state: AppState, refreshData: () => Promise<void>, refreshDomain?: (target: DocumentApprovalTarget) => Promise<void>) {
+export function createDocumentApprovalCaseActions(state: AppState, refreshData: () => Promise<void>, refreshDomain?: (target: DocumentApprovalTarget) => Promise<void>, currentRoute?: () => string) {
   let owner = 0, reads = 0
   const available = () => !!window.nexora && !!state.user.value && !state.connectionLost.value
   watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles.join('|')}:${state.user.value?.permissions.join('|')}`, () => {
@@ -22,6 +22,12 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
     state.documentApprovalLoading.value = false
     // 同实例断线保留意见草稿，重连后先刷新版本再允许操作。
   }, { flush: 'sync' })
+  if (currentRoute) watch(currentRoute, () => {
+    // 只在导航实际成功后失效旧详情；同步执行，防止新页面先拿到旧单据的页脚动作。
+    // 递增会话标识同时拦截仍在途的读取或审批响应，忙碌状态不能阻止页面归属清理。
+    owner++
+    clearDocumentApproval()
+  }, { flush: 'sync' })
 
   async function refreshBusiness(target: DocumentApprovalTarget, session: number): Promise<void> {
     await refreshData()
@@ -32,7 +38,7 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
     validateDocumentApprovalRecord(record)
     if (approvalTargetKey(record) !== approvalTargetKey(target)) throw Error('审批结果与当前单据不一致。')
   }
-  async function loadDocumentApproval(): Promise<boolean> {
+  async function readDocumentApproval(refreshLists: boolean): Promise<boolean> {
     const target = state.documentApprovalTarget.value
     if (!available() || !target) return false
     const ticket = ++reads, session = owner, key = approvalTargetKey(target)
@@ -44,7 +50,7 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
           || !state.documentApprovalTarget.value || approvalTargetKey(state.documentApprovalTarget.value) !== key) return false
       checked(result, target)
       // 他人在另一客户端完成审批后，刷新记录同时刷新原业务列表，不能继续显示旧的下一步动作。
-      await refreshBusiness(target, session)
+      if (refreshLists) await refreshBusiness(target, session)
       if (session !== owner || ticket !== reads || !available()
           || !state.documentApprovalTarget.value || approvalTargetKey(state.documentApprovalTarget.value) !== key) return false
       state.documentApprovalRecord.value = result
@@ -54,16 +60,31 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
       return false
     } finally { if (session === owner && ticket === reads) state.documentApprovalLoading.value = false }
   }
+  function loadDocumentApproval(): Promise<boolean> {
+    return readDocumentApproval(true)
+  }
+  function captureDocumentApprovalRefresh(): () => Promise<boolean> {
+    const target = state.documentApprovalTarget.value, session = owner
+    // 写入结束后只刷新开始操作时的同一个详情；关闭、换页或重开后不能恢复旧窗口。
+    return async () => {
+      if (!target || session !== owner || state.documentApprovalTarget.value !== target || !available()) return false
+      // 业务写操作已负责刷新列表；这里只重读审批，避免重复全量刷新和刷新链递归。
+      return readDocumentApproval(false)
+    }
+  }
   async function openDocumentApproval(target: DocumentApprovalTarget): Promise<boolean> {
     if (!available() || state.busy.value) return false
     state.documentApprovalTarget.value = documentApprovalTarget(target)
     state.documentApprovalRecord.value = null
     return loadDocumentApproval()
   }
-  function closeDocumentApproval(): void {
-    if (state.busy.value) return
+  function clearDocumentApproval(): void {
     reads++; state.documentApprovalTarget.value = null; state.documentApprovalRecord.value = null
     state.documentApprovalLoading.value = false; state.documentApprovalError.value = ''
+  }
+  function closeDocumentApproval(): void {
+    if (state.busy.value) return
+    clearDocumentApproval()
   }
   async function actDocumentApproval(action: DocumentApprovalAction): Promise<boolean> {
     const target = state.documentApprovalTarget.value, record = state.documentApprovalRecord.value
@@ -96,5 +117,5 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
       return false
     } finally { state.busy.value = false }
   }
-  return { openDocumentApproval, closeDocumentApproval, loadDocumentApproval, actDocumentApproval }
+  return { openDocumentApproval, closeDocumentApproval, loadDocumentApproval, actDocumentApproval, captureDocumentApprovalRefresh }
 }

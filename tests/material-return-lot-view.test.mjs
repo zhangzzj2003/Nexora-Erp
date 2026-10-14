@@ -7,14 +7,22 @@ import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 const storeModule = `import {ref} from 'vue';import {defineStore} from 'pinia';
+export const calls=[];
 export const usePiniaAppStore=defineStore('material-return-view',()=>{
-const materialReturns=ref([]);return {
-materialReturns,error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),
+const materialReturns=ref([]),documentApprovalTarget=ref(null);return {
+materialReturns,documentApprovalTarget,documentApprovalRecord:ref(null),
+error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),
 workOrders:ref([]),materialIssues:ref([]),
 materialReturnForm:ref({material_issue_id:0,reason:'',lines:[]}),
 selectedReturnIssue:ref(null),can:()=>true,localTime:value=>value,
 selectReturnIssue(){},createMaterialReturn(){},loadAvailableMaterialReturnLots(){},
-postMaterialReturn(){},cancelMaterialReturn(){},reverseMaterialReturn(){}}});`
+postMaterialReturn(){},cancelMaterialReturn(){},reverseMaterialReturn(){},
+openDocumentApproval(target){calls.push(['approval',target]);documentApprovalTarget.value=target;return true},
+closeDocumentApproval(){documentApprovalTarget.value=null}}});`
+const buttonModule = `import {defineComponent,h} from 'vue';export const buttons=[];
+export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>{
+ const children=slots.default?.();const label=(children??[]).map(v=>typeof v.children==='string'?v.children:'').join('').trim();
+ buttons.push({label,disabled:p.disabled,click:attrs.onClick});return h('button',attrs,children)}}});`
 
 test('生产退料显示回仓批次证据与旧单据差额', async t => {
   const server = await createServer({configFile: false, plugins: [{name: 'return-lot-view-fixture', enforce: 'pre',
@@ -24,16 +32,19 @@ test('生产退料显示回仓批次证据与旧单据差额', async t => {
       if (id.endsWith('/DocumentApprovalDialog.vue')) return '\0approval-dialog-stub'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0return-view-table'
       if (id.endsWith('/WorkspaceSelect.vue')) return '\0return-view-select'
+      if (id.endsWith('/AppButton.vue')) return '\0return-view-button'
     }, load(id) {
       if (id === '\0return-view-store') return storeModule
-      if (id === '\0approval-dialog-stub') return `export default {render:()=>null}`
+      if (id === '\0approval-dialog-stub') return `export default {render(){return this.$slots.footerActions?.()??null}}`
+      if (id === '\0return-view-button') return buttonModule
       if (id === '\0return-view-table') return `import {defineComponent,h} from 'vue';export default defineComponent({props:{data:Array},setup(props,{slots}){return ()=>h('section',[
         ...(props.data??[]).flatMap(row=>Object.entries(slots).filter(([key])=>key.startsWith('cell-')).map(([,slot])=>slot?.({row})))])}})`
       if (id === '\0return-view-select') return `import {defineComponent,h} from 'vue';export default defineComponent({setup(){return ()=>h('span')}})`
     }}, vue()], optimizeDeps: {noDiscovery: true, include: []},
     server: {middlewareMode: true, hmr: false}, appType: 'custom'})
   t.after(() => server.close())
-  const {usePiniaAppStore} = await server.ssrLoadModule('\0return-view-store')
+  const {usePiniaAppStore, calls} = await server.ssrLoadModule('\0return-view-store')
+  const {buttons} = await server.ssrLoadModule('\0return-view-button')
   const pinia = createPinia()
   const store = usePiniaAppStore(pinia)
   const line = {id: 7, material_issue_line_id: 5, component_material_id: 3, sku: 'A',
@@ -48,13 +59,35 @@ test('生产退料显示回仓批次证据与旧单据差额', async t => {
     {...record, id: 4, status: 'draft', approval: {status: 'approved'}, lines: [{...line, physical_lots: []}]}]
   const {default: Component} = await server.ssrLoadModule(
     '/src/renderer/src/views/workspace/production/MaterialReturnsView.vue')
-  const html = await renderToString(createSSRApp({render: () => h(Component)}).use(pinia))
+  const render = async () => {
+    buttons.length = 0
+    return renderToString(createSSRApp({render: () => h(Component)}).use(pinia))
+  }
+  const html = await render()
   assert.match(html, /MR2-L7-P1/)
   assert.match(html, /退料新批次/)
   assert.match(html, /普通确认未指定实物批次/)
-  assert.match(html, /指定实物批次（可选）/)
-  assert.match(html, /冲销审批/)
   assert.match(html, /退料录错/)
   assert.match(html, /已冲销/)
   assert.equal((html.match(/普通确认未指定实物批次/g) ?? []).length, 1)
+  // 退料与选批按钮不再出现在列表行内。
+  assert.ok(!buttons.some(button => ['确认退料', '指定实物批次（可选）', '冲销审批'].includes(button.label)))
+  // 行内只保留单号和「查看」两个入口，点击都打开同一详情。
+  for (const entry of ['查看', '#2']) {
+    calls.length = 0
+    const button = buttons.find(item => item.label === entry)
+    assert.ok(button, entry)
+    await button.click()
+    assert.deepEqual(calls.at(-1), ['approval', {document_type: 'MaterialReturn', document_id: 2, intent: 'execute'}])
+  }
+  // 选批确认入口移入详情页脚，批准后的草稿才能继续退料。
+  store.documentApprovalTarget = {document_type: 'MaterialReturn', document_id: 4, intent: 'execute'}
+  const detail = await render()
+  assert.match(detail, /指定实物批次（可选）/)
+  assert.equal(buttons.filter(button => button.label === '确认退料').length, 1)
+  // 已入库单据的冲销审批入口同样移入详情页脚。
+  store.documentApprovalTarget = {document_type: 'MaterialReturn', document_id: 2, intent: 'execute'}
+  const posted = await render()
+  assert.match(posted, /冲销审批/)
+  assert.ok(!buttons.some(button => button.label === '指定实物批次（可选）'))
 })

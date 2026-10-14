@@ -475,6 +475,11 @@ export interface StockAdjustment extends NumberedDocument {
   lines: (ReceiptLine & {physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]})[]
 }
 export interface Stock extends MaterialSummary { quantity: string }
+// 库存总览的统计覆盖完整数据，不能由当前页 items 长度推算。
+export interface StockQuery { warehouse_id: number | null; page: number; page_size: number }
+export interface StockPageResult extends PageResult<Stock> {
+  summary: { material_count: number; posted_receipt_count: number; movement_count: number }
+}
 export interface InventoryValuationMovement {
   id: number
   warehouse_id: number
@@ -1341,6 +1346,9 @@ export interface LedgerGroup {
   unit: string
   opening_quantity: string
   closing_quantity: string
+  // 完整期间的收入和发出供收发存复用，不受明细页码影响。
+  inbound_quantity: string
+  outbound_quantity: string
 }
 export interface LedgerRow {
   id: number
@@ -1358,8 +1366,11 @@ export interface LedgerRow {
   created_by_name: string | null
   balance_quantity: string
 }
-export interface LedgerResult { groups: LedgerGroup[]; rows: LedgerRow[] }
+// 汇总覆盖完整筛选范围，rows 仅包含服务端返回的当前页。
+export interface LedgerResult { groups: LedgerGroup[]; rows: LedgerRow[]; total: number; page: number; page_size: number }
 export interface LedgerQuery {
+  page: number
+  page_size: number
   warehouse_id: number | null
   material_id: number | null
   from_date: string | null
@@ -1381,6 +1392,18 @@ export interface ReportResult {
   columns: { key: string; title: string }[]
   rows: Record<string, string>[]
   csv: string
+}
+
+// 库存报表查询只返回当前页；完整 CSV 在点击导出时单独读取。
+export interface InventoryReportQuery extends ReportQuery {
+  kind: 'inventory_balance' | 'stock_flow'
+  page: number
+  page_size: number
+}
+export interface InventoryReportResult extends Omit<ReportResult, 'csv'> {
+  total: number
+  page: number
+  page_size: number
 }
 
 export interface ErpOperations extends MaterialSupplyOperations, ProductionAssociationOperations, DocumentApprovalOperations, DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations, ControlBalanceOperations {
@@ -1665,6 +1688,8 @@ export interface ErpOperations extends MaterialSupplyOperations, ProductionAssoc
   postStocktake: { input: { stocktakeId: number; lines?: StocktakeLotLineInput[] }; output: Stocktake }
   cancelStocktake: { input: { stocktakeId: number }; output: Stocktake }
   reverseStocktake: { input: { stocktakeId: number; reason: string }; output: Stocktake }
+  queryStock: { input: StockQuery; output: StockPageResult }
+  queryInventoryReport: { input: InventoryReportQuery; output: InventoryReportResult }
   stock: { input: { warehouseId?: number } | undefined; output: Stock[] }
   inventoryValuation: { input: undefined; output: InventoryValuationReport }
   inventoryCostInputs: { input: undefined; output: InventoryCostInput[] }

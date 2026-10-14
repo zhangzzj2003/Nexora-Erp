@@ -1,50 +1,104 @@
 <script setup lang="ts">
+// 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
+import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 批准与业务执行分开，审批入口复用共享 Pinia 和固定内容弹窗。
-import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
+import DocumentApprovalDialog from "../../../components/workspace/DocumentApprovalDialog.vue";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
-import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
+import {
+  documentSearch,
+  documentLabel,
+  relatedDocumentLabel,
+} from "../../../../../shared/document-numbering";
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
-import AppInput from '../../../components/app/AppInput.vue'
+import AppInput from "../../../components/app/AppInput.vue";
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
-import AppButton from '../../../components/app/AppButton.vue'
+import AppButton from "../../../components/app/AppButton.vue";
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
-import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
-import { computed, ref } from 'vue'
-import { storeToRefs } from 'pinia'
+import WorkspaceSelect from "../../../components/workspace/WorkspaceSelect.vue";
+import { computed, ref } from "vue";
+import { storeToRefs } from "pinia";
 // 单据统一使用固定关闭区、基础信息和物料明细表格。
-import { documentRows } from '../../../utils/document-rows'
-import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
-import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
-import { usePiniaAppStore } from '../../../store/app-store'
-import { submitCreateDialog } from '../../../utils/create-dialog'
+import { documentRows } from "../../../utils/document-rows";
+import type { WorkspaceTableColumn } from "../../../utils/table-columns";
+import WorkspaceDocumentDialog from "../../../components/workspace/WorkspaceDocumentDialog.vue";
+import WorkspaceTable from "../../../components/workspace/WorkspaceTable.vue";
+import { usePiniaAppStore } from "../../../store/app-store";
+import { submitCreateDialog } from "../../../utils/create-dialog";
 
-const store = usePiniaAppStore()
-const { error, notice, busy, connectionLost, purchaseOrders, goodsReceipts, warehouses, goodsReceiptForm } = storeToRefs(store)
-const { can, localTime, chooseGoodsReceiptOrder, createGoodsReceipt, confirmGoodsReceipt,
-  cancelGoodsReceipt } = store
-const query = ref('')
-const showForm = ref(false)
-const selectedOrder = computed(() => purchaseOrders.value.find((item) => item.id === goodsReceiptForm.value.purchase_order_id))
-const filtered = computed(() => goodsReceipts.value.filter((item) =>
-  [documentSearch(item), item.id, item.purchase_order_id, item.supplier_name, item.reference, ...item.lines.map((line) => line.material_name)]
-    .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
-const columns = [
-  { key: 'document', title: '收货单' }, { key: 'warehouse', title: '仓库与状态' },
-  { key: 'lines', title: '收货明细' }, { key: 'actions', title: '操作' }
-]
+const store = usePiniaAppStore();
+const {
+  error,
+  notice,
+  busy,
+  connectionLost,
+  purchaseOrders,
+  goodsReceipts,
+  warehouses,
+  goodsReceiptForm,
+} = storeToRefs(store);
+const {
+  can,
+  localTime,
+  chooseGoodsReceiptOrder,
+  createGoodsReceipt,
+  confirmGoodsReceipt,
+  cancelGoodsReceipt,
+} = store;
+const query = ref("");
+const showForm = ref(false);
+const selectedOrder = computed(() =>
+  purchaseOrders.value.find(
+    (item) => item.id === goodsReceiptForm.value.purchase_order_id,
+  ),
+);
+// 详情弹窗由审批目标驱动；页脚业务按钮按当前单据与意图（执行/冲销）展示。
+const detailItem = computed(() =>
+  findDocumentApprovalItem(store.documentApprovalTarget, "PurchaseGoodsReceipt", goodsReceipts.value),
+);
+const detailIntent = computed(
+  () => store.documentApprovalTarget?.intent ?? "execute",
+);
+const filtered = computed(() =>
+  goodsReceipts.value.filter((item) =>
+    [
+      documentSearch(item),
+      item.id,
+      item.purchase_order_id,
+      item.supplier_name,
+      item.reference,
+      ...item.lines.map((line) => line.material_name),
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(query.value.trim().toLowerCase()),
+  ),
+);
+// 操作列只保留查看详情入口，业务操作统一移入详情页脚。
+const columns: readonly WorkspaceTableColumn[] = [
+  { key: "document", title: "收货单" },
+  { key: "warehouse", title: "仓库与状态" },
+  { key: "lines", title: "收货明细" },
+  { key: "actions", title: "查看", width: "72", align: "center" },
+];
 // 写入失败时保留表单，成功后才关闭弹窗。
 async function submitCreate(): Promise<void> {
-  await submitCreateDialog(createGoodsReceipt, { busy, error, notice }, showForm)
+  await submitCreateDialog(
+    createGoodsReceipt,
+    { busy, error, notice },
+    showForm,
+  );
 }
 // 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
-const goodsReceiptFormRows = computed(() => documentRows(goodsReceiptForm.value.lines))
+const goodsReceiptFormRows = computed(() =>
+  documentRows(goodsReceiptForm.value.lines),
+);
 const goodsReceiptFormColumns = [
-  { key: 'material', title: '原订单物料', width: '300' },
-  { key: 'acceptedQuantity', title: '合格实收', width: '150' },
-  { key: 'rejectedQuantity', title: '拒收数量', width: '150' },
-  { key: 'rejectionReason', title: '拒收原因', width: '150' },
-  { key: 'actions', title: '操作', width: '90' },
-]
+  { key: "material", title: "原订单物料", width: "300" },
+  { key: "acceptedQuantity", title: "合格实收", width: "150" },
+  { key: "rejectedQuantity", title: "拒收数量", width: "150" },
+  { key: "rejectionReason", title: "拒收原因", width: "150" },
+  { key: "actions", title: "操作", width: "90" },
+];
 </script>
 
 <template>
@@ -68,13 +122,20 @@ const goodsReceiptFormColumns = [
         >
       </template>
       <template #filters>
-        <label>搜索收货单<AppInput v-model="query" placeholder="单号、供应商或物料" /></label>
+        <label
+          >搜索收货单<AppInput v-model="query" placeholder="单号、供应商或物料"
+        /></label>
       </template>
       <template #beforeTable>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
         <WorkspaceDocumentDialog
           material-supply
-          :material-id="row => selectedOrder?.lines.find(line => line.id === row.line.purchase_order_line_id)?.material_id ?? 0"
+          :material-id="
+            (row) =>
+              selectedOrder?.lines.find(
+                (line) => line.id === row.line.purchase_order_line_id,
+              )?.material_id ?? 0
+          "
           v-if="showForm && can('purchase_receiving.create')"
           v-model:show="showForm"
           title="记录本批采购收货"
@@ -99,11 +160,18 @@ const goodsReceiptFormColumns = [
                 :options="[
                   { label: '选择待收货订单', value: 0, disabled: true },
                   ...purchaseOrders
-                    .filter((item) => ['confirmed', 'partially_received'].includes(item.status))
+                    .filter((item) =>
+                      ['confirmed', 'partially_received'].includes(item.status),
+                    )
                     .map((order) => ({
-                      label: ('#' + order.id + ' · ' + order.supplier_name).trim(),
-                      value: order.id
-                    }))
+                      label: (
+                        '#' +
+                        order.id +
+                        ' · ' +
+                        order.supplier_name
+                      ).trim(),
+                      value: order.id,
+                    })),
                 ]"
             /></label>
             <label
@@ -111,7 +179,12 @@ const goodsReceiptFormColumns = [
                 :disabled="busy || connectionLost"
                 v-model="goodsReceiptForm.warehouse_id"
                 required
-                :options="[...warehouses.map((item) => ({ label: item.name, value: item.id }))]"
+                :options="[
+                  ...warehouses.map((item) => ({
+                    label: item.name,
+                    value: item.id,
+                  })),
+                ]"
             /></label>
             <label
               >送货参考号<AppInput
@@ -120,12 +193,16 @@ const goodsReceiptFormColumns = [
                 maxlength="100"
             /></label>
             <div class="document-basic-extra">
-              <p class="muted">仅合格实收数量生成待入库单；拒收数量不增加库存，须填写原因。</p>
+              <p class="muted">
+                仅合格实收数量生成待入库单；拒收数量不增加库存，须填写原因。
+              </p>
             </div>
           </template>
           <template #cell-material="{ row: { line, index } }"
             ><span>{{
-              selectedOrder?.lines.find((item) => item.id === line.purchase_order_line_id)?.material_name
+              selectedOrder?.lines.find(
+                (item) => item.id === line.purchase_order_line_id,
+              )?.material_name
             }}</span></template
           >
           <template #cell-acceptedQuantity="{ row: { line, index } }"
@@ -162,7 +239,9 @@ const goodsReceiptFormColumns = [
             ><!-- 移除使用公共按钮的完整点击区域，原有禁用与删行规则保持。 -->
             <AppButton size="small"
               type="button"
-              :disabled="busy || connectionLost || goodsReceiptForm.lines.length === 1"
+              :disabled="
+                busy || connectionLost || goodsReceiptForm.lines.length === 1
+              "
               @click="goodsReceiptForm.lines.splice(index, 1)"
               variant="secondary"
               >移除</AppButton
@@ -171,31 +250,53 @@ const goodsReceiptFormColumns = [
         </WorkspaceDocumentDialog>
       </template>
       <template #cell-document="{ row: item }"
-        ><strong>{{ documentLabel(item) }} · {{ item.supplier_name }}</strong
+        ><!-- 单号直接打开只读详情，与操作列「查看」并存两个入口。 -->
+        <AppButton
+          type="button"
+          variant="text"
+          :disabled="busy || connectionLost"
+          :aria-label="`查看单据 ${documentLabel(item)} 详情`"
+          @click="
+            store.openDocumentApproval({
+              document_type: 'PurchaseGoodsReceipt',
+              document_id: item.id,
+              intent: 'execute',
+            })
+          "
+          >{{ documentLabel(item) }}</AppButton
+        ><strong> · {{ item.supplier_name }}</strong
         ><small>{{ localTime(item.created_at) }}</small
         ><small
-          >采购订单 {{ relatedDocumentLabel(item, 'purchase_order') }}<span v-if="item.reference"> · {{ item.reference }}</span></small
+          >采购订单 {{ relatedDocumentLabel(item, "purchase_order")
+          }}<span v-if="item.reference"> · {{ item.reference }}</span></small
         ></template
       >
       <template #cell-warehouse="{ row: item }"
         >{{ item.warehouse_name
         }}<small>{{
-          item.status === 'draft'
-            ? ({ submitted: '审批中', approved: '已批准待收货', rejected: '已驳回', withdrawn: '已撤回', draft: '待送审', executed: '已执行' })[item.approval?.status ?? 'draft']
-            : item.status === 'cancelled'
-              ? '已取消'
+          item.status === "draft"
+            ? {
+                submitted: "审批中",
+                approved: "已批准待收货",
+                rejected: "已驳回",
+                withdrawn: "已撤回",
+                draft: "待送审",
+                executed: "已执行",
+              }[item.approval?.status ?? "draft"]
+            : item.status === "cancelled"
+              ? "已取消"
               : item.inbound_receipt_id
-                ? '已确认收货'
-                : '全数拒收'
+                ? "已确认收货"
+                : "全数拒收"
         }}</small
         ><small v-if="item.inbound_receipt_id"
-          >入库单 {{ relatedDocumentLabel(item, 'inbound_receipt') }} ·
+          >入库单 {{ relatedDocumentLabel(item, "inbound_receipt") }} ·
           {{
             item.inbound_reversal_id
-              ? '已冲销'
-              : item.inbound_status === 'posted'
-                ? '已入库'
-                : '待入库'
+              ? "已冲销"
+              : item.inbound_status === "posted"
+                ? "已入库"
+                : "待入库"
           }}</small
         ></template
       >
@@ -203,37 +304,70 @@ const goodsReceiptFormColumns = [
         ><div v-for="line in item.lines" :key="line.id">
           {{ line.material_name }}：合格 {{ line.accepted_quantity }}，拒收
           {{ line.rejected_quantity }} {{ line.unit
-          }}<small v-if="line.rejection_reason">{{ line.rejection_reason }}</small>
+          }}<small v-if="line.rejection_reason">{{
+            line.rejection_reason
+          }}</small>
         </div></template
       >
-      <template #cell-actions="{ row: item }"
-        ><div class="form-actions">
-          <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
-            @click="store.openDocumentApproval({ document_type: 'PurchaseGoodsReceipt', document_id: item.id, intent: 'execute' })">
-            {{ item.status === 'draft' ? '单据审批' : '审批记录' }}
-          </AppButton>
+      <template #cell-actions="{ row: item }">
+        <!-- 行内只保留查看入口，业务操作统一移入详情页脚。 -->
+        <AppButton
+          type="button"
+          variant="secondary"
+          size="small"
+          :disabled="busy || connectionLost"
+          :aria-label="`查看单据 ${documentLabel(item)} 详情`"
+          @click="
+            store.openDocumentApproval({
+              document_type: 'PurchaseGoodsReceipt',
+              document_id: item.id,
+              intent: 'execute',
+            })
+          "
+          >查看</AppButton
+        >
+      </template>
+      <template #empty>{{
+        query ? "没有匹配的采购收货单。" : "暂无采购收货单。"
+      }}</template>
+    </WorkspaceTable>
+    <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
+    <DocumentApprovalDialog>
+      <template #footerActions>
+        <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
+        <template v-if="detailItem">
           <AppButton
-            v-if="item.status === 'draft' && item.approval?.status === 'approved' && can('purchase_receiving.confirm')"
-            :disabled="busy || connectionLost"
-            @click="confirmGoodsReceipt(item.id)"
-            variant="primary"
-            size="small"
+            tone="success"
+            v-if="
+              detailIntent === 'execute' &&
+              detailItem.status === 'draft' &&
+              detailItem.approval?.status === 'approved' &&
+              can('purchase_receiving.confirm')
+            "
             type="button"
+            variant="primary"
+            :disabled="busy || connectionLost"
+            @click="confirmGoodsReceipt(detailItem.id)"
             >确认收货</AppButton
           >
           <AppButton
-            v-if="item.status === 'draft' && !['submitted', 'approved'].includes(item.approval?.status ?? '') && can('purchase_receiving.cancel')"
-            :disabled="busy || connectionLost"
-            @click="cancelGoodsReceipt(item.id)"
-            variant="secondary"
-            size="small"
+            tone="warning"
+            v-if="
+              detailIntent === 'execute' &&
+              detailItem.status === 'draft' &&
+              !['submitted', 'approved'].includes(
+                detailItem.approval?.status ?? '',
+              ) &&
+              can('purchase_receiving.cancel')
+            "
             type="button"
+            variant="secondary"
+            :disabled="busy || connectionLost"
+            @click="cancelGoodsReceipt(detailItem.id)"
             >取消草稿</AppButton
           >
-        </div></template
-      >
-      <template #empty>{{ query ? '没有匹配的采购收货单。' : '暂无采购收货单。' }}</template>
-    </WorkspaceTable>
-    <DocumentApprovalDialog />
+        </template>
+      </template>
+    </DocumentApprovalDialog>
   </section>
 </template>
