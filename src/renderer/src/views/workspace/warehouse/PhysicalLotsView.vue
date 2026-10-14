@@ -10,6 +10,7 @@ import {usePiniaAppStore} from '../../../store/app-store'
 import {movementTypeLabel} from '../../../utils/formatters'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
+import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
@@ -19,7 +20,7 @@ import WorkspaceSummaryFilters, {type WorkspaceSummaryFilterOption} from '../../
 import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import {useLocalPagination} from '../../../composables/use-local-pagination'
 import {filterLotRows,lotSummary,type LotFilter} from './warehouse-insights'
-import {NDatePicker} from 'naive-ui'
+import {NCollapse,NDatePicker} from 'naive-ui'
 import {datePickerString,vDateField} from '../../../utils/date-field'
 
 const store=usePiniaAppStore()
@@ -353,10 +354,10 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
           <AppButton v-if="!resetDisabled && !connectionLost" :disabled="disabled" @click="resetFilters">重置筛选</AppButton>
         </template>
       </WorkspaceTable>
-      <details class="lot-help">
-        <summary>批次与补证说明</summary>
+      <!-- 公共折叠项统一处理键盘与读屏语义，收起说明仍保留页面上下文。 -->
+      <NCollapse class="lot-help"><AppCollapseItem name="lot-help" title="批次与补证说明">
         <p>实物批次用于核对已接入单据的实物流向。历史未识别期初没有真实批号；旧版未指定批次的单据会显示差额。现场补证和旧流水逐笔补证只调整批次归属，不改变正式库存或成本。批次余额与正式库存一致也不代表所有历史流水已追溯。</p>
-      </details>
+      </AppCollapseItem></NCollapse>
       <form v-if="selectedLegacy" class="stack lot-evidence" aria-label="历史批次现场补证" @submit.prevent="saveEvidence">
         <h3>{{ selectedLegacy.sku }} · {{ selectedLegacy.warehouse_name }} · 历史批次补证</h3>
         <p class="lot-note">当前未识别结存 {{ selectedLegacy.quantity }} {{ selectedLegacy.unit }}。请只录入已现场核对的数量和依据；系统会保留原历史期初及本次转归记录。</p>
@@ -376,9 +377,9 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
         <WorkspaceTable title="待补证的旧客户端流水" description="按实物标签或交接记录核对批次归属，不改变正式库存或成本。" :columns="unallocatedColumns"
           :data="unallocated.rows" :min-table-width="900">
           <template #beforeTable>
-            <details class="lot-help"><summary>补证范围与操作说明 · 检查点 #{{ unallocated.checkpoint_movement_id }}</summary>
+            <NCollapse class="lot-help"><AppCollapseItem name="evidence-help" :title="`补证范围与操作说明 · 检查点 #${unallocated.checkpoint_movement_id}`">
               <p>只列出升级检查点 #{{ unallocated.checkpoint_movement_id }} 之后尚未完整归属批次的流水。补证依据须来自实物或交接记录，不能仅凭单据推测批号。相抵的先入后出流水可成对或多笔成组归属同一批次，不改变正式库存或成本。</p>
-            </details>
+            </AppCollapseItem></NCollapse>
             <p v-if="unallocated.has_more" class="lot-note" role="status">当前只显示最近 100 笔，请按仓库或物料缩小范围。</p>
           </template>
           <template #cell-created_at="{row}">{{ store.localTime(row.created_at) }}</template>
@@ -522,7 +523,7 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
 .physical-lots-page{gap:20px}
 .lot-summary{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:0 0 14px}
 .lot-inline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0}
-.lot-help{font-size:13px;line-height:1.7;color:var(--workspace-field-muted)}.lot-help summary{cursor:pointer;width:fit-content}.lot-help p{margin:10px 0 0}
+.lot-help{font-size:13px;line-height:1.7;color:var(--workspace-field-muted)}.lot-help p{margin:10px 0 0}
 .lot-evidence-actions{flex-wrap:wrap}.lot-evidence{background:var(--workspace-field-background)}
 .lot-history{padding:24px;border:1px solid var(--workspace-field-border);border-radius:16px;background:var(--workspace-field-background)}
 

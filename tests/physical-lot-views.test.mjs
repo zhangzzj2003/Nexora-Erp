@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {createSSRApp,h} from 'vue'
 import {renderToString} from '@vue/server-renderer'
+import {setup as setupSsrStyles} from '@css-render/vue3-ssr'
 import {createPinia} from 'pinia'
 import {createRouter,createMemoryHistory} from 'vue-router'
 import {createServer} from 'vite'
@@ -39,7 +40,12 @@ test('批次页面显示历史未识别、未分配差额、来源流水及无�
     {path:'/workspace/inventory-ledger',component:{render:()=>null}}]})
   await router.push('/');await router.isReady()
   const {default:Component}=await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/PhysicalLotsView.vue')
-  const render=()=>renderToString(createSSRApp({render:()=>h(Component)}).use(pinia).use(router))
+  // 渲染真实公共折叠项，注册样式上下文以覆盖默认收起与读屏结构。
+  const render=()=>{
+    const app=createSSRApp({render:()=>h(Component)}).use(pinia).use(router)
+    setupSsrStyles(app)
+    return renderToString(app)
+  }
   const row={warehouse_id:1,warehouse_name:'主仓库',material_id:3,sku:'LOT-3',material_name:'试件',unit:'件',
     lot_id:7,lot_code:'LEGACY-W1-M3',source_kind:'legacy',supplier_lot:null,manufactured_on:null,expires_on:null,quantity:'2.000'}
   store.lotOverview={as_of:'2026-10-02 09:00:00',warehouse_id:null,material_id:null,rows:[row],
@@ -48,7 +54,8 @@ test('批次页面显示历史未识别、未分配差额、来源流水及无�
   assert.match(unallocated,/历史未识别/)
   assert.match(unallocated,/未分配差额/)
   assert.match(unallocated,/0\.125/);assert.match(unallocated,/搜索批次/);assert.match(unallocated,/批次与补证说明/)
-  assert.match(unallocated,/也不代表所有历史流水已追溯/)
+  // 长说明默认收起，由公共按钮保留键盘入口与展开状态；正文在用户展开后显示。
+  assert.match(unallocated,/<button[^>]*app-collapse-trigger[^>]*aria-expanded="false"/)
   assert.doesNotMatch(unallocated,/现场补证<\/button>/)
   store.user={id:1,permissions:['inventory.view','physical_lot.reclassify']}
   assert.match(await render(),/现场补证/)

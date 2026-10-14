@@ -179,7 +179,8 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
       </WorkspaceTable>
       <section class="warning-evidence warning-event-panel" aria-label="服务端库存预警事件">
         <div class="warning-heading"><div><h3>预警事件</h3><p class="warning-muted">保留首次异常、再次异常与缺货升级记录</p></div><AppButton type="button" :disabled="connectionLost || eventLoading" @click="store.loadWarningEvents()">刷新事件</AppButton></div>
-        <details class="warning-help"><summary>事件记录说明</summary><p>服务端约每 60 秒核对一次规则。这里保留首次异常、恢复后再次异常及低库存恶化为缺货的记录；时间和数量是当次核对快照，可能晚于实际库存流水。</p></details>
+        <!-- 说明复用公共折叠项，保留统一的键盘操作、读屏语义与展开动画。 -->
+        <NCollapse class="warning-help"><AppCollapseItem name="event-help" title="事件记录说明"><p>服务端约每 60 秒核对一次规则。这里保留首次异常、恢复后再次异常及低库存恶化为缺货的记录；时间和数量是当次核对快照，可能晚于实际库存流水。</p></AppCollapseItem></NCollapse>
         <p v-if="eventFailure" role="alert">{{ eventFailure }} 请重新读取事件。</p>
         <p v-else-if="eventLoading && !eventPage" role="status">正在读取服务端事件…</p>
         <div v-else-if="eventPage && !eventPage.events.length" class="warning-event-empty"><AppStatusTag label="暂无事件" tone="neutral" /><span>当前仓库范围尚无服务端预警事件。</span></div>
@@ -224,7 +225,7 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
 .warning-notice{justify-content:flex-start;padding:12px 14px;border-radius:10px;background:var(--workspace-field-disabled);line-height:1.6}
 .warning-event-panel{padding:22px 24px;border:1px solid var(--workspace-field-border);border-radius:16px;background:var(--workspace-field-background)}
 .warning-event-panel .warning-heading{justify-content:space-between}.warning-event-panel .warning-heading h3{margin:0}.warning-heading p{margin:6px 0 0}
-.warning-help{margin:14px 0;color:var(--workspace-field-muted);font-size:13px;line-height:1.7}.warning-help summary{cursor:pointer;width:fit-content}.warning-help p{margin:8px 0}
+.warning-help{margin:14px 0;color:var(--workspace-field-muted);font-size:13px;line-height:1.7}.warning-help p{margin:8px 0}
 .warning-event-empty{display:flex;gap:12px;align-items:center;padding:18px 0 2px;font-size:13px;color:var(--workspace-field-muted);flex-wrap:wrap}
 .warning-footnote{margin:0;color:var(--workspace-field-muted);font-size:12px;line-height:1.7}
 

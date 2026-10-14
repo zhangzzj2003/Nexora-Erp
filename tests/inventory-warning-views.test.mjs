@@ -29,7 +29,8 @@ test('真实阈值与原因必填，冲突保留版本；未配置、只读和�
   },load(id){if(id==='\0warning-view-store')return storeModule
     if(id==='\0warning-view-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:{error:String},setup(props,{slots}){return ()=>h('section',[slots.filters?.(),slots.actions?.(),slots.beforeTable?.(),props.error?slots.errorActions?.():slots.empty?.()])}})`
     if(id==='\0warning-view-select')return `import {defineComponent,h} from 'vue';export default defineComponent({setup(){return ()=>h('span')}})`
-    if(id==='\0warning-view-naive')return `import {defineComponent,h} from 'vue';const Body=defineComponent({setup(_props,{slots}){return ()=>h('div',slots.default?.())}});export const NCheckbox=Body,NCollapse=Body;
+    // 折叠容器使用真实实现，确保公共折叠项得到正确的上下文与键盘语义。
+    if(id==='\0warning-view-naive')return `import {defineComponent,h} from 'vue';export {NCollapse} from 'naive-ui';const Body=defineComponent({setup(_props,{slots}){return ()=>h('div',slots.default?.())}});export const NCheckbox=Body;
 export const NModal=defineComponent({props:{show:Boolean,title:String,maskClosable:Boolean,closable:Boolean,closeOnEsc:Boolean},setup(props,{slots}){return ()=>props.show?h('div',{role:'dialog','aria-label':props.title,'data-mask-closable':String(props.maskClosable)},[slots.default?.(),slots.footer?.()]):null}});`
   }},vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false},appType:'custom'})
   t.after(()=>server.close())
