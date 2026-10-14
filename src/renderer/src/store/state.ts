@@ -68,7 +68,7 @@ import type {
   GoodsReceipt,
   InventoryCostInput,
   InventoryValuationReport,
-  StockQuery, StockPageResult, InventoryReportQuery, InventoryReportResult,
+  StockQuery, StockPageResult, StockOverviewItem, InventoryReportQuery, InventoryReportResult,
   LedgerResult,
   LedgerQuery,
   LedgerRow,
@@ -232,10 +232,14 @@ export function createAppState() {
   const suppliers = ref<Supplier[]>([])
   const stock = ref<Stock[]>([])
   // 页面独立保存分页快照，翻页不覆盖其他业务使用的库存资料。
-  const stockOverviewQuery = ref<StockQuery>({ warehouse_id: null, page: 1, page_size: 20 })
+  const stockOverviewQuery = ref<StockQuery>({ warehouse_id: null, keyword: '', category_group: null, page: 1, page_size: 20 })
   const stockOverviewResult = ref<StockPageResult | null>(null)
   const stockOverviewLoading = ref(false)
   const stockOverviewError = ref('')
+  // 总览弹窗的全仓分布独立保存，筛选下方流水不应改变全仓数量。
+  const stockMaterialMode = ref(false)
+  const stockMaterialSnapshot = ref<StockOverviewItem | null>(null)
+  const stockMaterialLoading = ref(false), stockMaterialError = ref('')
   const inventoryValuation = ref<InventoryValuationReport | null>(null)
   const inventoryCostInputs = ref<InventoryCostInput[]>([])
   const inventoryCostForm = ref({ movement_id: 0, unit_cost: '', reference: '', reason: '' })
@@ -663,6 +667,7 @@ export function createAppState() {
     suppliers,
     supplierMaterials,
     stock, stockOverviewQuery, stockOverviewResult, stockOverviewLoading, stockOverviewError,
+    stockMaterialMode, stockMaterialSnapshot, stockMaterialLoading, stockMaterialError,
     inventoryValuation,
     inventoryCostInputs,
     inventoryCostForm,

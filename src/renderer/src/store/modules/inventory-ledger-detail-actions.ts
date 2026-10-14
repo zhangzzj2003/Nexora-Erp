@@ -1,11 +1,12 @@
 import { watch } from 'vue'
 import type { AppState } from '../state'
-import type { LedgerRow, LedgerQuery } from '../../../../shared/erp-api'
+import type { LedgerRow, LedgerQuery, Stock } from '../../../../shared/erp-api'
 import { validateInventoryLedgerDocument } from '../../../../shared/inventory-ledger-document.ts'
+import { validateStockOverview } from '../../../../shared/stock-overview.ts'
 import { displayError } from '../../utils/formatters.ts'
 
 export function createInventoryLedgerDetailActions(state: AppState) {
-  let materialRead = 0, rowsRead = 0, documentRead = 0
+  let materialRead = 0, rowsRead = 0, documentRead = 0, stockRead = 0
   const available = () => !!window.nexora && !state.connectionLost.value
     && !!state.user.value?.permissions.includes('inventory.view')
   const emptyResult = () => ({ groups: [], rows: [], total: 0, page: 1, page_size: 20 })
@@ -18,7 +19,11 @@ export function createInventoryLedgerDetailActions(state: AppState) {
     state.ledgerDocumentError.value = ''
   }
   function closeLedgerMaterial(): void {
-    materialRead++; rowsRead++
+    materialRead++; rowsRead++; stockRead++
+    state.stockMaterialMode.value = false
+    state.stockMaterialSnapshot.value = null
+    state.stockMaterialLoading.value = false
+    state.stockMaterialError.value = ''
     state.ledgerMaterialTarget.value = null
     state.ledgerMaterialDetail.value = null
     state.ledgerMaterialQuery.value = null
@@ -35,7 +40,8 @@ export function createInventoryLedgerDetailActions(state: AppState) {
     state.ledgerQuery.value.warehouse_id, state.ledgerQuery.value.material_id,
     state.ledgerQuery.value.from_date, state.ledgerQuery.value.to_date, state.ledgerQuery.value.source_type,
     state.inventoryReportQuery.value.kind, state.inventoryReportQuery.value.warehouse_id,
-    state.inventoryReportQuery.value.material_id, state.inventoryReportQuery.value.from_date, state.inventoryReportQuery.value.to_date]),
+    state.inventoryReportQuery.value.material_id, state.inventoryReportQuery.value.from_date, state.inventoryReportQuery.value.to_date,
+    state.stockOverviewQuery.value.warehouse_id, state.stockOverviewQuery.value.keyword, state.stockOverviewQuery.value.category_group]),
   closeLedgerMaterial, { flush: 'sync' })
 
   async function loadLedgerMaterial(): Promise<void> {
@@ -93,6 +99,45 @@ export function createInventoryLedgerDetailActions(state: AppState) {
     await Promise.all([loadLedgerMaterial(), queryLedgerMaterial()])
   }
 
+  async function loadStockMaterial(): Promise<void> {
+    const target = state.ledgerMaterialTarget.value
+    if (!available() || !target || !state.stockMaterialMode.value) return
+    const ticket = ++stockRead
+    state.stockMaterialSnapshot.value = null
+    state.stockMaterialLoading.value = true
+    state.stockMaterialError.value = ''
+    try {
+      // 全仓快照重新向服务端读取，不能沿用入口页的数量或当前流水页求和。
+      const result = await window.nexora!.callApi('queryStock', {
+        material_id: target.material_id, warehouse_id: null, page: 1, page_size: 1
+      })
+      if (ticket !== stockRead || !available()) return
+      validateStockOverview(result)
+      if (result.total !== 1 || result.items[0]?.id !== target.material_id) throw Error('仓库分布与当前物料不一致，请重新读取。')
+      state.stockMaterialSnapshot.value = result.items[0]
+    } catch (cause) {
+      if (ticket === stockRead) state.stockMaterialError.value = displayError(cause)
+    } finally { if (ticket === stockRead) state.stockMaterialLoading.value = false }
+  }
+  async function openStockMaterial(row: Stock): Promise<void> {
+    if (!available()) return
+    // 复用物料资料与台账的只读交互，列表选仓只限定初始流水，分布始终覆盖所有仓库。
+    const opened = openLedgerMaterial({ material_id: row.id, sku: row.sku, material_name: row.name }, {
+      warehouse_id: state.stockOverviewQuery.value.warehouse_id, from_date: null, to_date: null, source_type: null
+    })
+    state.stockMaterialMode.value = true
+    await Promise.all([opened, loadStockMaterial()])
+  }
+  async function selectStockMaterialWarehouse(warehouseId: number | null): Promise<void> {
+    const query = state.ledgerMaterialQuery.value
+    if (!available() || !query || !state.stockMaterialMode.value) return
+    if (warehouseId !== null && !state.warehouses.value.some(row => row.id === warehouseId)
+      && !state.stockMaterialSnapshot.value?.warehouses.some(row => row.warehouse_id === warehouseId)) return
+    closeLedgerDocument()
+    query.warehouse_id = warehouseId
+    await queryLedgerMaterial(1)
+  }
+
   async function openReportMaterial(row: Record<string, string>): Promise<void> {
     if (!available() || !state.user.value?.permissions.includes('inventory_report.view')) return
     const materialId = Number(row.material_id), warehouseId = Number(row.warehouse_id)
@@ -131,6 +176,6 @@ export function createInventoryLedgerDetailActions(state: AppState) {
     state.ledgerDocumentTarget.value = { ...row }
     await loadLedgerDocument()
   }
-  return { openLedgerMaterial, openReportMaterial, closeLedgerMaterial, loadLedgerMaterial, queryLedgerMaterial,
+  return { openStockMaterial, loadStockMaterial, selectStockMaterialWarehouse, openLedgerMaterial, openReportMaterial, closeLedgerMaterial, loadLedgerMaterial, queryLedgerMaterial,
     openLedgerDocument, closeLedgerDocument, loadLedgerDocument }
 }

@@ -8,7 +8,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   productionReceipts: '生产核对实际收到的物料，分批签收；未签收差额持续保留，签收不重复扣库存。',
   productionExchanges: '从已签收材料申请换料；分批交接旧料、审批补发，新料实收后才完成。',
   productionReturns: '退回已签收且未耗用的良品余料，仓库分批核对并接收后增加可用库存。',
-  stock: '按仓库查看物料当前库存，数量随已确认的出入库单据更新。',
+  stock: '按物料查看当前库存，点击编号核对物料资料、各仓库数量及库存流水。',
   inventoryWarnings: '按仓库现存量识别缺货和低库存，阈值修订保留版本与历史。未配置的组合不参与预警。',
   physicalLots: '按仓库与物料核对实物批次结存、未分配差额和来源历史；历史未识别期初不代表真实批号。',
   inventoryLedger: '按仓库和物料核对期初、每笔变动及期末。选择来源后显示该来源范围内的累计数量。',
