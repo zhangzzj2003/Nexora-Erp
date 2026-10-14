@@ -120,6 +120,15 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
   assert.deepEqual(captured['库存总览'].props.columns.map(c => c.title), ['物料编号', '物料名称', '物料分类', '物料数量', '操作'])
   assert.match(overviewHtml, /电子类/); assert.match(overviewHtml, /stock-negative/)
   assert.doesNotMatch(overviewHtml, /已确认入库单/)
+  // 检查真实按钮的边框与尺寸，防止操作列再次退化为仅有文字的入口。
+  const viewButton = html => [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)]
+    .map(match => match[0]).find(button => button.replace(/<[^>]+>/g, '').trim() === '查看')
+  assert.match(viewButton(overviewHtml), /app-button--secondary/)
+  assert.match(viewButton(overviewHtml), /n-button--small-type/)
+  assert.match(viewButton(overviewHtml), /n-button__border/)
+  store.connectionLost = true
+  assert.match(viewButton(await render(Overview)), / disabled(?:\s|>)/)
+  store.connectionLost = false
   click('库存总览', 'sku', stock); click('库存总览', 'actions', stock)
   assert.deepEqual(calls.slice(-2), [['stock', stock], ['stock', stock]])
   store.stockMaterialMode = true; store.stockMaterialSnapshot = stock; store.ledgerMaterialTarget = row
