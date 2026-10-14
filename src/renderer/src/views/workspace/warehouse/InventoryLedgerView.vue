@@ -10,32 +10,32 @@ import { datePickerString, vDateField } from '../../../utils/date-field'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { movementTypeLabels, movementTypeLabel } from '../../../utils/formatters'
+import InventoryDetailDialogs from '../../../components/workspace/InventoryDetailDialogs.vue'
+import { ledgerColumns as columns, ledgerTime } from '../../../utils/inventory-ledger-presentation'
 
 const store = usePiniaAppStore()
 const { connectionLost, warehouses, materials, ledgerQuery, ledgerResult, ledgerLoading, ledgerError } = storeToRefs(store)
-const { queryLedger, localTime } = store
-const columns = [
-  { key: 'time', title: '时间' }, { key: 'warehouse', title: '仓库' },
-  { key: 'material', title: '物料' }, { key: 'source', title: '来源单据' },
-  { key: 'quantity', title: '变动' }, { key: 'balance', title: '筛选范围结余' }
-]
+const { queryLedger, openLedgerMaterial, openLedgerDocument, closeLedgerMaterial } = store
 // 期初期末汇总同样通过公共表格展示，避免查询页保留第二种表格实现。
 const groupColumns = [
-  { key: 'warehouse_name', title: '仓库' }, { key: 'material', title: '物料' },
+  { key: 'sku', title: '物料编号', width: '152' }, { key: 'material_name', title: '物料名称', width: '250' },
+  { key: 'warehouse_name', title: '仓库', width: '94' },
   { key: 'opening', title: '期初' }, { key: 'closing', title: '期末' }
 ]
 const sourceOptions = Object.entries(movementTypeLabels)
 // 首次进入沿用已选页；点击查询回到首页，翻页只请求目标页。
 onMounted(() => { void queryLedger(ledgerQuery.value.page) })
+// 离开台账即撤销详情请求，晚到的响应不能在其他页面重新打开窗口。
+onUnmounted(closeLedgerMaterial)
 </script>
 
 <template>
-  <section class="stack">
+  <section class="stack inventory-ledger-page">
     <WorkspaceTable
       :show-title="false"
       :data="ledgerResult.rows"
@@ -45,7 +45,7 @@ onMounted(() => { void queryLedger(ledgerQuery.value.page) })
       :loading="ledgerLoading"
       :pagination="{ page: ledgerQuery.page, pageSize: ledgerQuery.page_size, total: ledgerResult.total, disabled: connectionLost }"
       @page-change="queryLedger"
-      :min-table-width="1000"
+      :min-table-width="1240"
     >
       <template #filters>
         <label
@@ -115,14 +115,17 @@ onMounted(() => { void queryLedger(ledgerQuery.value.page) })
           >查询台账</AppButton
         ></template
       >
-      <template #cell-time="{ row: item }"
-        >{{ localTime(item.created_at) }}<small>{{ item.created_by_name }}</small></template
-      >
-      <template #cell-warehouse="{ row: item }">{{ item.warehouse_name }}</template>
-      <template #cell-material="{ row: item }">{{ item.sku }} · {{ item.material_name }}</template>
-      <template #cell-source="{ row: item }"
-        >{{ movementTypeLabel(item.source_type) }} {{ relatedDocumentLabel(item, 'source') }}<small>明细 #{{ item.source_line_id }}</small></template
-      >
+      <template #cell-sku="{ row }">
+        <AppButton variant="text" :disabled="connectionLost" :aria-label="`查看物料 ${row.sku} 的详情与台账`"
+          @click="openLedgerMaterial(row)">{{ row.sku }}</AppButton>
+      </template>
+      <template #cell-time="{ row }"><span class="ledger-time">{{ ledgerTime(row.created_at) }}</span></template>
+      <template #cell-operator="{ row }">{{ row.created_by_name || '—' }}</template>
+      <template #cell-source_type="{ row }">{{ movementTypeLabel(row.source_type) }}</template>
+      <template #cell-source_document="{ row }">
+        <AppButton variant="text" :disabled="connectionLost" :aria-label="`查看单据 ${relatedDocumentLabel(row, 'source')} 详情`"
+          @click="openLedgerDocument(row)">{{ relatedDocumentLabel(row, 'source') }}</AppButton>
+      </template>
       <template #cell-quantity="{ row: item }"
         >{{ item.quantity.startsWith('-') ? '' : '+' }}{{ item.quantity }} {{ item.unit }}</template
       >
@@ -150,9 +153,15 @@ onMounted(() => { void queryLedger(ledgerQuery.value.page) })
       :data="ledgerResult.groups"
       :min-table-width="680"
     >
-      <template #cell-material="{ row }">{{ row.sku }} · {{ row.material_name }}</template>
+      <template #cell-sku="{ row }"><AppButton variant="text" :disabled="connectionLost" @click="openLedgerMaterial(row)">{{ row.sku }}</AppButton></template>
       <template #cell-opening="{ row }">{{ row.opening_quantity }} {{ row.unit }}</template>
       <template #cell-closing="{ row }">{{ row.closing_quantity }} {{ row.unit }}</template>
     </WorkspaceTable>
+    <InventoryDetailDialogs />
   </section>
 </template>
+
+<style scoped>
+/* 固定时分格式便于纵向对齐，较窄窗口由公共表格横向滚动承载。 */
+.ledger-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+</style>

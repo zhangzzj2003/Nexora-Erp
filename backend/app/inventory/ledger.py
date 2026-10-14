@@ -4,7 +4,7 @@ from app.core.document_responses import NumberedRoute
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -13,6 +13,43 @@ from app.core.models import Warehouse, Material, StockMovement, User
 from app.core.orm import orm_session
 
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
+
+
+def ledger_document_target(db, movement: StockMovement) -> tuple[str, int, str]:
+    from app.core import models
+    from app.core.document_responses import SOURCE_TYPES, REVERSAL_TYPES
+    # 仅处理正式库存来源；来源表和外键复用编号白名单，绝不按客户端字符串反射表名。
+    base = ('transfer' if movement.source_type in ('transfer_reversal_in', 'transfer_reversal_out')
+            else movement.source_type.removesuffix('_reversal'))
+    if base not in ('receipt', 'purchase_return', 'other_inbound', 'other_outbound',
+                    'shipment', 'sales_return', 'transfer_in', 'transfer_out', 'transfer',
+                    'stocktake', 'adjustment', 'material_issue', 'material_return', 'production_completion'):
+        raise HTTPException(422, '此库存来源暂不支持查看单据详情')
+    identifier = movement.source_id
+    intent = 'reverse' if '_reversal' in movement.source_type else 'execute'
+    if intent == 'reverse':
+        model, field = REVERSAL_TYPES[base]
+        reversal = db.get(getattr(models, model), identifier)
+        if reversal is None:
+            raise HTTPException(404, '库存流水关联的冲销记录不存在')
+        identifier = getattr(reversal, field)
+    return SOURCE_TYPES[base], identifier, intent
+
+
+@router.get('/inventory-ledger/{movement_id}/document')
+def ledger_document(movement_id: int = Path(gt=0),
+                    user: dict = Depends(require('inventory.view'))) -> dict:
+    from app.service.document_approvals import document_state
+    with orm_session() as db:
+        movement = db.get(StockMovement, movement_id)
+        if movement is None:
+            raise HTTPException(404, '库存流水不存在')
+        target = ledger_document_target(db, movement)
+        # 继续执行原单的查看权限与客户归属校验；台账权限不能扩大其他业务资料的可见范围。
+        document = document_state(db, *target, user['id'])
+        # 此入口只用于追溯，不能把原单审批能力带入台账的只读弹窗。
+        return {'movement_id': movement.id, 'document': {
+            **document, 'can_submit': False, 'can_review': False, 'can_withdraw': False}}
 
 
 class LedgerQuery(BaseModel):

@@ -48,6 +48,7 @@ import { createPurchaseActions } from './modules/purchase-actions'
 import { createStockOverviewActions } from './modules/stock-overview-actions'
 import { createInventoryReportActions } from './modules/inventory-report-actions'
 import { createInventoryLedgerActions } from './modules/inventory-ledger-actions'
+import { createInventoryLedgerDetailActions } from './modules/inventory-ledger-detail-actions'
 import { createWarehouseActions } from './modules/warehouse-actions'
 import { createReportActions } from './modules/report-actions'
 import { createFinanceActions } from './modules/finance-actions'
@@ -300,6 +301,7 @@ function createAppStore() {
   const stockOverviewActions = createStockOverviewActions(state)
   const inventoryReportActions = createInventoryReportActions(state)
   const inventoryLedgerActions = createInventoryLedgerActions(state)
+  const inventoryLedgerDetailActions = createInventoryLedgerDetailActions(state)
   const warehouseActions = createWarehouseActions(state, perform)
   const reportActions = createReportActions(state, perform)
   const financeActions = createFinanceActions(state, perform)
@@ -404,6 +406,7 @@ function createAppStore() {
     ...purchaseActions,
     ...warehouseActions,
     ...inventoryLedgerActions,
+    ...inventoryLedgerDetailActions,
     ...stockOverviewActions,
     ...inventoryReportActions,
     ...reportActions,

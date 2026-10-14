@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | `home/` | `HomeDashboardView.vue` | 按权限展示服务端业务净额、逐日趋势、有效单据与当前待办/库存；`dashboard-data.ts` 负责金额展示和图形坐标，规则见 `docs/home-statistics.md` |
 | `warehouse/` | `InventoryOverviewView.vue` | 查看当前库存与库存流水 |
+| `warehouse/` | `InventoryLedgerView.vue`、`InventoryReportsView.vue` | 按物料编号、名称分别展示台账与库存报表；共用 `components/workspace/InventoryDetailDialogs.vue` 页内查看物料资料、独立分页台账及只读来源单据，范围和权限见 `docs/inventory-ledger.md` |
 | `warehouse/` | `InventoryWarningsView.vue` | 按仓库现存量与阈值识别缺货/低库存，页内配置、启停及中文修订证据；工作台窗口定时读取并在状态新发生或恶化时提醒 |
 | `warehouse/` | `PhysicalLotsView.vue` | 按仓库和物料核对批次结存、未分配差额、历史未识别期初和逐笔来源；支持历史期初现场补证与升级后未分配流水逐笔补证、先入后出成对及多笔成组补证，不推断旧单据的真实批号 |
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，按处理人、仓库、来源及本地日期范围与搜索/状态组合筛选，确认时登记多批实物来源并按原批次冲销 |

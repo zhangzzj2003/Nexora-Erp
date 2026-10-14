@@ -5,6 +5,7 @@ import { validateProductionSettlementResponse } from '../shared/production-settl
 import { validatePaymentRecordResponse } from '../shared/payment-record-api.ts'
 import { documentNumberingBody, validateDocumentNumbering, validateDocumentNumbers } from '../shared/document-numbering.ts'
 import { documentApprovalType, documentApprovalPolicyBody, validateDocumentApprovalPolicies, validateDocumentApprovalPolicy, documentApprovalTarget, documentApprovalActionBody, validateDocumentApprovalRecord, validateDocumentApprovalResponse } from '../shared/document-approval-api.ts'
+import { validateInventoryLedgerDocument } from '../shared/inventory-ledger-document.ts'
 import { supplierBody } from '../shared/supplier-api.ts'
 import { materialUnitBody, validateMaterialUnitResult } from '../shared/material-unit-api.ts'
 import { validateMaterialChoiceResult } from '../shared/material-choice-validation.ts'
@@ -1715,6 +1716,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'queryStock': return { method: 'POST', path: '/api/v1/stock/query', body: payload }
     case 'queryInventoryReport': return { method: 'POST', path: '/api/v1/reports/inventory/query', body: payload }
     case 'inventoryLedger': return { method: 'POST', path: '/api/v1/inventory-ledger/query', body: payload }
+    case 'inventoryLedgerDocument': return { method: 'GET', path: `/api/v1/inventory-ledger/${positiveId(payload, 'movement_id')}/document` }
     case 'queryReport': return { method: 'POST', path: '/api/v1/reports/query', body: payload }
     default: throw new Error('不允许的业务操作')
   }
@@ -1770,6 +1772,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     }
   }
   if (action === 'documentApprovalPolicies') validateDocumentApprovalPolicies(data)
+  if (action === 'inventoryLedgerDocument') validateInventoryLedgerDocument(data, positiveId(payload, 'movement_id'))
   if (action === 'documentApprovalPolicy' || action === 'saveDocumentApprovalPolicy') validateDocumentApprovalPolicy(data)
   if (action === 'materialSupply') validateMaterialSupply(data, materialSupplyBody(payload).material_ids)
   if (action === 'dashboard') validateDashboardResult(data,(payload as ErpOperations['dashboard']['input']).period)
