@@ -1,3 +1,4 @@
+import type { MaterialFlowOperations } from './material-flow-api'
 import type { MaterialSupplyOperations } from './material-supply-api'
 import type { ProductionAssociationOperations } from './production-association-api'
 import type { DocumentNumberingOperations, NumberedDocument } from './document-numbering'
@@ -876,6 +877,9 @@ export interface WorkOrderLine {
   material_name: string
   unit: string
   required_quantity: string
+  in_transit_quantity?: string
+  reserved_quantity?: string
+  damaged_quantity?: string
   issued_quantity: string
   remaining_quantity: string
 }
@@ -928,6 +932,9 @@ export interface MaterialIssueLine {
 }
 // 确认后的领料单生成独立负向库存流水；原单据保留供追溯。
 export interface MaterialIssue extends NumberedDocument {
+  // 历史直接领料保留原核算；兼容接口新发料仍需生产签收。
+  receipt_mode?: 'historical_direct' | 'warehouse_dispatch'
+  material_receipt_id?: number | null
   // 本单独立审批；旧响应缺失时界面不允许执行。
   approval?: DocumentApprovalState
   reversal_approval?: DocumentApprovalState
@@ -1064,8 +1071,10 @@ export interface ProductionCostOrder {
 }
 export interface ProductionMaterialSource {
   work_order_id: number
-  material_issue_line_id: number
-  material_issue_id: number
+  material_issue_line_id: number | null
+  material_issue_id: number | null
+  execution_line_id?: number
+  material_dispatch_id?: number
   movement_id: number
   sku: string
   material_name: string
@@ -1115,7 +1124,7 @@ export interface ProductionCostReport {
   orders: ProductionCostOrder[]
   entries: ProductionCostEntry[]
   material_sources: ProductionMaterialSource[]
-  unpriced_lines: { material_issue_line_id: number; material_issue_id: number; work_order_id: number;
+  unpriced_lines: { material_issue_line_id: number | null; material_issue_id: number | null; execution_line_id?: number; material_dispatch_id?: number; work_order_id: number;
     sku: string; material_name: string; unit: string; net_quantity: string }[]
 }
 // 销售订单剩余量由已确认的出库单计算，草稿不会预先扣减。
@@ -1297,6 +1306,13 @@ export interface Stocktake extends NumberedDocument {
   lines: StocktakeLine[]
 }
 export interface Movement {
+  // 新流程逐次执行关联真实出入库；旧快照没有这些关联字段时仍可读取。
+  material_dispatch_id?: number | null
+  material_dispatch_reversal_id?: number | null
+  production_material_return_id?: number | null
+  production_material_return_reversal_id?: number | null
+  material_receipt_id?: number | null
+  material_receipt_reversal_id?: number | null
   id: number
   warehouse_id: number
   warehouse_name: string
@@ -1305,7 +1321,7 @@ export interface Movement {
   material_name: string
   unit: string
   quantity: string
-  source_type: 'receipt' | 'receipt_reversal' | 'other_inbound' | 'other_inbound_reversal' | 'other_outbound' | 'other_outbound_reversal' | 'adjustment' | 'adjustment_reversal' | 'transfer_out' | 'transfer_in' | 'transfer_reversal_out' | 'transfer_reversal_in' | 'stocktake' | 'stocktake_reversal' | 'shipment' | 'shipment_reversal' | 'sales_return' | 'sales_return_reversal' | 'purchase_return' | 'purchase_return_reversal' | 'material_issue' | 'material_issue_reversal' | 'material_return' | 'material_return_reversal' | 'production_completion' | 'production_completion_reversal'
+  source_type: 'receipt' | 'receipt_reversal' | 'other_inbound' | 'other_inbound_reversal' | 'other_outbound' | 'other_outbound_reversal' | 'adjustment' | 'adjustment_reversal' | 'transfer_out' | 'transfer_in' | 'transfer_reversal_out' | 'transfer_reversal_in' | 'stocktake' | 'stocktake_reversal' | 'shipment' | 'shipment_reversal' | 'sales_return' | 'sales_return_reversal' | 'purchase_return' | 'purchase_return_reversal' | 'material_dispatch' | 'material_dispatch_reversal' | 'production_material_return' | 'production_material_return_reversal' | 'material_handover_return' | 'material_handover_return_reversal' | 'material_issue' | 'material_issue_reversal' | 'material_return' | 'material_return_reversal' | 'production_completion' | 'production_completion_reversal'
   source_id: number
   source_line_id: number
   receipt_id: number | null
@@ -1406,7 +1422,7 @@ export interface InventoryReportResult extends Omit<ReportResult, 'csv'> {
   page_size: number
 }
 
-export interface ErpOperations extends MaterialSupplyOperations, ProductionAssociationOperations, DocumentApprovalOperations, DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations, ControlBalanceOperations {
+export interface ErpOperations extends MaterialFlowOperations, MaterialSupplyOperations, ProductionAssociationOperations, DocumentApprovalOperations, DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations, ControlBalanceOperations {
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
   login: { input: { username: string; password: string }; output: User }

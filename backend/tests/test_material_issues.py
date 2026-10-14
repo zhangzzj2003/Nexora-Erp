@@ -1,6 +1,6 @@
 """验证分批领料、库存与剩余需料的事务核对，以及不可改写的流水来源。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import receive_legacy_issue, approve_document
 
 from fastapi.testclient import TestClient
 
@@ -72,6 +72,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         assert client.post(f"{base}/material-issues/{issue_id}/post", headers=planner).status_code == 403
         approve_document(client, admin, 'MaterialIssue', issue_id)
         assert client.post(f"{base}/material-issues/{issue_id}/post", headers=warehouse).status_code == 200
+        receive_legacy_issue(client, admin, issue_id)
         assert client.post(f"{base}/material-issues/{issue_id}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/material-issues/{issue_id}/cancel", headers=warehouse).status_code == 409
         current = client.get(f"{base}/work-orders", headers=planner).json()[0]
@@ -111,6 +112,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
         stale = client.post(f"{base}/material-issues", headers=warehouse, json=remaining).json()["id"]
         approve_document(client, admin, 'MaterialIssue', first)
         assert client.post(f"{base}/material-issues/{first}/post", headers=warehouse).status_code == 200
+        receive_legacy_issue(client, admin, first)
         assert client.post(f"{base}/material-issues/{stale}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/material-issues/{stale}/cancel", headers=warehouse).status_code == 200
         assert client.get(f"{base}/work-orders", headers=planner).json()[0]["lines"][0]["remaining_quantity"] == "0.000"

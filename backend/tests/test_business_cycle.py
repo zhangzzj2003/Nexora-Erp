@@ -1,6 +1,6 @@
 """验证采购、调拨、生产、销售与业务对账共用同一套物料和库存。"""
 
-from approval_test_helpers import execute_production_settlement, approve_document, execute_payment
+from approval_test_helpers import receive_legacy_issue, execute_production_settlement, approve_document, execute_payment
 
 from decimal import Decimal
 
@@ -83,6 +83,7 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
                                                                    "quantity": "4"}]})
         approve_document(client, admin, 'MaterialIssue', issue['id'])
         confirm(f"/material-issues/{issue['id']}/post", warehouse)
+        receive_legacy_issue(client, admin, issue['id'])
         # 领料成本自动沿用采购入库形成的库存平均成本，不再重复人工核价。
         assert client.get(f"{base}/production-costs", headers=finance).json()["orders"][0]["known_material_amount"] == "12.00"
         create("/production-costs/charges", finance, {"work_order_id": work_order["id"],

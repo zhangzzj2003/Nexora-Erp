@@ -11,6 +11,8 @@ from app.core.orm import orm_session
 
 # 主单接口与嵌套集合使用明确的类型白名单，不能把明细 ID 当作另一张主单。
 PATH_TYPES = {
+    'material-dispatches':'MaterialDispatch','material-receipts':'MaterialReceipt',
+    'material-exchanges':'MaterialExchange','material-returns/flow':'ProductionMaterialReturn',
     'purchase-requests': 'PurchaseRequest', 'purchase-orders': 'PurchaseOrder',
     'purchase-goods-receipts': 'PurchaseGoodsReceipt', 'receipts': 'Receipt',
     'purchase-returns': 'PurchaseReturn', 'warehouse-inbounds': 'WarehouseInbound',
@@ -57,6 +59,9 @@ SOURCE_TYPES = {
     'order_payment': 'PaymentRecord', 'payment_record': 'PaymentRecord', 'subledger_payment': 'SubledgerPayment',
     'quality_loss': 'QualityDisposition', 'stocktake': 'Stocktake', 'stock_adjustment': 'StockAdjustment', 'adjustment': 'StockAdjustment',
     'material_issue': 'MaterialIssue', 'material_return': 'MaterialReturn',
+    # 新流程冲销流水沿用原主单 ID；没有独立冲销主表，不套用旧领退料的冲销 ID 转换。
+    'material_dispatch': 'MaterialDispatch', 'production_material_return': 'ProductionMaterialReturn',
+    'material_handover_return': 'MaterialReceipt',
     'production_completion': 'ProductionCompletion', 'work_order': 'WorkOrder',
     'after_sales_repair': 'AfterSalesCase', 'purchase_order': 'PurchaseOrder', 'sales_order': 'SalesOrder', 'purchase_request': 'PurchaseRequest',
 }
@@ -90,6 +95,12 @@ def path_type(path: str) -> str | None:
 
 def enrich_numbers(db, value, primary: str | None, path: str):
     requests = []
+    flow_types = {'dispatch': 'MaterialDispatch', 'receipt': 'MaterialReceipt',
+                  'exchange': 'MaterialExchange', 'return': 'ProductionMaterialReturn'}
+    relative_path = path.removeprefix('/api/v1/').strip('/')
+    flow_path = any(relative_path == prefix or relative_path.startswith(prefix + '/')
+                    for prefix in ('material-dispatches', 'material-receipts', 'material-exchanges', 'material-returns/flow'))
+    flow_path = flow_path or (relative_path.startswith('work-orders/') and relative_path.endswith('/material-flow'))
     def add(target, key, model, identifier):
         if isinstance(identifier, int) and not isinstance(identifier, bool) and identifier > 0:
             requests.append((target, key, model, identifier))
@@ -99,6 +110,10 @@ def enrich_numbers(db, value, primary: str | None, path: str):
             for part in node:
                 visit(part, kind)
         elif isinstance(node, dict):
+            # 工单集合的 receipts 与采购收货重名，换料建补发的路径也不同于返回主单。
+            # 只在新流程接口识别明确的主单形状，避免集合名或父路径把已有正确单号覆盖。
+            if flow_path and node.get('kind') in flow_types and 'work_order_id' in node and 'lines' in node:
+                kind = flow_types[node['kind']]
             if kind and not any(part in path.split('/') for part in ('changes', 'attachments')):
                 add(node, 'document_no', kind, node.get('id'))
             for field, model in RELATION_TYPES.items():

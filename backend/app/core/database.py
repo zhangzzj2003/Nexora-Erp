@@ -78,10 +78,88 @@ def _migrate_payment_records(db: sqlite3.Connection, table: str = 'payment_recor
         db.execute("CREATE UNIQUE INDEX subledger_payments_reference ON subledger_payments(opening_line_id,action,reference) WHERE status <> 'cancelled'")
 
 
+def _migrate_material_flow(db: sqlite3.Connection) -> None:
+    # 生产物料结构迁移统一保留在核心层；业务模块只通过 ORM 读写。
+    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if 'material_issues' in tables:
+        columns = {row[1] for row in db.execute('PRAGMA table_info(material_issues)')}
+        if 'historical_direct' not in columns:
+            db.execute('ALTER TABLE material_issues ADD COLUMN historical_direct BOOLEAN NOT NULL DEFAULT 0')
+            db.execute("UPDATE material_issues SET historical_direct=1 WHERE status='posted'")
+    for table in ('material_dispatches', 'material_receipts', 'material_exchanges', 'production_material_returns'):
+        db.execute(f'''CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY, document_no TEXT UNIQUE,
+            work_order_id INTEGER NOT NULL REFERENCES work_orders(id), warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+            status TEXT NOT NULL DEFAULT 'draft', version INTEGER NOT NULL DEFAULT 1,
+            reference TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+            source_document_type TEXT, source_document_id INTEGER,
+            request_id TEXT NOT NULL UNIQUE, request_digest TEXT NOT NULL,
+            created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            closed_by INTEGER REFERENCES users(id), closed_at TEXT, close_reason TEXT NOT NULL DEFAULT '')''')
+        db.execute(f'CREATE UNIQUE INDEX IF NOT EXISTS {table}_document_no ON {table}(document_no)')
+        db.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_number_immutable BEFORE UPDATE OF document_no ON {table}
+            WHEN OLD.document_no IS NOT NULL AND NEW.document_no IS NOT OLD.document_no
+            BEGIN SELECT RAISE(ABORT, '业务单号不可修改'); END""")
+    db.execute('''CREATE TABLE IF NOT EXISTS material_flow_lines (
+        id INTEGER PRIMARY KEY, document_type TEXT NOT NULL, document_id INTEGER NOT NULL,
+        work_order_line_id INTEGER NOT NULL REFERENCES work_order_lines(id), quantity TEXT NOT NULL,
+        source_receipt_line_id INTEGER REFERENCES material_flow_lines(id), legacy_issue_line_id INTEGER REFERENCES material_issue_lines(id),
+        exchange_line_id INTEGER REFERENCES material_flow_lines(id), source_execution_line_id INTEGER REFERENCES material_flow_execution_lines(id),
+        disposal TEXT NOT NULL DEFAULT 'physical', evidence TEXT NOT NULL DEFAULT '')''')
+    db.execute('CREATE INDEX IF NOT EXISTS material_flow_lines_document ON material_flow_lines(document_type,document_id)')
+    db.execute('''CREATE TABLE IF NOT EXISTS material_flow_executions (
+        id INTEGER PRIMARY KEY, document_type TEXT NOT NULL, document_id INTEGER NOT NULL, action TEXT NOT NULL,
+        request_id TEXT NOT NULL, request_digest TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+        created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(document_type,document_id,request_id))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS material_flow_execution_lines (
+        id INTEGER PRIMARY KEY, execution_id INTEGER NOT NULL REFERENCES material_flow_executions(id),
+        line_id INTEGER NOT NULL REFERENCES material_flow_lines(id), quantity TEXT NOT NULL,
+        movement_id INTEGER REFERENCES stock_movements(id), source_movement_id INTEGER REFERENCES stock_movements(id),
+        reverses_line_id INTEGER UNIQUE REFERENCES material_flow_execution_lines(id))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS production_flow_settlement_sources (
+        settlement_id INTEGER NOT NULL REFERENCES production_cost_settlements(id), movement_id INTEGER NOT NULL REFERENCES stock_movements(id),
+        execution_line_id INTEGER NOT NULL REFERENCES material_flow_execution_lines(id),
+        net_quantity TEXT NOT NULL, unit_cost TEXT NOT NULL, amount TEXT NOT NULL, cost_source TEXT NOT NULL,
+        cost_entry_id INTEGER REFERENCES production_cost_entries(id), PRIMARY KEY(settlement_id,movement_id))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS material_flow_execution_lots (
+        id INTEGER PRIMARY KEY, execution_line_id INTEGER NOT NULL REFERENCES material_flow_execution_lines(id),
+        lot_id INTEGER NOT NULL REFERENCES physical_lots(id), quantity TEXT NOT NULL,
+        UNIQUE(execution_line_id,lot_id))''')
+    for table in ('material_flow_executions', 'material_flow_execution_lines', 'material_flow_execution_lots'):
+        for action in ('UPDATE', 'DELETE'):
+            db.execute(f'''CREATE TRIGGER IF NOT EXISTS {table}_immutable_{action.lower()}
+                BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT, 'immutable material flow execution'); END''')
+    if 'document_approval_policies' in tables:
+        for kind in ('MaterialDispatch', 'MaterialReceipt', 'MaterialExchange', 'ProductionMaterialReturn'):
+            db.execute('''INSERT OR IGNORE INTO document_approval_policies(document_type,version,steps_json)
+                VALUES (?,1,'[{"name":"批准","role":null}]')''', (kind,))
+    if {'permissions', 'role_permissions'} <= tables:
+        permissions = [('material_flow.view', '查看生产物料单据', ('admin','warehouse','planner')),
+                       ('material_receipt.sign', '签收生产领料', ('admin','planner')),
+                       ('material_receipt.handover_return', '接收未签收交接退回', ('admin','warehouse'))]
+        for prefix, title in (('material_receipt','生产签收更正'),('material_dispatch','生产发料'),('material_exchange','生产换料'),('material_flow_return','生产退料')):
+            for action, label in (('create','编制'),('post','办理'),('close','关闭余额'),('reverse','更正'),('review','审核'),('verify','核准'),('approve','批准')):
+                # 签收单自动产生且不能关闭差额，不展示不存在的建单、出库或关闭权限。
+                if prefix=='material_receipt' and action in ('create','post','close'):
+                    continue
+                roles = ('admin','warehouse') if action in ('post','close','reverse') or prefix == 'material_dispatch' else ('admin','planner')
+                permissions.append((prefix+'.'+action,label+title,roles))
+        group='production.material_flow'
+        if 'permission_groups' in tables:
+            db.execute("INSERT OR IGNORE INTO permission_groups(code,label,parent_code,sort_order) VALUES ('production.material_flow','生产物料操作','production',90)")
+        for code, label, roles in permissions:
+            db.execute('INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,?)',(code,label,group))
+            # 部分旧库诊断夹具尚无角色表；权限目录仍可升级，角色关联仅在结构齐全时添加。
+            for role in roles if 'roles' in tables else ():
+                db.execute('''INSERT OR IGNORE INTO role_permissions(role_code,permission_code)
+                    SELECT code,? FROM roles WHERE code=?''',(code,role))
+
+
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 102:
+        if version > 103:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -3107,3 +3185,9 @@ def migrate() -> None:
                     if name not in columns:
                         db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
             db.execute('PRAGMA user_version = 102')
+
+
+        if version < 103:
+            # 只增加新事实表；历史直接领料不补造签收人或签收时间。
+            _migrate_material_flow(db)
+            db.execute('PRAGMA user_version = 103')

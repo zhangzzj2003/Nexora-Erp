@@ -1,6 +1,38 @@
 """业务测试显式送审工具；不会拦截请求、自动批准或放宽生产权限。"""
 
 
+def receive_legacy_issue(client, signer_headers, issue_id):
+    """夹具显式签收旧发料接口产生的新领料单，不把出库事实伪装为实收。"""
+    from uuid import uuid4
+    issues = client.get('/api/v1/material-issues', headers=signer_headers)
+    assert issues.status_code == 200, issues.text
+    issue = next(row for row in issues.json() if row['id'] == issue_id)
+    receipt_id = issue['material_receipt_id']
+    assert receipt_id is not None, issue
+    result = client.get(f'/api/v1/material-receipts/{receipt_id}', headers=signer_headers)
+    assert result.status_code == 200, result.text
+    receipt = result.json()
+    result = client.post(f'/api/v1/material-receipts/{receipt_id}/execute', headers=signer_headers,
+        json={'version': receipt['version'], 'request_id': str(uuid4()), 'reason': '生产现场逐项核对实收',
+              'lines': [{'line_id': line['id'], 'quantity': line['remaining_quantity']} for line in receipt['lines']]})
+    assert result.status_code == 200, result.text
+    return result.json()
+
+
+def reverse_legacy_receipt(client, actor_headers, issue_id, reason='签收登记有误'):
+    """更正夹具显式批准并撤销签收事实，再由原发料冲销恢复库存。"""
+    from uuid import uuid4
+    issue = next(row for row in client.get('/api/v1/material-issues', headers=actor_headers).json()
+                 if row['id'] == issue_id)
+    identifier = issue['material_receipt_id']
+    approve_document(client, actor_headers, 'MaterialReceipt', identifier, intent='reverse', reason=reason)
+    receipt = client.get(f'/api/v1/material-receipts/{identifier}', headers=actor_headers).json()
+    response = client.post(f'/api/v1/material-receipts/{identifier}/reverse', headers=actor_headers,
+        json={'version': receipt['version'], 'request_id': str(uuid4()), 'reason': reason})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 def approve_document(client, author_headers, document_type, identifier, *, intent='execute', reason='', account_headers=None):
     path = f'/api/v1/system/document-approvals/{document_type}/{identifier}'
     state = client.get(path, headers=author_headers, params={'intent': intent})

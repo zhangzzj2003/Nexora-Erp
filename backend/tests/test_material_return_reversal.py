@@ -1,6 +1,6 @@
 """已确认退料冲销保留原单，并对库存、批次和后续领用执行原子校验。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, receive_legacy_issue, reverse_legacy_receipt
 import sqlite3
 from decimal import Decimal
 
@@ -58,6 +58,7 @@ def scenario(client, *, legacy_return=False):
     assert client.post(f'{base}/material-issues/{issue["id"]}/post', headers=auth, json={
         'lines': [{'material_issue_line_id': issue['lines'][0]['id'],
                    'lots': [{'lot_id': lot_id, 'quantity': '2'}]}]}).status_code == 200
+    receive_legacy_issue(client, auth, issue['id'])
     returned = client.post(f'{base}/material-returns', headers=auth, json={
         'material_issue_id': issue['id'], 'reason': '未使用退回',
         'lines': [{'material_issue_line_id': issue['lines'][0]['id'], 'quantity': '1'}]}).json()
@@ -132,6 +133,7 @@ def test_return_reversal_restores_net_issue_and_pairs_cost(monkeypatch, tmp_path
                 headers=auth, json={'lot_id': lot_id, 'quantity': '1',
                                     'evidence': '冲销后禁止改写原批次证据'}).status_code == 409
         # 独立审批完成后，再验证原库存约束或失败回滚。
+        reverse_legacy_receipt(client, auth, issue['id'])
         approve_document(client, auth, 'MaterialIssue', issue['id'], intent='reverse', reason='原领料也录错')
         assert client.post(f'{base}/material-issues/{issue["id"]}/reverse',
             headers=auth, json={'reason': '原领料也录错'}).status_code == 201
@@ -229,7 +231,7 @@ def test_v66_upgrade_adds_return_reversal_without_user_changes(monkeypatch, tmp_
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 102
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 103
         assert db.execute('SELECT id, username, password_hash FROM users').fetchall() == users
         assert db.execute("SELECT role_code FROM role_permissions WHERE permission_code='material_return.reverse'").fetchall() == [('admin',)]
         assert db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='material_return_reversals'").fetchone() is not None

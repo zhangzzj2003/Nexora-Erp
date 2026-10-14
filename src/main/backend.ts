@@ -1,3 +1,4 @@
+import { materialFlowRequest, validateMaterialFlowResult } from '../shared/material-flow-api.ts'
 import { materialSupplyBody, validateMaterialSupply } from '../shared/material-supply-api.ts'
 import { materialCategoryCode, materialCategoryRevision, materialCategoryBody, materialSpecFieldBody, validateMaterialCategoryResult } from '../shared/material-category-validation.ts'
 import { productionAssociationInput, validateProductionAssociations } from '../shared/production-association-api.ts'
@@ -568,6 +569,8 @@ function permissionCode(payload: unknown): string {
 }
 
 function operation(action: keyof ErpOperations, payload: unknown): { method: string; path: string; body?: unknown } {
+  const flowRequest = materialFlowRequest(action, payload)
+  if (flowRequest) return flowRequest
   // 明确列出可调用的接口，禁止页面拼接任意后端路径。
   switch (action) {
     case 'materialSupply': return {method: 'POST', path: '/api/v1/inventory/material-supply/query', body: materialSupplyBody(payload)}
@@ -1867,6 +1870,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     if (request.lots) validatePostedCompletionLots(data, request.completionId,
       completionLotBody({lots: request.lots}).lots)
   }
+  validateMaterialFlowResult(action, data, payload)
   validateInventoryWarningResult(action,data)
   validatePhysicalLotResult(action,data)
   validateControlBalanceResult(action,data)

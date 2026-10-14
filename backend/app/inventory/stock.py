@@ -29,6 +29,13 @@ MOVEMENT_LINKS = {
     'material_issue_reversal_id': ('material_issue_reversal',),
     'material_return_id': ('material_return',),
     'material_return_reversal_id': ('material_return_reversal',),
+    # 新流程的出库、正常退料与未签交接退回分别指向真实来源单，避免误跳旧领料记录。
+    'material_dispatch_id': ('material_dispatch',),
+    'material_dispatch_reversal_id': ('material_dispatch_reversal',),
+    'production_material_return_id': ('production_material_return',),
+    'production_material_return_reversal_id': ('production_material_return_reversal',),
+    'material_receipt_id': ('material_handover_return',),
+    'material_receipt_reversal_id': ('material_handover_return_reversal',),
     'production_completion_id': ('production_completion',),
     'production_completion_reversal_id': ('production_completion_reversal',),
 }

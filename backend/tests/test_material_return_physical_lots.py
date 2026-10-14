@@ -1,6 +1,6 @@
 """生产退料核对原领料批次、累计可退量与新发现批次来源。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import receive_legacy_issue, approve_document
 
 from decimal import Decimal
 
@@ -53,6 +53,7 @@ def test_material_return_lots_follow_original_issue(monkeypatch, tmp_path):
             json={'lines': [{'material_issue_line_id': issue_line, 'lots': [
                 {'lot_id': lot_a, 'quantity': '1.000'},
                 {'lot_id': lot_b, 'quantity': '1.000'}]}]}).status_code == 200
+        receive_legacy_issue(client, auth, issue['id'])
         def make_return(quantity):
             return client.post(f'{base}/material-returns', headers=auth, json={
                 'material_issue_id': issue['id'], 'reason': '未使用退回',

@@ -341,6 +341,11 @@ def post_completion(completion_id: int, payload: CompletionPostInput | None = No
         target = Decimal(order["target_quantity"])
         if total > target:
             raise HTTPException(409, "完工数量超出工单目标产量")
+        if total == target:
+            from app.production.material_flow_rules import pending_material_flow
+            # 分批报工可继续，但最终关闭必须先处理所有交接差额和未完成退换料。
+            if pending_material_flow(db, order["id"]):
+                raise HTTPException(409, "工单仍有未完成的发料、签收、退料或换料，请处理后再完成最后一批报工")
         for line in db.execute(
             select(WorkOrderLine.id, WorkOrderLine.component_material_id, WorkOrderLine.required_quantity)
             .select_from(WorkOrderLine)

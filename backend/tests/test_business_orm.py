@@ -1,6 +1,6 @@
 """ORM 单据迁移须保留写入后回滚、跨模块状态和并发确认约束。"""
 
-from approval_test_helpers import approve_document, prepare_purchase_return
+from approval_test_helpers import receive_legacy_issue, approve_document, prepare_purchase_return
 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
@@ -100,6 +100,7 @@ def completion(erp):
     )
     approve_document(client, dict(client.headers), 'MaterialIssue', issue['id'])
     request("POST", f'material-issues/{issue["id"]}/post')
+    receive_legacy_issue(client, dict(client.headers), issue['id'])
     row = request(
         "POST", "production-completions", {"work_order_id": order["id"], "reported_quantity": "2.000"}, 201
     )

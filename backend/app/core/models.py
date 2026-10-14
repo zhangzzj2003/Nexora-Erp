@@ -993,6 +993,8 @@ class WorkOrderLine(Base):
 class MaterialIssue(Base):
     # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
     document_no: Mapped[str | None] = mapped_column(Text, unique=True)
+    # 升级前已过账的直接领料保留历史核算；新单必须另行签收。
+    historical_direct: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('0'))
     __tablename__ = 'material_issues'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     work_order_id: Mapped[int] = mapped_column(Integer, ForeignKey('work_orders.id'), nullable=False)
@@ -2671,3 +2673,106 @@ class DocumentApprovalAuthor(Base):
     document_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), primary_key=True)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class MaterialFlowHeader:
+    # 四类主单独立编号，共用同一版本和审计约束；执行事实放在不可变明细中。
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey('work_orders.id'), nullable=False)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey('warehouses.id'), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'draft'"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    reference: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    source_document_type: Mapped[str | None] = mapped_column(Text)
+    source_document_id: Mapped[int | None] = mapped_column(Integer)
+    request_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    request_digest: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    closed_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    closed_at: Mapped[str | None] = mapped_column(Text)
+    close_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+
+
+class MaterialDispatch(MaterialFlowHeader, Base):
+    __tablename__ = 'material_dispatches'
+
+
+class MaterialReceipt(MaterialFlowHeader, Base):
+    __tablename__ = 'material_receipts'
+
+
+class MaterialExchange(MaterialFlowHeader, Base):
+    __tablename__ = 'material_exchanges'
+
+
+class ProductionMaterialReturn(MaterialFlowHeader, Base):
+    __tablename__ = 'production_material_returns'
+
+
+class MaterialFlowLine(Base):
+    __tablename__ = 'material_flow_lines'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_type: Mapped[str] = mapped_column(Text, nullable=False)
+    document_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    work_order_line_id: Mapped[int] = mapped_column(ForeignKey('work_order_lines.id'), nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    source_receipt_line_id: Mapped[int | None] = mapped_column(ForeignKey('material_flow_lines.id'))
+    legacy_issue_line_id: Mapped[int | None] = mapped_column(ForeignKey('material_issue_lines.id'))
+    exchange_line_id: Mapped[int | None] = mapped_column(ForeignKey('material_flow_lines.id'))
+    source_execution_line_id: Mapped[int | None] = mapped_column(ForeignKey('material_flow_execution_lines.id'))
+    disposal: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'physical'"))
+    evidence: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    __table_args__ = (Index('material_flow_lines_document', 'document_type', 'document_id'),)
+
+
+class MaterialFlowExecution(Base):
+    __tablename__ = 'material_flow_executions'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_type: Mapped[str] = mapped_column(Text, nullable=False)
+    document_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    request_id: Mapped[str] = mapped_column(Text, nullable=False)
+    request_digest: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    __table_args__ = (UniqueConstraint('document_type', 'document_id', 'request_id'),)
+
+
+class MaterialFlowExecutionLine(Base):
+    __tablename__ = 'material_flow_execution_lines'
+    # 每次实际收发独立记录来源流水；成本不能由最后一次执行覆盖整张单。
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    execution_id: Mapped[int] = mapped_column(ForeignKey('material_flow_executions.id'), nullable=False)
+    line_id: Mapped[int] = mapped_column(ForeignKey('material_flow_lines.id'), nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    movement_id: Mapped[int | None] = mapped_column(ForeignKey('stock_movements.id'))
+    source_movement_id: Mapped[int | None] = mapped_column(ForeignKey('stock_movements.id'))
+    reverses_line_id: Mapped[int | None] = mapped_column(ForeignKey('material_flow_execution_lines.id'), unique=True)
+
+
+class ProductionFlowSettlementSource(Base):
+    __tablename__ = 'production_flow_settlement_sources'
+    # 新发料按实际出库流水固化单价；旧结算来源表及其历史主键不变。
+    settlement_id: Mapped[int] = mapped_column(ForeignKey('production_cost_settlements.id'), primary_key=True)
+    movement_id: Mapped[int] = mapped_column(ForeignKey('stock_movements.id'), primary_key=True)
+    execution_line_id: Mapped[int] = mapped_column(ForeignKey('material_flow_execution_lines.id'), nullable=False)
+    net_quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    unit_cost: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[str] = mapped_column(Text, nullable=False)
+    cost_source: Mapped[str] = mapped_column(Text, nullable=False)
+    cost_entry_id: Mapped[int | None] = mapped_column(ForeignKey('production_cost_entries.id'))
+
+
+class MaterialFlowExecutionLot(Base):
+    # 签收与旧料交接不改变仓库库存，但仍须固定实际交接批次，防止把未签批次退入仓库。
+    __tablename__ = 'material_flow_execution_lots'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    execution_line_id: Mapped[int] = mapped_column(ForeignKey('material_flow_execution_lines.id'), nullable=False)
+    lot_id: Mapped[int] = mapped_column(ForeignKey('physical_lots.id'), nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    __table_args__ = (UniqueConstraint('execution_line_id', 'lot_id'),)

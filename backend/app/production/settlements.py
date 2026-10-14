@@ -19,11 +19,12 @@ from app.core.models import (User, Material, WorkOrder, WorkOrderLine, MaterialI
     MaterialIssueLine, MaterialReturn, ProductionCompletion, ProductionCompletionReversal,
     StockMovement, ProductionCostEntry, ProductionCostSettlement, ProductionSettlementReversal,
     ProductionCostAllocation, ProductionSettlementSource, ProductionSettlementDependency,
-    ProductionSettlementCharge, QualityCostAllocation, ProductionReworkSource, QualityDisposition)
+    ProductionSettlementCharge, QualityCostAllocation, ProductionReworkSource, QualityDisposition,
+    ProductionFlowSettlementSource)
 from app.core.orm import orm_session, model_data
 from app.inventory.valuation import calculate_valuation
 from app.production.cost_lock import ensure_unsettled
-from app.production.costs import CostReversalInput, cost_report, money
+from app.production.costs import CostReversalInput, cost_report, money, saved_flow_cost_sources
 from app.production.quality_rules import settlement_dispositions
 
 router = APIRouter(route_class=NumberedRoute, prefix='/api/v1/production-costs/settlements')
@@ -57,6 +58,7 @@ def settlement_data(session: Session, settlement_id: int) -> dict:
         .where(ProductionSettlementSource.settlement_id == settlement_id)
         .order_by(ProductionSettlementSource.material_issue_line_id)):
         sources.append({**model_data(source), 'sku': sku, 'material_name': name})
+    sources.extend(saved_flow_cost_sources(session, settlement_id, settlement.work_order_id))
     allocations = session.scalars(select(ProductionCostAllocation).where(
         ProductionCostAllocation.settlement_id == settlement_id).order_by(ProductionCostAllocation.completion_id))
     charges = session.scalars(select(ProductionCostEntry).join(ProductionSettlementCharge,
@@ -99,6 +101,10 @@ def build_settlement_plan(session: Session, work_order_id: int) -> dict:
     if order.status != 'completed':
         raise HTTPException(409, '须完成工单全部报工后才能结算完工成本')
     ensure_unsettled(session, order.id)
+    from app.production.material_flow_rules import pending_material_flow
+    # 已完工的历史状态不代表交接已完结，结算前仍须重新核对四类物料流程。
+    if pending_material_flow(session, order.id):
+        raise HTTPException(409, '工单仍有未完成的发料、签收、退料或换料，不能正式结算')
     pending = session.scalar(select(ProductionCompletion.id).where(
         ProductionCompletion.work_order_id == order.id, ProductionCompletion.status.in_(('draft', 'inspected'))).limit(1))
     pending_issue = session.scalar(select(MaterialIssue.id).where(
@@ -133,7 +139,7 @@ def build_settlement_plan(session: Session, work_order_id: int) -> dict:
     header = dict(material_amount=summary['known_material_amount'], labor_amount=summary['labor_amount'],
         overhead_amount=summary['overhead_amount'], rework_amount=summary['rework_amount'],
         total_amount=summary['total_amount'], accepted_quantity=str(accepted))
-    allocations, quality, sources, rework = [], [], [], []
+    allocations, quality, sources, flow_sources, rework = [], [], [], [], []
     cumulative_quantity = allocated = Decimal(0)
     accepted_pool = Decimal(money(Decimal(header['total_amount']) * (accepted + absorbed) / reported))
     for completion, movement_id in completions:
@@ -162,10 +168,15 @@ def build_settlement_plan(session: Session, work_order_id: int) -> dict:
     for source in report['material_sources']:
         if source['work_order_id'] != order.id:
             continue
-        sources.append({key: source[key] for key in ('material_issue_line_id', 'movement_id', 'net_quantity',
-            'unit_cost', 'amount', 'cost_source', 'cost_entry_id')})
+        if source.get('execution_line_id') is not None:
+            flow_sources.append({key: source[key] for key in ('execution_line_id', 'movement_id', 'net_quantity',
+                'unit_cost', 'amount', 'cost_source', 'cost_entry_id')})
+        else:
+            sources.append({key: source[key] for key in ('material_issue_line_id', 'movement_id', 'net_quantity',
+                'unit_cost', 'amount', 'cost_source', 'cost_entry_id')})
         dependencies.update(valuation.dependencies.get(source['movement_id'], set()))
     return dict(header=header, allocations=allocations, quality_allocations=quality, material_sources=sources,
+        flow_material_sources=flow_sources,
         rework_sources=rework, dependencies=[dict(kind=kind, source_id=value) for kind,value in sorted(dependencies)],
         charges=[dict(entry_id=item['id']) for item in sorted(report['entries'], key=lambda r:r['id'])
             if item['work_order_id']==order.id and item['status']=='active' and item['kind'] in ('labor','overhead')])
@@ -173,7 +184,8 @@ def build_settlement_plan(session: Session, work_order_id: int) -> dict:
 
 PLAN_MODELS = {'allocations': ProductionCostAllocation, 'quality_allocations': QualityCostAllocation,
     'material_sources': ProductionSettlementSource, 'rework_sources': ProductionReworkSource,
-    'dependencies': ProductionSettlementDependency, 'charges': ProductionSettlementCharge}
+    'dependencies': ProductionSettlementDependency, 'charges': ProductionSettlementCharge,
+    'flow_material_sources': ProductionFlowSettlementSource}
 
 
 def saved_settlement_plan(session: Session, record: ProductionCostSettlement) -> dict:

@@ -1,6 +1,6 @@
 """验证分批报工、质检、需料下限和合格成品的入库来源。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import receive_legacy_issue, approve_document
 
 from fastapi.testclient import TestClient
 
@@ -56,6 +56,7 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
             "lines": [{"work_order_line_id": line_id, "quantity": "1"}]}).json()
         approve_document(client, admin, 'MaterialIssue', first_issue['id'])
         client.post(f"{base}/material-issues/{first_issue['id']}/post", headers=warehouse)
+        receive_legacy_issue(client, admin, first_issue['id'])
         for invalid in ("0", "0.0001", "NaN", "3"):
             expected = 409 if invalid == "3" else 422
             assert client.post(f"{base}/production-completions", headers=planner, json={
@@ -89,16 +90,18 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
             "lines": [{"work_order_line_id": line_id, "quantity": "1"}]}).json()
         approve_document(client, admin, 'MaterialIssue', second_issue['id'])
         client.post(f"{base}/material-issues/{second_issue['id']}/post", headers=warehouse)
-        # 报工确认前允许退料草稿，确认后若会低于已消耗需料则须拒绝过期草稿。
+        receive_legacy_issue(client, admin, second_issue['id'])
+        # 退料草稿先占用实收来源，报工不能同时消耗同一份材料；取消余额后才能继续。
         stale_return = client.post(f"{base}/material-returns", headers=planner, json={
             "material_issue_id": first_issue["id"], "reason": "拟退回",
             "lines": [{"material_issue_line_id": first_issue["lines"][0]["id"],
                        "quantity": "0.1"}]}).json()["id"]
         approve_document(client, admin, 'ProductionCompletion', first_id)
+        assert client.post(f"{base}/production-completions/{first_id}/post", headers=warehouse).status_code == 409
+        assert client.post(f"{base}/material-returns/{stale_return}/cancel", headers=planner).status_code == 200
         assert client.post(f"{base}/production-completions/{first_id}/post", headers=warehouse).status_code == 200
         assert client.post(f"{base}/production-completions/{first_id}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/material-returns/{stale_return}/post", headers=warehouse).status_code == 409
-        assert client.post(f"{base}/material-returns/{stale_return}/cancel", headers=planner).status_code == 200
         movement = client.get(f"{base}/movements", headers=admin).json()[0]
         assert movement["source_type"] == "production_completion"
         assert movement["production_completion_id"] == first_id
@@ -123,6 +126,7 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
             "lines": [{"work_order_line_id": line_id, "quantity": "2"}]}).json()
         approve_document(client, admin, 'MaterialIssue', third_issue['id'])
         client.post(f"{base}/material-issues/{third_issue['id']}/post", headers=warehouse)
+        receive_legacy_issue(client, admin, third_issue['id'])
         final = client.post(f"{base}/production-completions", headers=planner, json=payload).json()["id"]
         client.post(f"{base}/production-completions/{final}/inspect", headers=warehouse,
                     json={"accepted_quantity": "1", "qc_note": "全数合格"})

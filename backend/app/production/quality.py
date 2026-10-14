@@ -235,6 +235,9 @@ def act(db, record, data, user, action):
             if pending and pending.status in ('submitted', 'approved'):
                 raise HTTPException(409, '请先撤回返工工单审批再更正处置来源')
             ensure_unsettled(db, order.id)
+            from app.production.material_flow_rules import pending_material_flow
+            if pending_material_flow(db, order.id):
+                raise HTTPException(409, '须先处理返工工单的发料、签收、退料和换料')
             if db.scalar(select(ProductionCompletion.id).where(ProductionCompletion.work_order_id == order.id,
                 ProductionCompletion.status != 'cancelled', ~select(ProductionCompletionReversal.id).where(
                     ProductionCompletionReversal.production_completion_id == ProductionCompletion.id).exists()).limit(1)) is not None:
@@ -247,6 +250,12 @@ def act(db, record, data, user, action):
             for line in db.scalars(select(WorkOrderLine).where(WorkOrderLine.work_order_id == order.id)):
                 if issued_quantity(db, line.id) != 0:
                     raise HTTPException(409, '须先将返工追加领料全部退回后更正处置')
+            from app.production.costs import cost_report
+            material_cost = cost_report(db)
+            # 已确认损坏虽然不再可用，原实际发料成本仍存在，不能通过撤销返工来源将其丢掉。
+            if any(row['work_order_id'] == order.id for key in ('material_sources', 'unpriced_lines')
+                   for row in material_cost[key]):
+                raise HTTPException(409, '返工工单仍有实际材料成本来源，须先按依赖顺序更正物料业务')
             if db.scalar(select(ProductionCostEntry.id).where(ProductionCostEntry.work_order_id == order.id,
                 ProductionCostEntry.kind.in_(('labor','overhead')), ~select(ProductionCostReversal.id).where(
                     ProductionCostReversal.entry_id == ProductionCostEntry.id).exists()).limit(1)) is not None:

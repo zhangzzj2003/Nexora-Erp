@@ -14,7 +14,8 @@ from app.core.period_lock import ensure_movement_unlocked
 from app.core.orm import orm_session, model_data
 from app.core.models import (StockMovement, Material, InventoryCostInput, ReceiptOrderLink,
     PurchaseOrderLine, SalesReturnLine, MaterialReturnLine, User,
-    ProductionCostAllocation, ProductionSettlementDependency, ProductionSettlementReversal, ProductionCostSettlement)
+    ProductionCostAllocation, ProductionSettlementDependency, ProductionSettlementReversal, ProductionCostSettlement,
+    MaterialFlowExecutionLine)
 
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1/inventory/valuation")
 CENT = Decimal("0.01")
@@ -101,6 +102,10 @@ def calculate_valuation(session: Session, *, through_date: str | None = None) ->
         rates[row.movement_id] = (Decimal(row.unit_cost), row.id)
     order_values = purchase_values(session)
     linked = linked_source_lines(session)
+    # 分批退料与交接退回固定到原执行流水，不能误用同一单据最后一次发出的单价。
+    movement_links = {row.movement_id: row.source_movement_id for row in session.scalars(
+        select(MaterialFlowExecutionLine).where(MaterialFlowExecutionLine.movement_id.is_not(None),
+            MaterialFlowExecutionLine.source_movement_id.is_not(None)))}
     allocations = {row.movement_id: model_data(row) for row in session.scalars(select(ProductionCostAllocation).join(ProductionCostSettlement, ProductionCostSettlement.id == ProductionCostAllocation.settlement_id).where(
         ProductionCostSettlement.status == 'active',
         ~select(ProductionSettlementReversal.id).where(
@@ -147,6 +152,11 @@ def calculate_valuation(session: Session, *, through_date: str | None = None) ->
                 unit_cost = rates[row["id"]][0]
                 cost_source = "manual"
                 movement_dependencies = {('input', row['id'])}
+            elif row['id'] in movement_links:
+                origin_id = movement_links[row['id']]
+                unit_cost = movement_costs.get(origin_id)
+                cost_source = 'linked_movement' if unit_cost is not None else 'unpriced'
+                movement_dependencies = set(dependencies.get(origin_id, set()))
             elif paired is not None:
                 unit_cost = source_costs.get(paired)
                 cost_source = "linked_movement" if unit_cost is not None else "unpriced"
@@ -159,7 +169,12 @@ def calculate_valuation(session: Session, *, through_date: str | None = None) ->
             if unit_cost is None:
                 unpriced.append(row["id"])
         else:
-            if row['source_type'] == 'material_return_reversal':
+            if row['id'] in movement_links:
+                origin_id = movement_links[row['id']]
+                unit_cost = movement_costs.get(origin_id)
+                cost_source = 'linked_movement' if unit_cost is not None else 'unpriced'
+                movement_dependencies = set(dependencies.get(origin_id, set()))
+            elif row['source_type'] == 'material_return_reversal':
                 paired = ('material_return', row['source_line_id'])
                 unit_cost = source_costs.get(paired)
                 cost_source = 'linked_movement' if unit_cost is not None else 'unpriced'

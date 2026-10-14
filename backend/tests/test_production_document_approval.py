@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import receive_legacy_issue, approve_document
 from test_document_approval import context
 from test_mrp import seeded as mrp_erp, payload as mrp_payload, approved as approve_mrp, MRP
 from test_quality_rework import quality_erp, payload as quality_payload, posted as post_quality, action as quality_action
@@ -44,6 +44,7 @@ def production_document(context, request):
         return client, auth, kind, issue, '/api/v1/material-issues', 'post'
     approve_document(client, auth, 'MaterialIssue', issue['id'])
     assert client.post(f"/api/v1/material-issues/{issue['id']}/post", headers=auth).status_code == 200
+    receive_legacy_issue(client, auth, issue['id'])
     if kind == 'MaterialReturn':
         row = client.post('/api/v1/material-returns', headers=auth, json={'material_issue_id': issue['id'],
             'reason': '余料退回', 'lines': [{'material_issue_line_id': issue['lines'][0]['id'], 'quantity': '2'}]}).json()
@@ -143,6 +144,7 @@ def test_completion_authorized_inspector_can_review_own_result(context):
         'warehouse_id': 1, 'lines': [{'work_order_line_id': order['lines'][0]['id'], 'quantity': '6'}]}).json()
     approve_document(client, auth, 'MaterialIssue', issue['id'])
     client.post(f"/api/v1/material-issues/{issue['id']}/post", headers=auth)
+    receive_legacy_issue(client, auth, issue['id'])
     row = client.post('/api/v1/production-completions', headers=auth, json={
         'work_order_id': order['id'], 'reported_quantity': '1'}).json()
     inspector = {'Authorization': 'Bearer ' + client.post('/api/v1/auth/login',

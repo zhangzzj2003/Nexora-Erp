@@ -1,6 +1,6 @@
 """验证退料更正的原单来源、累计上限、库存流水与工单净领料。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import receive_legacy_issue, approve_document
 
 from fastapi.testclient import TestClient
 
@@ -49,6 +49,7 @@ def test_material_return_partial_reissue_and_permissions(monkeypatch, tmp_path):
             "lines": [{"work_order_line_id": order["lines"][0]["id"], "quantity": "2"}]}).json()
         approve_document(client, admin, 'MaterialIssue', issue['id'])
         assert client.post(f"{base}/material-issues/{issue['id']}/post", headers=warehouse).status_code == 200
+        receive_legacy_issue(client, admin, issue['id'])
         issue_line_id = issue["lines"][0]["id"]
         payload = {"material_issue_id": issue["id"], "reason": "未使用，退回原仓",
                    "lines": [{"material_issue_line_id": issue_line_id, "quantity": "1"}]}
@@ -69,18 +70,16 @@ def test_material_return_partial_reissue_and_permissions(monkeypatch, tmp_path):
         first = client.post(f"{base}/material-returns", headers=planner, json=payload)
         assert first.status_code == 201
         return_id = first.json()["id"]
-        stale = client.post(f"{base}/material-returns", headers=planner, json={
-            **payload, "lines": [{"material_issue_line_id": issue_line_id, "quantity": "2"}]}).json()["id"]
+        # 新旧退换料共用来源预留；第一张草稿已占用 1 个，第二张超量申请在建单时就拒绝。
+        before_stale = len(client.get(f"{base}/movements", headers=admin).json())
+        assert client.post(f"{base}/material-returns", headers=planner, json={
+            **payload, "lines": [{"material_issue_line_id": issue_line_id, "quantity": "2"}]}).status_code == 409
+        assert len(client.get(f"{base}/movements", headers=admin).json()) == before_stale
         assert client.post(f"{base}/material-returns/{return_id}/post", headers=planner).status_code == 403
         approve_document(client, admin, 'MaterialReturn', return_id)
         assert client.post(f"{base}/material-returns/{return_id}/post", headers=warehouse).status_code == 200
         assert client.post(f"{base}/material-returns/{return_id}/post", headers=warehouse).status_code == 409
         assert client.post(f"{base}/material-returns/{return_id}/cancel", headers=warehouse).status_code == 409
-        before_stale = len(client.get(f"{base}/movements", headers=admin).json())
-        assert client.post(f"{base}/material-returns/{stale}/post", headers=warehouse).status_code == 409
-        assert len(client.get(f"{base}/movements", headers=admin).json()) == before_stale
-        assert client.post(f"{base}/material-returns/{stale}/cancel", headers=warehouse).status_code == 200
-
         movement = client.get(f"{base}/movements", headers=admin).json()[0]
         assert movement["source_type"] == "material_return"
         assert movement["material_return_id"] == return_id
@@ -102,5 +101,6 @@ def test_material_return_partial_reissue_and_permissions(monkeypatch, tmp_path):
             "lines": [{"work_order_line_id": order["lines"][0]["id"], "quantity": "1"}]}).json()["id"]
         approve_document(client, admin, 'MaterialIssue', reissue)
         assert client.post(f"{base}/material-issues/{reissue}/post", headers=warehouse).status_code == 200
+        receive_legacy_issue(client, admin, reissue)
         assert client.get(f"{base}/work-orders", headers=planner).json()[0]["lines"][0]["remaining_quantity"] == "0.000"
         assert client.get(f"{base}/stock?warehouse_id=1", headers=admin).json()[1]["quantity"] == "2"

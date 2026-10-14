@@ -71,6 +71,11 @@ MENU_KEYS = {
     'route:transfers',
     'route:users',
     'route:warehouseOutbounds',
+    # 仓库四类生产物料入口各自可配置图标，实际操作权限仍由服务端逐项核对。
+    'route:productionDispatches',
+    'route:productionReceipts',
+    'route:productionExchanges',
+    'route:productionReturns',
     'route:warehouses',
     'route:workOrders',
 }

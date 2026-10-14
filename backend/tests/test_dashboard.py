@@ -1,6 +1,6 @@
 """首页按权限和真实来源汇总，覆盖跨日更正、缺价与当前未完订单。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import receive_legacy_issue, approve_document
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -190,6 +190,7 @@ def test_production_released_in_progress_inspection_and_posting_counts(erp):
     issue=api('POST','material-issues',{'work_order_id':order['id'],'warehouse_id':1,'lines':[{'work_order_line_id':order['lines'][0]['id'],'quantity':'1'}]},201)
     approve_document(erp[0], dict(erp[0].headers), 'MaterialIssue', issue['id'])
     api('POST',f'material-issues/{issue["id"]}/post')
+    receive_legacy_issue(erp[0], dict(erp[0].headers), issue['id'])
     assert query(erp)['production']['released']==1
     completion=api('POST','production-completions',{'work_order_id':order['id'],'reported_quantity':'1'},201)
     assert query(erp)['production']['awaiting_inspection']==1

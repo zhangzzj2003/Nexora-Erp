@@ -177,7 +177,9 @@ def submit(db: Session, document_type: str, document_id: int, snapshot: Mapping,
     actor(db, user_id, permission or rule.submit_permission)
     row = find_case(db, document_type, document_id, intent)
     check_version(row.version if row else 0, version)
-    if row and row.status not in ('rejected', 'withdrawn'):
+    # 签收更正后允许重新签收；下一次更正必须开启新审批轮次，保留上一轮事件。
+    repeated_receipt_correction = document_type == 'MaterialReceipt' and intent == 'reverse' and row and row.status == 'executed'
+    if row and row.status not in ('rejected', 'withdrawn') and not repeated_receipt_correction:
         raise HTTPException(409, '只有未送审、驳回或撤回的单据可以送审')
     source = db.get(rule.model, document_id)
     if source is None:

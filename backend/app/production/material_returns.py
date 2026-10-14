@@ -18,6 +18,7 @@ from app.core.models import (
     MaterialIssue,
     MaterialIssueLine,
     MaterialIssueReversal,
+    MaterialFlowLine,
     MaterialReturn,
     MaterialReturnLine,
     MaterialReturnReversal,
@@ -36,7 +37,7 @@ from app.access.security import require
 from app.inventory.physical_lots import LotPart, post_lot_movement, unassigned_stock_quantity
 from app.inventory.warehouse import balance
 from app.inventory.lot_inputs import PhysicalLotPartInput
-from app.production.work_orders import issued_quantity, posted_completion_totals, required_for_output
+from app.production.work_orders import committed_quantity, issued_quantity, posted_completion_totals, required_for_output
 from app.production.cost_lock import ensure_unsettled
 from app.core.period_lock import ensure_date_unlocked, ensure_movement_unlocked
 
@@ -100,29 +101,10 @@ class MaterialReturnReverseInput(BaseModel):
 
 
 def source_lot_remaining(db: Session, issue_line_id: int) -> dict[int, Decimal]:
-    """原领料批次减去已确认退回原批次的数量，新发现批次不冒充原批次。"""
-    issued: dict[int, Decimal] = {}
-    for lot_id, quantity in db.execute(select(PhysicalLotAllocation.lot_id,
-            PhysicalLotAllocation.quantity).join(
-                StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).where(
-                    StockMovement.source_type == 'material_issue',
-                    StockMovement.source_line_id == issue_line_id)):
-        issued[lot_id] = issued.get(lot_id, Decimal(0)) - Decimal(quantity)
-    returned: dict[int, Decimal] = {}
-    for lot_id, quantity in db.execute(select(PhysicalLotAllocation.lot_id,
-            PhysicalLotAllocation.quantity).join(
-                StockMovement, StockMovement.id == PhysicalLotAllocation.movement_id).join(
-                    MaterialReturnLine, MaterialReturnLine.id == StockMovement.source_line_id).join(
-                        MaterialReturn,
-                        MaterialReturn.id == MaterialReturnLine.material_return_id).where(
-                            StockMovement.source_type == 'material_return',
-                            MaterialReturnLine.material_issue_line_id == issue_line_id,
-                            MaterialReturn.status == 'posted',
-                            ~select(MaterialReturnReversal.id).where(
-                                MaterialReturnReversal.material_return_id == MaterialReturn.id).exists())):
-        returned[lot_id] = returned.get(lot_id, Decimal(0)) + Decimal(quantity)
-    return {lot_id: quantity - returned.get(lot_id, Decimal(0))
-            for lot_id, quantity in issued.items()}
+    """旧入口与新退换料共用批次额度；新领料仅承认实收，历史单沿用原出库证据。"""
+    from app.production.material_flow_lots import source_lot_capacity
+    # 仅作为来源查询参数，不持久化新行；避免旧入口跳过签收及已退换批次扣减。
+    return source_lot_capacity(db, MaterialFlowLine(document_type='return', legacy_issue_line_id=issue_line_id))
 
 
 def returned_quantity(db: Session, issue_line_id: int) -> Decimal:
@@ -146,7 +128,8 @@ def returned_quantity(db: Session, issue_line_id: int) -> Decimal:
     )
 
 
-def checked_lines(db: Session, issue_id: int, lines: list[tuple[int, Decimal]]) -> dict[int, RowMapping]:
+def checked_lines(db: Session, issue_id: int, lines: list[tuple[int, Decimal]],
+                  exclude_return_id: int | None = None) -> dict[int, RowMapping]:
     issue = (
         db.execute(
             select(
@@ -192,13 +175,16 @@ def checked_lines(db: Session, issue_id: int, lines: list[tuple[int, Decimal]]) 
         source = known.get(line_id)
         if not source:
             raise HTTPException(422, "退料明细不属于原领料单")
-        if quantity > Decimal(source["quantity"]) - returned_quantity(db, line_id):
+        from app.production.material_flow_rules import legacy_source_remaining
+        # 历史直接领料保留原依据，新领料必须先签收；同时扣除新流程中的退换料占用。
+        if quantity > legacy_source_remaining(db, line_id, exclude_legacy_return_id=exclude_return_id):
             raise HTTPException(409, f"领料明细 #{line_id} 超出可退数量")
         # 已报工消耗的最低需料不能再退回，否则成品入库会失去物料来源。
         minimum = required_for_output(
             Decimal(source["required_quantity"]), Decimal(issue["target_quantity"]), posted_output
         )
-        if issued_quantity(db, source["work_order_line_id"]) - quantity < minimum:
+        own_reserved = quantity if exclude_return_id is not None else Decimal(0)
+        if issued_quantity(db, source["work_order_line_id"]) + own_reserved - quantity < minimum:
             raise HTTPException(409, f"组件 #{source['component_material_id']} 已用于完工报工，不可退料")
         result[line_id] = source
     return result
@@ -411,6 +397,7 @@ def post_material_return(return_id: int, payload: MaterialReturnPostInput | None
             db,
             material_return["material_issue_id"],
             [(line["material_issue_line_id"], Decimal(line["quantity"])) for line in lines],
+            exclude_return_id=return_id,
         )
         warehouse_id = db.scalar(
             select(MaterialIssue.warehouse_id)
@@ -547,7 +534,7 @@ def reverse_material_return(return_id: int, payload: MaterialReturnReverseInput,
                     or original.material_id != order_line.component_material_id
                     or Decimal(original.quantity) != quantity):
                 raise HTTPException(409, '原退料库存流水与单据不一致，无法安全冲销')
-            if issued_quantity(db, order_line.id) + quantity > Decimal(order_line.required_quantity):
+            if committed_quantity(db, order_line.id) + quantity > Decimal(order_line.required_quantity):
                 raise HTTPException(409, '退料冲销后工单将超出组件需料，须先更正后续补领')
             ensure_movement_unlocked(db, original.id)
             stock_needed[original.material_id] = stock_needed.get(original.material_id, Decimal(0)) + quantity

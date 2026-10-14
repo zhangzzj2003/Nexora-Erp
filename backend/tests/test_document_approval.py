@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.core.approval_catalog import APPROVAL_TYPES
+from app.core.approval_catalog import APPROVAL_TYPES, REVERSE_ONLY_TYPES
 from app.core.database import connection, migrate
 from app.core.document_approval import (
     case_data, find_case, mark_executed, policy, record_author,
@@ -77,10 +77,12 @@ def failure(code, operation, *args, **kwargs):
     assert error.value.status_code == code
 
 
-def test_29_types_and_permissions_are_complete(context):
+def test_numbered_types_and_approval_permissions_are_complete(context):
     client, auth, _ = context
     rows = client.get('/api/v1/system/document-approvals', headers=auth).json()
+    # 领料签收有独立编号，但只按实时签收权限办理；不能由编号目录推断需要再次审批。
     assert {row['document_type'] for row in rows} == {item[0] for item in DOCUMENT_TYPES}
+    assert REVERSE_ONLY_TYPES == {'MaterialReceipt'}
     assert all(row['version'] == 1 and row['steps'] == [{'name': '批准', 'role': None}] for row in rows)
     with orm_session() as db:
         for rule in APPROVAL_TYPES.values():

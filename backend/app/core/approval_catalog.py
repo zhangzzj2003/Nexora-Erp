@@ -47,6 +47,10 @@ _RULES = (
     ('SalesReturn', '销售退货', 'sales.view', 'sales_return.create', 'sales_return.review', 'sales_return.post', False),
     ('AfterSalesCase', '售后单', 'after_sales.view', 'after_sales.submit', 'after_sales.review', 'after_sales.process', True),
     ('WorkOrder', '生产工单', 'production.view', 'work_order.create', 'work_order.review', 'work_order.release', False),
+    ('MaterialReceipt', '生产签收更正', 'material_flow.view', 'material_receipt.reverse', 'material_receipt.review', 'material_receipt.sign', False),
+    ('MaterialDispatch', '生产发料', 'material_flow.view', 'material_dispatch.create', 'material_dispatch.review', 'material_dispatch.post', False),
+    ('MaterialExchange', '生产换料', 'material_flow.view', 'material_exchange.create', 'material_exchange.review', 'material_exchange.post', False),
+    ('ProductionMaterialReturn', '生产退料', 'material_flow.view', 'material_flow_return.create', 'material_flow_return.review', 'material_flow_return.post', False),
     ('MaterialIssue', '生产领料', 'production.view', 'material_issue.create', 'material_issue.review', 'material_issue.post', False),
     ('MaterialReturn', '生产退料', 'production.view', 'material_return.create', 'material_return.review', 'material_return.post', False),
     ('ProductionCompletion', '生产完工', 'production.view', 'production_completion.create', 'production_completion.review', 'production_completion.post', False),
@@ -66,7 +70,9 @@ _RULES = (
 )
 APPROVAL_TYPES = {rule[0]: ApprovalType(*rule) for rule in _RULES}
 
-# 编号范围与审批范围必须一致，防止新增单据后遗漏审核入口。
+# 签收单有独立编号，但由签收权限确认事实，不重复走审批。
+REVERSE_ONLY_TYPES = {'MaterialReceipt'}
+NUMBERED_WITHOUT_APPROVAL = REVERSE_ONLY_TYPES
 assert set(APPROVAL_TYPES) == {item[0] for item in DOCUMENT_TYPES}
 
 

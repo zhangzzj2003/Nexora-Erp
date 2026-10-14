@@ -1,6 +1,6 @@
 """已确认生产领料冲销保留原流水，并阻止有下游依赖时更正。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, receive_legacy_issue, reverse_legacy_receipt
 
 import sqlite3
 from decimal import Decimal
@@ -164,6 +164,7 @@ def test_material_issue_reversal_blocks_return_and_completion(monkeypatch, tmp_p
         issue_id, line_id = issue['id'], issue['lines'][0]['id']
         approve_document(client, auth, 'MaterialIssue', issue_id)
         client.post(f'{base}/material-issues/{issue_id}/post', headers=auth)
+        receive_legacy_issue(client, auth, issue_id)
         reverse_url = f'{base}/material-issues/{issue_id}/reverse'
         return_id = client.post(f'{base}/material-returns', headers=auth, json={
             'material_issue_id': issue_id, 'reason': '待退料',
@@ -184,6 +185,7 @@ def test_material_issue_reversal_blocks_return_and_completion(monkeypatch, tmp_p
         assert client.post(f'{base}/production-costs/{valuation.json()["id"]}/reverse',
             headers=auth, json={'reason': '原领料错误确认'}).status_code == 200
         # 独立审批完成后，再验证原库存约束或失败回滚。
+        reverse_legacy_receipt(client, auth, issue_id)
         approve_document(client, auth, 'MaterialIssue', issue_id, intent='reverse', reason='错误确认')
         assert client.post(reverse_url, headers=auth, json={'reason': '错误确认'}).status_code == 201
         movements = client.get(f'{base}/movements', headers=auth).json()
@@ -214,7 +216,7 @@ def test_v65_upgrade_adds_reversal_permission_without_touching_users(monkeypatch
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 102
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 103
         assert db.execute('SELECT id, username, password_hash FROM users').fetchall() == before
         assert db.execute("SELECT role_code FROM role_permissions WHERE permission_code='material_issue.reverse'").fetchall() == [('admin',)]
         assert db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='material_issue_reversals'").fetchone() is not None

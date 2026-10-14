@@ -50,8 +50,8 @@ class WorkOrderInput(BaseModel):
         return value
 
 
-def issued_quantity(db: Session, work_order_line_id: int) -> Decimal:
-    # 原领料、冲销和退料都保留，可领量只累计仍有效的已确认单据。
+def legacy_material_quantity(db: Session, work_order_line_id: int) -> Decimal:
+    # 迁移前的直接领料保留原核算事实；升级后出库必须经生产签收才能用于报工。
     issued = sum(
         (
             Decimal(row)
@@ -62,6 +62,7 @@ def issued_quantity(db: Session, work_order_line_id: int) -> Decimal:
                 .where(
                     MaterialIssueLine.work_order_line_id == work_order_line_id,
                     MaterialIssue.status == "posted",
+                    MaterialIssue.historical_direct.is_(True),
                     ~select(MaterialIssueReversal.id).where(
                         MaterialIssueReversal.material_issue_id == MaterialIssue.id).exists(),
                 )
@@ -88,6 +89,22 @@ def issued_quantity(db: Session, work_order_line_id: int) -> Decimal:
         Decimal(0),
     )
     return issued - returned
+
+
+def issued_quantity(db: Session, work_order_line_id: int) -> Decimal:
+    from app.production.material_flow_rules import flow_quantities
+    # 待退、待换已占用的签收材料不能同时用于完工，旧接口与新页面共用此口径。
+    reserved = sum((Decimal(value) for value in db.scalars(select(MaterialReturnLine.quantity)
+        .join(MaterialReturn, MaterialReturn.id == MaterialReturnLine.material_return_id)
+        .join(MaterialIssueLine, MaterialIssueLine.id == MaterialReturnLine.material_issue_line_id)
+        .where(MaterialIssueLine.work_order_line_id == work_order_line_id, MaterialReturn.status == 'draft'))), Decimal(0))
+    return legacy_material_quantity(db, work_order_line_id) + flow_quantities(db, work_order_line_id)["effective"] - reserved
+
+
+def committed_quantity(db: Session, work_order_line_id: int) -> Decimal:
+    from app.production.material_flow_rules import flow_quantities
+    # 正常发料额度包含待发及已发未签；换料补发使用专用额度，不增加原始 BOM 需求。
+    return legacy_material_quantity(db, work_order_line_id) + flow_quantities(db, work_order_line_id)["committed"]
 
 
 def posted_completion_totals(db: Session, order_id: int) -> tuple[Decimal, Decimal, Decimal]:
@@ -183,11 +200,16 @@ def work_order_data(db: Session, order_id: int) -> dict:
     details = []
     for line in lines:
         issued = issued_quantity(db, line["id"])
+        from app.production.material_flow_rules import flow_quantities
+        progress = flow_quantities(db, line["id"])
         details.append(
             {
                 **dict(line),
                 "issued_quantity": str(issued),
-                "remaining_quantity": str(Decimal(line["required_quantity"]) - issued),
+                "remaining_quantity": str(max(Decimal(0), Decimal(line["required_quantity"]) - committed_quantity(db, line["id"])).quantize(Decimal('0.001'))),
+                "in_transit_quantity": str(progress["in_transit"]),
+                "reserved_quantity": str(progress["reserved"]),
+                "damaged_quantity": str(progress["damaged"]),
             }
         )
     reported, accepted, rejected = posted_completion_totals(db, order_id)
@@ -327,6 +349,9 @@ def cancel_work_order(order_id: int, user: dict = Depends(require("work_order.ca
         # 发料后由后续更正流程处理，不能用取消抹去真实库存流水。
         if row["status"] not in ("draft", "released"):
             raise HTTPException(409, "已发料或已完工的生产工单不可取消")
+        from app.production.material_flow_rules import pending_material_flow
+        if pending_material_flow(db, order_id):
+            raise HTTPException(409, "须先关闭或更正工单关联的未完成物料单据")
         db.execute(
             update(WorkOrder)
             .where((WorkOrder.id == order_id))

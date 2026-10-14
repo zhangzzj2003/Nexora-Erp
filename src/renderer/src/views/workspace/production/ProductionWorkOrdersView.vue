@@ -17,7 +17,10 @@ import ProductionAssociationDialog from "../../../components/workspace/Productio
 import DocumentApprovalDialog from "../../../components/workspace/DocumentApprovalDialog.vue";
 import { matchesRecordQuery } from "../../../utils/workspace-records";
 import type { WorkspaceTableColumn } from "../../../utils/table-columns";
-import { computed, ref } from "vue";
+import { computed, ref, watch, defineAsyncComponent } from "vue";
+import { useRoute } from 'vue-router';
+// 物料区仅在工单详情实际打开时装载，避免列表页加载整个仓库工作流。
+const WorkOrderMaterialFlowPanel = defineAsyncComponent(() => import('../../../components/workspace/WorkOrderMaterialFlowPanel.vue'));
 import { NModal } from "naive-ui";
 import { storeToRefs } from "pinia";
 import { usePiniaAppStore } from "../../../store/app-store";
@@ -42,7 +45,6 @@ const {
   createWorkOrder,
   releaseWorkOrder,
   cancelWorkOrder,
-  selectIssueOrder,
   selectCompletionOrder,
 } = store;
 
@@ -94,12 +96,23 @@ const approvalLabels = {
   withdrawn: "已撤回",
   executed: "已执行",
 };
+// 仓库单据返回工单时直接打开对应详情，避免再次搜索同一工单。
+const route = useRoute();
+// 仅监听稳定的字段值；审批刷新会替换账号和工单数组，不能因此反复重新打开详情。
+watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.value.length], () => {
+  const id = Number(route?.query.document_id);
+  const target = store.documentApprovalTarget;
+  if (target?.document_type === 'WorkOrder' && target.document_id === id) return;
+  if (id > 0 && workOrders.value.some(item => item.id === id) && store.activeTab === 'workOrders')
+    void store.openDocumentApproval({ document_type: 'WorkOrder', document_id: id, intent: 'execute' });
+}, { immediate: true });
 </script>
 
 <template>
   <section class="stack">
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog>
+      <WorkOrderMaterialFlowPanel v-if="detailItem && detailIntent === 'execute' && can('material_flow.view')" :order-id="detailItem.id" />
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
@@ -130,23 +143,6 @@ const approvalLabels = {
             :disabled="busy || connectionLost"
             @click="releaseWorkOrder(detailItem.id)"
             >下达</AppButton
-          >
-          <AppButton
-            tone="info"
-            v-if="
-              detailIntent === 'execute' &&
-              (detailItem.status === 'released' ||
-                detailItem.status === 'in_progress') &&
-              detailItem.lines.some(
-                (line) => Number(line.remaining_quantity) > 0,
-              ) &&
-              can('material_issue.create')
-            "
-            type="button"
-            variant="secondary"
-            :disabled="busy || connectionLost"
-            @click="selectIssueOrder(detailItem.id)"
-            >创建领料单</AppButton
           >
           <AppButton
             tone="info"

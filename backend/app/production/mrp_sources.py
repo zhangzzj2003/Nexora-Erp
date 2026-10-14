@@ -96,7 +96,10 @@ def collect(db: Session, exclude_plan_id: int | None = None) -> dict:
                 'quantity': quantity(remaining), 'warehouse_id': order.warehouse_id, 'bom_id': order.bom_id,
                 'due_date': work_dates.get(order.id)})
             for line in db.scalars(select(WorkOrderLine).where(WorkOrderLine.work_order_id == order.id).order_by(WorkOrderLine.id)):
-                needed = max(Decimal(0), Decimal(line.required_quantity) - issued_quantity(db, line.id))
+                from app.production.material_flow_rules import flow_quantities
+                # 已发未签已离开原料仓，不能在需求计划中再次作为尚未发出的需求占用库存。
+                in_transit = flow_quantities(db, line.id)['in_transit']
+                needed = max(Decimal(0), Decimal(line.required_quantity) - issued_quantity(db, line.id) - in_transit)
                 if needed > 0:
                     reservations.append({'key': f'work_order_line:{line.id}', 'kind': 'work_order_requirement',
                         'source_id': order.id, 'source_line_id': line.id, 'reference': order.reference,

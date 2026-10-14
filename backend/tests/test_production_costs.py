@@ -1,6 +1,6 @@
 """验证领料核价、退料净额、费用归集与冲销后的待核价状态。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import receive_legacy_issue, approve_document
 
 from fastapi.testclient import TestClient
 
@@ -55,6 +55,7 @@ def test_production_cost_collection_and_reversal(monkeypatch, tmp_path):
         assert client.post(valuation_url, headers=finance, json=payload).status_code == 409
         approve_document(client, admin, 'MaterialIssue', issue['id'])
         client.post(f"{base}/material-issues/{issue['id']}/post", headers=warehouse)
+        receive_legacy_issue(client, admin, issue['id'])
 
         assert client.get(f"{base}/production-costs", headers=warehouse).status_code == 403
         assert client.get(f"{base}/production-costs", headers=planner).status_code == 200

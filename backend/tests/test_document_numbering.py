@@ -250,8 +250,15 @@ def test_v88_migration_failure_rolls_back_all_numbering_structure(client, monkey
 
     path = database.database_path()
     with sqlite3.connect(path) as db:
-        # 还原升级前结构；保留原账户和各业务表，仅撤下第 88 版新增部分。
+        # 新生产物料表在 v103 才出现，回退 v87 时先移除，不能伪装成旧版编号对象。
+        flow_tables = {'material_dispatches', 'material_receipts', 'material_exchanges', 'production_material_returns'}
+        for table in ('material_flow_execution_lots', 'production_flow_settlement_sources',
+                      'material_flow_execution_lines', 'material_flow_executions', 'material_flow_lines', *flow_tables):
+            db.execute(f'DROP TABLE {table}')
+        # 还原升级前结构；保留原账户和旧业务表，撤下第 88 版新增编号部分。
         for _, table, _, _ in DOCUMENT_TYPES:
+            if table in flow_tables:
+                continue
             db.execute(f'DROP INDEX {table}_document_no')
             db.execute(f'ALTER TABLE {table} DROP COLUMN document_no')
         db.execute('DROP TABLE document_number_sequences')
@@ -283,7 +290,7 @@ def test_v88_migration_failure_rolls_back_all_numbering_structure(client, monkey
     monkeypatch.setattr(database, 'connection', original_connection)
     database.migrate(); database.migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 102
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 103
         assert db.execute('SELECT style FROM document_numbering_settings').fetchone()[0] is None
         assert db.execute('SELECT id,username FROM users').fetchall() == original_users
         for _, table, _, _ in DOCUMENT_TYPES:

@@ -1,6 +1,7 @@
 """实例级单据审批模板；领域业务接口随后接入同一事务服务。"""
 
 import json
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from app.access.security import current_user
-from app.core.approval_catalog import APPROVAL_TYPES, approval_type
+from app.core.approval_catalog import APPROVAL_TYPES, REVERSE_ONLY_TYPES, approval_type
 from app.core.document_approval import actor, policy, policy_data, save_policy
 from app.core import document_approval as workflow
 from app.core.approval_documents import (
@@ -40,7 +41,7 @@ def list_policies(user: dict = Depends(current_user)) -> list[dict]:
     with orm_session() as db:
         user = actor(db, user['id'])
         # 普通人员只看到原领域可查看的模板，模板入口不会扩大单据权限。
-        return [{**policy_data(row), 'title': APPROVAL_TYPES[row.document_type].title}
+        return [{**policy_data(row), 'title': APPROVAL_TYPES[row.document_type].title, 'reverse_only': row.document_type in REVERSE_ONLY_TYPES}
                 for row in db.scalars(select(DocumentApprovalPolicy).order_by(DocumentApprovalPolicy.document_type))
                 if row.document_type in APPROVAL_TYPES and ('admin' in user['roles'] or
                    APPROVAL_TYPES[row.document_type].view_permission in user['permissions'])]
@@ -53,7 +54,7 @@ def get_policy(document_type: str, user: dict = Depends(current_user)) -> dict:
         user = actor(db, user['id'])
         if 'admin' not in user['roles'] and rule.view_permission not in user['permissions']:
             raise HTTPException(403, '没有查看此类单据审批规则的权限')
-        return {**policy_data(policy(db, document_type)), 'title': rule.title}
+        return {**policy_data(policy(db, document_type)), 'title': rule.title, 'reverse_only': document_type in REVERSE_ONLY_TYPES}
 
 
 @router.put('/{document_type}')
@@ -112,6 +113,10 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
             'confirmed_by': source.confirmed_by, 'confirmed_at': source.confirmed_at}
     if intent == 'reverse' and document_type == 'MaintenanceJob' and row:
         content_matches = content_matches and workflow.digest(maintenance_execution_snapshot(db, identifier))[1] == workflow.digest(json.loads(row.snapshot_json)['execution'])[1]
+    flow_kinds={'MaterialDispatch':'dispatch','MaterialReceipt':'receipt','MaterialExchange':'exchange','ProductionMaterialReturn':'return'}
+    if intent == 'reverse' and document_type in flow_kinds and row:
+        from app.production.material_flow_actions import execution_snapshot
+        content_matches = content_matches and workflow.digest(execution_snapshot(db,flow_kinds[document_type],identifier))[1] == workflow.digest(json.loads(row.snapshot_json).get('executions',[]))[1]
     # 其他入库冲销冻结已入库额度，续收后明确显示内容变化，不能沿用旧批准。
     inbound_received = {}
     if document_type == 'WarehouseInbound':
@@ -158,7 +163,16 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
         if quantities:
             summary_content = {**frozen_content, 'lines': [{**line, 'quantity': quantities.get(str(line['id']), '0')}
                 for line in frozen_content['lines']]}
+    if document_type in flow_kinds and intent == 'reverse':
+        from app.production.material_flow_actions import execution_snapshot
+        current_facts=execution_snapshot(db,flow_kinds[document_type],identifier)
+        saved_facts=json.loads(row.snapshot_json).get('executions',[]) if row and state['status'] not in ('rejected','withdrawn','executed') else current_facts
+        summary_content={**summary_content,'lines':[{**line,'quantity':str(sum((Decimal(fact['quantity']) for fact in saved_facts if fact['line_id']==line['id']),Decimal(0)))} for line in summary_content['lines']]}
     summary = document_summary(db, document_type, summary_content)
+    if document_type in flow_kinds and intent == 'reverse':
+        summary.append({'label':'更正实际办理记录','value':str(len(saved_facts))+' 笔'})
+        if document_type=='MaterialReceipt':
+            summary.extend({'label':label,'value':str(sum((Decimal(fact['quantity']) for fact in saved_facts if fact['action']==action),Decimal(0)))} for action,label in (('execute','原实际签收'),('handover_return','原交接退回')))
     if document_type in ('StockAdjustment', 'PurchaseRequest', 'CrmQuote', 'AfterSalesCase', 'QualityDisposition', 'MrpPlan', 'MaintenanceJob', 'Journal', 'OpeningBalance', 'SubledgerOpening') and intent == 'execute':
         # 升级前记录只作历史核对；首次送审后从不可改写的事件恢复。
         previous = native_review_evidence(db, document_type, identifier) if row is None else None
@@ -202,7 +216,7 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
             'summary': summary, 'content_matches': content_matches,
             'reversal_reason': json.loads(row.snapshot_json).get('reversal_reason', '') if row else '',
             **({'reversal_evidence': json.loads(row.snapshot_json).get('reversal_evidence', '') if row else ''} if document_type == 'MaintenanceJob' else {}),
-            'can_submit': pending and permission in permissions and state['status'] in ('draft', 'withdrawn', 'rejected'),
+            'can_submit': pending and permission in permissions and (state['status'] in ('draft', 'withdrawn', 'rejected') or document_type == 'MaterialReceipt' and intent == 'reverse' and state['status'] == 'executed'),
             'can_review': can_review,
             'can_withdraw': pending and permission in permissions and state['status'] in ('submitted', 'approved')
                 and (state['submitted_by'] == user_id or 'admin' in user['roles']),

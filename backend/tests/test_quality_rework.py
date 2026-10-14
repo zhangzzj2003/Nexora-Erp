@@ -1,6 +1,6 @@
 """从质检隔离数量到报废、返工成本、凭证来源及更正的跨模块风险。"""
 
-from approval_test_helpers import execute_production_settlement, approve_document
+from approval_test_helpers import receive_legacy_issue, execute_production_settlement, approve_document
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -59,6 +59,7 @@ def quality_erp(monkeypatch, tmp_path):
                 'lines':[{'work_order_line_id':work['lines'][0]['id'],'quantity':quantity}]},201)
             approve_document(client, admin, 'MaterialIssue', issue['id'])
             api('POST',f'material-issues/{issue["id"]}/post')
+            receive_legacy_issue(client, admin, issue['id'])
             completion = complete(work['id'], quantity, accepted)
             return work, completion
         def complete(order_id, reported, accepted):
@@ -117,6 +118,7 @@ def test_mixed_loss_rework_costs_stock_and_dependency_chain(quality_erp):
         'lines':[{'work_order_line_id':child['lines'][0]['id'],'quantity':'1'}]},201)
     approve_document(quality_erp[0], quality_erp[1], 'MaterialIssue', issue['id'])
     api('POST',f'material-issues/{issue["id"]}/post')
+    receive_legacy_issue(quality_erp[0], quality_erp[1], issue['id'])
     complete(child['id'],'3','3')
     api('POST','production-costs/charges',{'work_order_id':child['id'],'kind':'labor','amount':'3','reference':'REPAIR-LABOR'},201)
     settle(quality_erp,child['id'],'EARLY',409)
@@ -352,10 +354,10 @@ def test_v50_upgrade_preserves_records_and_static_models(quality_erp,remove_qual
         db.execute('PRAGMA user_version=50')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 102
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 103
         assert db.execute('SELECT * FROM work_orders').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
-        assert len(Base.metadata.tables) == 202
+        assert len(Base.metadata.tables) == 211
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'quality.%'").fetchone()[0] == 9
     assert api('GET',ROOT)['cases'][0]['work_order_id'] == original['id']
 

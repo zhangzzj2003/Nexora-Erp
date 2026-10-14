@@ -51,6 +51,10 @@ export const workspaceRouteGroups = [
         permission: 'other_outbound.view',
         icon: 'archive'
       },
+      { key: 'productionDispatches', path: '/workspace/production-dispatches', label: '生产发料', permission: 'material_flow.view', icon: 'archive' },
+      { key: 'productionReceipts', path: '/workspace/production-receipts', label: '生产领料', permission: 'material_flow.view', icon: 'archive' },
+      { key: 'productionExchanges', path: '/workspace/production-exchanges', label: '生产换料', permission: 'material_flow.view', icon: 'archive' },
+      { key: 'productionReturns', path: '/workspace/production-returns', label: '生产退料', permission: 'material_flow.view', icon: 'archive' },
       {
         key: 'stock',
         path: '/workspace/stock',

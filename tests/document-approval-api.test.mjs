@@ -7,8 +7,8 @@ import {
 } from '../src/shared/document-approval-api.ts'
 
 // 固定类型阻止路径注入，前后端目录保持同一个真实范围。
-test('审批类型覆盖全部 32 类，并拒绝未知类型和路径注入', () => {
-  assert.equal(new Set(documentApprovalTypes).size, 32)
+test('审批类型覆盖全部 36 类（领料仅更正审批），并拒绝未知类型和路径注入', () => {
+  assert.equal(new Set(documentApprovalTypes).size, 36)
   const backend = readFileSync(new URL('../backend/app/core/document_types.py', import.meta.url), 'utf8')
   for (const name of documentApprovalTypes) {
     assert.ok(backend.includes(`('${name}',`))

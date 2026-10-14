@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router';
+import { routeByKey } from '../../../router/workspace-routes';
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
@@ -39,6 +41,7 @@ import type { MaterialIssue } from "../../../../../shared/erp-api";
 
 // 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
 const store = usePiniaAppStore();
+const router = useRouter();
 const {
   error,
   notice,
@@ -257,9 +260,12 @@ const approvalLabels = {
 
 <template>
   <section class="stack">
+    <!-- 旧入口保留历史证据，新业务统一进入工单关联的四类物料流程。 -->
+    <div v-if="can('material_flow.view')" class="card"><p class="muted">此处保留历史直接领退料记录。新业务在生产工单与仓库四类页面办理。</p><AppButton @click="store.navigateToRoute('productionReceipts')">前往生产领料签收</AppButton></div>
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog>
       <template #footerActions>
+        <AppButton v-if="detailItem && can('production.view')" @click="router.push({ path: routeByKey('workOrders').path, query: { document_id: detailItem.work_order_id } })">返回生产工单</AppButton>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
           <AppButton
@@ -512,13 +518,13 @@ const approvalLabels = {
     >
       <template #actions>
         <AppButton
-          v-if="can('material_issue.create')"
+          v-if="can('material_flow.view') && can('material_dispatch.create')"
           type="button"
           :disabled="busy"
-          @click="createOpen = true"
+          @click="store.navigateToRoute('productionDispatches')"
           variant="primary"
         >
-          新建领料单
+          前往工单发料
         </AppButton>
       </template>
       <template #filters>
@@ -567,6 +573,7 @@ const approvalLabels = {
             }[item.status]
           }}
         </span>
+        <small v-if="item.receipt_mode" class="muted">{{ item.receipt_mode === 'historical_direct' ? '历史直接领料' : '仓库发出，生产另行签收' }}</small>
         <small v-if="item.reversal_reason" class="muted">
           {{ item.reversed_at ? localTime(item.reversed_at) : "" }} ·
           冲销原因：{{ item.reversal_reason }}

@@ -31,11 +31,13 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   // 仅分批入库启用，空批次表示本物料本次尚未到货。
   allowPartial?: boolean
+  // 生产交接允许不指定批次，由服务端验证完整来源；仍支持清空后恢复普通处理。
+  optional?: boolean
 }>(), { sku: '', materialName: '', unit: '', expectedLabel: '应分配', quantityLabel: '批次数量',
   sourceLabel: '来源批号', selectable: false, showSource: true, options: () => [], disabled: false })
 const emit = defineEmits<{ add: []; remove: [index: number] }>()
 const rows = computed(() => props.lots.map((part, index) => ({ part, index })))
-const allocation = computed(() => lotAllocation(props.expected, props.lots, props.allowPartial))
+const allocation = computed(() => lotAllocation(props.expected, props.lots, props.allowPartial || props.optional))
 const hasNewFields = computed(() => !props.selectable || props.newLotValue !== undefined)
 const columns = computed(() => [
   { key: 'index', title: '序号', width: '60' },
@@ -57,7 +59,7 @@ function add(): void {
 }
 function remove(index: number): void {
   // 分批收货可移除最后一行以暂不入库，其他业务仍要求保留至少一批。
-  if (!props.disabled && (props.allowPartial || props.lots.length > 1)) emit('remove', index)
+  if (!props.disabled && (props.allowPartial || props.optional || props.lots.length > 1)) emit('remove', index)
 }
 </script>
 
@@ -72,7 +74,7 @@ function remove(index: number): void {
       <span>{{ expectedLabel }} <strong>{{ allocation.expected }}</strong> {{ unit }}</span>
       <span>{{ allowPartial ? '本次实收' : '已分配' }} <strong>{{ allocation.allocated }}</strong> {{ unit }}</span>
       <span>{{ allocation.status === 'over' ? '超出' : allowPartial ? '本次后待入库' : '剩余' }} <strong>{{ allocation.remaining }}</strong> {{ unit }}</span>
-      <span class="lot-line-state">{{ allocation.status === 'complete' ? '数量已核对' : allocation.status === 'invalid' ? '请填写有效数量' : allocation.status === 'over' ? '分配超出' : allowPartial ? lots.length ? '可分批入库' : '本次不入库' : '待分配' }}</span>
+      <span class="lot-line-state">{{ allocation.status === 'complete' ? '数量已核对' : allocation.status === 'invalid' ? '请填写有效数量' : allocation.status === 'over' ? '分配超出' : optional && !lots.length ? '未指定批次，提交时核对来源' : allowPartial ? lots.length ? '可分批入库' : '本次不入库' : '待分配' }}</span>
     </div>
     <p v-if="$slots.default" class="lot-line-note"><slot /></p>
     <WorkspaceTable :title="`${sku || materialName} 批次明细`" :show-title="false" :data="rows"
@@ -113,7 +115,7 @@ function remove(index: number): void {
         <span v-else class="muted">沿用原批次</span>
       </template>
       <template #cell-actions="{ row }">
-        <AppButton type="button" size="small" :disabled="disabled || (!allowPartial && lots.length <= 1)"
+        <AppButton type="button" size="small" :disabled="disabled || (!allowPartial && !optional && lots.length <= 1)"
           :aria-label="`${sku} 移除第 ${row.index + 1} 个批次`" @click="remove(row.index)">移除</AppButton>
       </template>
     </WorkspaceTable>

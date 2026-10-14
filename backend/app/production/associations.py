@@ -8,7 +8,9 @@ from app.core.orm import orm_session
 from app.core.models import (Bom, Material, WorkOrder, WorkOrderLine, MaterialIssue, MaterialIssueLine,
     MaterialIssueReversal, MaterialReturn, MaterialReturnLine, MaterialReturnReversal,
     ProductionCompletion, ProductionCompletionReversal, StockMovement, PhysicalLot,
-    PhysicalLotAllocation, PhysicalLotMovementEvidence, Receipt, ReceiptLine, ReceiptReversal, Supplier)
+    PhysicalLotAllocation, PhysicalLotMovementEvidence, Receipt, ReceiptLine, ReceiptReversal, Supplier,
+    MaterialDispatch, MaterialReceipt, MaterialExchange, ProductionMaterialReturn,
+    MaterialFlowLine, MaterialFlowExecution, MaterialFlowExecutionLine)
 from app.production.work_orders import issued_quantity
 
 router = APIRouter(prefix='/api/v1')
@@ -25,6 +27,12 @@ def issue_sources(db, issue, line, material_id):
     movement = db.scalar(select(StockMovement).where(StockMovement.source_type=='material_issue',
         StockMovement.source_id==issue.id, StockMovement.source_line_id==line.id))
     if movement is None:return [],line.quantity
+    return movement_sources(db, movement, material_id, Decimal(line.quantity))
+
+
+def movement_sources(db, movement, material_id, quantity):
+    # 新旧出库共用真实批次链，不以成本顺序推断实物来源。
+    expected = quantity
     quantities={}; kinds={}
     # 正式分配和追加补证均按原始流水、批次 ID 累计；补证冲销的正负数量相抵。
     for model,kind in ((PhysicalLotAllocation,'allocation'),(PhysicalLotMovementEvidence,'supplement')):
@@ -55,7 +63,33 @@ def issue_sources(db, issue, line, material_id):
                     receipt_reversed=db.scalar(select(ReceiptReversal.id).where(ReceiptReversal.receipt_id==receipt.id)) is not None)
         result.append(source)
     assigned=sum((Decimal(r['quantity']) for r in result),Decimal(0))
-    return result,format(Decimal(line.quantity)-assigned,'f')
+    return result,format(expected-assigned,'f')
+
+
+def flow_associations(db, order_line_id, material_id, inventory_visible):
+    records = []
+    models = {'dispatch': MaterialDispatch, 'receipt': MaterialReceipt,
+        'exchange': MaterialExchange, 'return': ProductionMaterialReturn}
+    for line in db.scalars(select(MaterialFlowLine).where(
+            MaterialFlowLine.work_order_line_id == order_line_id).order_by(MaterialFlowLine.id)):
+        row = db.get(models[line.document_type], line.document_id)
+        executions = []
+        for part, event in db.execute(select(MaterialFlowExecutionLine, MaterialFlowExecution)
+                .join(MaterialFlowExecution, MaterialFlowExecution.id == MaterialFlowExecutionLine.execution_id)
+                .where(MaterialFlowExecutionLine.line_id == line.id).order_by(MaterialFlowExecutionLine.id)):
+            movement = db.get(StockMovement, part.movement_id) if part.movement_id else None
+            sources, gap = (movement_sources(db, movement, material_id, -Decimal(movement.quantity))
+                if inventory_visible and movement and Decimal(movement.quantity) < 0 else ([], None))
+            executions.append(dict(id=part.id, action=event.action, quantity=part.quantity,
+                created_by=event.created_by, created_at=event.created_at, reason=event.reason,
+                movement_id=part.movement_id if inventory_visible else None,
+                source_movement_id=part.source_movement_id if inventory_visible else None,
+                reverses_line_id=part.reverses_line_id, sources=sources, unassigned_quantity=gap))
+        records.append(dict(**document(row), document_type=line.document_type, line_id=line.id,
+            quantity=line.quantity, source_receipt_line_id=line.source_receipt_line_id,
+            legacy_issue_line_id=line.legacy_issue_line_id, exchange_line_id=line.exchange_line_id,
+            executions=executions))
+    return records
 
 
 def associations(db,work,kind,identifier,inventory_visible,include_references):
@@ -78,8 +112,13 @@ def associations(db,work,kind,identifier,inventory_visible,include_references):
             sources,gap=issue_sources(db,issue,issue_line,material.id) if inventory_visible and issue.status=='posted' else ([],None)
             issues.append(dict(**document(issue,reverse),line_id=issue_line.id,quantity=issue_line.quantity,
                 effective=effective,returned_quantity=format(returned,'f'),returns=returns,sources=sources,unassigned_quantity=gap))
+        flow = flow_associations(db, line.id, material.id, inventory_visible)
+        for record in flow:
+            if record['document_type'] == 'dispatch' and record['status'] != 'reversed':
+                cutoff = max(cutoff, *(event['created_at'] for event in record['executions']), record['created_at'])
         components.append(dict(id=line.id,material_id=material.id,sku=material.sku,name=material.name,unit=material.unit,
-            required_quantity=line.required_quantity,net_issued_quantity=format(issued_quantity(db,line.id),'f'),issues=issues,purchase_references=[]))
+            required_quantity=line.required_quantity,net_issued_quantity=format(issued_quantity(db,line.id),'f'),
+            issues=issues, material_flow=flow, purchase_references=[]))
     completions=[]
     for row in db.scalars(select(ProductionCompletion).where(ProductionCompletion.work_order_id==work.id).order_by(ProductionCompletion.id)):
         reverse=db.scalar(select(ProductionCompletionReversal).where(ProductionCompletionReversal.production_completion_id==row.id))

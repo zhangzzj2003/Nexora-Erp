@@ -1,6 +1,6 @@
 """验证库存成本传入生产、完工分摊精度、来源锁定和多级结算冲销。"""
 
-from approval_test_helpers import execute_production_settlement, approve_document
+from approval_test_helpers import receive_legacy_issue, execute_production_settlement, approve_document
 
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
@@ -56,6 +56,7 @@ def erp(monkeypatch, tmp_path):
                 'lines': [{'work_order_line_id': order['lines'][0]['id'], 'quantity': quantity}]}, 201)
             approve_document(client, headers, 'MaterialIssue', issue['id'])
             request('POST', f'material-issues/{issue["id"]}/post')
+            receive_legacy_issue(client, headers, issue['id'])
             return order, issue
 
         def complete(order, reported='1', accepted='1'):
@@ -90,6 +91,7 @@ def test_inventory_costs_returns_allocations_and_sales_cost(erp):
         'lines': [{'work_order_line_id': order['lines'][0]['id'], 'quantity': '1'}]}, 201)
     approve_document(erp[0], erp[1], 'MaterialIssue', second_issue['id'])
     api('POST', f'material-issues/{second_issue["id"]}/post')
+    receive_legacy_issue(erp[0], erp[1], second_issue['id'])
     for kind, amount in (('labor', '0.01'), ('overhead', '0.02')):
         api('POST', 'production-costs/charges', {'work_order_id': order['id'], 'kind': kind,
             'amount': amount, 'reference': kind}, 201)
@@ -267,7 +269,7 @@ def test_v38_upgrade_preserves_data_and_grants_settlement_permissions(monkeypatc
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 102
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 103
         assert db.execute("SELECT name FROM materials WHERE sku = 'OLD'").fetchone()[0] == '旧物料'
         assert {row[0] for row in db.execute("SELECT role_code FROM role_permissions WHERE permission_code = 'production_cost.settle'")} == {'admin', 'finance'}
         assert db.execute('SELECT COUNT(*) FROM production_cost_settlements').fetchone()[0] == 0

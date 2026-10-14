@@ -15,7 +15,8 @@ from app.core.orm import orm_session, model_data
 from app.core.models import (User, Material, Bom, WorkOrder, WorkOrderLine, MaterialIssue,
     MaterialIssueReversal,
     MaterialIssueLine, MaterialReturn, MaterialReturnLine, MaterialReturnReversal, StockMovement, ProductionCostEntry,
-    ProductionCostReversal, ProductionSettlementSource)
+    ProductionCostReversal, ProductionSettlementSource, ProductionFlowSettlementSource,
+    MaterialFlowExecutionLine, MaterialFlowLine)
 from app.inventory.valuation import calculate_valuation
 from app.production.cost_lock import active_settlement, ensure_unsettled
 from app.production.quality_rules import rework_source
@@ -82,12 +83,31 @@ class CostReversalInput(BaseModel):
 
 
 def returned_quantity(session: Session, issue_line_id: int) -> Decimal:
-    return sum((Decimal(value) for value in session.scalars(select(MaterialReturnLine.quantity)
+    returned = sum((Decimal(value) for value in session.scalars(select(MaterialReturnLine.quantity)
         .join(MaterialReturn, MaterialReturn.id == MaterialReturnLine.material_return_id)
         .where(MaterialReturnLine.material_issue_line_id == issue_line_id,
                MaterialReturn.status == 'posted',
                ~select(MaterialReturnReversal.id).where(
                    MaterialReturnReversal.material_return_id == MaterialReturn.id).exists()))), Decimal(0))
+    from app.production.material_flow_rules import flow_returned_for_movement
+    movement_id = session.scalar(select(StockMovement.id).where(
+        StockMovement.source_type == 'material_issue', StockMovement.source_line_id == issue_line_id))
+    # 新退料和交接退回按原出库冲回成本，损坏交接不冲减原材料成本。
+    return returned + (flow_returned_for_movement(session, movement_id) if movement_id else Decimal(0))
+
+
+def saved_flow_cost_sources(session: Session, settlement_id: int, work_order_id: int) -> list[dict]:
+    rows = []
+    for source, line, material in session.execute(select(ProductionFlowSettlementSource, MaterialFlowLine, Material)
+        .join(MaterialFlowExecutionLine, MaterialFlowExecutionLine.id == ProductionFlowSettlementSource.execution_line_id)
+        .join(MaterialFlowLine, MaterialFlowLine.id == MaterialFlowExecutionLine.line_id)
+        .join(WorkOrderLine, WorkOrderLine.id == MaterialFlowLine.work_order_line_id)
+        .join(Material, Material.id == WorkOrderLine.component_material_id)
+        .where(ProductionFlowSettlementSource.settlement_id == settlement_id)):
+        rows.append({**model_data(source), 'work_order_id': work_order_id,
+            'material_issue_line_id': None, 'material_issue_id': None,
+            'material_dispatch_id': line.document_id, 'sku': material.sku, 'material_name': material.name})
+    return rows
 
 
 def entry_data(session: Session, entry_id: int) -> dict:
@@ -150,6 +170,26 @@ def cost_report(session: Session) -> dict:
                     'sku': material.sku, 'material_name': material.name, 'net_quantity': str(net),
                     'unit_cost': str(rate), 'amount': amount, 'cost_source': 'inventory' if inventory_cost is not None else 'manual',
                     'cost_entry_id': None if inventory_cost is not None else manual['id']})
+        from app.production.material_flow_rules import flow_cost_sources
+        for source in flow_cost_sources(session, order.id):
+            net = Decimal(source['net_quantity'])
+            if net <= 0:
+                continue
+            material = session.get(Material, source['material_id'])
+            rate = valuation.movement_costs.get(source['movement_id'])
+            identity = {'work_order_id': order.id, 'material_issue_line_id': None, 'material_issue_id': None,
+                'material_dispatch_id': source['dispatch_id'], 'execution_line_id': source['execution_line_id'],
+                'movement_id': source['movement_id'], 'sku': material.sku, 'material_name': material.name,
+                'unit': material.unit, 'net_quantity': str(net)}
+            if rate is None:
+                unpriced += 1
+                unpriced_lines.append(identity)
+            else:
+                # 每一笔实际发出各用其当时成本；换料仅增加补发成本，旧料损坏不重复追加损失。
+                amount = money(net * rate)
+                known += Decimal(amount)
+                material_sources.append({**identity, 'unit_cost': str(rate), 'amount': amount,
+                    'cost_source': 'inventory', 'cost_entry_id': None})
         fees = {kind: sum((Decimal(item['amount']) for item in entries
             if item['work_order_id'] == order.id and item['status'] == 'active' and item['kind'] == kind), Decimal(0))
             for kind in ('labor', 'overhead')}
@@ -179,6 +219,7 @@ def cost_report(session: Session) -> dict:
                 .where(ProductionSettlementSource.settlement_id == settlement['id'])):
                 material_sources.append({**model_data(source), 'work_order_id': order.id,
                     'material_issue_id': issue_id, 'sku': sku, 'material_name': name})
+            material_sources.extend(saved_flow_cost_sources(session, settlement['id'], order.id))
         orders.append(summary)
     applied = {item['cost_entry_id'] for item in material_sources if item['cost_entry_id'] is not None}
     for entry in entries:

@@ -1,9 +1,9 @@
-// 类型白名单与后端 32 类编号/审批范围一致，页面不能提供任意表名或请求路径。
+// 类型白名单与后端目录一致；领料仅更正需要审批，普通签收不申请独立审批。
 export const documentApprovalTypes = [
   'PurchaseRequest', 'PurchaseOrder', 'PurchaseGoodsReceipt', 'Receipt', 'PurchaseReturn',
   'WarehouseInbound', 'WarehouseOutbound', 'Transfer', 'Stocktake', 'StockAdjustment',
   'CrmQuote', 'SalesOrder', 'Shipment', 'SalesReturn', 'AfterSalesCase',
-  'WorkOrder', 'MaterialIssue', 'MaterialReturn', 'ProductionCompletion', 'QualityDisposition',
+  'WorkOrder', 'MaterialIssue', 'MaterialReturn', 'MaterialDispatch', 'MaterialReceipt', 'MaterialExchange', 'ProductionMaterialReturn', 'ProductionCompletion', 'QualityDisposition',
   'MrpPlan', 'ProductionCostSettlement', 'MaintenanceJob', 'Journal', 'OpeningBalance',
   'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement', 'SubledgerOrderSettlement', 'ControlBalanceTransfer'
 ] as const
@@ -187,6 +187,8 @@ export function validateDocumentApprovalResponse(value: unknown): void {
   if (!value || typeof value !== 'object') return
   const row = value as Record<string, unknown>
   for (const field of ['approval', 'reversal_approval', 'outbound_approval']) {
+    // 生产领料签收本身没有审批，只有更正时读取独立的冲销审批。
+    if (field === 'approval' && row.kind === 'receipt' && row[field] === null) continue
     if (Object.hasOwn(row, field)) validateDocumentApprovalState(row[field])
   }
 }

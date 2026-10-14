@@ -17,6 +17,9 @@ export const movementTypeLabels: Record<string, string> = {
   adjustment: '库存调整', adjustment_reversal: '库存调整冲销',
   stocktake: '盘点', stocktake_reversal: '盘点冲销',
   material_issue: '生产领料', material_issue_reversal: '生产领料冲销',
+  material_dispatch: '生产发料', material_dispatch_reversal: '生产发料冲销',
+  production_material_return: '生产退料接收', production_material_return_reversal: '生产退料接收冲销',
+  material_handover_return: '未签收交接退回', material_handover_return_reversal: '交接退回冲销',
   material_return: '生产退料',
   material_return_reversal: '生产退料冲销',
   production_completion: '生产完工', production_completion_reversal: '生产完工冲销'
@@ -54,6 +57,8 @@ export function shortLocalTime(value: string): string {
 export function movementSource(item: Movement): string {
   const sourceNumber = (item as Movement & { source_document_no?: string | null }).source_document_no
   if (sourceNumber) return `${movementTypeLabel(item.source_type)} ${sourceNumber}`
+  if (['material_dispatch', 'material_dispatch_reversal', 'production_material_return', 'production_material_return_reversal', 'material_handover_return', 'material_handover_return_reversal'].includes(item.source_type))
+    return `${movementTypeLabel(item.source_type)} #${item.source_id}`
   // 所有库存变动都显示原始业务单据，便于从数量追溯到责任操作。
   if (item.receipt_id !== null) return `入库单 #${item.receipt_id}`
   if (item.receipt_reversal_id !== null)

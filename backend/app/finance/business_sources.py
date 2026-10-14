@@ -34,6 +34,9 @@ SOURCE_LABELS = {
     'adjustment': '库存调整', 'adjustment_reversal': '库存调整冲销',
     'material_issue': '生产领料', 'material_issue_reversal': '生产领料冲销',
     'material_return': '生产退料', 'material_return_reversal': '生产退料冲销',
+    'material_dispatch': '生产发料', 'material_dispatch_reversal': '生产发料更正',
+    'production_material_return': '生产退料接收', 'production_material_return_reversal': '生产退料接收更正',
+    'material_handover_return': '生产交接退回', 'material_handover_return_reversal': '生产交接退回更正',
     'production_completion': '生产完工', 'production_completion_reversal': '生产完工冲销',
     'production_charge': '生产费用', 'production_charge_reversal': '生产费用冲销',
     'payment_record': '收付款登记',
@@ -154,7 +157,8 @@ def business_sources(db: Session) -> dict[str, dict]:
                 add('payable', -trade)
                 add('price_variance', trade - inventory)
         elif item['movements']:
-            if kind.startswith(('material_', 'production_completion')):
+            # 正常退料按原出库价冲回在制材料；不能归入普通库存调整对方科目。
+            if kind.startswith(('material_', 'production_material_return', 'production_completion')):
                 add('work_in_progress', -inventory)
             elif kind in SOURCE_LABELS:
                 add('inventory_offset', -inventory)

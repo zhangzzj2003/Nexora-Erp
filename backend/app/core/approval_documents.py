@@ -472,7 +472,7 @@ def work_order_snapshot(db: Session, identifier: int) -> dict:
 def material_issue_snapshot(db: Session, identifier: int) -> dict:
     source = document_source(db, 'MaterialIssue', identifier)
     # 剩余需料和库存是执行时动态核对值，固定正文只包含本单的工单来源、仓库和数量。
-    return {'work_order_id': source.work_order_id, 'warehouse_id': source.warehouse_id,
+    return {**({'receipt_required': True} if not source.historical_direct else {}), 'work_order_id': source.work_order_id, 'warehouse_id': source.warehouse_id,
             'reference': source.reference,
             'lines': [dict(row) for row in db.execute(select(MaterialIssueLine.id,
                 MaterialIssueLine.work_order_line_id, WorkOrderLine.component_material_id.label('material_id'),
@@ -817,6 +817,15 @@ def control_transfer_snapshot(db: Session, identifier: int) -> dict:
     return approval_snapshot(db, identifier)
 
 
+# 生产领料签收仅更正需审批；实际签收不进入普通审批流程。
+_FLOW_TYPES = {'MaterialDispatch':'dispatch','MaterialReceipt':'receipt','MaterialExchange':'exchange','ProductionMaterialReturn':'return'}
+
+
+def material_flow_snapshot(db, identifier, kind):
+    from app.production.material_flow_actions import snapshot
+    return snapshot(db,kind,identifier)
+
+
 _SNAPSHOTS = {'ControlBalanceTransfer': control_transfer_snapshot, 'SubledgerSettlement': subledger_settlement_snapshot, 'ProductionCostSettlement': settlement_snapshot, 'OrderSettlementTransfer': order_settlement_snapshot, 'SubledgerPayment': subledger_payment_snapshot, 'PaymentRecord': payment_snapshot, 'SubledgerOpening': subledger_snapshot, 'OpeningBalance': opening_snapshot, 'Journal': journal_snapshot, 'MaintenanceJob': maintenance_snapshot, 'MrpPlan': mrp_snapshot, 'QualityDisposition': quality_snapshot, 'AfterSalesCase': after_sales_snapshot, 'CrmQuote': quote_snapshot, 'PurchaseRequest': purchase_request_snapshot, 'WarehouseInbound': inbound_snapshot, 'PurchaseOrder': purchase_order_snapshot,
               'SubledgerOrderSettlement': subledger_order_settlement_snapshot,
               'PurchaseGoodsReceipt': goods_receipt_snapshot, 'Receipt': receipt_snapshot,
@@ -825,6 +834,8 @@ _SNAPSHOTS = {'ControlBalanceTransfer': control_transfer_snapshot, 'SubledgerSet
               'SalesOrder': sales_order_snapshot, 'Shipment': shipment_snapshot, 'SalesReturn': sales_return_snapshot,
               'WorkOrder': work_order_snapshot, 'MaterialIssue': material_issue_snapshot,
               'MaterialReturn': material_return_snapshot, 'ProductionCompletion': completion_snapshot}
+_SNAPSHOTS.update({name:(lambda db,identifier,kind=kind:material_flow_snapshot(db,identifier,kind)) for name,kind in _FLOW_TYPES.items()})
+
 _REVERSE = {'ProductionCostSettlement': (ProductionSettlementReversal, 'settlement_id', 'production_cost.reopen'), 'MaterialIssue': (MaterialIssueReversal, 'material_issue_id', 'material_issue.reverse'),
             'MaterialReturn': (MaterialReturnReversal, 'material_return_id', 'material_return.reverse'),
             'ProductionCompletion': (ProductionCompletionReversal, 'production_completion_id', 'production_completion.reverse'),
@@ -855,6 +866,19 @@ def current_snapshot(db: Session, document_type: str, identifier: int) -> dict:
 
 def document_pending(db: Session, document_type: str, identifier: int, intent: str):
     source = document_source(db, document_type, identifier)
+    if document_type in _FLOW_TYPES:
+        from app.production.material_flow_actions import execution_snapshot
+        kind=_FLOW_TYPES[document_type]
+        facts=execution_snapshot(db,kind,identifier)
+        if intent=='reverse':
+            if source.status=='reversed' or not facts:
+                raise HTTPException(409,'没有可更正的实际办理记录')
+            return source
+        if kind=='receipt':
+            raise HTTPException(422,'签收按权限直接确认，仅登记错误更正需要审批')
+        if source.status!='draft' or facts:
+            raise HTTPException(409,'已有实际办理记录，不能撤回或重新送审')
+        return source
     # 一旦有实际入库，原批准内容不能撤回或重新送审；更正须另行冲销已入库部分。
     inbound_received = {}
     if document_type == 'WarehouseInbound':
@@ -935,6 +959,9 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
             source = document_source(db,document_type,identifier)
             content['source_author_ids'] = sorted(set(content['source_author_ids']) | ({source.executed_by} if source.executed_by is not None else set()))
         result = {'document': content, 'reversal_reason': reason.strip()}
+        if document_type in _FLOW_TYPES:
+            from app.production.material_flow_actions import execution_snapshot
+            result['executions']=execution_snapshot(db,_FLOW_TYPES[document_type],identifier)
         if document_type == 'WarehouseInbound' and document_source(db, document_type, identifier).status == 'draft':
             from app.inventory.inbounds import received_by_line
             # 冲销审批冻结实际入库额度，送审后若继续到货，旧冲销批准不能扣回新的数量。
@@ -951,6 +978,9 @@ def document_snapshot(db: Session, document_type: str, identifier: int, intent: 
 
 
 def submit_permission(document_type: str, intent: str, source=None) -> str | None:
+    if document_type in _FLOW_TYPES and intent == 'reverse':
+        from app.production.material_flow_rules import PERMISSIONS
+        return PERMISSIONS[_FLOW_TYPES[document_type]]+'.reverse'
     if document_type == 'ControlBalanceTransfer' and source is not None and source.reverses_id is not None:
         return 'control_transfer.reverse'
     # 反向资金草稿独立送审，建单权限不能代替冲销权限。
@@ -973,6 +1003,19 @@ def submit_permission(document_type: str, intent: str, source=None) -> str | Non
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    if document_type in _FLOW_TYPES:
+        order=db.get(WorkOrder,content['work_order_id'])
+        warehouse=db.get(Warehouse,content['warehouse_id'])
+        summary=[{'label':'生产工单','value':order.document_no or f'#{order.id}'},
+            {'label':'仓库','value':warehouse.name},{'label':'原因','value':content['reason']},
+            {'label':'参考号','value':content['reference']},{'label':'说明','value':content['note']}]
+        for line in content['lines']:
+            workline=db.get(WorkOrderLine,line['work_order_line_id'])
+            material=db.get(Material,workline.component_material_id)
+            summary.append({'label':material.sku+' '+material.name,'value':line['quantity']+' '+material.unit})
+            if line['evidence']:
+                summary.append({'label':'无实物损耗依据','value':line['evidence']})
+        return summary
     if document_type == 'ControlBalanceTransfer':
         summary = [{'label': label, 'value': str(value)} for label, value in (
             ('往来类别', '客户应收' if content['kind'] == 'receivable' else '供应商应付'),

@@ -14,7 +14,8 @@ from app.access.security import require
 from app.core.models import (Material, PhysicalLot, PhysicalLotAllocation, PhysicalLotEvidenceGroup,
                              PhysicalLotEvidenceGroupPair, PhysicalLotEvidencePair,
                              PhysicalLotMovementCheckpoint, PhysicalLotMovementEvidence, StockMovement, Warehouse,
-                             MaterialIssueReversal, MaterialReturnReversal)
+                             MaterialIssue, MaterialIssueReversal, MaterialReturnReversal,
+                             MaterialFlowExecutionLine, MaterialFlowLine)
 from app.core.orm import add_model, orm_session
 from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.inventory.physical_lots import lot_balance, unassigned_stock_quantity
@@ -93,6 +94,25 @@ def _assigned_to_movement(db: Session, movement_id: int) -> Decimal:
 
 
 def _ensure_movement_evidence_mutable(db: Session, movement: StockMovement) -> None:
+    part = db.scalar(select(MaterialFlowExecutionLine).where(MaterialFlowExecutionLine.movement_id == movement.id))
+    if part is not None and (part.reverses_line_id is not None or db.scalar(
+            select(MaterialFlowExecutionLine.id).where(MaterialFlowExecutionLine.reverses_line_id == part.id)) is not None):
+        # 追加更正已固定正反流水的批次依据，事后补证不能重写该依赖链。
+        raise HTTPException(409, '物料收发执行已更正，不能再修改原流水或反向流水的批次补证')
+    receipt_lines = []
+    if movement.source_type == 'material_dispatch' and part is not None:
+        receipt_lines = db.scalars(select(MaterialFlowLine.id).where(
+            MaterialFlowLine.document_type == 'receipt', MaterialFlowLine.source_execution_line_id == part.id))
+    elif movement.source_type == 'material_issue':
+        issue = db.get(MaterialIssue, movement.source_id)
+        if issue is not None and not issue.historical_direct:
+            receipt_lines = db.scalars(select(MaterialFlowLine.id).where(
+                MaterialFlowLine.document_type == 'receipt',
+                MaterialFlowLine.legacy_issue_line_id == movement.source_line_id))
+    from app.production.material_flow_rules import active_facts
+    # 已交接的未知批次不能被事后补证擅自分给待签差额；先更正下游，再追加来源证据。
+    if any(active_facts(db, identifier, ('execute', 'handover_return')) for identifier in receipt_lines):
+        raise HTTPException(409, '原发料已有签收或交接退回，须先更正下游交接记录再修改批次补证')
     # 原领料冲销已固定当时的批次归属，后补证不得再改变原反向配对。
     if movement.source_type == 'material_issue_reversal' or (
             movement.source_type == 'material_issue' and db.scalar(

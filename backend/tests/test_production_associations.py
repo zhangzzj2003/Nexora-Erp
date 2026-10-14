@@ -5,7 +5,7 @@ from decimal import Decimal
 from app.core.orm import orm_session
 from app.core.models import Receipt,ReceiptLine,PhysicalLotMovementEvidence,StockMovement
 from sqlalchemy import select
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, receive_legacy_issue, reverse_legacy_receipt
 from test_production_settlements import erp
 
 
@@ -45,6 +45,7 @@ def tracked(erp):
     approve_document(client,headers,'MaterialIssue',issue['id'])
     api('POST',f'material-issues/{issue["id"]}/post',{'lines':[{'material_issue_line_id':issue['lines'][0]['id'],
         'lots':[{'lot_id':lot,'quantity':'100'} for _,_,lot in sources]}]})
+    receive_legacy_issue(client, headers, issue['id'])
     return erp,work,issue,sources
 
 
@@ -98,14 +99,18 @@ def test_purchase_references_are_bounded_and_not_current_stock(erp):
 
 
 def test_late_evidence_and_its_reversal_do_not_guess_unknown_origins(erp):
-    _,_,api,material,receipt,order,_=erp
+    client,headers,api,material,receipt,order,_=erp
     raw,product=material('LATE-RAW'),material('LATE-PRODUCT')
     origin_id=receipt(raw,'2')
     work,issue=order(raw,product)
     with orm_session() as db:
         movement_id=db.scalar(select(StockMovement.id).where(StockMovement.source_type=='material_issue',StockMovement.source_id==issue['id']))
     base='inventory/physical-lots'
-    pair=api('POST',f'{base}/evidence-pairs',{'inbound_movement_id':origin_id,'outbound_movement_id':movement_id,'quantity':'1','evidence':'现场签收标签与领用交接记录逐件核对'},201)
+    evidence={'inbound_movement_id':origin_id,'outbound_movement_id':movement_id,'quantity':'1','evidence':'现场签收标签与领用交接记录逐件核对'}
+    # 新领料已有签收后不能追改交接批次；显式批准更正后才能追加现场证据。
+    api('POST',f'{base}/evidence-pairs',evidence,409)
+    reverse_legacy_receipt(client, headers, issue['id'])
+    pair=api('POST',f'{base}/evidence-pairs',evidence,201)
     component=api('GET',f'work-orders/{work["id"]}/associations')['components'][0]
     source=component['issues'][0]['sources'][0]
     assert source['evidence_kind']=='supplement' and source['supplier_id'] and source['source_document_no']
@@ -113,6 +118,7 @@ def test_late_evidence_and_its_reversal_do_not_guess_unknown_origins(erp):
     api('POST',f'{base}/evidence-pairs/{pair["id"]}/reverse',{'reason':'原领料包装标签辨认有误'},201)
     component=api('GET',f'work-orders/{work["id"]}/associations')['components'][0]
     assert component['issues'][0]['sources']==[] and Decimal(component['issues'][0]['unassigned_quantity'])==1
+    receive_legacy_issue(client, headers, issue['id'])
 
 
 def test_unknown_origin_lot_never_guesses_a_supplier_receipt(tracked):

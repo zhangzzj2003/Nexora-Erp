@@ -132,13 +132,35 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 `POST /api/v1/work-orders` 使用启用的 BOM、目标报工数量及目标仓库创建草稿。服务端在写事务内固定 BOM 版本引用，并按目标数量与 BOM 基准产量计算每个组件的需求，向上取整到库存的三位精度。`GET /api/v1/work-orders` 返回工单、需料快照、净领料与剩余数量，以及已报工、合格、不合格和待报工数量；`POST /api/v1/work-orders/{id}/release` 须本单独立批准后下达草稿，BOM 已停用时拒绝下达，须取消草稿并按新版本建单；`/cancel` 可取消未发料的草稿或已下达工单。旧工单在 BOM 换版后仍保留原组件和数量。查看要求 `production.view`，创建、下达、取消分别要求 `work_order.create`、`work_order.release`、`work_order.cancel`；管理员与生产计划员默认拥有，仓库员可查看。工单创建和下达不锁定库存；目标仓库用于合格成品入库。
 
-## 生产领料
+## 生产物料四类操作
+
+新流程使用以下接口；四类列表均支持工单、单号或物料搜索，以及状态、仓库、人员、日期与分页。工作台两个位置调用相同服务端权限和事务。
+
+| 路径（均在 `/api/v1` 下） | 职责 |
+| --- | --- |
+| `/material-dispatches` | 发料草稿、审批后分批实际发出 |
+| `/material-receipts` | 每次发出产生的待签收单，权限确认分批签收 |
+| `/material-exchanges` | 换料申请、分批收旧与关联补发 |
+| `/material-returns/flow` | 从签收来源申请正常退料，分批接收入库 |
+| `/work-orders/{id}/material-flow` | 工单物料汇总、可用来源及四类关联单据 |
+
+列表日期按 `timezone_offset_minutes`（UTC 减界面本地时区的分钟数）转换完整自然日后查询；省略时按 UTC。状态统计使用同一搜索、仓库、人员与日期范围，分页不改变统计口径。
+
+新建传 `request_id`、`work_order_id`、`warehouse_id` 和 `lines`；发料行关联 `work_order_line_id`，退换料行同时关联 `source_receipt_line_id` 或 `legacy_issue_line_id`。数量为正数、最多三位小数。后续写入传当前 `version` 与同一次操作固定的 `request_id`；网络重试复用原标识，不重新创造执行事实。
+
+`/{id}/execute` 逐行提交 `line_id`、本次数量和可选实物 `lots`；`/{id}/available-lots` 提供对应来源批次。领料 `/{id}/handover-return` 登记未签收实物退回，换料 `/{id}/create-dispatch` 生成独立待审批补发单。除领料签收单外，`/{id}/close` 关闭未执行余额，`/{id}/reverse` 在单独更正批准后追加反向记录，均要求原因。签收不再次扣库存，换料收旧不增加良品库存。
+
+v103 新增独立主单、执行记录与逐出库成本来源，旧已确认领料仅标记历史直接领料，不伪造签收证据。旧领退料路径和历史记录保留；新旧来源共用剩余额度、报工和结算核算。完整业务规则见[生产物料流程](../docs/production-material-flow.md)。
+
+## 历史生产领料入口
+
+数据库 v103 起，旧确认接口实际出库后自动建立待签收记录，不再直接增加生产可用材料；已有历史确认保留直接领料口径。新操作优先使用上文生产物料四类接口。
 
 `POST /api/v1/material-issues` 对已下达或生产中的工单建立分批领料草稿，指定源仓库及本次工单组件数量；`GET /api/v1/material-issues` 查看全部记录及每条已退、可退数量。`GET /api/v1/material-issues/{id}/available-lots` 以确认权限返回草稿各物料在源仓的可用实物批次；`POST /api/v1/material-issues/{id}/post` 可逐行提交 `lines: [{material_issue_line_id, lots: [{lot_id, quantity}]}]`。写事务重新核对工单剩余需料、源仓库存和批次余额，数量精确守恒后记录负向库存流水与原批次分配，工单进入“生产中”。旧客户端省略批次请求体仍可确认，但留下可见的批次差额。两个草稿可以并存，但后确认的草稿若超出剩余需料或库存会返回 409，整单不扣库存。`/cancel` 仅取消草稿；已确认领料保留原单据及流水；`POST /api/v1/material-issues/{id}/reverse` 要求必填原因，未结期间且没有有效报工、退料、人工核价或成本结算时，按原批次向原仓追加等量正向流水。冲销后不可再给原单或冲销流水补证；全部有效领料归零时工单回到“已下达”。查看要求 `production.view`；创建、确认、取消、冲销分别要求 `material_issue.create`、`material_issue.post`、`material_issue.cancel`、`material_issue.reverse`；冲销默认仅管理员可用。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。材料金额按领料时库存移动平均成本读取；库存成本未知时可在成本页面人工核价。
 
 ## 生产退料更正
 
-`POST /api/v1/material-returns` 指定生产中工单的已确认领料单、退料原因及原领料明细数量建立草稿；`GET /api/v1/material-returns` 查看记录。`GET /api/v1/material-returns/{id}/available-lots` 以确认权限返回原领料行已分配批次及扣除既往已确认退料的剩余可退量；`POST /api/v1/material-returns/{id}/post` 可逐行提交 `lines: [{return_line_id, lots: [{lot_id, quantity, supplier_lot, manufactured_on, expires_on}]}]`。选择原批次时核对归属与可退量；实物无法对应原批次时可登记独立标记的“退料新批次”，不伪造原来源。写事务重新核对累计可退数量和工单状态，向原领料仓库写入正向库存流水和批次分配。本单独立批准后，客户端可省略请求体普通确认，留下可见差额。工单“已领”和“剩余”按已确认领料减已确认退料计算，退回后可重新领用；已用于确认报工的最低组件数量不能退回。多张草稿可以并存，但后确认的草稿若超量会返回 409，整单不入库。`/cancel` 仅取消草稿，已确认退料保留记录；已确认退料可通过 `POST /api/v1/material-returns/{id}/reverse` 提交必填原因整单冲销：仅生产中、未结算且无有效报工的工单允许；原退料及批次证据保留，追加原仓负向库存流水，原批次或现场补证批次足额且工单不因后续补领而超领时生效。原单与冲销流水的补证随后锁定。查看要求 `production.view`；创建、确认、取消、冲销分别要求 `material_return.create`、`material_return.post`、`material_return.cancel`、`material_return.reverse`；冲销默认仅管理员可用。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。退料由操作员按实际退回事实登记，当前不含生产现场实物核验。
+`POST /api/v1/material-returns` 指定生产中工单的已确认领料单、退料原因及原领料明细数量建立草稿；`GET /api/v1/material-returns` 查看记录。`GET /api/v1/material-returns/{id}/available-lots` 以确认权限返回原领料行已分配批次及扣除既往已确认退料的剩余可退量；`POST /api/v1/material-returns/{id}/post` 可逐行提交 `lines: [{return_line_id, lots: [{lot_id, quantity, supplier_lot, manufactured_on, expires_on}]}]`。选择原批次时核对归属与可退量；实物无法对应原批次时可登记独立标记的“退料新批次”，不伪造原来源。写事务重新核对累计可退数量和工单状态，向原领料仓库写入正向库存流水和批次分配。本单独立批准后，客户端可省略请求体普通确认，留下可见差额。工单“已领”和“剩余”按有效签收减已确认退料与损坏计算，退回后可重新领用；已用于确认报工的最低组件数量不能退回。多张草稿可以并存，但创建时即共同占用来源额度，超量草稿返回 409；执行再次检查余额，失败整单不入库。`/cancel` 仅取消草稿，已确认退料保留记录；已确认退料可通过 `POST /api/v1/material-returns/{id}/reverse` 提交必填原因整单冲销：仅生产中、未结算且无有效报工的工单允许；原退料及批次证据保留，追加原仓负向库存流水，原批次或现场补证批次足额且工单不因后续补领而超领时生效。原单与冲销流水的补证随后锁定。查看要求 `production.view`；创建、确认、取消、冲销分别要求 `material_return.create`、`material_return.post`、`material_return.cancel`、`material_return.reverse`；冲销默认仅管理员可用。管理员可全部操作；计划员可创建和取消，仓库员可创建、确认和取消。退料由操作员按实际退回事实登记，当前不含生产现场实物核验。
 
 ## 完工报工与基础质检
 

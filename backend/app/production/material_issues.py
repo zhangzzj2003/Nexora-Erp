@@ -20,6 +20,7 @@ from app.core.models import (
     MaterialIssueReversal,
     MaterialReturn,
     MaterialReturnReversal,
+    MaterialReceipt,
     ProductionCompletion,
     ProductionCompletionReversal,
     ProductionCostEntry,
@@ -37,7 +38,7 @@ from app.inventory.warehouse import balance, require_warehouse
 from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
 from app.access.security import require
 from app.production.material_returns import returned_quantity
-from app.production.work_orders import issued_quantity
+from app.production.work_orders import committed_quantity, issued_quantity
 from app.production.cost_lock import ensure_unsettled
 from app.core.period_lock import ensure_date_unlocked, ensure_movement_unlocked
 
@@ -102,6 +103,7 @@ def material_issue_data(db: Session, issue_id: int) -> dict:
                 MaterialIssue.warehouse_id,
                 MaterialIssue.reference,
                 MaterialIssue.status,
+                MaterialIssue.historical_direct,
                 MaterialIssue.created_by,
                 MaterialIssue.posted_by,
                 MaterialIssue.cancelled_by,
@@ -159,15 +161,20 @@ def material_issue_data(db: Session, issue_id: int) -> dict:
     details = []
     for line in lines:
         returned = returned_quantity(db, line["id"])
+        from app.production.material_flow_rules import legacy_source_remaining
         details.append(
             {
                 **dict(line),
                 "returned_quantity": str(returned),
-                "returnable_quantity": str(Decimal(0) if reversal else Decimal(line["quantity"]) - returned),
+                "returnable_quantity": str(Decimal(0) if reversal else max(Decimal(0), legacy_source_remaining(db, line['id']))),
                 "physical_lots": lots_by_line.get(line['id'], []),
             }
         )
-    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'MaterialIssue', issue_id)), 'reversal_approval': approval.case_data(approval.find_case(db, 'MaterialIssue', issue_id, 'reverse')), "status": "reversed" if reversal else row["status"],
+    receipt_id = db.scalar(select(MaterialReceipt.id).where(MaterialReceipt.source_document_type == 'legacy_issue',
+        MaterialReceipt.source_document_id == issue_id))
+    return {**dict(row), 'material_receipt_id': receipt_id,
+            'receipt_mode': 'historical_direct' if row['historical_direct'] else 'warehouse_dispatch',
+            'approval': approval.case_data(approval.find_case(db, 'MaterialIssue', issue_id)), 'reversal_approval': approval.case_data(approval.find_case(db, 'MaterialIssue', issue_id, 'reverse')), "status": "reversed" if reversal else row["status"],
             "reversal_id": reversal.id if reversal else None,
             "reversal_reason": reversal.reason if reversal else None,
             "reversed_by": reversal.created_by if reversal else None,
@@ -189,7 +196,7 @@ def checked_lines(db: Session, order_id: int, lines: list[tuple[int, Decimal]]) 
         row = known.get(line_id)
         if not row:
             raise HTTPException(422, "领料明细不属于此生产工单")
-        if quantity > Decimal(row["required_quantity"]) - issued_quantity(db, line_id):
+        if quantity > Decimal(row["required_quantity"]) - committed_quantity(db, line_id):
             raise HTTPException(409, f"组件 #{row['component_material_id']} 超出工单剩余需料")
         result.append(row)
     return result
@@ -383,6 +390,10 @@ def post_material_issue(issue_id: int, payload: MaterialIssuePostInput | None = 
             .values(status="in_progress")
         )
         approval.mark_executed(db, approved, user['id'])
+        db.flush()
+        from app.production.material_flow_actions import create_legacy_receipt
+        # 兼容旧出库入口，但新产生的库存发出必须留下待签收单，不能直接成为生产可用数量。
+        create_legacy_receipt(db, issue_id, user['id'])
         return material_issue_data(db, issue_id)
 
 
@@ -461,6 +472,9 @@ def reverse_material_issue(issue_id: int, payload: MaterialIssueReversalInput,
         approved = approval.require_approved(db, 'MaterialIssue', issue_id,
             {'document': material_issue_snapshot(db, issue_id), 'reversal_reason': payload.reason.strip()},
             user['id'], intent='reverse', permission='material_issue.reverse')
+        from app.production.material_flow_rules import ensure_legacy_receipt_reversible
+        # 已签收或已发生退换料时不能回写原发料；必须先沿下游依赖办理更正。
+        ensure_legacy_receipt_reversible(db, issue_id)
         reversal = add_model(db, MaterialIssueReversal(
             material_issue_id=issue_id, reason=payload.reason, created_by=user['id']))
         for line in lines:

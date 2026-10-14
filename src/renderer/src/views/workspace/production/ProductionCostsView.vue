@@ -363,6 +363,7 @@ const filteredEntries = computed(() =>
         </div>
       </form>
     </NModal>
+    <p v-if="productionCostReport?.unpriced_lines.some(line => line.execution_line_id)" class="muted">新发料执行存在未知成本，请先补齐原批次成本来源；未定价前不能正式结算。</p>
     <div v-if="can('production_cost.record')" class="two-columns">
       <div class="card">
         <div class="section-heading"><h2>核定领料单价</h2></div>
@@ -374,7 +375,7 @@ const filteredEntries = computed(() =>
                 required
                 :options="[
                   { label: '选择领料明细', value: 0, disabled: true },
-                  ...(productionCostReport?.unpriced_lines ?? []).map(
+                  ...(productionCostReport?.unpriced_lines ?? []).filter(line => line.material_issue_line_id !== null).map(
                     (line) => ({
                       label: (
                         ' 工单 #' +
@@ -388,7 +389,7 @@ const filteredEntries = computed(() =>
                         ' ' +
                         line.unit
                       ).trim(),
-                      value: line.material_issue_line_id,
+                      value: line.material_issue_line_id!,
                     }),
                   ),
                 ]" /></label
@@ -618,8 +619,8 @@ const filteredEntries = computed(() =>
               >
               <span
                 v-for="source in item.material_sources"
-                :key="source.material_issue_line_id"
-                >领料明细 #{{ source.material_issue_line_id }} ·
+                :key="source.movement_id"
+                > {{ source.execution_line_id ? `发料执行明细 #${source.execution_line_id}` : `历史领料明细 #${source.material_issue_line_id}` }} ·
                 {{ source.material_name }} · 净领 {{ source.net_quantity }} ·
                 {{
                   source.cost_source === "inventory"
