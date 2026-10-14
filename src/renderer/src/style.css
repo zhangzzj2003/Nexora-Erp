@@ -76,11 +76,16 @@ body { margin: 0; min-width: 320px; }
 .n-modal.n-card > .n-card-content {
   min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px;
 }
-.n-modal.n-card > .n-card__footer, .n-modal.n-card > .n-card__action { flex-shrink: 0; }
+/* 公共弹窗的 footer/action 插槽固定带分割线与按钮留白，页面无需重复声明；没有操作区时不生成线。 */
+.n-modal.n-card > .n-card__footer, .n-modal.n-card > .n-card__action {
+  flex-shrink: 0; padding: 16px 24px;
+  border-top: 1px solid var(--workspace-field-border); background: var(--app-modal-background);
+}
 @media (max-width: 650px) {
   :root .n-modal.n-card { border-radius: 16px; }
   .n-modal.n-card > .n-card-header { padding: 16px; }
   .n-modal.n-card > .n-card-content { padding: 16px; }
+  .n-modal.n-card > .n-card__footer, .n-modal.n-card > .n-card__action { padding: 16px; }
 }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
