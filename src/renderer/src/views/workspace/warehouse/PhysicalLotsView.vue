@@ -20,7 +20,7 @@ import WorkspaceSummaryFilters, {type WorkspaceSummaryFilterOption} from '../../
 import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import {useLocalPagination} from '../../../composables/use-local-pagination'
 import {filterLotRows,lotSummary,type LotFilter} from './warehouse-insights'
-import {NCollapse,NDatePicker} from 'naive-ui'
+import {NCollapse,NDatePicker,NModal} from 'naive-ui'
 import {datePickerString,vDateField} from '../../../utils/date-field'
 
 const store=usePiniaAppStore()
@@ -66,6 +66,72 @@ const groupExpiresOn=ref('')
 const reversingGroupId=ref<number|null>(null)
 const groupReverseReason=ref('')
 const disabled=computed(()=>busy.value || loading.value || preparing.value || connectionLost.value)
+// 待补证按需打开；列表与编辑共用一个弹窗，避免在主页面堆叠表格和表单。
+const pendingOpen=ref(false),pendingLoading=ref(false),pendingError=ref('')
+const evidenceError=ref(''),evidenceSaved=ref('')
+let pendingRead=0,evidenceScope=0
+const editingPending=computed(()=>!!(selectedMovement.value || pairInbound.value || groupAnchor.value))
+const pendingDisabled=computed(()=>disabled.value || pendingLoading.value)
+const pendingLabel=computed(()=>unallocated.value
+  ? `待补证 · ${unallocated.value.rows.length}${unallocated.value.has_more?'+':''}` : '待补证')
+const pendingTitle=computed(()=>selectedMovement.value?'逐笔补证':pairInbound.value?'成对补证':groupAnchor.value?'多笔成组补证':'待补证流水')
+const pendingForm=computed(()=>selectedMovement.value?'lot-movement-evidence':pairInbound.value?'lot-pair-evidence':'lot-group-evidence')
+const pendingSubmitDisabled=computed(()=>pendingDisabled.value || !store.can('physical_lot.movement_evidence')
+  || (selectedMovement.value && Number(selectedMovement.value.unallocated_quantity)<0 && !movementLotId.value)
+  || (pairInbound.value && !pairOutboundId.value)
+  || (groupAnchor.value && groupPairs.value.some(row=>!row.inbound_movement_id || !row.outbound_movement_id)))
+const pendingRows=computed(()=>unallocated.value?.rows??[])
+const pendingPageKey=computed(()=>JSON.stringify([warehouse.value,material.value]))
+const {rows:pendingPageRows,total:pendingTotal,page:pendingPage,pageSize:pendingPageSize,changePage:changePendingPage}=useLocalPagination(pendingRows,pendingPageKey)
+const pendingContext=computed(()=>{
+  // 编辑时明确当前流水的仓库和物料，不能只显示列表的“全部”筛选范围。
+  const source=selectedMovement.value||pairInbound.value||groupAnchor.value
+  const warehouseId=source?.warehouse_id??warehouse.value,materialId=source?.material_id??material.value
+  const materialRow=materials.value.find(row=>row.id===materialId)
+  return `${warehouses.value.find(row=>row.id===warehouseId)?.name||(warehouseId?`${warehouseId} 号仓`:'全部仓库')} · ${materialRow?`${materialRow.sku} · ${materialRow.name}`:materialId?`物料 #${materialId}`:'全部物料'}`
+})
+function clearPendingDraft():void {
+  selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null
+  movementQuantity.value='';movementEvidence.value='';movementLotId.value=0
+  movementSupplierLot.value='';movementManufacturedOn.value='';movementExpiresOn.value=''
+  pairQuantity.value='';pairEvidence.value='';pairLotId.value=0;pairOutboundId.value=0
+  pairSupplierLot.value='';pairManufacturedOn.value='';pairExpiresOn.value=''
+  groupPairs.value=[];groupEvidence.value='';groupLotId.value=0
+  groupSupplierLot.value='';groupManufacturedOn.value='';groupExpiresOn.value=''
+  evidenceError.value=''
+}
+function invalidatePending():void {
+  // 换筛选或会话时，旧弹窗及迟到读取都不得恢复到新范围。
+  evidenceScope++;pendingRead++;pendingOpen.value=false;pendingLoading.value=false
+  pendingError.value='';evidenceSaved.value='';clearPendingDraft()
+}
+async function refreshPending():Promise<void> {
+  if(pendingLoading.value || connectionLost.value || !store.can('inventory.view'))return
+  const ticket=++pendingRead
+  pendingLoading.value=true;pendingError.value=''
+  try {
+    const success=await store.loadPhysicalLotUnallocated()
+    if(ticket===pendingRead && !success)pendingError.value=failure.value||'待补证流水读取失败，请重试。'
+  }finally{if(ticket===pendingRead)pendingLoading.value=false}
+}
+function openPending():void {
+  if(busy.value || preparing.value || connectionLost.value || !store.can('inventory.view'))return
+  pendingOpen.value=true
+  if(!unallocated.value)void refreshPending()
+}
+function updatePending(show:boolean):void {
+  // 避免保存期间关闭弹窗；普通关闭保留草稿，再次打开可继续填写。
+  if(!show && !busy.value && !preparing.value)pendingOpen.value=false
+}
+function backToPending():void {
+  if(pendingDisabled.value)return
+  clearPendingDraft();evidenceSaved.value=''
+}
+function finishPendingEvidence(lotCode:string):void {
+  clearPendingDraft();evidenceSaved.value=`补证已保存，已归入批次 ${lotCode}。`
+  // 写入成功但刷新失败时明确提示重读，不能把未读取误报为没有待办。
+  pendingError.value=unallocated.value?'':failure.value||'补证已保存，待补证流水刷新失败，请重新读取。'
+}
 const query=ref(''),kind=ref<LotFilter>('all')
 const filtered=computed(()=>filterLotRows(overview.value?.rows??[],query.value,kind.value))
 const paginationKey=computed(()=>JSON.stringify([warehouse.value,material.value,query.value,kind.value]))
@@ -92,9 +158,12 @@ const movementColumns=[{key:'created_at',title:'时间'},{key:'warehouse_name',t
 const evidenceColumns=[{key:'created_at',title:'时间'},{key:'warehouse_name',title:'仓库'},
   {key:'counterpart_lot_code',title:'对应批次'},{key:'quantity',title:'数量变动'},
   {key:'evidence',title:'现场核对依据与操作人'}]
-const unallocatedColumns=[{key:'created_at',title:'发生时间'},{key:'source',title:'正式流水来源'},
-  {key:'quantity',title:'原流水数量'},{key:'unallocated_quantity',title:'未分配数量'},
-  {key:'action',title:'操作'}]
+// 操作列固定在右侧，缩窄窗口时仍能直接进入补证。
+const unallocatedColumns=[{key:'created_at',title:'发生时间',width:'150px'},
+  {key:'source',title:'正式流水来源',width:'280px'},
+  {key:'quantity',title:'原流水数量',width:'120px',align:'right'},
+  {key:'unallocated_quantity',title:'未分配数量',width:'120px',align:'right'},
+  {key:'action',title:'操作',width:'220px',fixed:'right'}] as const
 const movementEvidenceColumns=[{key:'created_at',title:'补证时间'},
   {key:'source',title:'原流水与仓库'},{key:'quantity',title:'归属数量'},
   {key:'evidence',title:'核对依据与操作人'}]
@@ -169,10 +238,11 @@ async function reverseEvidence():Promise<void> {
       await store.loadPhysicalLotHistory({lot_id:lot.id,material_id:lot.material_id})}
   }finally{preparing.value=false}
 }
-function refresh():void {void store.loadPhysicalLots();void store.loadPhysicalLotUnallocated()}
+function refresh():void {void store.loadPhysicalLots();void refreshPending()}
 function selectMovement(value:Record<string,unknown>):void {
   const row=unallocated.value?.rows.find(item=>item.movement_id===value.movement_id)
-  if(!row || disabled.value)return
+  if(!row || pendingDisabled.value || !pendingOpen.value || !store.can('physical_lot.movement_evidence'))return
+  clearPendingDraft();evidenceSaved.value=''
   selectedMovement.value=row
   movementLotId.value=Number(row.unallocated_quantity)<0
     ? (overview.value?.rows.find(lot=>lot.warehouse_id===row.warehouse_id
@@ -182,14 +252,16 @@ function selectMovement(value:Record<string,unknown>):void {
 }
 function selectPair(value:Record<string,unknown>):void {
   const row=unallocated.value?.rows.find(item=>item.movement_id===value.movement_id)
-  if(!row || Number(row.unallocated_quantity)<=0 || disabled.value)return
+  if(!row || Number(row.unallocated_quantity)<=0 || pendingDisabled.value || !pendingOpen.value || !store.can('physical_lot.movement_evidence'))return
+  clearPendingDraft();evidenceSaved.value=''
   pairInbound.value=row;pairOutboundId.value=0;pairLotId.value=0
   pairQuantity.value='';pairEvidence.value='';pairSupplierLot.value=''
   pairManufacturedOn.value='';pairExpiresOn.value=''
 }
 function selectGroup(value:Record<string,unknown>):void {
   const row=unallocated.value?.rows.find(item=>item.movement_id===value.movement_id)
-  if(!row || Number(row.unallocated_quantity)<=0 || disabled.value)return
+  if(!row || Number(row.unallocated_quantity)<=0 || pendingDisabled.value || !pendingOpen.value || !store.can('physical_lot.movement_evidence'))return
+  clearPendingDraft();evidenceSaved.value=''
   groupAnchor.value=row
   groupPairs.value=[{inbound_movement_id:row.movement_id,outbound_movement_id:0,quantity:''},
     {inbound_movement_id:row.movement_id,outbound_movement_id:0,quantity:''}]
@@ -205,16 +277,18 @@ function removeGroupPair(index:number):void {
 }
 async function saveGroup():Promise<void> {
   if(!groupAnchor.value || groupPairs.value.some(row=>!row.inbound_movement_id || !row.outbound_movement_id)
-    || disabled.value)return
-  preparing.value=true
+    || pendingDisabled.value || !pendingOpen.value || !store.can('physical_lot.movement_evidence'))return
+  const scope=evidenceScope
+  preparing.value=true;evidenceError.value=''
   try {
     const result=await store.savePhysicalLotEvidenceGroup({pairs:groupPairs.value.map(row=>({...row})),
       lot_id:groupLotId.value||null,evidence:groupEvidence.value,
       supplier_lot:groupLotId.value?null:groupSupplierLot.value.trim()||null,
       manufactured_on:groupLotId.value?null:groupManufacturedOn.value||null,
       expires_on:groupLotId.value?null:groupExpiresOn.value||null})
-    if(result){groupAnchor.value=null;await store.loadPhysicalLotHistory({
-      lot_id:result.lot_id,material_id:result.material_id})}
+    if(scope!==evidenceScope)return
+    if(result)finishPendingEvidence(result.lot_code)
+    else evidenceError.value=failure.value||'补证未保存，请核对后重试。'
   }finally{preparing.value=false}
 }
 async function reverseGroup():Promise<void> {
@@ -235,8 +309,9 @@ function canReverseGroup(value:Record<string,unknown>):boolean {
 }
 async function savePair():Promise<void> {
   const row=pairInbound.value
-  if(!row || !pairOutboundId.value || disabled.value)return
-  preparing.value=true
+  if(!row || !pairOutboundId.value || pendingDisabled.value || !pendingOpen.value || !store.can('physical_lot.movement_evidence'))return
+  const scope=evidenceScope
+  preparing.value=true;evidenceError.value=''
   try {
     const result=await store.savePhysicalLotEvidencePair({inbound_movement_id:row.movement_id,
       outbound_movement_id:pairOutboundId.value,lot_id:pairLotId.value||null,
@@ -244,8 +319,9 @@ async function savePair():Promise<void> {
       supplier_lot:pairLotId.value?null:pairSupplierLot.value.trim()||null,
       manufactured_on:pairLotId.value?null:pairManufacturedOn.value||null,
       expires_on:pairLotId.value?null:pairExpiresOn.value||null})
-    if(result){pairInbound.value=null;await store.loadPhysicalLotHistory({
-      lot_id:result.lot_id,material_id:result.material_id})}
+    if(scope!==evidenceScope)return
+    if(result)finishPendingEvidence(result.lot_code)
+    else evidenceError.value=failure.value||'补证未保存，请核对后重试。'
   }finally{preparing.value=false}
 }
 async function reversePair():Promise<void> {
@@ -266,16 +342,18 @@ function canReversePair(value:Record<string,unknown>):boolean {
 }
 async function saveMovementEvidence():Promise<void> {
   const row=selectedMovement.value
-  if(!row || disabled.value)return
-  preparing.value=true
+  if(!row || pendingDisabled.value || !pendingOpen.value || !store.can('physical_lot.movement_evidence'))return
+  const scope=evidenceScope
+  preparing.value=true;evidenceError.value=''
   try {
     const result=await store.savePhysicalLotMovementEvidence({movement_id:row.movement_id,
       lot_id:movementLotId.value||null,quantity:movementQuantity.value,evidence:movementEvidence.value,
       supplier_lot:movementLotId.value?null:movementSupplierLot.value.trim()||null,
       manufactured_on:movementLotId.value?null:movementManufacturedOn.value||null,
       expires_on:movementLotId.value?null:movementExpiresOn.value||null})
-    if(result){selectedMovement.value=null;await store.loadPhysicalLotHistory({
-      lot_id:result.lot_id,material_id:result.material_id})}
+    if(scope!==evidenceScope)return
+    if(result)finishPendingEvidence(result.lot_code)
+    else evidenceError.value=failure.value||'补证未保存，请核对后重试。'
   }finally{preparing.value=false}
 }
 async function reverseMovementEvidence():Promise<void> {
@@ -300,17 +378,17 @@ function prepareLedger(warehouseId:number,materialId:number):void {
   Object.assign(store.ledgerQuery,{warehouse_id:warehouseId || null,material_id:materialId,
     from_date:'',to_date:'',source_type:null})
 }
-watch([warehouse,material],()=>{selectedLegacy.value=null;selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null;
+watch([warehouse,material],()=>{invalidatePending();selectedLegacy.value=null;selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null;
   reversingRecordId.value=null;reversingMovementEvidenceId.value=null;reversingPairId.value=null;
   reversingGroupId.value=null;pairReverseReason.value='';groupReverseReason.value='';savedLotCode.value='';refresh()})
 watch(()=>`${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.permissions.join('|')}:${connectionLost.value}`,()=>{
-  selectedLegacy.value=null;selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null;
+  invalidatePending();selectedLegacy.value=null;selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null;
   reversingRecordId.value=null;reversingMovementEvidenceId.value=null;reversingPairId.value=null;
   reversingGroupId.value=null;pairReverseReason.value='';groupReverseReason.value='';savedLotCode.value=''
   if(!connectionLost.value && store.can('inventory.view'))refresh()
 })
 onMounted(()=>{refresh()})
-onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
+onUnmounted(()=>{invalidatePending();store.clearPhysicalLotHistory();selectedLegacy.value=null;
   selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null;reversingRecordId.value=null;
   reversingMovementEvidenceId.value=null;reversingPairId.value=null;reversingGroupId.value=null;
   pairReverseReason.value='';groupReverseReason.value=''})
@@ -335,7 +413,10 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
           <label>物料<WorkspaceMaterialSelect :materials="materials" v-model="material" :disabled="disabled" :options="[{value:0,label:'全部物料'},...materials.map(row=>({value:row.id,label:`${row.sku} · ${row.name}`}))]" /></label>
           <AppButton :disabled="disabled || resetDisabled" @click="resetFilters">重置</AppButton>
         </template>
-        <template #actions><AppButton :disabled="disabled" :loading="loading" @click="refresh">刷新批次</AppButton></template>
+        <template #actions>
+          <AppButton :disabled="busy || preparing || connectionLost" @click="openPending">{{ pendingLabel }}</AppButton>
+          <AppButton :disabled="disabled || pendingLoading" :loading="loading" @click="refresh">刷新批次</AppButton>
+        </template>
         <template #beforeTable>
           <div v-if="overview" role="status" class="lot-summary">
             <div class="lot-inline"><AppStatusTag :label="overview.fully_allocated ? '无数量差额' : `${overview.differences.length} 项未分配差额`" :tone="overview.fully_allocated ? 'neutral' : 'pending'" /><span>当前显示 {{ total }} 条结存</span></div>
@@ -350,7 +431,7 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
         <template #errorActions><AppButton :disabled="disabled" @click="refresh">重新读取批次</AppButton></template>
         <template #empty>
           <strong>{{ connectionLost ? '连接中断，旧结果已失效' : query || kind!=='all' ? '没有符合筛选条件的批次' : '当前范围没有批次结存' }}</strong>
-          <span>可调整筛选条件，或核对下方正式库存差额与待补证流水。</span>
+          <span>可调整筛选条件、核对正式库存差额，或点击“待补证”查看流水。</span>
           <AppButton v-if="!resetDisabled && !connectionLost" :disabled="disabled" @click="resetFilters">重置筛选</AppButton>
         </template>
       </WorkspaceTable>
@@ -373,70 +454,92 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
           <template #cell-difference="{row}"><strong>{{ row.difference }}</strong></template>
         </WorkspaceTable>
       </section>
-      <section v-if="unallocated" aria-label="待补证的旧客户端流水" class="stack">
-        <WorkspaceTable title="待补证的旧客户端流水" description="按实物标签或交接记录核对批次归属，不改变正式库存或成本。" :columns="unallocatedColumns"
-          :data="unallocated.rows" :min-table-width="900">
-          <template #beforeTable>
-            <NCollapse class="lot-help"><AppCollapseItem name="evidence-help" :title="`补证范围与操作说明 · 检查点 #${unallocated.checkpoint_movement_id}`">
-              <p>只列出升级检查点 #{{ unallocated.checkpoint_movement_id }} 之后尚未完整归属批次的流水。补证依据须来自实物或交接记录，不能仅凭单据推测批号。相抵的先入后出流水可成对或多笔成组归属同一批次，不改变正式库存或成本。</p>
-            </AppCollapseItem></NCollapse>
-            <p v-if="unallocated.has_more" class="lot-note" role="status">当前只显示最近 100 笔，请按仓库或物料缩小范围。</p>
-          </template>
-          <template #cell-created_at="{row}">{{ store.localTime(row.created_at) }}</template>
-          <template #cell-source="{row}"><strong>{{ movementTypeLabel(row.source_type) }} {{ relatedDocumentLabel(row, 'source') }}</strong><span class="lot-muted">明细 #{{ row.source_line_id }} · 流水 #{{ row.movement_id }}</span></template>
-          <template #cell-action="{row}"><div class="lot-evidence-actions"><AppButton v-if="store.can('physical_lot.movement_evidence')" type="button" :disabled="disabled" @click="selectMovement(row)">逐笔补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectPair(row)">成对补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectGroup(row)">多笔成组</AppButton></div></template>
-          <template #empty>当前筛选范围没有可补证的未分配流水。</template>
-        </WorkspaceTable>
-      </section>
-      <form v-if="pairInbound" class="stack lot-evidence" aria-label="相抵流水成对补证" @submit.prevent="savePair">
-        <h3>入库流水 #{{ pairInbound.movement_id }} · 成对补证</h3>
-        <p class="lot-note">选择同仓同物料、发生在该入库之后的出库流水，按实物标签和交接记录确认同一批次。两笔证据将一起保存或一起冲销。</p>
-        <label>出库流水 <WorkspaceSelect v-model="pairOutboundId" :disabled="disabled" :options="[{value:0,label:'选择出库流水'},...pairOutboundOptions.map(row=>({value:row.movement_id,label:`流水 #${row.movement_id} · 未分配 ${row.unallocated_quantity}`}))]" /></label>
-        <label>实物批次 <WorkspaceSelect v-model="pairLotId" :disabled="disabled" :options="[{value:0,label:'新建实物批次'},...availablePairLots.map(row=>({value:row.lot_id,label:`${row.lot_code} · 现存 ${row.quantity}`}))]" /></label>
-        <label>核对数量 <AppInput v-model="pairQuantity" required inputmode="decimal" placeholder="正数，最多三位小数" :disabled="disabled" /></label>
-        <label>成对核对依据 <AppInput v-model="pairEvidence" type="textarea" required minlength="10" maxlength="500" rows="3" placeholder="写明入库与出库对应的实物标签、交接或签收证据" :disabled="disabled" /></label>
-        <template v-if="!pairLotId">
-          <label>供应商批号（可选） <AppInput v-model="pairSupplierLot" maxlength="100" :disabled="disabled" /></label>
-          <label>生产日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="pairManufacturedOn||null" :disabled="disabled" @update:formatted-value="value=>pairManufacturedOn=datePickerString(value)" /></label>
-          <label>失效日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="pairExpiresOn||null" :disabled="disabled" @update:formatted-value="value=>pairExpiresOn=datePickerString(value)" /></label>
-        </template>
-        <p v-if="!pairOutboundOptions.length" class="lot-muted">当前列表没有可配对的后续出库流水；请调整筛选范围。</p>
-        <div class="lot-evidence-actions"><AppButton type="submit" :disabled="disabled || !pairOutboundId">确认成对补证</AppButton><AppButton type="button" :disabled="disabled" @click="pairInbound=null">取消</AppButton></div>
-      </form>
-      <form v-if="groupAnchor" class="stack lot-evidence" aria-label="多笔相抵流水成组补证" @submit.prevent="saveGroup">
-        <h3>{{ warehouses.find(row=>row.id===groupAnchor?.warehouse_id)?.name || `${groupAnchor.warehouse_id} 号仓` }} · 多笔成组补证</h3>
-        <p class="lot-note">为至少三笔同仓同物料流水建立两对以上先入后出的核对关系。每对数量为正数，同一流水可分配到多对；整组一起提交或冲销，超量时全部回滚。</p>
-        <div v-for="(line,index) in groupPairs" :key="index" class="lot-group-line">
-          <label>第 {{ index+1 }} 对入库 <WorkspaceSelect v-model="line.inbound_movement_id" :disabled="disabled" :options="groupInboundOptions.map(row=>({value:row.movement_id,label:`流水 #${row.movement_id} · 未分配 ${row.unallocated_quantity}`}))" @update:model-value="line.outbound_movement_id=0" /></label>
-          <label>出库 <WorkspaceSelect v-model="line.outbound_movement_id" :disabled="disabled" :options="[{value:0,label:'选择出库流水'},...groupOutboundOptions(line.inbound_movement_id).map(row=>({value:row.movement_id,label:`流水 #${row.movement_id} · 未分配 ${row.unallocated_quantity}`}))]" /></label>
-          <label>归属数量 <AppInput v-model="line.quantity" required inputmode="decimal" placeholder="正数，最多三位小数" :disabled="disabled" /></label>
-          <AppButton v-if="groupPairs.length>2" type="button" :disabled="disabled" @click="removeGroupPair(index)">移除</AppButton>
+      <!-- 旧流水作为按需处理的辅助任务，表单与列表在同一弹窗切换。 -->
+      <NModal :show="pendingOpen" preset="card" role="dialog" aria-modal="true" :title="pendingTitle"
+        class="lot-pending-dialog" :style="{width:editingPending && !groupAnchor ? 'min(820px, calc(100vw - 32px))' : 'min(1160px, calc(100vw - 32px))'}"
+        :mask-closable="false" :close-on-esc="!busy && !preparing" :closable="!busy && !preparing" @update:show="updatePending">
+        <div class="stack lot-pending-content">
+          <p class="lot-muted lot-pending-context">{{ pendingContext }} · 按实物标签或交接记录核对归属，不改变正式库存或成本。</p>
+          <p v-if="evidenceSaved" class="lot-note" role="status">{{ evidenceSaved }}</p>
+          <p v-if="evidenceError" class="lot-note" role="alert">{{ evidenceError }} 本次输入已保留。</p>
+          <section v-if="!editingPending" aria-label="待补证的旧客户端流水" class="stack">
+            <WorkspaceTable title="待补证的旧客户端流水" :show-title="false" :columns="unallocatedColumns"
+              :data="pendingPageRows" :min-table-width="900" :loading="pendingLoading" :error="unallocated ? '' : pendingError"
+              :pagination="{page:pendingPage,pageSize:pendingPageSize,total:pendingTotal,disabled:pendingLoading}" @page-change="changePendingPage">
+              <template #beforeTable>
+                <NCollapse v-if="unallocated" class="lot-help"><AppCollapseItem name="evidence-help" :title="`补证范围与操作说明 · 检查点 #${unallocated.checkpoint_movement_id}`">
+                  <p>只列出升级检查点 #{{ unallocated.checkpoint_movement_id }} 之后尚未完整归属批次的流水。补证依据须来自实物或交接记录，不能仅凭单据推测批号。相抵的先入后出流水可成对或多笔成组归属同一批次，不改变正式库存或成本。</p>
+                </AppCollapseItem></NCollapse>
+                <p v-if="unallocated?.has_more" class="lot-note" role="status">当前只读取最近 {{ unallocated.rows.length }} 笔，入口“+”表示还有更多，请按仓库或物料缩小范围。</p>
+              </template>
+              <template #cell-created_at="{row}">{{ store.localTime(row.created_at) }}</template>
+              <template #cell-source="{row}"><span class="lot-muted">{{ warehouses.find(item=>item.id===row.warehouse_id)?.name || `${row.warehouse_id} 号仓` }} · {{ materials.find(item=>item.id===row.material_id)?.sku || `物料 #${row.material_id}` }}</span><strong>{{ movementTypeLabel(row.source_type) }} {{ relatedDocumentLabel(row, 'source') }}</strong><span class="lot-muted">明细 #{{ row.source_line_id }} · 流水 #{{ row.movement_id }}</span></template>
+              <template #cell-action="{row}"><div class="lot-evidence-actions"><AppButton v-if="store.can('physical_lot.movement_evidence')" type="button" size="small" variant="text" :disabled="pendingDisabled" @click="selectMovement(row)">逐笔补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" size="small" variant="text" :disabled="pendingDisabled" @click="selectPair(row)">成对补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" size="small" variant="text" :disabled="pendingDisabled" @click="selectGroup(row)">多笔成组</AppButton></div></template>
+              <template #errorActions><AppButton :disabled="pendingDisabled" @click="refreshPending">重新读取待补证流水</AppButton></template>
+              <template #empty>当前仓库与物料范围没有待补证流水。</template>
+            </WorkspaceTable>
+          </section>
+          <form v-if="pairInbound" id="lot-pair-evidence" class="stack lot-evidence" aria-label="相抵流水成对补证" @submit.prevent="savePair">
+            <h3>入库流水 #{{ pairInbound.movement_id }} · 成对补证</h3>
+            <p class="lot-note">选择同仓同物料、发生在该入库之后的出库流水，按实物标签和交接记录确认同一批次。两笔证据将一起保存或一起冲销。</p>
+            <label>出库流水 <WorkspaceSelect v-model="pairOutboundId" :disabled="pendingDisabled" :options="[{value:0,label:'选择出库流水'},...pairOutboundOptions.map(row=>({value:row.movement_id,label:`流水 #${row.movement_id} · 未分配 ${row.unallocated_quantity}`}))]" /></label>
+            <label>实物批次 <WorkspaceSelect v-model="pairLotId" :disabled="pendingDisabled" :options="[{value:0,label:'新建实物批次'},...availablePairLots.map(row=>({value:row.lot_id,label:`${row.lot_code} · 现存 ${row.quantity}`}))]" /></label>
+            <label>核对数量 <AppInput v-model="pairQuantity" required inputmode="decimal" placeholder="正数，最多三位小数" :disabled="pendingDisabled" /></label>
+            <label>成对核对依据 <AppInput v-model="pairEvidence" type="textarea" required minlength="10" maxlength="500" rows="3" placeholder="写明入库与出库对应的实物标签、交接或签收证据" :disabled="pendingDisabled" /></label>
+            <template v-if="!pairLotId">
+              <label>供应商批号（可选） <AppInput v-model="pairSupplierLot" maxlength="100" :disabled="pendingDisabled" /></label>
+              <label>生产日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="pairManufacturedOn||null" :disabled="pendingDisabled" @update:formatted-value="value=>pairManufacturedOn=datePickerString(value)" /></label>
+              <label>失效日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="pairExpiresOn||null" :disabled="pendingDisabled" @update:formatted-value="value=>pairExpiresOn=datePickerString(value)" /></label>
+            </template>
+            <p v-if="!pairOutboundOptions.length" class="lot-muted">当前列表没有可配对的后续出库流水；请调整筛选范围。</p>
+          </form>
+          <form v-if="groupAnchor" id="lot-group-evidence" class="stack lot-evidence" aria-label="多笔相抵流水成组补证" @submit.prevent="saveGroup">
+            <h3>{{ warehouses.find(row=>row.id===groupAnchor?.warehouse_id)?.name || `${groupAnchor.warehouse_id} 号仓` }} · 多笔成组补证</h3>
+            <p class="lot-note">为至少三笔同仓同物料流水建立两对以上先入后出的核对关系。每对数量为正数，同一流水可分配到多对；整组一起提交或冲销，超量时全部回滚。</p>
+            <div v-for="(line,index) in groupPairs" :key="index" class="lot-group-line">
+              <label>第 {{ index+1 }} 对入库 <WorkspaceSelect v-model="line.inbound_movement_id" :disabled="pendingDisabled" :options="groupInboundOptions.map(row=>({value:row.movement_id,label:`流水 #${row.movement_id} · 未分配 ${row.unallocated_quantity}`}))" @update:model-value="line.outbound_movement_id=0" /></label>
+              <label>出库 <WorkspaceSelect v-model="line.outbound_movement_id" :disabled="pendingDisabled" :options="[{value:0,label:'选择出库流水'},...groupOutboundOptions(line.inbound_movement_id).map(row=>({value:row.movement_id,label:`流水 #${row.movement_id} · 未分配 ${row.unallocated_quantity}`}))]" /></label>
+              <label>归属数量 <AppInput v-model="line.quantity" required inputmode="decimal" placeholder="正数，最多三位小数" :disabled="pendingDisabled" /></label>
+              <AppButton v-if="groupPairs.length>2" type="button" :disabled="pendingDisabled" @click="removeGroupPair(index)">移除</AppButton>
+            </div>
+            <AppButton type="button" :disabled="pendingDisabled || groupPairs.length>=50" @click="addGroupPair">增加一对</AppButton>
+            <label>实物批次 <WorkspaceSelect v-model="groupLotId" :disabled="pendingDisabled" :options="[{value:0,label:'新建实物批次'},...availableGroupLots.map(row=>({value:row.lot_id,label:`${row.lot_code} · 现存 ${row.quantity}`}))]" /></label>
+            <label>整组核对依据 <AppInput v-model="groupEvidence" type="textarea" required minlength="10" maxlength="500" rows="3" placeholder="写明各笔实物标签与交接记录的对应关系" :disabled="pendingDisabled" /></label>
+            <template v-if="!groupLotId">
+              <label>供应商批号（可选） <AppInput v-model="groupSupplierLot" maxlength="100" :disabled="pendingDisabled" /></label>
+              <label>生产日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="groupManufacturedOn||null" :disabled="pendingDisabled" @update:formatted-value="value=>groupManufacturedOn=datePickerString(value)" /></label>
+              <label>失效日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="groupExpiresOn||null" :disabled="pendingDisabled" @update:formatted-value="value=>groupExpiresOn=datePickerString(value)" /></label>
+            </template>
+          </form>
+          <form v-if="selectedMovement" id="lot-movement-evidence" class="stack lot-evidence" aria-label="旧流水逐笔补证" @submit.prevent="saveMovementEvidence">
+            <h3>库存流水 #{{ selectedMovement.movement_id }} · 逐笔补证</h3>
+            <p class="lot-note">原流水 {{ selectedMovement.quantity }}，尚未分配 {{ selectedMovement.unallocated_quantity }}。出库只能选择本仓现存批次；入库可建立新批次或归入已有批次。</p>
+            <label>实物批次 <WorkspaceSelect v-model="movementLotId" :disabled="pendingDisabled"
+              :options="[...(Number(selectedMovement.unallocated_quantity)>0?[{value:0,label:'新建实物批次'}]:[]),...availableMovementLots.map(row=>({value:row.lot_id,label:`${row.lot_code} · 现存 ${row.quantity}`}))]" /></label>
+            <label>核对数量 <AppInput v-model="movementQuantity" required inputmode="decimal" placeholder="正数，最多三位小数" :disabled="pendingDisabled" /></label>
+            <label>逐笔核对依据 <AppInput v-model="movementEvidence" type="textarea" required minlength="10" maxlength="500" rows="3" placeholder="写明原流水对应的实物、交接或签收证据" :disabled="pendingDisabled" /></label>
+            <template v-if="!movementLotId && Number(selectedMovement.unallocated_quantity)>0">
+              <label>供应商批号（可选） <AppInput v-model="movementSupplierLot" maxlength="100" :disabled="pendingDisabled" /></label>
+              <label>生产日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="movementManufacturedOn||null" :disabled="pendingDisabled" @update:formatted-value="value=>movementManufacturedOn=datePickerString(value)" /></label>
+              <label>失效日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="movementExpiresOn||null" :disabled="pendingDisabled" @update:formatted-value="value=>movementExpiresOn=datePickerString(value)" /></label>
+            </template>
+            <p v-if="Number(selectedMovement.unallocated_quantity)<0 && !availableMovementLots.length" class="lot-muted">本仓暂无可选择的正余额批次，请先核对历史期初与来源。</p>
+          </form>
+          <p v-if="editingPending" class="lot-muted">关闭弹窗可继续填写；返回待补证列表将清空本次输入。</p>
         </div>
-        <AppButton type="button" :disabled="disabled || groupPairs.length>=50" @click="addGroupPair">增加一对</AppButton>
-        <label>实物批次 <WorkspaceSelect v-model="groupLotId" :disabled="disabled" :options="[{value:0,label:'新建实物批次'},...availableGroupLots.map(row=>({value:row.lot_id,label:`${row.lot_code} · 现存 ${row.quantity}`}))]" /></label>
-        <label>整组核对依据 <AppInput v-model="groupEvidence" type="textarea" required minlength="10" maxlength="500" rows="3" placeholder="写明各笔实物标签与交接记录的对应关系" :disabled="disabled" /></label>
-        <template v-if="!groupLotId">
-          <label>供应商批号（可选） <AppInput v-model="groupSupplierLot" maxlength="100" :disabled="disabled" /></label>
-          <label>生产日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="groupManufacturedOn||null" :disabled="disabled" @update:formatted-value="value=>groupManufacturedOn=datePickerString(value)" /></label>
-          <label>失效日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="groupExpiresOn||null" :disabled="disabled" @update:formatted-value="value=>groupExpiresOn=datePickerString(value)" /></label>
+        <template #footer>
+          <div class="lot-pending-footer">
+            <template v-if="editingPending">
+              <AppButton :disabled="pendingDisabled" @click="backToPending">返回待补证列表</AppButton>
+              <AppButton type="submit" variant="primary" :form="pendingForm" :disabled="!!pendingSubmitDisabled" :loading="preparing">确认{{ pendingTitle }}</AppButton>
+            </template>
+            <template v-else>
+              <AppButton :disabled="pendingDisabled" :loading="pendingLoading" @click="refreshPending">刷新待补证</AppButton>
+              <AppButton :disabled="busy || preparing" @click="updatePending(false)">关闭</AppButton>
+            </template>
+          </div>
         </template>
-        <div class="lot-evidence-actions"><AppButton type="submit" :disabled="disabled || groupPairs.some(row=>!row.inbound_movement_id || !row.outbound_movement_id)">确认整组补证</AppButton><AppButton type="button" :disabled="disabled" @click="groupAnchor=null">取消</AppButton></div>
-      </form>
-      <form v-if="selectedMovement" class="stack lot-evidence" aria-label="旧流水逐笔补证" @submit.prevent="saveMovementEvidence">
-        <h3>库存流水 #{{ selectedMovement.movement_id }} · 逐笔补证</h3>
-        <p class="lot-note">原流水 {{ selectedMovement.quantity }}，尚未分配 {{ selectedMovement.unallocated_quantity }}。出库只能选择本仓现存批次；入库可建立新批次或归入已有批次。</p>
-        <label>实物批次 <WorkspaceSelect v-model="movementLotId" :disabled="disabled"
-          :options="[...(Number(selectedMovement.unallocated_quantity)>0?[{value:0,label:'新建实物批次'}]:[]),...availableMovementLots.map(row=>({value:row.lot_id,label:`${row.lot_code} · 现存 ${row.quantity}`}))]" /></label>
-        <label>核对数量 <AppInput v-model="movementQuantity" required inputmode="decimal" placeholder="正数，最多三位小数" :disabled="disabled" /></label>
-        <label>逐笔核对依据 <AppInput v-model="movementEvidence" type="textarea" required minlength="10" maxlength="500" rows="3" placeholder="写明原流水对应的实物、交接或签收证据" :disabled="disabled" /></label>
-        <template v-if="!movementLotId && Number(selectedMovement.unallocated_quantity)>0">
-          <label>供应商批号（可选） <AppInput v-model="movementSupplierLot" maxlength="100" :disabled="disabled" /></label>
-          <label>生产日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="movementManufacturedOn||null" :disabled="disabled" @update:formatted-value="value=>movementManufacturedOn=datePickerString(value)" /></label>
-          <label>失效日期（可选） <NDatePicker v-date-field="{min:'2000-01-01',max:'2099-12-31'}" to="body" type="date" format="yyyy-MM-dd" value-format="yyyy-MM-dd" :formatted-value="movementExpiresOn||null" :disabled="disabled" @update:formatted-value="value=>movementExpiresOn=datePickerString(value)" /></label>
-        </template>
-        <p v-if="Number(selectedMovement.unallocated_quantity)<0 && !availableMovementLots.length" class="lot-muted">本仓暂无可选择的正余额批次，请先核对历史期初与来源。</p>
-        <div class="lot-evidence-actions"><AppButton type="submit" :disabled="disabled || (Number(selectedMovement.unallocated_quantity)<0 && !movementLotId)">确认逐笔补证</AppButton><AppButton type="button" :disabled="disabled" @click="selectedMovement=null">取消</AppButton></div>
-      </form>
+      </NModal>
       <section v-if="history" aria-label="实物批次来源历史" class="stack lot-history">
         <h3>{{ history.lot.sku }} · {{ history.lot.code }} · 来源历史</h3>
         <p class="lot-muted">{{ physicalLotKindLabel(history.lot.source_kind) }}；供应商批号 {{ history.lot.supplier_lot || '未提供' }}；生产日期 {{ history.lot.manufactured_on || '未提供' }}；失效日期 {{ history.lot.expires_on || '未提供' }}。</p>
@@ -531,6 +634,12 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
 .lot-muted{color:var(--workspace-field-muted);font-size:13px;overflow-wrap:anywhere}.lot-summary{font-size:13px;line-height:1.6}
 .lot-history h3,.lot-history h4{margin-bottom:0}.lot-history a{color:var(--workspace-field-accent);text-underline-offset:3px}
 .lot-evidence{padding:16px;border:1px solid var(--workspace-field-accent);border-radius:8px}.lot-evidence label{display:grid;gap:6px}.lot-evidence-actions{display:flex;gap:8px}
+/* 弹窗复用公共固定页脚；表格去掉外层卡片装饰，避免卡片里再次套卡片。 */
+.lot-pending-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--workspace-field-border);padding-top:16px}
+.lot-pending-context{margin:0;line-height:1.7}
+.lot-pending-content :deep(.workspace-table){padding:0;border:0;box-shadow:none;background:transparent}
+.lot-pending-content .lot-evidence{padding:0;border:0;background:transparent}
+.lot-pending-content .lot-evidence h3{margin:0;font-size:16px}
 .lot-group-line{display:grid;grid-template-columns:1fr 1fr minmax(150px,.65fr) auto;align-items:end;gap:8px}
 @media(max-width:900px){.lot-group-line{grid-template-columns:1fr}}
 :deep(td strong),:deep(td .lot-muted){display:block}:deep(td){font-variant-numeric:tabular-nums}

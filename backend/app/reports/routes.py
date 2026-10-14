@@ -97,14 +97,16 @@ COLUMNS = {
         ("reason", "拒收或退货原因"),
     ],
     "inventory_balance": [
+        ("sku", "物料编号"),
+        ("material_name", "物料名称"),
         ("warehouse", "仓库"),
-        ("material", "物料"),
         ("unit", "单位"),
         ("quantity", "余额"),
     ],
     "stock_flow": [
+        ("sku", "物料编号"),
+        ("material_name", "物料名称"),
         ("warehouse", "仓库"),
-        ("material", "物料"),
         ("unit", "单位"),
         ("opening", "期初"),
         ("inbound", "收入"),
@@ -315,6 +317,8 @@ def balance_rows(db: Session, filters: ReportQuery) -> list[dict[str, str]]:
             rows.append(
                 {
                     "warehouse": warehouse["name"],
+                    "warehouse_id": str(warehouse["id"]), "material_id": str(material["id"]),
+                    "sku": material["sku"], "material_name": material["name"],
                     "material": f"{material['sku']} · {material['name']}",
                     "unit": material["unit"],
                     "quantity": str(totals.get((warehouse["id"], material["id"]), Decimal(0))),
@@ -339,6 +343,8 @@ def flow_rows(filters: ReportQuery, user: dict) -> list[dict[str, str]]:
         result.append(
             {
                 "warehouse": group["warehouse_name"],
+                "warehouse_id": str(group["warehouse_id"]), "material_id": str(group["material_id"]),
+                "sku": group["sku"], "material_name": group["material_name"],
                 "material": f"{group['sku']} · {group['material_name']}",
                 "unit": group["unit"],
                 "opening": group["opening_quantity"],
@@ -410,7 +416,10 @@ def query_inventory_report(filters: InventoryReportQuery, user: dict = Depends(c
         rows = []
         for item in selected:
             values = totals[item['warehouse_id'], item['material_id']]
-            row = {'warehouse': item['warehouse'], 'material': f"{item['sku']} · {item['name']}", 'unit': item['unit']}
+            # 稳定编号供详情追溯，旧 material 文案保留兼容；导出与页面使用同一拆分列。
+            row = {'warehouse': item['warehouse'], 'material': f"{item['sku']} · {item['name']}", 'unit': item['unit'],
+                   'warehouse_id': str(item['warehouse_id']), 'material_id': str(item['material_id']),
+                   'sku': item['sku'], 'material_name': item['name']}
             if filters.kind == 'inventory_balance':
                 row['quantity'] = str(values['closing'])
             else:

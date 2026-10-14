@@ -7,6 +7,7 @@
 | `home/` | `HomeDashboardView.vue` | 按权限展示服务端业务净额、逐日趋势、有效单据与当前待办/库存；`dashboard-data.ts` 负责金额展示和图形坐标，规则见 `docs/home-statistics.md` |
 | `warehouse/` | `ProductionDispatchesView.vue`、`ProductionReceiptsView.vue`、`ProductionExchangesView.vue`、`ProductionReturnsView.vue` | 四个独立仓库入口复用 `ProductionMaterialFlowView.vue`：按工单、状态、仓库、人员、日期搜索分页，复用审批与批次组件，分别记录分批发出、实收签字、旧料交接及补发、正常退料接收；工单详情使用 `WorkOrderMaterialFlowPanel.vue` 展示同一业务数据与来源链接 |
 | `warehouse/` | `InventoryOverviewView.vue` | 查看当前库存与库存流水 |
+| `warehouse/` | `InventoryLedgerView.vue`、`InventoryReportsView.vue` | 按物料编号、名称分别展示台账与库存报表；共用 `components/workspace/InventoryDetailDialogs.vue` 页内查看物料资料、独立分页台账及只读来源单据，范围和权限见 `docs/inventory-ledger.md` |
 | `warehouse/` | `InventoryWarningsView.vue` | 按仓库现存量与阈值识别缺货/低库存，页内配置、启停及中文修订证据；工作台窗口定时读取并在状态新发生或恶化时提醒 |
 | `warehouse/` | `PhysicalLotsView.vue` | 按仓库和物料核对批次结存、未分配差额、历史未识别期初和逐笔来源；支持历史期初现场补证与升级后未分配流水逐笔补证、先入后出成对及多笔成组补证，不推断旧单据的真实批号 |
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，按处理人、仓库、来源及本地日期范围与搜索/状态组合筛选，确认时登记多批实物来源并按原批次冲销 |
@@ -114,7 +115,7 @@
 
 `warehouse/InventoryWarningsView.vue` 使用 `inventory-warning-actions.ts` 管理 Pinia 规则、数量、草稿与修订版本。只读权限沿用库存查看，维护另需独立权限；同账号断线失效旧量而保留正文，换号撤权及迟到响应隔离。库存台账链接预设来源组合；页面可翻阅服务端定时留存的预警事件，换号和断线失效旧历史。`inventory-warning-alerts.ts` 在当前登录窗口内轮询，失焦时通过受限预加载接口请求不含物料详情的系统通知；窗口关闭后由主进程托盘轮询服务端事件。规则和升级见 [库存预警](../../../../../docs/inventory-warnings.md)。
 
-库存预警与实物批次复用标题右侧的可点击概览，主表格使用本地分页（默认 20 条），筛选后回到第一页；统计仍基于完整服务端范围。预警页展示缺货/低库存/正常/停用标签，未配置组合单独提示，空列表提供查看全部规则或配置入口。批次页支持物料、内部批号和供应商批号搜索，以及已识别/历史未识别筛选；概览按逐仓结存记录计数，不合计不同单位数量。长篇核对说明可展开，差额、待补证与预警事件保持独立区域；预警规则配置、修订和详情均通过弹窗打开，背景列表不卸载；保存失败保留输入，保存期间禁止关闭及重复提交。原有规则修订、补证权限与正式数量口径不变。
+库存预警与实物批次复用标题右侧的可点击概览，主表格使用本地分页（默认 20 条），筛选后回到第一页；统计仍基于完整服务端范围。预警页展示缺货/低库存/正常/停用标签，未配置组合单独提示，空列表提供查看全部规则或配置入口。批次页支持物料、内部批号和供应商批号搜索，以及已识别/历史未识别筛选；概览按逐仓结存记录计数，不合计不同单位数量。长篇核对说明可展开，差额与预警事件保持独立区域；待补证收在主表工具栏入口，通过同一弹窗查看流水并切换逐笔、成对或成组表单，主页面不再常驻第二张待补证表格；入口数量只统计已读取流水，有更多时显示 `+`。关闭弹窗可保留当前草稿，返回列表放弃当前输入；保存失败保留草稿，成功回到弹窗列表并更新待办数量，保存期间禁止关闭和重复提交；换仓库、物料、账号、权限或断线时清除旧弹窗与草稿。预警规则配置、修订和详情均通过弹窗打开，背景列表不卸载；保存失败保留输入，保存期间禁止关闭及重复提交。原有规则修订、补证权限与正式数量口径不变。
 
 `warehouse/PhysicalLotsView.vue` 使用 `physical-lot-actions.ts` 管理 Pinia 批次快照与补证写操作，查询沿用库存查看权限，现场补证另需 `physical_lot.reclassify`，旧客户端未分配流水逐笔、成对及成组补证需 `physical_lot.movement_evidence`；仓库/物料筛选、迟到响应、断线、换号和撤权都不能留下旧批次证据。历史未识别期初、新流水、现场补证、逐笔、成对及成组补证记录分开展示，补证与可审计冲销只转移批次归属，未分配差额不会显示成可追踪批次，规则见 [实物批次基础](../../../../../docs/physical-lot-tracing.md)。
 

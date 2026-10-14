@@ -71,6 +71,7 @@ import type {
   StockQuery, StockPageResult, InventoryReportQuery, InventoryReportResult,
   LedgerResult,
   LedgerQuery,
+  LedgerRow,
   Material,
   MaterialCategory,
   MaterialIssue,
@@ -243,6 +244,16 @@ export function createAppState() {
   const ledgerResult = ref<LedgerResult>({ groups: [], rows: [], total: 0, page: 1, page_size: 20 })
   const ledgerLoading = ref(false)
   const ledgerError = ref('')
+  // 物料及来源详情有自己的读取状态，弹窗翻页、重试不能覆盖主台账。
+  const ledgerMaterialTarget = ref<Pick<LedgerRow, 'material_id' | 'sku' | 'material_name'> | null>(null)
+  const ledgerMaterialDetail = ref<Material | null>(null)
+  const ledgerMaterialLoading = ref(false), ledgerMaterialError = ref('')
+  const ledgerMaterialQuery = ref<LedgerQuery | null>(null)
+  const ledgerMaterialResult = ref<LedgerResult>({ groups: [], rows: [], total: 0, page: 1, page_size: 20 })
+  const ledgerMaterialRowsLoading = ref(false), ledgerMaterialRowsError = ref('')
+  const ledgerDocumentTarget = ref<LedgerRow | null>(null)
+  const ledgerDocumentRecord = ref<DocumentApprovalRecord | null>(null)
+  const ledgerDocumentLoading = ref(false), ledgerDocumentError = ref('')
   const stockAdjustments = ref<StockAdjustment[]>([])
   const purchaseReportQuery = ref<ReportQuery>({ kind: 'purchase_requests', warehouse_id: null,
     material_id: null, supplier_id: null, from_date: null, to_date: null })
@@ -657,6 +668,9 @@ export function createAppState() {
     inventoryCostForm,
     movements,
     ledgerResult, ledgerLoading, ledgerError,
+    ledgerMaterialTarget, ledgerMaterialDetail, ledgerMaterialLoading, ledgerMaterialError,
+    ledgerMaterialQuery, ledgerMaterialResult, ledgerMaterialRowsLoading, ledgerMaterialRowsError,
+    ledgerDocumentTarget, ledgerDocumentRecord, ledgerDocumentLoading, ledgerDocumentError,
     stockAdjustments,
     purchaseReportQuery,
     inventoryReportQuery,

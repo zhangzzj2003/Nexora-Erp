@@ -1713,5 +1713,6 @@ export interface ErpOperations extends MaterialFlowOperations, MaterialSupplyOpe
     reference: string; reason: string }; output: InventoryCostInput }
   movements: { input: undefined; output: Movement[] }
   inventoryLedger: { input: LedgerQuery; output: LedgerResult }
+  inventoryLedgerDocument: { input: { movement_id: number }; output: import('./inventory-ledger-document').InventoryLedgerDocument }
   queryReport: { input: ReportQuery; output: ReportResult }
 }

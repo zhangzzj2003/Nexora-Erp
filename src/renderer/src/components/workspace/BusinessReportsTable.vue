@@ -8,10 +8,11 @@ import { datePickerString, vDateField } from '../../utils/date-field'
 import WorkspaceSelect from './WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from './WorkspaceMaterialSelect.vue'
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import WorkspaceTable from './WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../store/app-store'
+import InventoryDetailDialogs from './InventoryDetailDialogs.vue'
 
 const props = defineProps<{ domain: 'purchase' | 'inventory' }>()
 const store = usePiniaAppStore()
@@ -22,6 +23,10 @@ const { queryPurchaseReport, queryInventoryReport,
   exportPurchaseReport, exportInventoryReport } = store
 const query = computed(() => props.domain === 'purchase' ? purchaseReportQuery.value : inventoryReportQuery.value)
 const result = computed(() => props.domain === 'purchase' ? purchaseReportResult.value : inventoryReportResult.value)
+// 报表列仍按服务端契约展示，仅为库存物料与仓库列提供可读的默认宽度。
+const columns = computed(() => (result.value?.columns ?? []).map(column => props.domain === 'inventory'
+  ? { ...column, width: ({ sku: '152', material_name: '290', warehouse: '100', unit: '80' } as Record<string, string>)[column.key] ?? '130' }
+  : column))
 const kinds = props.domain === 'purchase'
   ? [{ value: 'purchase_requests', label: '采购申请执行' },
     { value: 'purchase_orders', label: '采购订单执行' },
@@ -40,13 +45,14 @@ if (props.domain === 'purchase') watch(purchaseReportQuery, () => {
   purchaseReportResult.value = null
 }, { deep: true })
 onMounted(() => { void (props.domain === 'inventory' ? queryInventoryReport(inventoryReportQuery.value.page) : run()) })
+onUnmounted(() => { if (props.domain === 'inventory') store.closeLedgerMaterial() })
 </script>
 
 <template>
   <WorkspaceTable
     :show-title="false"
     :title="title"
-    :columns="result?.columns ?? []"
+    :columns="columns"
     :data="result?.rows ?? []"
     :loading="loading"
     :error="domain === 'inventory' ? inventoryReportError : ''"
@@ -137,6 +143,12 @@ onMounted(() => { void (props.domain === 'inventory' ? queryInventoryReport(inve
     <template v-if="domain === 'inventory'" #errorActions>
       <AppButton :disabled="loading || connectionLost" @click="queryInventoryReport(inventoryReportQuery.page)" variant="secondary" size="small">重新查询</AppButton>
     </template>
+    <template v-if="domain === 'inventory'" #cell-sku="{ row }">
+      <AppButton variant="text" :disabled="connectionLost || !store.can('inventory.view')"
+        :title="store.can('inventory.view') ? '查看物料详情与台账明细' : '需要库存查看权限'"
+        :aria-label="`查看物料 ${row.sku} 的详情与台账`" @click="store.openReportMaterial(row)">{{ row.sku }}</AppButton>
+    </template>
     <template #empty>筛选范围内暂无记录。</template>
   </WorkspaceTable>
+  <InventoryDetailDialogs v-if="domain === 'inventory'" />
 </template>
