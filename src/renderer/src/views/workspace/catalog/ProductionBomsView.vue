@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 复用公共物料资料的单行展开状态，新增或重选时收起其他行。
+import { useDocumentMaterialDetails } from '../../../composables/use-document-material-details'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -71,6 +73,8 @@ function removeComponent(index: number): void {
   if (busy.value || connectionLost.value || !can('bom.create') || bomForm.value.lines.length <= 1) return
   bomForm.value.lines.splice(index, 1)
 }
+// 资料展示绑定原草稿行引用，删除中间行不会展开到另一项物料。
+const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => bomForm.value.lines)
 </script>
 
 <template>
@@ -92,9 +96,14 @@ function removeComponent(index: number): void {
         <label class="bom-basic-field">版本说明（可选）<AppInput v-model.trim="bomForm.note" :disabled="busy || connectionLost" maxlength="200" /></label>
       </template>
       <template #cell-material="{ row: { line, index } }">
+        <!-- 标题由表头统一展示，控件保留逐行无障碍名称。 -->
         <WorkspaceMaterialSelect v-model="line.component_material_id" :materials="materials"
+          :aria-label="`第 ${index + 1} 行物料`"
+          :compact="activeLine !== line"
+          @update:compact="(value) => setCompact(line, value)"
+          @change="showLine(line)"
           :categories="materialCategories" :options="bomComponentOptions(bomForm, materials, index)"
-          :disabled="busy || connectionLost" aria-label="组件物料" placeholder="选择组件" required />
+          :disabled="busy || connectionLost" placeholder="选择组件" required />
       </template>
       <template #cell-unit="{ row: { line } }">
         {{ materials.find(item => item.id === line.component_material_id)?.unit ?? '—' }}

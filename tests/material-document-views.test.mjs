@@ -28,12 +28,12 @@ export const editLoads=[]
 for(const key of ${JSON.stringify(['materials','suppliers','warehouses','purchaseRequests','purchaseOrders','otherOutbounds','warehouseOutbounds','goodsReceipts','purchaseReturns','transfers','stocktakes','stockAdjustments','salesOrders','shipments','salesReturns','boms','workOrders','materialIssues','materialReturns','receipts'])})state[key]=ref([])
 Object.assign(state,{busy:ref(false),connectionLost:ref(false),error:ref(''),notice:ref(''),version:ref('0.1.0'),user:ref({id:1,permissions:[]}),
  adjustmentDecisionReasons:ref({}),adjustmentReversalReasons:ref({}),otherOutboundReversalReasons:ref({}),transferReversalReasons:ref({}),stocktakeReversalReasons:ref({}),salesReturnReversalReasons:ref({}),requestRejectReasons:ref({}),
- can:()=>true,localTime:()=>'',openCustomers:()=>{},editPurchaseRequest:id=>{editLoads.push(id);state.purchaseRequestForm.value={...state.purchaseRequestForm.value,requestId:id??null,lines:[{material_id:0,quantity:'1'}]}}})
+ can:()=>true,localTime:()=>'',openCustomers:()=>{},editPurchaseRequest:id=>{editLoads.push(id);state.purchaseRequestForm.value={...state.purchaseRequestForm.value,requestId:id??null,lines:[{material_id:0,quantity:'1',unit_price:'',line_total:'',pricing_mode:'unit_price'}]}}})
 state.materialCategories=ref([])
 state.materials.value=[{id:1,sku:'EL-SR-1',name:'电阻',unit:'个'},{id:2,sku:'HW-SC-2',name:'螺钉',unit:'件'}]
 state.warehouses.value=[{id:1,name:'主仓库'}];state.suppliers.value=[{id:1,name:'供应商'}]
 state.customers=ref([{id:1,name:'客户'}])
-for(const key of ${JSON.stringify(views.map(v=>v[1]).concat('requestConversionForm'))})state[key]=ref({requestId:31,supplier_id:1,warehouse_id:1,from_warehouse_id:1,to_warehouse_id:2,customer_id:1,purchase_order_id:31,receipt_id:31,shipment_id:31,work_order_id:31,material_issue_id:31,product_material_id:2,base_quantity:'1',reference:'原参考号',note:'原说明',reason:'原原因',lines:[{material_id:1,component_material_id:1,quantity:'1',counted_quantity:'0',unit_price:'2.5000',warranty_days:30,warranty_basis:'合同',purchase_order_line_id:31,purchase_request_line_id:31,receipt_line_id:31,shipment_line_id:31,work_order_line_id:31,material_issue_line_id:31,accepted_quantity:'1',rejected_quantity:'0',rejection_reason:''}]})
+for(const key of ${JSON.stringify(views.map(v=>v[1]).concat('requestConversionForm'))})state[key]=ref({requestId:31,supplier_id:1,warehouse_id:1,from_warehouse_id:1,to_warehouse_id:2,customer_id:1,purchase_order_id:31,receipt_id:31,shipment_id:31,work_order_id:31,material_issue_id:31,product_material_id:2,base_quantity:'1',reference:'原参考号',note:'原说明',reason:'原原因',lines:[{material_id:1,component_material_id:1,quantity:'1',counted_quantity:'0',unit_price:'2.5000',line_total:'2.50',pricing_mode:'unit_price',warranty_days:30,warranty_basis:'合同',purchase_order_line_id:31,purchase_request_line_id:31,receipt_line_id:31,shipment_line_id:31,work_order_line_id:31,material_issue_line_id:31,accepted_quantity:'1',rejected_quantity:'0',rejection_reason:''}]})
 const source={id:31,document_no:'PR-20261007-000031',status:'approved',lines:[{id:31,material_name:'来源物料',material_id:1,remaining_quantity:'3',returnable_quantity:'4'}]}
 state.purchaseRequests.value=[source];state.purchaseOrders.value=[{...source,status:"confirmed"}]
 for(const key of ['selectedPurchaseReturnReceipt','selectedSalesReturnShipment','selectedIssueOrder','selectedReturnIssue'])state[key]=ref(source)
@@ -47,7 +47,7 @@ export const NPopconfirm=defineComponent({setup(p,{slots}){return()=>slots.defau
 `
 const tableSource = `import {defineComponent,h} from 'vue'
 export default defineComponent({props:['title','data','columns'],setup(p,{slots}){return()=>h('section',{'data-table':p.title},[
- slots.actions?.(),slots.beforeTable?.(),p.title==='物料明细'?[slots.heading?.(),...p.data.map(row=>h('article',p.columns.map(c=>slots['cell-'+c.key]?.({row}))))]:null])}})
+ slots.actions?.(),slots.beforeTable?.(),p.title==='物料明细'?[slots.heading?.(),...p.data.map(row=>h('article',p.columns.map(c=>h('div',{'data-cell':c.key},slots['cell-'+c.key]?.({row})))))]:null])}})
 `
 const buttonSource = `import {defineComponent,h} from 'vue'
 export const buttons=[]
@@ -58,6 +58,12 @@ const inputSource = `import {defineComponent,h} from 'vue'
 export default defineComponent({props:['modelValue'],setup(p,{attrs}){return()=>h('input',{...attrs,value:p.modelValue})}})`
 const selectSource = `import {defineComponent,h} from 'vue'
 export default defineComponent({props:['modelValue','options'],setup(p,{attrs}){return()=>h('select',{...attrs,'data-selected':p.modelValue},p.options?.map(o=>h('option',{value:o.value,disabled:o.disabled},o.label)))}})`
+
+// 保留物料组件独立标记，验证页面确实复用公共组件并接入资料收缩及分类信息。
+const materialSelectSource = `import {defineComponent,h} from 'vue'
+export default defineComponent({props:['modelValue','options','materials','categories','compact'],setup(p,{attrs}){return()=>h('span',{
+ ...attrs,'data-material-select':'shared','data-compact':String(p.compact),'data-categories':Array.isArray(p.categories)},String(p.modelValue))}})`
+const editableMaterialViews = new Set(views.filter(([file]) => !/PurchaseGoodsReceipts|PurchaseReturns|SalesReturns|MaterialIssues|MaterialReturns/.test(file)).map(([file]) => file))
 
 // 使用真实页面与真实公共弹窗展开业务插槽，替换桌面桥接和表格渲染，避免测试连接正式服务。
 test('十四个物料单据页面共用表格弹窗，新增和删除直接修改原草稿并保留业务字段', async t => {
@@ -72,11 +78,11 @@ test('十四个物料单据页面共用表格弹窗，新增和删除直接修�
     resolveId(id,importer){
       if(id==='virtual:material-document-modal')return '\0material-document-modal'
       if(!importer?.includes('/src/renderer/'))return
-      for(const [suffix,key] of [['/store/app-store','store'],['/WorkspaceTable.vue','table'],['/AppButton.vue','button'],['/AppInput.vue','input'],['/WorkspaceSelect.vue','select'],['/WorkspaceMaterialSelect.vue','select']]) {
+      for(const [suffix,key] of [['/store/app-store','store'],['/WorkspaceTable.vue','table'],['/AppButton.vue','button'],['/AppInput.vue','input'],['/WorkspaceSelect.vue','select'],['/WorkspaceMaterialSelect.vue','material-select']]) {
         if(id.endsWith(suffix))return '\0material-document-'+key
       }
     },load(id){return {'\0material-document-store':storeSource,'\0material-document-modal':modalSource,'\0material-document-table':tableSource,
-      '\0material-document-button':buttonSource,'\0material-document-input':inputSource,'\0material-document-select':selectSource}[id]}
+      '\0material-document-button':buttonSource,'\0material-document-input':inputSource,'\0material-document-select':selectSource,'\0material-document-material-select':materialSelectSource}[id]}
   },vue()],server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]},appType:'custom'})
   t.after(()=>server.close())
   const {state,editLoads}=await server.ssrLoadModule('\0material-document-store')
@@ -91,6 +97,19 @@ test('十四个物料单据页面共用表格弹窗，新增和删除直接修�
     assert.match(html,/data-table="物料明细"/,file)
     assert.match(html,/基础信息/,file)
     assert.match(html,/value="原参考号"|value="原原因"|value="原说明"/,file)
+    if (editableMaterialViews.has(file)) {
+      // 同一列已有表头，行内不再渲染第二份物料或数量标签；可访问名称仍留在控件上。
+      const materialCell = html.match(/data-cell="material">([\s\S]*?)<\/div>/)?.[1]
+      const quantityCell = html.match(/data-cell="quantity">([\s\S]*?)<\/div>/)?.[1]
+      assert.ok(materialCell && quantityCell, file)
+      assert.doesNotMatch(materialCell, /<label|>物料</, file)
+      assert.doesNotMatch(quantityCell, /<label/, file)
+      assert.match(materialCell, /data-material-select="shared"/, file)
+      assert.match(materialCell, /data-compact="false"/, file)
+      assert.match(materialCell, /data-categories="true"/, file)
+      assert.match(materialCell, /aria-label="第 1 行物料"/, file)
+      assert.match(quantityCell, /aria-label="[^"]+"/, file)
+    }
     const original=state[form].value.lines[0]
     // 可自由添加的页面均经公共按钮新增，复杂价格及保修字段仍属于原草稿。
     const text=nodes=>nodes.map(n=>typeof n.children==='string'?n.children:Array.isArray(n.children)?text(n.children):'').join('')
@@ -102,7 +121,11 @@ test('十四个物料单据页面共用表格弹窗，新增和删除直接修�
       const second=state[form].value.lines[1]
       assert.equal(second.material_id??second.component_material_id,0,file)
       assert.equal(second.quantity??second.counted_quantity,form==='stocktakeForm'?'0':'1',file)
-      await render(file)
+      const addedHtml = await render(file)
+      if (editableMaterialViews.has(file)) {
+        assert.match(addedHtml, /data-compact="true"/, file)
+        assert.match(addedHtml, /data-compact="false"/, file)
+      }
       const remove=buttons.filter(b=>text(b.children??[]).includes('移除')).at(0)
       remove.attrs.onClick()
       assert.equal(state[form].value.lines[0],second,file)
@@ -147,7 +170,7 @@ test('十四个物料单据页面共用表格弹窗，新增和删除直接修�
   blocked.attrs.onClick()
   assert.equal(state.purchaseForm.value.lines.length,beforeBusy)
   state.busy.value=false
-  state.purchaseForm.value.lines=Array.from({length:100},()=>({material_id:1,quantity:'1',unit_price:'0'}))
+  state.purchaseForm.value.lines=Array.from({length:100},()=>({material_id:1,quantity:'1',unit_price:'0',line_total:'0.00',pricing_mode:'unit_price'}))
   await render('purchase/PurchaseOrdersView.vue')
   const limit=buttons.find(b=>(b.children??[]).some(n=>typeof n.children==='string' && n.children.includes('添加物料')))
   assert.equal(limit.props.disabled,true)

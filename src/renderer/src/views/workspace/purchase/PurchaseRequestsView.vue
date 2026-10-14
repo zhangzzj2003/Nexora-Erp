@@ -296,8 +296,9 @@ function addPricedMaterial(): void {
             /></label>
           </template>
           <template #cell-material="{ row: { line, index } }"
-            ><label
-              >物料<WorkspaceMaterialSelect
+            ><!-- 标题由表头统一展示，控件保留逐行无障碍名称。 -->
+            <WorkspaceMaterialSelect
+                :aria-label="`第 ${index + 1} 行物料`"
                 :disabled="busy || connectionLost"
                 :materials="materials"
                 :categories="store.materialCategories"
@@ -312,8 +313,7 @@ function addPricedMaterial(): void {
                     label: (item.sku + ' · ' + item.name).trim(),
                     value: item.id,
                   })),
-                ]" /></label
-          ></template>
+                ]" /></template>
           <!-- 隐藏数量步进箭头，仍保留原生数字类型、精度和范围校验。 -->
           <template #cell-quantity="{ row: { line, index } }"
             ><AppInput

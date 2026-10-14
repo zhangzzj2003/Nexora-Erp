@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 复用公共物料资料的单行展开状态，新增或重选时收起其他行。
+import { useDocumentMaterialDetails } from "../../../composables/use-document-material-details";
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
@@ -252,6 +254,8 @@ async function reverseApproved(identifier: number): Promise<void> {
   store.closeDocumentApproval();
   await reverseShipment(identifier);
 }
+// 资料展示绑定原草稿行引用，删除中间行不会展开到另一项物料。
+const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => shipmentForm.value.lines)
 </script>
 
 <template>
@@ -423,10 +427,15 @@ async function reverseApproved(identifier: number): Promise<void> {
         </div>
       </template>
       <template #cell-material="{ row: { line, index } }"
-        ><label
-          >物料<WorkspaceMaterialSelect
+        ><!-- 标题由表头统一展示，控件保留逐行无障碍名称。 -->
+            <WorkspaceMaterialSelect
+                :aria-label="`第 ${index + 1} 行物料`"
             :disabled="busy || connectionLost"
             :materials="materials"
+                :categories="store.materialCategories"
+                :compact="activeLine !== line"
+                @update:compact="(value) => setCompact(line, value)"
+                @change="showLine(line)"
             v-model="line.material_id"
             required
             :options="[
@@ -435,19 +444,18 @@ async function reverseApproved(identifier: number): Promise<void> {
                 label: (item.sku + ' · ' + item.name).trim(),
                 value: item.id,
               })),
-            ]" /></label
-      ></template>
+            ]" /></template>
       <template #cell-quantity="{ row: { line, index } }"
-        ><label
-          >出库数量<AppInput
+        ><!-- 数量标题只在表头显示，数值边界和草稿绑定保持不变。 -->
+            <AppInput
+                :aria-label="`第 ${index + 1} 行出库数量`"
             :disabled="busy || connectionLost"
             v-model.trim="line.quantity"
             type="number"
             min="0.001"
             max="1000000"
             step="0.001"
-            required /></label
-      ></template>
+            required /></template>
       <template #cell-actions="{ row: { line, index } }"
         ><!-- 移除沿用主线完整点击区域，保留原有禁用与删行规则。 -->
         <AppButton size="small"
