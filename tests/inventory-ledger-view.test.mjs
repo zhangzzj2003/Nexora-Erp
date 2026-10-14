@@ -26,7 +26,7 @@ test('库存台账页面将服务端页码、总数和翻页事件接入公共�
         export const usePiniaAppStore=defineStore('ledger-fixture',()=>({
           ledgerQuery:ref({page:2,page_size:10,warehouse_id:null,material_id:null,from_date:null,to_date:null,source_type:null}),
           ledgerResult:ref({rows:[],groups:[],page:2,page_size:10,total:35}),
-          ledgerLoading:ref(false),ledgerError:ref(''),connectionLost:ref(false),warehouses:ref([]),materials:ref([]),
+          ledgerLoading:ref(false),ledgerError:ref(''),connectionLost:ref(false),warehouses:ref([]),materialCategories:ref([]),closeLedgerMaterial(){},resetStockOverview(){},openStockMaterial(){},materials:ref([]),
           localTime:value=>value,queryLedger:(...args)=>calls.push(args)
         }))`
       if (id === '\0ledger-table') return `import {defineComponent,h} from 'vue';export const captured={};
@@ -72,13 +72,13 @@ test('库存总览和库存报表接入分页，采购报表维持原有查询',
         export const calls=[];
         export const usePiniaAppStore=defineStore('inventory-fixture',()=>({
           stockOverviewQuery:ref({page:2,page_size:10,warehouse_id:null}),
-          stockOverviewResult:ref({items:[],page:2,page_size:10,total:35,summary:{material_count:35,posted_receipt_count:7,movement_count:80}}),
+          stockOverviewResult:ref({items:[],page:2,page_size:10,total:35,summary:{material_count:35,positive_material_count:5,zero_material_count:30,negative_material_count:0}}),
           stockOverviewLoading:ref(false),stockOverviewError:ref(''),
           inventoryReportQuery:ref({page:3,page_size:10,kind:'stock_flow',warehouse_id:null,material_id:null,from_date:null,to_date:null}),
           inventoryReportResult:ref({rows:[],columns:[],page:3,page_size:10,total:45}),
           inventoryReportLoading:ref(false),inventoryReportExporting:ref(false),inventoryReportError:ref(''),
           purchaseReportQuery:ref({kind:'purchase_requests'}),purchaseReportResult:ref({rows:[],columns:[]}),
-          busy:ref(false),connectionLost:ref(false),warehouses:ref([]),materials:ref([]),suppliers:ref([]),
+          busy:ref(false),connectionLost:ref(false),warehouses:ref([]),materialCategories:ref([]),closeLedgerMaterial(){},resetStockOverview(){},openStockMaterial(){},materials:ref([]),suppliers:ref([]),
           queryStockOverview:(...args)=>calls.push(['stock',...args]),queryInventoryReport:(...args)=>calls.push(['report',...args]),
           queryPurchaseReport:()=>calls.push(['purchase']),exportInventoryReport:()=>{},exportPurchaseReport:()=>{}
         }))`
@@ -100,8 +100,8 @@ test('库存总览和库存报表接入分页，采购报表维持原有查询',
   const render = component => renderToString(createSSRApp({ render: () => component }).use(pinia))
   const html = await render(h(Overview))
   assert.deepEqual(captured.props.pagination, { page: 2, pageSize: 10, total: 35, disabled: false })
-  assert.match(html, /物料种类<\/span><strong>35/)
-  assert.match(html, /库存流水<\/span><strong>80/)
+  assert.match(html, /物料种类<\/span><strong[^>]*>35/)
+  assert.match(html, /零库存物料<\/span><strong[^>]*>30/)
   captured.attrs.onPageChange(3, 10)
   assert.deepEqual(calls.at(-1), ['stock', 3, 10])
   await render(h(Reports, { domain: 'inventory' }))

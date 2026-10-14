@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `home/` | `HomeDashboardView.vue` | 按权限展示服务端业务净额、逐日趋势、有效单据与当前待办/库存；`dashboard-data.ts` 负责金额展示和图形坐标，规则见 `docs/home-statistics.md` |
 | `warehouse/` | `InventoryOverviewView.vue` | 查看当前库存与库存流水 |
-| `warehouse/` | `InventoryLedgerView.vue`、`InventoryReportsView.vue` | 按物料编号、名称分别展示台账与库存报表；共用 `components/workspace/InventoryDetailDialogs.vue` 页内查看物料资料、独立分页台账及只读来源单据，范围和权限见 `docs/inventory-ledger.md` |
+| `warehouse/` | `InventoryOverviewView.vue`、`InventoryLedgerView.vue`、`InventoryReportsView.vue` | 总览按编号、名称、分类、数量、查看展示；台账和报表将编号/名称分列。共用 `InventoryDetailDialogs.vue` 及 `InventoryMaterialFacts.vue`、`InventoryMaterialLedger.vue` 查看物料资料、独立分页台账及只读来源单据；总览详情增加全仓分布，范围和权限见 `docs/inventory-ledger.md` |
 | `warehouse/` | `InventoryWarningsView.vue` | 按仓库现存量与阈值识别缺货/低库存，页内配置、启停及中文修订证据；工作台窗口定时读取并在状态新发生或恶化时提醒 |
 | `warehouse/` | `PhysicalLotsView.vue` | 按仓库和物料核对批次结存、未分配差额、历史未识别期初和逐笔来源；支持历史期初现场补证与升级后未分配流水逐笔补证、先入后出成对及多笔成组补证，不推断旧单据的真实批号 |
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，按处理人、仓库、来源及本地日期范围与搜索/状态组合筛选，确认时登记多批实物来源并按原批次冲销 |
@@ -150,6 +150,6 @@
 
 库存台账 `warehouse/InventoryLedgerView.vue` 使用公共表格分页和服务端分页查询，默认每页 20 条、时间倒序；筛选变更和每页条数变更回到首页。期初期末与逐笔结存基于完整筛选范围，读取状态由 Pinia 的 `inventory-ledger-actions.ts` 独立维护，翻页不刷新其他业务数据。
 
-库存总览 `warehouse/InventoryOverviewView.vue` 与库存报表 `BusinessReportsTable.vue` 的库存模式均使用公共分页及独立 Pinia 查询状态。切换仓库/报表筛选或每页条数回到首页；总览统计覆盖完整数据，库存报表 CSV 点击时重新读取全部筛选结果，不受当前页限制。采购报表保持原有完整查询与快照导出。
+库存总览 `warehouse/InventoryOverviewView.vue` 与库存报表 `BusinessReportsTable.vue` 的库存模式均使用公共分页及独立 Pinia 查询状态。切换仓库/分类/关键词/报表筛选或每页条数回到首页；总览统计覆盖完整筛选范围，详情中的全仓分布与下方流水仓库筛选独立。库存报表 CSV 点击时重新读取全部筛选结果，不受当前页限制。采购报表保持原有完整查询与快照导出。
 
 仓库出库 `warehouse/WarehouseOutboundsView.vue` 与其他入库共用概览、搜索筛选、状态标签及本地分页组件；状态、处理人和创建时间独立分列，列表物料仅显示前两项，其余数量提示与批次说明保留在悬停和详情中。统计覆盖完整可见快照，已批准但未出库仍为未处理，采购退货原单冲销计入已冲销。处理人、仓库、来源与本地日期范围和关键词取交集，筛选变化回到首页，重置同时清除状态；创建草稿、详情与出库审批/执行仍沿用原业务链路。

@@ -4,11 +4,12 @@ from app.core.document_responses import NumberedRoute
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from pydantic import BaseModel, Field
 
 from app.access.security import require
 from app.core.models import Material, Warehouse, StockMovement, Receipt
+from app.catalog.categories import category_directory
 from app.core.orm import orm_session, model_data
 
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
@@ -36,6 +37,9 @@ MOVEMENT_LINKS = {
 
 class StockQuery(BaseModel):
     warehouse_id: int | None = Field(default=None, gt=0)
+    material_id: int | None = Field(default=None, gt=0)
+    keyword: str = Field(default='', max_length=120)
+    category_group: str | None = Field(default=None, max_length=30)
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
 
@@ -45,25 +49,65 @@ def query_stock(filters: StockQuery, _: dict = Depends(require('inventory.view')
     with orm_session() as db:
         if filters.warehouse_id is not None and db.get(Warehouse, filters.warehouse_id) is None:
             raise HTTPException(422, '仓库不存在')
-        total = db.scalar(select(func.count()).select_from(Material)) or 0
+        if filters.material_id is not None and db.get(Material, filters.material_id) is None:
+            raise HTTPException(404, '物料不存在')
+        directory = category_directory(db)
+        conditions = []
+        if filters.material_id is not None:
+            conditions.append(Material.id == filters.material_id)
+        # 分类按档案的父子关系查询；不从物料编号前缀猜测，停用分类仍可核对历史库存。
+        if filters.category_group is not None:
+            if filters.category_group == '':
+                conditions.append(Material.category_code == '')
+            else:
+                group = directory.get(filters.category_group)
+                if not group or group['parent_code'] is not None or group['deleted']:
+                    raise HTTPException(422, '物料大类不存在')
+                children = [code for code, child in directory.items() if child['parent_code'] == group['code']]
+                conditions.append(Material.category_code.in_(children))
+        for word in filters.keyword.strip().split():
+            conditions.append(or_(Material.sku.icontains(word, autoescape=True),
+                                  Material.name.icontains(word, autoescape=True)))
+        filtered = select(Material).where(*conditions)
+        total = db.scalar(select(func.count()).select_from(filtered.subquery())) or 0
         page = min(filters.page, max(1, (total + filters.page_size - 1) // filters.page_size))
-        # 保持物料编码顺序及零库存物料；数据库只取当前页物料与其对应流水。
-        materials = db.scalars(select(Material).order_by(Material.sku, Material.id)
+        materials = db.scalars(filtered.order_by(Material.sku, Material.id)
             .offset((page - 1) * filters.page_size).limit(filters.page_size)).all()
+        # 完整筛选范围的库存统计采用 Decimal；不从当前页或 SQLite 浮点 SUM 推算。
         quantities: dict[int, Decimal] = {}
+        movements = select(StockMovement.material_id, StockMovement.quantity).join(
+            Material, Material.id == StockMovement.material_id).where(*conditions)
+        if filters.warehouse_id is not None:
+            movements = movements.where(StockMovement.warehouse_id == filters.warehouse_id)
+        for material_id, quantity in db.execute(movements.execution_options(yield_per=1000)):
+            quantities[material_id] = quantities.get(material_id, Decimal(0)) + Decimal(quantity)
+        # 只为当前页附带全仓分布；历史有流水但已清零的仓库保留，便于继续追溯。
+        balances: dict[int, dict[int, dict]] = {}
         if materials:
-            movements = select(StockMovement.material_id, StockMovement.quantity).where(
-                StockMovement.material_id.in_([material.id for material in materials]))
-            if filters.warehouse_id is not None:
-                movements = movements.where(StockMovement.warehouse_id == filters.warehouse_id)
-            # 避免 SQL 浮点累计，页内库存同样保留精确十进制数量。
-            for material_id, quantity in db.execute(movements.execution_options(yield_per=1000)):
-                quantities[material_id] = quantities.get(material_id, Decimal(0)) + Decimal(quantity)
-        items = [{key: getattr(material, key) for key in ('id', 'sku', 'name', 'unit')} |
-                 {'quantity': str(quantities.get(material.id, Decimal(0)))} for material in materials]
-        # 顶部卡片沿用原页面的全局统计口径，与当前页条数及仓库选择无关。
+            distribution = select(StockMovement.material_id, Warehouse.id, Warehouse.code,
+                Warehouse.name, StockMovement.quantity).join(Warehouse, Warehouse.id == StockMovement.warehouse_id).where(
+                StockMovement.material_id.in_([material.id for material in materials])).order_by(Warehouse.code, Warehouse.id)
+            for material_id, warehouse_id, code, name, quantity in db.execute(distribution.execution_options(yield_per=1000)):
+                entry = balances.setdefault(material_id, {}).setdefault(warehouse_id,
+                    {'warehouse_id': warehouse_id, 'warehouse_code': code, 'warehouse_name': name, 'quantity': Decimal(0)})
+                entry['quantity'] += Decimal(quantity)
+        items = []
+        for material in materials:
+            category = directory.get(material.category_code)
+            parent = directory.get(category['parent_code']) if category else None
+            warehouses = list(balances.get(material.id, {}).values())
+            total_quantity = sum((item['quantity'] for item in warehouses), Decimal(0))
+            items.append({**{key: getattr(material, key) for key in ('id', 'sku', 'name', 'unit', 'category_code')},
+                'category_group_name': parent['name'] if parent else '未分类',
+                'category_name': f"{parent['name']} / {category['name']}" if parent else '未分类',
+                'quantity': str(quantities.get(material.id, Decimal(0))), 'total_quantity': str(total_quantity),
+                'warehouses': [{**item, 'quantity': str(item['quantity'])} for item in warehouses]})
+        positive = sum(quantity > 0 for quantity in quantities.values())
+        negative = sum(quantity < 0 for quantity in quantities.values())
         return {'items': items, 'total': total, 'page': page, 'page_size': filters.page_size,
-                'summary': {'material_count': total,
+                'summary': {'material_count': total, 'positive_material_count': positive,
+                    'zero_material_count': total - positive - negative, 'negative_material_count': negative,
+                    # 旧客户端的全局统计字段继续保留，新总览不把采购入库单数当成所有入库。
                     'posted_receipt_count': db.scalar(select(func.count()).select_from(Receipt)
                         .where(Receipt.status == 'posted')) or 0,
                     'movement_count': db.scalar(select(func.count()).select_from(StockMovement)) or 0}}

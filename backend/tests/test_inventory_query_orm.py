@@ -172,7 +172,8 @@ def test_stock_overview_pages_and_global_statistics(inventory):
     assert (first['total'], first['page'], first['page_size']) == (27, 1, 20)
     assert (last['page'], len(last['items'])) == (2, 7)
     assert first['summary'] == last['summary'] == {
-        'material_count': 27, 'posted_receipt_count': 0, 'movement_count': 29}
+        'material_count': 27, 'posted_receipt_count': 0, 'movement_count': 29,
+        'positive_material_count': 26, 'zero_material_count': 1, 'negative_material_count': 0}
     combined = first['items'] + last['items']
     assert len({row['id'] for row in combined}) == 27
     assert [row['sku'] for row in combined] == sorted(row['sku'] for row in combined)
@@ -182,7 +183,7 @@ def test_stock_overview_pages_and_global_statistics(inventory):
     scoped = client.post(path, json={'warehouse_id': warehouse, 'page_size': 100}).json()
     assert next(row for row in scoped['items'] if row['id'] == material)['quantity'] == '0.600'
     assert next(row for row in scoped['items'] if row['sku'] == 'PAGE-000')['quantity'] == '0'
-    assert scoped['summary'] == first['summary']
+    assert scoped['summary'] == {**first['summary'], 'positive_material_count': 1, 'zero_material_count': 26}
     for invalid in ({'warehouse_id': 999999}, {'page': 0}, {'page_size': 101}):
         assert client.post(path, json=invalid).status_code == 422
     client.headers.pop('Authorization')

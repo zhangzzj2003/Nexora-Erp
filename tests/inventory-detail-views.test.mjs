@@ -25,13 +25,14 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
         import {createAppState} from '/src/renderer/src/store/state.ts';
         export const calls=[];
         export const usePiniaAppStore=defineStore('detail-view',()=>({...createAppState(),can:()=>true,
-          queryLedger(){},queryPurchaseReport(){},queryInventoryReport(){},exportPurchaseReport(){},exportInventoryReport(){},
+          queryStockOverview(){},resetStockOverview(){},queryLedger(){},queryPurchaseReport(){},queryInventoryReport(){},exportPurchaseReport(){},exportInventoryReport(){},
           closeLedgerMaterial(){},closeLedgerDocument(){},loadLedgerMaterial(){},queryLedgerMaterial(){},loadLedgerDocument(){},
+          openStockMaterial:row=>calls.push(['stock',row]),loadStockMaterial(){},selectStockMaterialWarehouse:id=>calls.push(['warehouse',id]),
           openLedgerMaterial:row=>calls.push(['material',row]),openReportMaterial:row=>calls.push(['report',row]),openLedgerDocument:row=>calls.push(['document',row])}))`
       if (id === '\0detail-table') return `import {defineComponent,h} from 'vue';export const captured={};
         export default defineComponent({props:['data','title','columns','pagination','loading','error'],setup(p,{attrs,slots}){
           captured[p.title]={props:p,attrs,slots};return()=>h('section',[
-            slots.filters?.(),slots.filterActions?.(),slots.actions?.(),h('table',[
+            slots.filters?.(),slots.filterActions?.(),slots.actions?.(),slots.beforeTable?.(),h('table',[
               h('thead',h('tr',p.columns.map(c=>h('th',c.title)))),
               h('tbody',p.data.map(row=>h('tr',p.columns.map(c=>h('td',slots['cell-'+c.key]?.({row})??row[c.key])))))]),
             p.error,slots.errorActions?.(),slots.footer?.()])}})`
@@ -44,6 +45,7 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
   }, vue()], server: { middlewareMode: true, hmr: false }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
   t.after(() => server.close())
   const { default: Ledger } = await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/InventoryLedgerView.vue')
+  const { default: Overview } = await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/InventoryOverviewView.vue')
   const { default: Reports } = await server.ssrLoadModule('/src/renderer/src/components/workspace/BusinessReportsTable.vue')
   const { usePiniaAppStore, calls } = await server.ssrLoadModule('\0detail-store')
   const { captured } = await server.ssrLoadModule('\0detail-table')
@@ -109,4 +111,23 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
   const purchaseHtml = await render(Reports, { domain: 'purchase' })
   assert.match(purchaseHtml, /采购物料/)
   assert.doesNotMatch(purchaseHtml, /物料编号|物料详情|role="dialog"/)
+
+  // 总览坚持五列；两个入口都打开同一个上下排列的物料详情，而不是路由跳转。
+  const stock = { id: 3, sku: 'EL-03', name: '连接器 · 2P', category_group_name: '电子类', category_name: '电子类 / 连接器', unit: '个', quantity: '-2', total_quantity: '8',
+    warehouses: [{ warehouse_id: 1, warehouse_code: 'MAIN', warehouse_name: '主仓库', quantity: '-2' }, { warehouse_id: 2, warehouse_code: 'OTHER', warehouse_name: '辅仓', quantity: '10' }] }
+  store.stockOverviewResult = { items: [stock], page: 1, page_size: 20, total: 1, summary: { material_count: 1, positive_material_count: 0, zero_material_count: 0, negative_material_count: 1 } }
+  const overviewHtml = await render(Overview)
+  assert.deepEqual(captured['库存总览'].props.columns.map(c => c.title), ['物料编号', '物料名称', '物料分类', '物料数量', '操作'])
+  assert.match(overviewHtml, /电子类/); assert.match(overviewHtml, /stock-negative/)
+  assert.doesNotMatch(overviewHtml, /已确认入库单/)
+  click('库存总览', 'sku', stock); click('库存总览', 'actions', stock)
+  assert.deepEqual(calls.slice(-2), [['stock', stock], ['stock', stock]])
+  store.stockMaterialMode = true; store.stockMaterialSnapshot = stock; store.ledgerMaterialTarget = row
+  const stockDetailHtml = await render(Overview)
+  assert.match(stockDetailHtml, /各仓库库存/); assert.match(stockDetailHtml, /全仓合计/)
+  assert.match(stockDetailHtml, /8 个/); assert.match(stockDetailHtml, /辅仓/)
+  assert.ok(stockDetailHtml.indexOf('material-facts') < stockDetailHtml.indexOf('各仓库库存'))
+  assert.ok(stockDetailHtml.indexOf('各仓库库存') < stockDetailHtml.indexOf('流水仓库'))
+  click('各仓库库存', 'actions', stock.warehouses[1])
+  assert.deepEqual(calls.at(-1), ['warehouse', 2])
 })

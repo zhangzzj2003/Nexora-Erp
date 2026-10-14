@@ -1,5 +1,6 @@
 import { watch } from 'vue'
 import type { AppState } from '../state'
+import { validateStockOverview } from '../../../../shared/stock-overview.ts'
 import { displayError } from '../../utils/formatters.ts'
 
 // 总览只读取一页库存，统计卡片直接使用同一次服务端查询返回的总数。
@@ -13,7 +14,8 @@ export function createStockOverviewActions(state: AppState) {
     state.stockOverviewLoading.value = false
     state.stockOverviewError.value = ''
   }
-  watch(() => state.stockOverviewQuery.value.warehouse_id, () => {
+  watch(() => JSON.stringify([state.stockOverviewQuery.value.warehouse_id,
+    state.stockOverviewQuery.value.keyword, state.stockOverviewQuery.value.category_group]), () => {
     state.stockOverviewQuery.value.page = 1
     invalidate()
   }, { flush: 'sync' })
@@ -33,6 +35,7 @@ export function createStockOverviewActions(state: AppState) {
     try {
       const result = await window.nexora!.callApi('queryStock', { ...query })
       if (current !== ticket || !allowed()) return
+      validateStockOverview(result)
       state.stockOverviewResult.value = result
       query.page = result.page
       query.page_size = result.page_size
@@ -44,5 +47,11 @@ export function createStockOverviewActions(state: AppState) {
       if (current === ticket) state.stockOverviewLoading.value = false
     }
   }
-  return { queryStockOverview }
+  async function resetStockOverview(): Promise<void> {
+    // 一次重置全部条件并从首页查询，不影响其他页面的物料筛选。
+    state.stockOverviewQuery.value = { warehouse_id: null, keyword: '', category_group: null,
+      page: 1, page_size: state.stockOverviewQuery.value.page_size }
+    await queryStockOverview(1)
+  }
+  return { queryStockOverview, resetStockOverview }
 }

@@ -4,7 +4,7 @@ import type { WorkspaceRouteKey } from '../router/workspace-routes'
 export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string>> = {
   otherInbounds: '登记期初、赠品等非采购来源入库，独立审批通过并确认后增加库存。',
   warehouseOutbounds: '其他用途与采购退货出库均须独立批准，确认后扣减库存；指定实物批次可选。',
-  stock: '按仓库查看物料当前库存，数量随已确认的出入库单据更新。',
+  stock: '按物料查看当前库存，点击编号核对物料资料、各仓库数量及库存流水。',
   inventoryWarnings: '按仓库现存量识别缺货和低库存，阈值修订保留版本与历史。未配置的组合不参与预警。',
   physicalLots: '按仓库与物料核对实物批次结存、未分配差额和来源历史；历史未识别期初不代表真实批号。',
   inventoryLedger: '按仓库和物料核对期初、每笔变动及期末。选择来源后显示该来源范围内的累计数量。',

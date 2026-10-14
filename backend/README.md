@@ -213,7 +213,9 @@ PYTHONPATH=backend python3 -m app.backup restore --archive /path/to/instance.nex
 
 ## 库存总览与库存报表分页
 
-- `POST /api/v1/stock/query` 使用 `inventory.view` 权限，接收可选 `warehouse_id`、`page`、`page_size`，返回 `items/total/page/page_size/summary`。物料按编码和 ID 排序，保留零库存物料，只汇总当前页物料在所选仓库的流水。`summary` 沿用原页面全局统计口径，包含全部物料数、已过账采购入库单数和库存流水数，不随翻页或仓库选择变化。
+- `POST /api/v1/stock/query` 使用 `inventory.view` 权限，接收可选 `warehouse_id`、`material_id`、`keyword`、`category_group` 及 `page/page_size`，返回 `items/total/page/page_size/summary`。关键词按空白拆词，每个词匹配物料编号或名称，通配符作为普通字符；分类按档案父子关系匹配，`null` 表示全部，空字符串表示未分类，停用大类仍支持历史查询。物料按编号和 ID 排序并在数据库分页，保留零库存物料。
+- `items` 的 `quantity` 为所选仓库范围数量；增加真实档案分类 `category_code/category_group_name/category_name`、全仓数量 `total_quantity` 和 `warehouses`（仓库编号、代码、名称、数量）。分布只读取当前页物料，保留有流水但已清零的仓库。详情按 `material_id` 独立查询全仓分布，不受主表选仓或台账分页影响。
+- `summary.material_count/positive_material_count/zero_material_count/negative_material_count` 分别统计完整筛选范围的物料、正库存、零库存和负库存种数；仓库筛选影响库存正负分类，分页不影响统计。数量使用 Decimal 汇总，不将不同单位混加。旧 `posted_receipt_count/movement_count` 全局字段继续保留供旧客户端使用，新页面不再把采购入库单数显示成所有已确认入库单。客户端与服务端需同步更新，不涉及数据库结构变更。
 - `POST /api/v1/reports/inventory/query` 使用 `inventory_report.view` 权限，支持 `inventory_balance` 和 `stock_flow`，保留仓库、物料和日期筛选，增加 `page/page_size`。返回 `kind/columns/rows/total/page/page_size`，按仓库 ID、物料编码和 ID 稳定排序。数据库先分页仓库/物料组合，再读取当前页组合的完整相关流水并用 Decimal 计算，余额报表保留零余额组合，收发存保留有历史流水的组合。
 - 两个接口默认第 1 页、每页 20 条，`page_size` 范围 1–100；超出末页返回最后一页，空结果返回第 1 页。旧 `/stock`、`/movements` 及采购报表接口保留；总览不再通过全量库存流水计算卡片，统一刷新也不再为卡片下载全部流水。
 - 库存报表分页响应不含全量 CSV。点击导出时，客户端按当前筛选重新调用完整 `/reports/query`，不带页码，所以导出覆盖全部筛选结果；若查询后数据发生变化，导出反映导出时重新读取的数据。筛选或会话变化会阻止旧请求弹出保存框。采购报表仍导出原查询快照中的 CSV。

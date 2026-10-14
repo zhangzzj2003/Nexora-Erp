@@ -476,9 +476,18 @@ export interface StockAdjustment extends NumberedDocument {
 }
 export interface Stock extends MaterialSummary { quantity: string }
 // 库存总览的统计覆盖完整数据，不能由当前页 items 长度推算。
-export interface StockQuery { warehouse_id: number | null; page: number; page_size: number }
-export interface StockPageResult extends PageResult<Stock> {
-  summary: { material_count: number; posted_receipt_count: number; movement_count: number }
+export interface StockQuery {
+  warehouse_id: number | null; page: number; page_size: number
+  keyword?: string; category_group?: string | null; material_id?: number
+}
+// 总览使用真实物料分类和全部仓库分布，数量保持字符串以避免大数精度损失。
+export interface StockOverviewItem extends Stock {
+  category_code: string; category_group_name: string; category_name: string; total_quantity: string
+  warehouses: { warehouse_id: number; warehouse_code: string; warehouse_name: string; quantity: string }[]
+}
+export interface StockPageResult extends PageResult<StockOverviewItem> {
+  summary: { material_count: number; posted_receipt_count: number; movement_count: number
+    positive_material_count: number; zero_material_count: number; negative_material_count: number }
 }
 export interface InventoryValuationMovement {
   id: number

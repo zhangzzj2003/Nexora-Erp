@@ -8,8 +8,8 @@ import { createReportActions } from '../src/renderer/src/store/modules/report-ac
 import { callBackend } from '../src/main/backend.ts'
 
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { promise, resolve, reject } }
-const stockPage = (page = 1, page_size = 20) => ({ items: [{ id: page, quantity: '0.001' }], total: 65, page, page_size,
-  summary: { material_count: 65, posted_receipt_count: 5, movement_count: 90 } })
+const stockPage = (page = 1, page_size = 20) => ({ items: [{ id: page, sku: 'EL-1', name: '电阻', unit: '个', quantity: '0.001', total_quantity: '0.001', category_code: 'EL-SR', category_group_name: '电子类', category_name: '电子类 / 电阻', warehouses: [] }], total: 65, page, page_size,
+  summary: { material_count: 65, posted_receipt_count: 5, movement_count: 90, positive_material_count: 1, zero_material_count: 64, negative_material_count: 0 } })
 const reportPage = (page = 1, page_size = 20) => ({ kind: 'inventory_balance', rows: [{ quantity: '0.001' }], columns: [], total: 65, page, page_size })
 function setup(t, createActions) {
   const old = globalThis.window, scope = effectScope()
