@@ -12,6 +12,7 @@ import { documentApprovalLayout } from '../../utils/document-approval-layout'
 import { movementTypeLabel } from '../../utils/formatters'
 import { relatedDocumentLabel } from '../../../../shared/document-numbering'
 import { ledgerMovementColumns, ledgerTime } from '../../utils/inventory-ledger-presentation'
+import { materialFlowApprovalExecutionHint } from '../../utils/material-flow-progress'
 
 const store = usePiniaAppStore()
 const { connectionLost, materialCategories, warehouses, roles,
@@ -37,6 +38,9 @@ const scope = computed(() => {
   return `${warehouse} · ${dates} · ${q.source_type ? movementTypeLabel(q.source_type) : '全部来源'}`
 })
 const layout = computed(() => documentApprovalLayout(document.value))
+// 普通领料按权限直接签收，仅更正有独立审批；不能把无审批记录展示为待送审。
+const directReceipt = computed(() => document.value?.document_type === 'MaterialReceipt' && document.value.intent === 'execute')
+const executionHint = computed(() => materialFlowApprovalExecutionHint(document.value))
 const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: '440' }, { key: 'value', title: '数量 / 单位', width: '160' }]
 </script>
 
@@ -91,7 +95,7 @@ const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: 
     <template #beforeBasicInfo>
       <p v-if="documentLoading" role="status">正在读取单据详情…</p>
       <p v-if="documentError" role="alert" class="ledger-detail-error">{{ documentError }}</p>
-      <DocumentApprovalProgress v-if="document" :record="document" :roles="roles" :local-time="ledgerTime" />
+      <DocumentApprovalProgress v-if="document && !directReceipt" :record="document" :roles="roles" :local-time="ledgerTime" :execution-hint="executionHint" />
       <p v-if="document && !document.content_matches" class="ledger-scope">以下为原单送审内容，后续变更请结合原单记录核对。</p>
     </template>
     <template #basicInfo>

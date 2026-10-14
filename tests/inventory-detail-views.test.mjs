@@ -39,7 +39,7 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
         export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return()=>p.show?h('div',{role:'dialog','aria-label':p.title},[slots.default?.(),slots.footer?.()]):null}});
         export const NTabs=defineComponent({setup(p,{slots}){return()=>h('div',slots.default?.())}});
         export const NTabPane=defineComponent({props:['tab'],setup(p,{slots}){return()=>h('section',[h('h3',p.tab),slots.default?.()])}})`
-      if (id === '\0detail-progress') return `export default {render:()=>null}`
+      if (id === '\0detail-progress') return `import {defineComponent,h} from 'vue';export default defineComponent({props:['record','executionHint'],setup(p){return()=>h('p',{'data-approval-progress':''},p.executionHint||'审批进度')}})`
     }
   }, vue()], server: { middlewareMode: true, hmr: false }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
   t.after(() => server.close())
@@ -95,6 +95,24 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
   assert.match(documentHtml, /role="dialog" aria-label="单据详情 · QTRK-20261013-000001"/)
   assert.match(documentHtml, /物料明细/); assert.match(documentHtml, /20 个/)
   assert.doesNotMatch(documentHtml, /提交审批|撤回审批|保存草稿|确认入库/)
+  // 新生产单保留分批状态，审批快照不能被显示成已全部发完或收完。
+  for (const [type, source, hint] of [['MaterialDispatch', 'material_dispatch', /仍有数量待发/],
+    ['ProductionMaterialReturn', 'production_material_return', /仍有数量待收/],
+    ['MaterialExchange', 'material_dispatch', /全部签收后才完成换料/]]) {
+    store.ledgerDocumentTarget = { ...row, source_type: source }
+    store.ledgerDocumentRecord = { ...store.ledgerDocumentRecord, document_type: type, intent: 'execute', business_status: 'partial', status: 'executed' }
+    const flowHtml = await render(Ledger)
+    assert.match(flowHtml, hint); assert.doesNotMatch(flowHtml, /审批与业务执行均已完成|仍待发：。|仍待收：。/)
+    assert.doesNotMatch(flowHtml, /提交审批|撤回审批|保存草稿/)
+  }
+  store.ledgerDocumentTarget = { ...row, source_type: 'material_handover_return' }
+  store.ledgerDocumentRecord = { ...store.ledgerDocumentRecord, document_type: 'MaterialReceipt', intent: 'execute', status: 'draft',
+    summary: [{ label: '签收方式', value: '无需普通审批，按权限确认签收；更正另行审批' }] }
+  const receiptHtml = await render(Ledger)
+  assert.match(receiptHtml, /未签收交接退回/); assert.match(receiptHtml, /无需普通审批，按权限确认签收/)
+  assert.doesNotMatch(receiptHtml, /data-approval-progress|提交后进入审批流程/)
+  store.ledgerDocumentRecord = { ...store.ledgerDocumentRecord, intent: 'reverse' }
+  assert.match(await render(Ledger), /data-approval-progress/)
   store.ledgerDocumentRecord = null; store.ledgerDocumentError = '没有查看此类单据的权限'
   assert.match(await render(Ledger), /没有查看此类单据的权限.*重新读取单据/s)
 

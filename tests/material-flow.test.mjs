@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { validateDocumentApprovalResponse } from '../src/shared/document-approval-api.ts'
 import { callBackend } from '../src/main/backend.ts'
 import { materialFlowRequest, validateMaterialFlowDocument, validateMaterialFlowResult } from '../src/shared/material-flow-api.ts'
-import { materialFlowExecutionHint, materialFlowExecutionLabels } from '../src/renderer/src/utils/material-flow-progress.ts'
+import { materialFlowExecutionHint, materialFlowExecutionLabels, materialFlowApprovalExecutionHint } from '../src/renderer/src/utils/material-flow-progress.ts'
 import { routeByKey, routeGroupByKey, canVisitRoute } from '../src/renderer/src/router/workspace-routes.ts'
 
 // 通过真实 IPC 验证权限边界之外的输入与响应，不以字符串查找代替业务测试。
@@ -113,4 +113,15 @@ test('本地日期时区严格透传，补发的同物料多换料来源分别�
     { work_order_line_id: 4, exchange_line_id: 8, quantity: '1' }, { work_order_line_id: 4, exchange_line_id: 9, quantity: '2' }
   ] })
   assert.deepEqual(result.body.lines.map(line => line.exchange_line_id), [8, 9])
+})
+
+
+test('库存只读审批快照复用生产进度提示，不把计划数量当作剩余额度', () => {
+  const record = { document_type: 'MaterialDispatch', intent: 'execute', business_status: 'partial' }
+  assert.match(materialFlowApprovalExecutionHint(record), /仍有数量待发.*生产签收进度另行记录/)
+  assert.match(materialFlowApprovalExecutionHint({ ...record, business_status: 'completed' }), /发出完成不代表生产已签收/)
+  assert.match(materialFlowApprovalExecutionHint({ ...record, business_status: 'closed' }), /未执行余额已关闭/)
+  assert.match(materialFlowApprovalExecutionHint({ ...record, document_type: 'ProductionMaterialReturn' }), /仍有数量待收.*不会提前增加库存/)
+  for (const variant of [null, { ...record, document_type: 'MaterialReceipt' }, { ...record, intent: 'reverse' }, { ...record, document_type: 'WarehouseInbound' }])
+    assert.equal(materialFlowApprovalExecutionHint(variant), undefined)
 })

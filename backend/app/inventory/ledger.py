@@ -23,11 +23,13 @@ def ledger_document_target(db, movement: StockMovement) -> tuple[str, int, str]:
             else movement.source_type.removesuffix('_reversal'))
     if base not in ('receipt', 'purchase_return', 'other_inbound', 'other_outbound',
                     'shipment', 'sales_return', 'transfer_in', 'transfer_out', 'transfer',
-                    'stocktake', 'adjustment', 'material_issue', 'material_return', 'production_completion'):
+                    'stocktake', 'adjustment', 'material_issue', 'material_return', 'production_completion',
+                    'material_dispatch', 'production_material_return', 'material_handover_return'):
         raise HTTPException(422, '此库存来源暂不支持查看单据详情')
     identifier = movement.source_id
     intent = 'reverse' if '_reversal' in movement.source_type else 'execute'
-    if intent == 'reverse':
+    # 新生产流程用追加执行事实更正，反向流水直接引用原主单，不能按旧冲销表转换 ID。
+    if intent == 'reverse' and base not in ('material_dispatch', 'production_material_return', 'material_handover_return'):
         model, field = REVERSAL_TYPES[base]
         reversal = db.get(getattr(models, model), identifier)
         if reversal is None:
@@ -39,14 +41,25 @@ def ledger_document_target(db, movement: StockMovement) -> tuple[str, int, str]:
 @router.get('/inventory-ledger/{movement_id}/document')
 def ledger_document(movement_id: int = Path(gt=0),
                     user: dict = Depends(require('inventory.view'))) -> dict:
-    from app.service.document_approvals import document_state
+    from app.service.document_approvals import document_access, document_state
     with orm_session() as db:
         movement = db.get(StockMovement, movement_id)
         if movement is None:
             raise HTTPException(404, '库存流水不存在')
         target = ledger_document_target(db, movement)
         # 继续执行原单的查看权限与客户归属校验；台账权限不能扩大其他业务资料的可见范围。
-        document = document_state(db, *target, user['id'])
+        if target[0] == 'MaterialReceipt' and target[2] == 'execute':
+            # 签收无需普通审批；只读追溯仍检查原领域权限，但不调用普通审批的可送审校验。
+            from app.core.approval_documents import current_snapshot, document_summary
+            from app.core.document_approval import case_data
+            _, _, source = document_access(db, target[0], target[1], user['id'])
+            document = {**case_data(None), 'document_type': target[0], 'document_id': target[1],
+                'intent': target[2], 'document_no': source.document_no, 'business_status': source.status,
+                'summary': document_summary(db, target[0], current_snapshot(db, target[0], target[1])) + [
+                    {'label': '签收方式', 'value': '无需普通审批，按权限确认签收；更正另行审批'}],
+                'content_matches': True, 'reversal_reason': '', 'events': []}
+        else:
+            document = document_state(db, *target, user['id'])
         # 此入口只用于追溯，不能把原单审批能力带入台账的只读弹窗。
         return {'movement_id': movement.id, 'document': {
             **document, 'can_submit': False, 'can_review': False, 'can_withdraw': False}}
