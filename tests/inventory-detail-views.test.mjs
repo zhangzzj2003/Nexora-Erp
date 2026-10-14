@@ -30,16 +30,17 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
           openStockMaterial:row=>calls.push(['stock',row]),loadStockMaterial(){},selectStockMaterialWarehouse:id=>calls.push(['warehouse',id]),
           openLedgerMaterial:row=>calls.push(['material',row]),openReportMaterial:row=>calls.push(['report',row]),openLedgerDocument:row=>calls.push(['document',row])}))`
       if (id === '\0detail-table') return `import {defineComponent,h} from 'vue';export const captured={};
-        export default defineComponent({props:['data','title','columns','pagination','loading','error'],setup(p,{attrs,slots}){
+        export default defineComponent({props:['data','title','showTitle','columns','pagination','loading','error'],setup(p,{attrs,slots}){
           captured[p.title]={props:p,attrs,slots};return()=>h('section',[
+            p.showTitle!==false?h('h3',p.title):null,
             slots.filters?.(),slots.filterActions?.(),slots.actions?.(),slots.beforeTable?.(),h('table',[
               h('thead',h('tr',p.columns.map(c=>h('th',c.title)))),
               h('tbody',p.data.map(row=>h('tr',p.columns.map(c=>h('td',slots['cell-'+c.key]?.({row})??row[c.key])))))]),
             p.error,slots.errorActions?.(),slots.footer?.()])}})`
       if (id === '\0detail-modal') return `import {defineComponent,h} from 'vue';
-        export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return()=>p.show?h('div',{role:'dialog','aria-label':p.title},[slots.default?.(),slots.footer?.()]):null}});
-        export const NTabs=defineComponent({setup(p,{slots}){return()=>h('div',slots.default?.())}});
-        export const NTabPane=defineComponent({props:['tab'],setup(p,{slots}){return()=>h('section',[h('h3',p.tab),slots.default?.()])}})`
+        export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return()=>p.show?h('div',{role:'dialog','aria-label':p.title},[slots.default?.(),slots.footer?h('footer',{class:'n-card__footer'},slots.footer()):null]):null}});
+        export const NTabs=defineComponent({setup(p,{slots}){return()=>h('div',{role:'tablist'},slots.default?.())}});
+        export const NTabPane=defineComponent({props:['tab'],setup(p,{slots}){return()=>h('section',{role:'tabpanel'},[h('h3',p.tab),slots.default?.()])}})`
       if (id === '\0detail-progress') return `export default {render:()=>null}`
     }
   }, vue()], server: { middlewareMode: true, hmr: false }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
@@ -85,8 +86,18 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
   store.ledgerMaterialResult = { ...store.ledgerResult, page: 2, total: 41 }
   const materialHtml = await render(Ledger)
   assert.match(materialHtml, /role="dialog" aria-label="物料详情 · EL-03"/)
-  assert.match(materialHtml, /2.54mm/); assert.match(materialHtml, /只读备注/)
+  assert.match(materialHtml, /2.54mm/); assert.match(materialHtml, /展开规格与更多资料/)
   assert.match(materialHtml, /台账明细/)
+  // 三个入口均直接上下阅读；分页和日期范围仍沿用原查询，操作区位于正文之后。
+  function assertStacked(html) {
+    assert.doesNotMatch(html, /role="tablist"|role="tabpanel"/)
+    assert.ok(html.indexOf('material-facts') < html.indexOf('ledger-scope'))
+    assert.ok(html.indexOf('ledger-scope') < html.indexOf('n-card__footer'))
+  }
+  assertStacked(materialHtml)
+  const reportMaterialHtml = await render(Reports, { domain: 'inventory' })
+  assertStacked(reportMaterialHtml)
+  assert.match(reportMaterialHtml, /2026-10-13/)
   assert.equal(captured['物料台账明细'].props.pagination.page, 2)
   assert.equal(captured['物料台账明细'].props.pagination.total, 41)
 
@@ -133,6 +144,7 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
   assert.deepEqual(calls.slice(-2), [['stock', stock], ['stock', stock]])
   store.stockMaterialMode = true; store.stockMaterialSnapshot = stock; store.ledgerMaterialTarget = row
   const stockDetailHtml = await render(Overview)
+  assertStacked(stockDetailHtml)
   assert.match(stockDetailHtml, /各仓库库存/); assert.match(stockDetailHtml, /全仓合计/)
   assert.match(stockDetailHtml, /8 个/); assert.match(stockDetailHtml, /辅仓/)
   assert.ok(stockDetailHtml.indexOf('material-facts') < stockDetailHtml.indexOf('各仓库库存'))

@@ -26,7 +26,7 @@ const scope = computed(() => {
 </script>
 <template>
   <p class="ledger-scope">{{ scope }}<small>按所选仓库、物料及日期核对流水</small></p>
-  <WorkspaceTable v-if="query" title="物料台账明细" :show-title="overview" :data="result.rows" :columns="ledgerMovementColumns"
+  <WorkspaceTable v-if="query" title="物料台账明细" :data="result.rows" :columns="ledgerMovementColumns"
     :loading="rowsLoading" :error="rowsError" :min-table-width="898"
     :pagination="{ page: query.page, pageSize: query.page_size, total: result.total, disabled: connectionLost }"
     @page-change="store.queryLedgerMaterial">

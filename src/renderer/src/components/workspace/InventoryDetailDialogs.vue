@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal, NTabs, NTabPane } from 'naive-ui'
+import { NModal } from 'naive-ui'
 import AppButton from '../app/AppButton.vue'
 import WorkspaceTable from './WorkspaceTable.vue'
 import WorkspaceDocumentDialog from './WorkspaceDocumentDialog.vue'
@@ -20,39 +20,31 @@ const { connectionLost, roles, stockMaterialMode, stockMaterialSnapshot, stockMa
   ledgerMaterialTarget: materialTarget,
   ledgerDocumentTarget: documentTarget, ledgerDocumentRecord: document,
   ledgerDocumentLoading: documentLoading, ledgerDocumentError: documentError } = storeToRefs(store)
-const tab = ref('details')
-watch(materialTarget, () => { tab.value = 'details' }, { flush: 'sync' })
 const layout = computed(() => documentApprovalLayout(document.value))
 const warehouseColumns = [{ key: 'warehouse_code', title: '仓库编号', width: '140' }, { key: 'warehouse_name', title: '仓库名称', width: '240' }, { key: 'quantity', title: '物料数量', width: '150', align: 'right' as const }, { key: 'actions', title: '操作', width: '130' }]
 const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: '440' }, { key: 'value', title: '数量 / 单位', width: '160' }]
 </script>
 
 <template>
-  <!-- 资料与台账在同一弹窗切换，关闭后回到原筛选和页码。 -->
+  <!-- 三个库存入口统一上方资料、下方明细；关闭后回到原筛选和页码。 -->
   <NModal :show="!!materialTarget" @update:show="value => { if (!value) store.closeLedgerMaterial() }" preset="card"
     :title="`物料详情 · ${materialTarget?.sku ?? ''}`" :style="{ width: 'min(1280px, calc(100vw - 32px))' }">
     <div class="ledger-material-content">
-      <template v-if="stockMaterialMode">
-        <InventoryMaterialFacts compact />
-        <section class="stock-distribution" aria-label="各仓库库存">
-          <div class="stock-distribution-heading"><h3>各仓库库存</h3>
-            <span v-if="stockMaterialSnapshot">全仓合计 <strong>{{ stockMaterialSnapshot.total_quantity }} {{ stockMaterialSnapshot.unit }}</strong></span>
-          </div>
-          <p class="ledger-scope">展示当前各仓库数量，保留已清零的历史仓库；点击“查看流水”筛选下方明细。</p>
-          <WorkspaceTable title="各仓库库存" :show-title="false" :columns="warehouseColumns"
-            :data="stockMaterialSnapshot?.warehouses ?? []" :loading="stockMaterialLoading" :error="stockMaterialError" :min-table-width="660">
-            <template #cell-quantity="{ row }"><strong :class="{ 'ledger-detail-error': isNegativeStock(row.quantity) }">{{ row.quantity }} {{ stockMaterialSnapshot?.unit }}</strong></template>
-            <template #cell-actions="{ row }"><AppButton variant="text" :disabled="connectionLost" @click="store.selectStockMaterialWarehouse(row.warehouse_id)">查看流水</AppButton></template>
-            <template #empty>该物料尚无已确认的库存流水，各仓库当前数量为 0。</template>
-            <template #errorActions><AppButton :disabled="connectionLost || stockMaterialLoading" @click="store.loadStockMaterial()">重新读取仓库分布</AppButton></template>
-          </WorkspaceTable>
-        </section>
-        <InventoryMaterialLedger overview />
-      </template>
-      <NTabs v-else v-model:value="tab" type="line" animated>
-        <NTabPane name="details" tab="物料详情"><InventoryMaterialFacts /></NTabPane>
-        <NTabPane name="ledger" tab="台账明细"><InventoryMaterialLedger /></NTabPane>
-      </NTabs>
+      <InventoryMaterialFacts compact />
+      <section v-if="stockMaterialMode" class="stock-distribution" aria-label="各仓库库存">
+        <div class="stock-distribution-heading"><h3>各仓库库存</h3>
+          <span v-if="stockMaterialSnapshot">全仓合计 <strong>{{ stockMaterialSnapshot.total_quantity }} {{ stockMaterialSnapshot.unit }}</strong></span>
+        </div>
+        <p class="ledger-scope">展示当前各仓库数量，保留已清零的历史仓库；点击“查看流水”筛选下方明细。</p>
+        <WorkspaceTable title="各仓库库存" :show-title="false" :columns="warehouseColumns"
+          :data="stockMaterialSnapshot?.warehouses ?? []" :loading="stockMaterialLoading" :error="stockMaterialError" :min-table-width="660">
+          <template #cell-quantity="{ row }"><strong :class="{ 'ledger-detail-error': isNegativeStock(row.quantity) }">{{ row.quantity }} {{ stockMaterialSnapshot?.unit }}</strong></template>
+          <template #cell-actions="{ row }"><AppButton variant="secondary" size="small" :disabled="connectionLost" @click="store.selectStockMaterialWarehouse(row.warehouse_id)">查看流水</AppButton></template>
+          <template #empty>该物料尚无已确认的库存流水，各仓库当前数量为 0。</template>
+          <template #errorActions><AppButton :disabled="connectionLost || stockMaterialLoading" @click="store.loadStockMaterial()">重新读取仓库分布</AppButton></template>
+        </WorkspaceTable>
+      </section>
+      <InventoryMaterialLedger :overview="stockMaterialMode" />
     </div>
     <template #footer><div class="ledger-detail-actions"><AppButton @click="store.closeLedgerMaterial()">关闭</AppButton></div></template>
   </NModal>
@@ -86,7 +78,7 @@ const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: 
 </template>
 
 <style scoped>
-/* 总览在同一滚动内容中依次展示资料、全仓分布和物料流水。 */
+/* 共用同一正文滚动区；操作区的分割线由公共卡片弹窗样式统一提供。 */
 .ledger-scope { color: var(--workspace-field-muted); line-height: 1.7; }
 .ledger-scope small { display: block; }
 .ledger-detail-actions { display: flex; justify-content: flex-end; gap: 10px; margin-left: auto; }

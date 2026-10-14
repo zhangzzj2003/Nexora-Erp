@@ -16,7 +16,7 @@ const facts = computed(() => material.value ? [
   ...materialChoiceFacts(material.value, materialCategories.value),
   ...materialChoiceFacts(material.value, materialCategories.value, true)
 ] : [])
-// 总览先显示辨认物料所需的六项资料，完整规格与备注可展开，给仓库分布和流水留出空间。
+// 库存详情先显示辨认物料所需的六项资料，完整规格与备注可展开，给下方流水留出空间。
 const visibleFacts = computed(() => !props.compact || expanded.value ? facts.value
   : facts.value.filter(item => ['sku', 'name', 'category_name', 'specification', 'unit', 'brand'].includes(item.key)))
 </script>

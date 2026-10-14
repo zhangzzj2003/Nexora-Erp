@@ -42,3 +42,20 @@ test('公共弹窗、工作台和侧栏保留纵向自动滚动', () => {
   const dialog = readFileSync(new URL('../src/renderer/src/components/workspace/WorkspaceDocumentDialog.vue', import.meta.url), 'utf8')
   assert.match(dialog, /\.document-body\s*\{[^}]*overflow-y:\s*auto/)
 })
+
+// 分割线属于公共组件操作插槽；限定弹窗直接子元素，不把普通卡片或正文表格页脚一起改掉。
+test('公共弹窗操作区统一分割线和留白，保持固定且适配明暗主题', () => {
+  for (const selector of ['.n-modal.n-card > .n-card__footer', '.n-modal.n-card > .n-card__action']) {
+    const rule = rules.find(rule => rule.parent.type === 'root' && rule.selectors.includes(selector)
+      && declarations(rule)['border-top'])
+    assert.ok(rule, `${selector} 必须自动提供分割线`)
+    const values = declarations(rule)
+    assert.equal(values['border-top'], '1px solid var(--workspace-field-border)')
+    assert.equal(values.background, 'var(--app-modal-background)')
+    assert.equal(values['flex-shrink'], '0')
+    assert.ok(values.padding.split(' ').every(part => parseFloat(part) > 0), '操作按钮与分割线需要留白')
+    assert.ok(!['auto', 'scroll'].includes(values['overflow-y']), '操作区不参与正文滚动')
+    assert.ok(rules.some(rule => rule.parent.type === 'atrule' && rule.parent.params === '(max-width: 650px)'
+      && rule.selectors.includes(selector) && declarations(rule).padding === '16px'))
+  }
+})
