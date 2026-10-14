@@ -134,3 +134,42 @@ def test_lot_posting_conserves_multi_lot_stock_and_reversal_lineage(monkeypatch,
             'warehouse_id': 1, 'material_id': material_id}).json()
         assert overview['warehouse_id'] == 1 and overview['material_id'] == material_id
         assert overview['fully_allocated'] is True
+
+
+def test_overview_keeps_requested_scope_when_unallocated_differences_exist(monkeypatch, tmp_path):
+    """差额遍历不能把最后一行的物料编号写回查询范围，否则全部物料页面拒收。"""
+    monkeypatch.setenv('NEXORA_DB_PATH', str(tmp_path / 'lot-overview-scope.db'))
+    with TestClient(app, client=('127.0.0.1', 12345)) as client:
+        assert client.post('/api/v1/setup/admin', json={
+            'username': 'admin', 'password': 'secure-pass-123'}).status_code == 201
+        token = client.post('/api/v1/auth/login', json={
+            'username': 'admin', 'password': 'secure-pass-123'}).json()['token']
+        auth = {'Authorization': f'Bearer {token}'}
+        materials = [client.post('/api/v1/materials', headers=auth, json={
+            'sku': f'SCOPE-{index}', 'name': f'范围物料 {index}', 'unit': '件'}).json()['id']
+            for index in range(2)]
+        second_warehouse = client.post('/api/v1/warehouses', headers=auth, json={
+            'code': 'SCOPE-W2', 'name': '范围副仓'}).json()['id']
+        # 用 ORM 模拟旧版未分配流水，两仓两物料确保最后一个差额不会掩盖缺陷。
+        with orm_session(write=True) as db:
+            for index, (warehouse, material) in enumerate([(1, materials[0]), (1, materials[1]), (second_warehouse, materials[0])]):
+                db.add(_movement(material, warehouse, '2.000', 900 + index))
+        path = '/api/v1/inventory/physical-lots/overview'
+        for params in ({}, {'warehouse_id': 1}, {'material_id': materials[0]},
+                       {'warehouse_id': second_warehouse, 'material_id': materials[0]}):
+            response = client.get(path, headers=auth, params=params)
+            assert response.status_code == 200
+            result = response.json()
+            assert result['warehouse_id'] == params.get('warehouse_id')
+            assert result['material_id'] == params.get('material_id')
+            assert result['fully_allocated'] is False
+            assert len(result['differences']) == (3 if not params else 1 if len(params) == 2 else 2)
+            for row in result['differences']:
+                assert row['difference'] == '2.000'
+                assert all(row[key] == value for key, value in params.items())
+        # 无差额及非法范围继续遵循原接口约定。
+        empty = client.get(path, headers=auth, params={'warehouse_id': second_warehouse, 'material_id': materials[1]}).json()
+        assert empty['differences'] == []
+        assert empty['material_id'] == materials[1]
+        assert client.get(path, headers=auth, params={'material_id': 99999}).status_code == 404
+        assert client.get(path).status_code == 401
