@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, receive_legacy_issue
 from app.core.models import MaterialFlowExecutionLot
 from app.core.orm import orm_session
 from app.finance.business_sources import business_sources
@@ -182,3 +182,39 @@ def test_legacy_return_uses_signed_lots_and_shares_new_return_capacity(flow_lots
     options = api('GET', old_path + '/available-lots')['lines'][0]['lots']
     assert [(row['lot_id'], Decimal(row['quantity'])) for row in options] == [(lot_b, Decimal(5))]
     api('POST', old_path + '/post', old_payload(lot_b))
+
+
+def test_unallocated_legacy_return_does_not_guess_lot_for_entire_remaining_source(flow_lots):
+    api, client, auth, template, _, _, _, lot_a, lot_b = flow_lots
+    order = api('POST', 'work-orders', {'bom_id': template['bom_id'], 'warehouse_id': 1,
+        'target_quantity': '10'}, 201)
+    approve_document(client, auth, 'WorkOrder', order['id'])
+    api('POST', f'work-orders/{order["id"]}/release')
+    issue = api('POST', 'material-issues', {'work_order_id': order['id'], 'warehouse_id': 1,
+        'lines': [{'work_order_line_id': order['lines'][0]['id'], 'quantity': '10'}]}, 201)
+    approve_document(client, auth, 'MaterialIssue', issue['id'])
+    issue = api('POST', f'material-issues/{issue["id"]}/post', {'lines': [{
+        'material_issue_line_id': issue['lines'][0]['id'], 'lots': [
+            {'lot_id': lot_a, 'quantity': '5'}, {'lot_id': lot_b, 'quantity': '5'}]}]})
+    receive_legacy_issue(client, auth, issue['id'])
+    old_return = api('POST', 'material-returns', {'material_issue_id': issue['id'], 'reason': '旧客户端未登记批次',
+        'lines': [{'material_issue_line_id': issue['lines'][0]['id'], 'quantity': '5'}]}, 201)
+    approve_document(client, auth, 'MaterialReturn', old_return['id'])
+    api('POST', f'material-returns/{old_return["id"]}/post')
+    returned = api('POST', 'material-returns/flow', {'request_id': str(uuid4()), 'work_order_id': order['id'],
+        'warehouse_id': 1, 'reason': '核对剩余材料退回', 'lines': [{'work_order_line_id': order['lines'][0]['id'],
+            'legacy_issue_line_id': issue['lines'][0]['id'], 'quantity': '5'}]}, 201)
+    approve_document(client, auth, 'ProductionMaterialReturn', returned['id'])
+    path = f'material-returns/flow/{returned["id"]}'
+    before = api('GET', 'movements')
+    # 虽然本次退完剩余 5 个，旧退料没有批次证据，系统不能自行认定剩余全部属于 A。
+    api('POST', path + '/execute', action(returned, '5'), 422)
+    assert api('GET', 'movements') == before
+    assert api('GET', path)['executions'] == []
+    posted = api('POST', path + '/execute', action(returned, '5', [{'lot_id': lot_b, 'quantity': '5'}]))
+    fact_id = posted['executions'][0]['lines'][0]['id']
+    with orm_session() as db:
+        lots = list(db.scalars(select(MaterialFlowExecutionLot).where(
+            MaterialFlowExecutionLot.execution_line_id == fact_id)))
+        assert [(row.lot_id, Decimal(row.quantity)) for row in lots] == [(lot_b, Decimal(5))]
+    assert posted['status'] == 'completed'

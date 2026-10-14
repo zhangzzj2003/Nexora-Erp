@@ -130,8 +130,10 @@ def _select_parts(capacity, quantity, selected, source_remaining):
         return parts
     available = {lot_id: value for lot_id, value in capacity.items() if value > ZERO}
     known_quantity = sum(available.values(), ZERO)
-    if available and quantity < source_remaining and (len(available) > 1 or known_quantity < source_remaining):
-        raise HTTPException(422, '来源包含多个批次或未知批次，分批交接时请选择本次实际批次')
+    # 旧退料未登记批次时，候选批次合计可能大于来源余量；即使退完余额也没有足够证据自动归批。
+    if known_quantity > source_remaining or (available and quantity < source_remaining
+            and (len(available) > 1 or known_quantity < source_remaining)):
+        raise HTTPException(422, '来源批次无法唯一确定，请选择本次实际交接批次')
     remaining, parts = quantity, []
     # 全量交接可直接沿用全部已知批次；部分交接不能猜测少收的是哪个批次。
     for lot_id in sorted(capacity):
