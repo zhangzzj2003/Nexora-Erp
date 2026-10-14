@@ -24,7 +24,7 @@ const server=ref({id:'test'}),allowed=ref(true);return {server,lotOverview,lotHi
 })());`
 
 test('批次页面显示历史未识别、未分配差额、来源流水及无权状态',async t=>{
-  const server=await createServer({configFile:false,plugins:[{name:'physical-lot-view-fixture',enforce:'pre',transform(code,id){if(id.endsWith('/PhysicalLotsView.vue'))return code.replace("from 'naive-ui'","from 'virtual:lot-view-naive'")},resolveId(id,importer){
+  const server=await createServer({configFile:false,plugins:[{name:'physical-lot-view-fixture',enforce:'pre',transform(code,id){if(id.endsWith('/PhysicalLotsView.vue'))return code.replace("from 'naive-ui'","from 'virtual:lot-view-naive'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:lot-view-naive'")},resolveId(id,importer){
     if(importer?.includes('/views/workspace/warehouse/PhysicalLotsView') && id.endsWith('/store/app-store'))return '\0lot-view-store'
     if(id.endsWith('/WorkspaceTable.vue'))return '\0lot-view-table'
     if(id.endsWith('/WorkspaceSelect.vue'))return '\0lot-view-select'
@@ -33,7 +33,7 @@ test('批次页面显示历史未识别、未分配差额、来源流水及无�
     if(id==='\0lot-view-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:{data:Array,title:String,description:String,showTitle:Boolean},setup(props,{slots}){return ()=>h('section',[props.showTitle===false?null:h('h3',props.title),props.description,slots.actions?.(),slots.filters?.(),slots.beforeTable?.(),...(props.data??[]).flatMap(row=>Object.entries(slots).filter(([key])=>key.startsWith('cell-')).map(([,slot])=>slot?.({row}))),slots.empty?.()])}})`
     if(id==='\0lot-view-select')return `import {defineComponent,h} from 'vue';export default defineComponent({setup(){return ()=>h('span')}})`
     // 仅替换传送层以检查弹窗结构，保留真实公共折叠项及日期组件。
-    if(id==='\0lot-view-naive')return `import {defineComponent,h} from 'vue';export {NCollapse,NDatePicker} from 'naive-ui';export const NModal=defineComponent({props:{show:Boolean,title:String,maskClosable:Boolean,closable:Boolean,closeOnEsc:Boolean},setup(props,{slots}){return ()=>props.show?h('div',{role:'dialog','aria-label':props.title,'data-mask-closable':String(props.maskClosable),'data-closable':String(props.closable),'data-escape':String(props.closeOnEsc)},[slots.default?.(),slots.footer?.()]):null}})`
+    if(id==='\0lot-view-naive')return `import {defineComponent,h} from 'vue';export {NCollapse,NDatePicker} from 'naive-ui';export { NModal as default }; export const NModal=defineComponent({props:{show:Boolean,title:String,maskClosable:Boolean,closable:Boolean,closeOnEsc:Boolean},setup(props,{slots}){return ()=>props.show?h('div',{role:'dialog','aria-label':props.title,'data-mask-closable':String(props.maskClosable),'data-closable':String(props.closable),'data-escape':String(props.closeOnEsc)},[slots.default?.(),slots.footer?.()]):null}})`
   }},vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false},appType:'custom'})
   t.after(()=>server.close())
   const {usePiniaAppStore}=await server.ssrLoadModule('\0lot-view-store')

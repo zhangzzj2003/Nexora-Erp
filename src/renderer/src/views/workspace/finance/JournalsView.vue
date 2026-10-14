@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -11,9 +14,9 @@ import { NDatePicker } from 'naive-ui'
 import { datePickerString, vDateField } from '../../../utils/date-field'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import { NCollapse } from 'naive-ui'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import type { Journal, JournalAction, JournalLineInput } from '../../../../../shared/erp-api'
@@ -112,16 +115,24 @@ const actionable = (item: Journal): JournalAction[] => {
     && (!item.control_transfer || can(item.control_transfer.reverses_id ? 'control_transfer.reverse' : 'control_transfer.create'))) actions.push('cancel')
   return actions
 }
+// 新建与修订都等待选项读取完成；关闭后忽略对应请求的页面结果。
+let editorRead = 0
+watch(showForm, value => {
+  if (!value) { editorRead++; opening.value = false; store.cancelJournalPreparation() }
+}, { flush: 'sync' })
+// 页面与 Pinia 的请求代次一起失效，迟到选项不能在离开后覆盖保留草稿。
+onUnmounted(() => { editorRead++; store.cancelJournalPreparation() })
 async function edit(item?: Journal): Promise<void> {
   if (opening.value || busy.value || connectionLost.value) return
-  opening.value = true
+  const ticket = ++editorRead
+  opening.value = true; showForm.value = true; error.value = ''
   try {
     await editJournal(item)
-    showForm.value = true
+    if (ticket !== editorRead || !showForm.value) return
   } catch (cause) {
-    error.value = displayError(cause)
+    if (ticket === editorRead) error.value = displayError(cause)
   } finally {
-    opening.value = false
+    if (ticket === editorRead) opening.value = false
   }
 }
 async function save(): Promise<void> {
@@ -155,10 +166,10 @@ async function confirm(): Promise<void> {
 
 <template>
   <section class="stack ledger-metadata-page">
-    <DocumentApprovalDialog />
+    <DocumentApprovalDialog origin-key="document-approval" />
     <div v-if="(showBusiness && can('business_journal.view')) || (showProfit && can('profit_transfer.view'))" class="ledger-actions"><AppButton variant="secondary" @click="showBusiness = false; showProfit = false">返回总账凭证</AppButton></div>
-    <BusinessJournalPanel v-if="showBusiness && can('business_journal.view')" @open-journal="id => { showBusiness = false; detailId = id }" />
-    <ProfitTransferPanel v-else-if="showProfit && can('profit_transfer.view')" @open-journal="id => { showProfit = false; detailId = id }" />
+    <BusinessJournalPanel v-if="showBusiness && can('business_journal.view')" @open-journal="(id, event) => { if (event) captureDialogOrigin('JournalsView:detail', event); detailId = id }" />
+    <ProfitTransferPanel v-else-if="showProfit && can('profit_transfer.view')" @open-journal="(id, event) => { if (event) captureDialogOrigin('JournalsView:detail', event); detailId = id }" />
     <WorkspaceTable v-else
       class="journal-list-table"
       title="总账凭证"
@@ -171,7 +182,7 @@ async function confirm(): Promise<void> {
         ><AppButton v-if="can('profit_transfer.view')" variant="secondary" @click="showProfit = true; showBusiness = false">损益结转</AppButton><AppButton v-if="can('business_journal.view')" variant="secondary" @click="showBusiness = true; showProfit = false">业务来源与科目配置</AppButton><AppButton
           v-if="can('journal.create')"
           :disabled="busy || connectionLost || opening"
-          @click="edit()"
+          @click.capture="captureDialogOrigin('JournalsView:form', $event)" @click="edit()"
           variant="primary"
           type="button"
           >{{ opening ? '正在读取科目…' : '新增凭证' }}</AppButton
@@ -199,14 +210,14 @@ async function confirm(): Promise<void> {
       <template #cell-source="{ row }"
         ><AppButton
           v-if="row.reversal_of_id"
-          @click="detailId = row.reversal_of_id"
+          @click.capture="captureDialogOrigin('JournalsView:detail', $event)" @click="detailId = row.reversal_of_id"
           variant="text"
           type="button"
           >原凭证{{ relatedDocumentLabel(row, 'reversal_of') }}</AppButton
-        ><AppButton v-else-if="row.control_transfer && can('control_transfer.view')" variant="text" @click="openDocumentApproval({ document_type: 'ControlBalanceTransfer', document_id: row.control_transfer.id, intent: 'execute' })">往来余额转账 {{ row.control_transfer.document_no || '#' + row.control_transfer.id }}</AppButton><span v-else-if="row.control_transfer">往来余额转账 {{ row.control_transfer.document_no || '#' + row.control_transfer.id }}</span><span v-else-if="row.profit_transfer">损益结转 · {{ row.period_code }}</span><span v-else-if="row.business_source">{{ row.business_source.evidence.label }} {{ relatedDocumentLabel(row.business_source.evidence, 'source') }}</span><span v-else>手工录入</span
+        ><AppButton v-else-if="row.control_transfer && can('control_transfer.view')" variant="text" @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({ document_type: 'ControlBalanceTransfer', document_id: row.control_transfer.id, intent: 'execute' })">往来余额转账 {{ row.control_transfer.document_no || '#' + row.control_transfer.id }}</AppButton><span v-else-if="row.control_transfer">往来余额转账 {{ row.control_transfer.document_no || '#' + row.control_transfer.id }}</span><span v-else-if="row.profit_transfer">损益结转 · {{ row.period_code }}</span><span v-else-if="row.business_source">{{ row.business_source.evidence.label }} {{ relatedDocumentLabel(row.business_source.evidence, 'source') }}</span><span v-else>手工录入</span
         ><AppButton
           v-if="row.reversal_journal_id"
-          @click="detailId = row.reversal_journal_id"
+          @click.capture="captureDialogOrigin('JournalsView:detail', $event)" @click="detailId = row.reversal_journal_id"
           variant="text"
           type="button"
           >冲销凭证{{ relatedDocumentLabel(row, 'reversal_journal') }}</AppButton
@@ -215,8 +226,8 @@ async function confirm(): Promise<void> {
       <template #cell-actions="{ row }"
         ><div class="ledger-actions">
           <AppButton variant="text" type="button" :disabled="busy || connectionLost"
-            @click="openDocumentApproval({ document_type: 'Journal', document_id: row.id, intent: 'execute' })">单据审批</AppButton>
-          <AppButton @click="detailId = row.id" variant="text" type="button">详情</AppButton>
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({ document_type: 'Journal', document_id: row.id, intent: 'execute' })">单据审批</AppButton>
+          <AppButton @click.capture="captureDialogOrigin('JournalsView:detail', $event)" @click="detailId = row.id" variant="text" type="button">详情</AppButton>
           <AppButton
             v-if="
               can('journal.create') &&
@@ -224,7 +235,7 @@ async function confirm(): Promise<void> {
               ['draft', 'rejected'].includes(row.status)
             "
             :disabled="busy || connectionLost || opening"
-            @click="edit(row)"
+            @click.capture="captureDialogOrigin('JournalsView:form', $event)" @click="edit(row)"
             variant="text"
             type="button"
             >编辑</AppButton
@@ -233,7 +244,7 @@ async function confirm(): Promise<void> {
             v-for="action in actionable(row)"
             :key="action"
             :disabled="busy || connectionLost"
-            @click="ask(row, action)"
+            @click.capture="captureDialogOrigin('JournalsView:command', $event)" @click="ask(row, action)"
             variant="text"
             type="button"
             >{{ journalActionLabels[action] }}</AppButton
@@ -247,7 +258,7 @@ async function confirm(): Promise<void> {
               !row.reversal_journal_id
             "
             :disabled="busy || connectionLost"
-            @click="ask(row, 'reverse')"
+            @click.capture="captureDialogOrigin('JournalsView:command', $event)" @click="ask(row, 'reverse')"
             variant="text"
             type="button"
             >建立冲销</AppButton
@@ -260,7 +271,7 @@ async function confirm(): Promise<void> {
           : '暂无凭证。先建立科目和开放期间，再录入借贷平衡的手工凭证。'
       }}</template>
     </WorkspaceTable>
-    <NModal
+    <AppModal :busy="busy" origin-key="JournalsView:form" @invalidated="showForm = false" :ready="!opening" :load-error="error"
       v-model:show="showForm"
       preset="card"
       :title="form.id === null ? '新增手工凭证' : `编辑${documentLabel(form, journals)}`"
@@ -403,8 +414,8 @@ async function confirm(): Promise<void> {
           >
         </div>
       </form>
-    </NModal>
-    <NModal
+    </AppModal>
+    <AppModal :busy="busy" origin-key="JournalsView:command" @invalidated="command = null"
       :show="command !== null"
       preset="card"
       :title="command ? `${journalActionLabels[command.action]} · ${documentLabel(command.record)}` : ''"
@@ -456,8 +467,8 @@ async function confirm(): Promise<void> {
           >
         </div>
       </form>
-    </NModal>
-    <NModal
+    </AppModal>
+    <AppModal :busy="busy" origin-key="JournalsView:detail" @invalidated="detailId = null"
       :show="!!detail"
       preset="card"
       :title="detail ? `${documentLabel(detail)} · ${journalStatusLabels[detail.status]}` : ''"
@@ -480,7 +491,7 @@ async function confirm(): Promise<void> {
         <p v-if="detail.note">备注：{{ detail.note }}</p>
         <p v-if="detail.reversal_of_id">
           冲销原凭证：<AppButton
-            @click="detailId = detail.reversal_of_id"
+            @click.capture="captureDialogOrigin('JournalsView:detail', $event)" @click="detailId = detail.reversal_of_id"
             variant="text"
             type="button"
             >查看原凭证{{ relatedDocumentLabel(detail, 'reversal_of') }}</AppButton
@@ -488,7 +499,7 @@ async function confirm(): Promise<void> {
         </p>
         <p v-if="detail.reversal_journal_id">
           关联冲销：<AppButton
-            @click="detailId = detail.reversal_journal_id"
+            @click.capture="captureDialogOrigin('JournalsView:detail', $event)" @click="detailId = detail.reversal_journal_id"
             variant="text"
             type="button"
             >查看冲销凭证{{ relatedDocumentLabel(detail, 'reversal_journal') }}</AppButton
@@ -504,13 +515,13 @@ async function confirm(): Promise<void> {
           ><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable
         >
         <NCollapse v-if="detail.business_source"><AppCollapseItem name="business" :title="`生成时的业务来源与科目配置（版本 ${detail.business_source.policy_version}）`"><BusinessSourceEvidence :source="detail.business_source.evidence" :mapping="detail.business_source.mapping" /></AppCollapseItem></NCollapse>
-        <NCollapse v-if="detail.profit_transfer"><AppCollapseItem name="profit" title="生成时的损益余额、凭证来源与结转范围"><ProfitTransferEvidence :evidence="detail.profit_transfer.evidence" :can-open-journal="can('journal.view')" @open-journal="id => { detailId = id }" /></AppCollapseItem></NCollapse>
+        <NCollapse v-if="detail.profit_transfer"><AppCollapseItem name="profit" title="生成时的损益余额、凭证来源与结转范围"><ProfitTransferEvidence :evidence="detail.profit_transfer.evidence" :can-open-journal="can('journal.view')" @open-journal="(id, event) => { if (event) captureDialogOrigin('JournalsView:detail', event); detailId = id }" /></AppCollapseItem></NCollapse>
         <JournalAttachments :key="detail.id" :journal-id="detail.id" />
         <JournalHistory
           :key="`${detail.id}:${detail.version}`"
           :load="() => loadJournalChanges(detail!.id)"
         />
       </div>
-    </NModal>
+    </AppModal>
   </section>
 </template>

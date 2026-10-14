@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
@@ -20,7 +23,7 @@ import WorkspaceSummaryFilters, {type WorkspaceSummaryFilterOption} from '../../
 import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import {useLocalPagination} from '../../../composables/use-local-pagination'
 import {filterLotRows,lotSummary,type LotFilter} from './warehouse-insights'
-import {NCollapse,NDatePicker,NModal} from 'naive-ui'
+import {NCollapse,NDatePicker } from 'naive-ui'
 import {datePickerString,vDateField} from '../../../utils/date-field'
 
 const store=usePiniaAppStore()
@@ -414,7 +417,7 @@ onUnmounted(()=>{invalidatePending();store.clearPhysicalLotHistory();selectedLeg
           <AppButton :disabled="disabled || resetDisabled" @click="resetFilters">重置</AppButton>
         </template>
         <template #actions>
-          <AppButton :disabled="busy || preparing || connectionLost" @click="openPending">{{ pendingLabel }}</AppButton>
+          <AppButton :disabled="busy || preparing || connectionLost" @click.capture="captureDialogOrigin('PhysicalLotsView:pending', $event)" @click="openPending">{{ pendingLabel }}</AppButton>
           <AppButton :disabled="disabled || pendingLoading" :loading="loading" @click="refresh">刷新批次</AppButton>
         </template>
         <template #beforeTable>
@@ -455,7 +458,7 @@ onUnmounted(()=>{invalidatePending();store.clearPhysicalLotHistory();selectedLeg
         </WorkspaceTable>
       </section>
       <!-- 旧流水作为按需处理的辅助任务，表单与列表在同一弹窗切换。 -->
-      <NModal :show="pendingOpen" preset="card" role="dialog" aria-modal="true" :title="pendingTitle"
+      <AppModal :busy="busy" origin-key="PhysicalLotsView:pending" @invalidated="pendingOpen = false" :ready="!pendingLoading" :load-error="pendingError" :show="pendingOpen" preset="card" role="dialog" aria-modal="true" :title="pendingTitle"
         class="lot-pending-dialog" :style="{width:editingPending && !groupAnchor ? 'min(820px, calc(100vw - 32px))' : 'min(1160px, calc(100vw - 32px))'}"
         :mask-closable="false" :close-on-esc="!busy && !preparing" :closable="!busy && !preparing" @update:show="updatePending">
         <div class="stack lot-pending-content">
@@ -539,7 +542,7 @@ onUnmounted(()=>{invalidatePending();store.clearPhysicalLotHistory();selectedLeg
             </template>
           </div>
         </template>
-      </NModal>
+      </AppModal>
       <section v-if="history" aria-label="实物批次来源历史" class="stack lot-history">
         <h3>{{ history.lot.sku }} · {{ history.lot.code }} · 来源历史</h3>
         <p class="lot-muted">{{ physicalLotKindLabel(history.lot.source_kind) }}；供应商批号 {{ history.lot.supplier_lot || '未提供' }}；生产日期 {{ history.lot.manufactured_on || '未提供' }}；失效日期 {{ history.lot.expires_on || '未提供' }}。</p>

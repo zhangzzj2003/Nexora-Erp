@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 批准与业务执行分开，审批入口复用共享 Pinia 和固定内容弹窗。
@@ -115,7 +117,7 @@ const goodsReceiptFormColumns = [
         <AppButton
           v-if="can('purchase_receiving.create')"
           :disabled="busy || connectionLost"
-          @click="showForm = true"
+          @click.capture="captureDialogOrigin('PurchaseGoodsReceiptsView:form', $event)" @click="showForm = true"
           variant="primary"
           type="button"
           >新建收货单</AppButton
@@ -128,7 +130,7 @@ const goodsReceiptFormColumns = [
       </template>
       <template #beforeTable>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-        <WorkspaceDocumentDialog
+        <WorkspaceDocumentDialog origin-key="PurchaseGoodsReceiptsView:form" @invalidated="showForm = false"
           material-supply
           :material-id="
             (row) =>
@@ -136,7 +138,7 @@ const goodsReceiptFormColumns = [
                 (line) => line.id === row.line.purchase_order_line_id,
               )?.material_id ?? 0
           "
-          v-if="showForm && can('purchase_receiving.create')"
+          v-if="can('purchase_receiving.create')"
           v-model:show="showForm"
           title="记录本批采购收货"
           :data="goodsReceiptFormRows"
@@ -256,7 +258,7 @@ const goodsReceiptFormColumns = [
           variant="text"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'PurchaseGoodsReceipt',
               document_id: item.id,
@@ -317,7 +319,7 @@ const goodsReceiptFormColumns = [
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'PurchaseGoodsReceipt',
               document_id: item.id,
@@ -332,7 +334,7 @@ const goodsReceiptFormColumns = [
       }}</template>
     </WorkspaceTable>
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">

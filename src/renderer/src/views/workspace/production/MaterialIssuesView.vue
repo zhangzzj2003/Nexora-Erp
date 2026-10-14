@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { routeByKey } from '../../../router/workspace-routes';
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
@@ -263,7 +265,7 @@ const approvalLabels = {
     <!-- 旧入口保留历史证据，新业务统一进入工单关联的四类物料流程。 -->
     <div v-if="can('material_flow.view')" class="card"><p class="muted">此处保留历史直接领退料记录。新业务在生产工单与仓库四类页面办理。</p><AppButton @click="store.navigateToRoute('productionReceipts')">前往生产领料签收</AppButton></div>
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <AppButton v-if="detailItem && can('production.view')" @click="router.push({ path: routeByKey('workOrders').path, query: { document_id: detailItem.work_order_id } })">返回生产工单</AppButton>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
@@ -293,7 +295,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="startLotPost(detailItem)"
+            @click.capture="captureDialogOrigin('MaterialIssuesView:lot', $event)" @click="startLotPost(detailItem)"
             >指定实物批次（可选）</AppButton
           >
           <AppButton
@@ -337,7 +339,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'MaterialIssue',
                 document_id: detailItem.id,
@@ -356,7 +358,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'MaterialIssue',
                 document_id: detailItem.id,
@@ -371,7 +373,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'MaterialIssue',
                 document_id: detailItem.id,
@@ -398,7 +400,7 @@ const approvalLabels = {
       </template>
     </DocumentApprovalDialog>
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-    <WorkspaceDocumentDialog
+    <WorkspaceDocumentDialog origin-key="MaterialIssuesView:form" @invalidated="createOpen = false"
       v-if="can('material_issue.create')"
       v-model:show="createOpen"
       title="新建领料单"
@@ -543,7 +545,7 @@ const approvalLabels = {
               variant="text"
               :disabled="busy || connectionLost"
               :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-              @click="
+              @click.capture="captureDialogOrigin('document-approval', $event)" @click="
                 store.openDocumentApproval({
                   document_type: 'MaterialIssue',
                   document_id: item.id,
@@ -621,7 +623,7 @@ const approvalLabels = {
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'MaterialIssue',
               document_id: item.id,
@@ -645,14 +647,14 @@ const approvalLabels = {
       </template>
     </WorkspaceTable>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
-    <WorkspaceLotDialog
-      v-if="activeIssue && can('material_issue.post')"
-      :show="true"
+    <WorkspaceLotDialog origin-key="MaterialIssuesView:lot" @invalidated="closeLotPost()"
+      v-if="can('material_issue.post')"
+      :show="!!activeIssue"
       title="生产领料 · 批次选择"
-      :document-number="documentLabel(activeIssue)"
+      :document-number="activeIssue ? documentLabel(activeIssue) : ''"
       :hint="
         '从 ' +
-        activeIssue.warehouse_name +
+        activeIssue?.warehouse_name +
         ' 的实际可用批次逐行选择；历史未识别期初会明确标记。'
       "
       :busy="busy"
@@ -668,6 +670,7 @@ const approvalLabels = {
       "
       @submit="confirmLotPost"
     >
+      <template v-if="activeIssue">
       <WorkspaceLotLineEditor
         v-for="line in lotDrafts"
         :key="line.material_issue_line_id"
@@ -711,6 +714,8 @@ const approvalLabels = {
         @add="addLot(line)"
         @remove="(index) => line.lots.splice(index, 1)"
       />
+
+      </template>
     </WorkspaceLotDialog>
   </section>
 </template>

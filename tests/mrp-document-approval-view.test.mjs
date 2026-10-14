@@ -10,7 +10,7 @@ import vue from '@vitejs/plugin-vue'
 test('计划统一审批且旧转单弹窗不能套用其他计划或撤回的批准',async t=>{
   const server=await createServer({configFile:false,plugins:[{
     name:'mrp-approval-fixture',enforce:'pre',
-    transform(code,id){if(id.endsWith('/MaterialPlanningView.vue'))return code.replace("'naive-ui'","'virtual:mrp-modal'")},
+    transform(code,id){if(id.endsWith('/MaterialPlanningView.vue'))return code.replace("'naive-ui'","'virtual:mrp-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:mrp-modal'")},
     resolveId(id,importer){
       if(id==='virtual:mrp-modal')return '\0mrp-modal'
       if(importer?.includes('/MaterialPlanningView.vue') && id.endsWith('/store/app-store'))return '\0mrp-store'
@@ -20,7 +20,7 @@ test('计划统一审批且旧转单弹窗不能套用其他计划或撤回的�
         if(id.endsWith('/'+name))return '\0mrp-stub'
       }
     },load(id){
-      if(id==='\0mrp-modal')return `import {defineComponent,h} from 'vue';export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
+      if(id==='\0mrp-modal')return `import {defineComponent,h} from 'vue';export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
       if(id==='\0mrp-stub')return 'export default {render:()=>null}'
       if(id==='\0mrp-button')return `import {defineComponent,h} from 'vue';export const buttons=[];export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>{const children=slots.default?.();const label=(children??[]).map(v=>typeof v.children==='string'?v.children:'').join('').trim();buttons.push({label,click:attrs.onClick,disabled:p.disabled});return h('button',attrs,children)}}})`
       if(id==='\0mrp-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return()=>h('section',(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row}))))}})`

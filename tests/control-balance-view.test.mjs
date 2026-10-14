@@ -9,7 +9,7 @@ import vue from '@vitejs/plugin-vue'
 async function fixture(t){
   const server=await createServer({configFile:false,plugins:[{
     name:'control-view',enforce:'pre',
-    transform(code,id){if(id.endsWith('/ControlBalanceTransfersView.vue'))return code.replaceAll("'naive-ui'","'virtual:control-modal'")},
+    transform(code,id){if(id.endsWith('/ControlBalanceTransfersView.vue'))return code.replaceAll("'naive-ui'","'virtual:control-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:control-modal'")},
     resolveId(id,importer){
       if(id==='virtual:control-modal')return '\0control-modal'
       if((importer?.includes('/ControlBalanceTransfersView.vue')||importer?.includes('/ControlFundsSelector.vue'))&&id.endsWith('/store/app-store'))return '\0control-store'
@@ -19,7 +19,7 @@ async function fixture(t){
       if(['AuxiliarySelector.vue','DocumentApprovalDialog.vue','AppInput.vue','AppCollapseItem.vue'].some(file=>id.endsWith('/'+file)))return '\0control-stub'
     },load(id){
       if(id==='\0control-stub')return 'export default {render:()=>null}'
-      if(id==='\0control-modal')return `import {defineComponent,h} from 'vue';export const NDatePicker={render:()=>null};export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}});export const NCollapse=defineComponent({setup(p,{slots}){return()=>h('section',slots.default?.())}})`
+      if(id==='\0control-modal')return `import {defineComponent,h} from 'vue';export const NDatePicker={render:()=>null};export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}});export const NCollapse=defineComponent({setup(p,{slots}){return()=>h('section',slots.default?.())}})`
       if(id==='\0control-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['title','data','columns','loading'],setup(p,{slots}){return()=>h('section',{'aria-busy':!!p.loading},[h('h2',p.title),slots.filters?.(),...(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row})??String(row[c.key]??''))),!p.loading&&!p.data?.length?slots.empty?.():null])}})`
       if(id==='\0control-button')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`
       if(id==='\0control-select')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled','modelValue','options'],setup(p){return()=>h('select',{disabled:p.disabled},p.options?.map(item=>h('option',{value:item.value,selected:item.value===p.modelValue,disabled:item.disabled},item.label)))}})`

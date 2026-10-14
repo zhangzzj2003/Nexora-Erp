@@ -1,7 +1,10 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -85,7 +88,7 @@ async function confirm(): Promise<void> {
   <p>将同一对象、同一控制科目和完整辅助组合的历史贷方余额用于另一张待结原单。草稿与批准不占用余额，执行后双方分别抵销；资金和总账金额保持原记录。</p>
   <div class="ledger-actions">
     <AppButton :disabled="disabled" @click="currentBalances">读取今日全部原单</AppButton>
-    <AppButton v-if="can('finance.record')" variant="primary" :disabled="disabled || !report" @click="start">新增原单核销</AppButton>
+    <AppButton v-if="can('finance.record')" variant="primary" :disabled="disabled || !report" @click.capture="captureDialogOrigin('SubledgerSettlements:form', $event)" @click="start">新增原单核销</AppButton>
   </div>
   <p v-if="report">可选原单依据截止 {{ report.to_date }} 的余额；服务端保存、审批与执行时均按最新余额校验。</p>
   <WorkspaceTable title="历史原单核销" :columns="columns" :data="filtered" :loading="loading" :min-table-width="1450">
@@ -93,13 +96,13 @@ async function confirm(): Promise<void> {
     <template #cell-executed_at="{ row }">{{ row.executed_at ? localTime(row.executed_at) : '尚未执行' }}</template>
     <template #cell-status="{ row }">{{ caption(row) }} · v{{ row.version }}</template>
     <template #cell-actions="{ row }"><div class="row-actions">
-      <AppButton variant="text" :disabled="disabled" @click="openDocumentApproval({ document_type: 'SubledgerSettlement', document_id: row.id, intent: 'execute' })">核销审批与依据</AppButton>
-      <AppButton v-for="action in actions(row)" :key="action" variant="text" :disabled="disabled" @click="ask(row, action)">{{ action === 'post' ? '执行核销' : '取消草稿' }}</AppButton>
-      <AppButton v-if="can('finance.reverse') && canReverseSettlement(row, records)" variant="text" :disabled="disabled" @click="ask(row, 'reverse')">建立反向草稿</AppButton>
+      <AppButton variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({ document_type: 'SubledgerSettlement', document_id: row.id, intent: 'execute' })">核销审批与依据</AppButton>
+      <AppButton v-for="action in actions(row)" :key="action" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerSettlements:command', $event)" @click="ask(row, action)">{{ action === 'post' ? '执行核销' : '取消草稿' }}</AppButton>
+      <AppButton v-if="can('finance.reverse') && canReverseSettlement(row, records)" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerSettlements:command', $event)" @click="ask(row, 'reverse')">建立反向草稿</AppButton>
     </div></template>
     <template #empty>暂无历史原单核销。先读取余额，再选择贷方原单与待结原单。</template>
   </WorkspaceTable>
-  <NModal :show="editing" preset="card" title="历史原单核销草稿" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!busy) editing = value }">
+  <AppModal :busy="busy" origin-key="SubledgerSettlements:form" @invalidated="editing = false" :show="editing" preset="card" title="历史原单核销草稿" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!busy) editing = value }">
     <form class="ledger-editor" @submit.prevent="save">
       <label>贷方原单<WorkspaceSelect v-model="form.from_line_id" :options="sourceOptions" :disabled="disabled" /></label>
       <p v-if="source">{{ source.account_code }} · {{ auxiliaryText(source.auxiliary) }}</p>
@@ -111,8 +114,8 @@ async function confirm(): Promise<void> {
       <p v-if="error" role="alert">{{ error }}</p>
       <AppButton type="submit" variant="primary" :disabled="disabled || !form.to_line_id || !form.amount || !form.reference || !form.reason">保存核销草稿</AppButton>
     </form>
-  </NModal>
-  <NModal :show="!!command" preset="card" title="核销操作" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) command = null }">
+  </AppModal>
+  <AppModal :busy="busy" origin-key="SubledgerSettlements:command" @invalidated="command = null" :show="!!command" preset="card" title="核销操作" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) command = null }">
     <form class="ledger-editor" @submit.prevent="confirm">
       <p v-if="command">{{ documentLabel(command.record) }} · {{ command.record.from_document_reference }} → {{ command.record.to_document_reference }} · {{ command.record.amount }} 元。</p>
       <p v-if="command?.action === 'reverse'">保存等额反向草稿，重新批准并执行后恢复双方余额；原核销保留。</p>
@@ -120,5 +123,5 @@ async function confirm(): Promise<void> {
       <p v-if="error" role="alert">{{ error }}</p>
       <AppButton type="submit" variant="primary" :disabled="disabled || !reason">{{ command?.action === 'reverse' ? '保存反向草稿' : command?.action === 'post' ? '执行核销' : '取消草稿' }}</AppButton>
     </form>
-  </NModal>
+  </AppModal>
 </template>

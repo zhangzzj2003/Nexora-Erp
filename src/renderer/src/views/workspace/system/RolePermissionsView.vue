@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -6,7 +9,7 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, ref } from 'vue'
-import { NModal } from 'naive-ui'
+
 import PermissionTreePicker from '../../../components/workspace/PermissionTreePicker.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { useAppStore } from '../../../store/app-store'
@@ -70,7 +73,7 @@ async function submitRole(): Promise<void> {
       empty-text="没有符合条件的职务"
     >
       <template #actions>
-        <AppButton type="button" :disabled="busy" @click="createOpen = true" variant="primary"
+        <AppButton type="button" :disabled="busy" @click.capture="captureDialogOrigin('RolePermissionsView:create', $event)" @click="createOpen = true" variant="primary"
           >新增职务</AppButton
         >
       </template>
@@ -100,13 +103,13 @@ async function submitRole(): Promise<void> {
       }}</template>
       <template #cell-permissions="{ row: role }">{{ role.permissions.length }} 项操作</template>
       <template #cell-actions="{ row: role }"
-        ><AppButton type="button" @click="openRole(role.code)" variant="secondary" size="small">
+        ><AppButton type="button" @click.capture="captureDialogOrigin('RolePermissionsView:editor', $event)" @click="openRole(role.code)" variant="secondary" size="small">
           {{ role.is_builtin ? '查看权限' : '配置权限' }}
         </AppButton></template
       >
     </WorkspaceTable>
 
-    <NModal
+    <AppModal :busy="busy" origin-key="RolePermissionsView:create" @invalidated="createOpen = false"
       v-model:show="createOpen"
       preset="card"
       title="新增职务"
@@ -136,9 +139,9 @@ async function submitRole(): Promise<void> {
           <AppButton type="submit" :disabled="busy" variant="primary">创建职务</AppButton>
         </div>
       </form>
-    </NModal>
+    </AppModal>
 
-    <NModal
+    <AppModal :busy="busy" origin-key="RolePermissionsView:editor" @invalidated="editorOpen = false"
       v-model:show="editorOpen"
       preset="card"
       :title="selectedRole?.label ?? '职务权限'"
@@ -179,7 +182,7 @@ async function submitRole(): Promise<void> {
           >
         </div>
       </form>
-    </NModal>
+    </AppModal>
   </section>
 </template>
 

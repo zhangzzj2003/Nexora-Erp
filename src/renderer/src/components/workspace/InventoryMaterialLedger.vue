@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { captureDialogOrigin } from '../../utils/dialog-origin'
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppButton from '../app/AppButton.vue'
@@ -28,7 +29,7 @@ const scope = computed(() => {
   <p class="ledger-scope">{{ scope }}<small>按所选仓库、物料及日期核对流水</small></p>
   <WorkspaceTable v-if="query" title="物料台账明细" :data="result.rows" :columns="ledgerMovementColumns"
     :loading="rowsLoading" :error="rowsError" :min-table-width="898"
-    :pagination="{ page: query.page, pageSize: query.page_size, total: result.total, disabled: connectionLost }"
+    :pagination="{ page: query.page, pageSize: query.page_size, total: result.total, disabled: connectionLost || rowsLoading }"
     @page-change="store.queryLedgerMaterial">
     <template v-if="overview" #filters>
       <label>流水仓库<WorkspaceSelect :model-value="query.warehouse_id" :options="warehouseOptions"
@@ -37,8 +38,8 @@ const scope = computed(() => {
     <template #cell-time="{ row }"><span class="ledger-time">{{ ledgerTime(row.created_at) }}</span></template>
     <template #cell-operator="{ row }">{{ row.created_by_name || '—' }}</template>
     <template #cell-source_type="{ row }">{{ movementTypeLabel(row.source_type) }}</template>
-    <template #cell-source_document="{ row }"><AppButton variant="text" :disabled="connectionLost"
-      :aria-label="`查看单据 ${relatedDocumentLabel(row, 'source')} 详情`" @click="store.openLedgerDocument(row)">{{ relatedDocumentLabel(row, 'source') }}</AppButton></template>
+    <template #cell-source_document="{ row }"><AppButton variant="text" :disabled="connectionLost || rowsLoading || !!rowsError"
+      :aria-label="`查看单据 ${relatedDocumentLabel(row, 'source')} 详情`" @click.capture="captureDialogOrigin('inventory-document', $event)" @click="store.openLedgerDocument(row)">{{ relatedDocumentLabel(row, 'source') }}</AppButton></template>
     <template #cell-quantity="{ row }">{{ row.quantity.startsWith('-') ? '' : '+' }}{{ row.quantity }} {{ row.unit }}</template>
     <template #cell-balance="{ row }">{{ row.balance_quantity }} {{ row.unit }}</template>
     <template #empty>当前范围内暂无该物料的库存流水。</template>

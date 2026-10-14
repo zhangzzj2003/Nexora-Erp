@@ -42,7 +42,7 @@ state.createBom=async()=>{calls++;if(fail){state.error.value='保存失败';retu
 export const useAppStore=()=>state`
 const modalSource = `import {defineComponent,h} from 'vue'
 export const captured={}
-export const NModal=defineComponent({props:['show','title'],setup(p,{slots,attrs}){Object.assign(captured,{props:p,slots,attrs});return()=>p.show?h('section',{'data-modal':p.title},slots.default?.()):null}})`
+export { NModal as default }; export const NModal=defineComponent({props:['show','title'],setup(p,{slots,attrs}){Object.assign(captured,{props:p,slots,attrs});return()=>p.show?h('section',{'data-modal':p.title},slots.default?.()):null}})`
 const tableSource = `import {defineComponent,h} from 'vue'
 export const tables=[]
 export default defineComponent({props:['title','data','columns'],setup(p,{slots}){return()=>{tables.push({props:p,slots});return h('section',{'data-table':p.title},[slots.actions?.(),slots.heading?.(),...p.data.map(row=>h('article',p.columns.map(c=>slots['cell-'+c.key]?.({row}))))])}}})`
@@ -61,7 +61,7 @@ test('BOM 共用弹窗编辑原草稿，删除后不串行，保存失败保留�
     name:'bom-dialog-fixtures', enforce:'pre',
     transform(code,id) {
       if (id.endsWith('/ProductionBomsView.vue')) return code.replace('const createOpen = ref(false)','const createOpen = ref(true)')
-      if (id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace("'naive-ui'","'virtual:bom-modal'")
+      if (id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace("'naive-ui'","'virtual:bom-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:bom-modal'")
     },
     resolveId(id,importer) {
       if(id==='virtual:bom-modal')return '\0bom-modal'

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 采购申请、转单与直接采购共用计价输入和十进制计算，保留原草稿行。
@@ -184,7 +186,7 @@ function addPricedMaterial(): void {
 <template>
   <section class="stack">
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
@@ -198,7 +200,7 @@ function addPricedMaterial(): void {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="openEditor(detailItem.id)"
+            @click.capture="captureDialogOrigin('PurchaseRequestsView:form', $event)" @click="openEditor(detailItem.id)"
             >修改</AppButton
           >
           <AppButton
@@ -207,7 +209,7 @@ function addPricedMaterial(): void {
             type="button"
             variant="primary"
             :disabled="busy || connectionLost"
-            @click="openConversion(detailItem.id)"
+            @click.capture="captureDialogOrigin('PurchaseRequestsView:conversion', $event)" @click="openConversion(detailItem.id)"
             >转订单</AppButton
           >
           <NPopconfirm
@@ -249,7 +251,7 @@ function addPricedMaterial(): void {
         <AppButton
           v-if="can('purchase_request.create')"
           :disabled="busy || connectionLost || !materials.length"
-          @click="openEditor()"
+          @click.capture="captureDialogOrigin('PurchaseRequestsView:form', $event)" @click="openEditor()"
           variant="primary"
           type="button"
           >新建采购申请</AppButton
@@ -262,9 +264,9 @@ function addPricedMaterial(): void {
       </template>
       <template #beforeTable>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-        <WorkspaceDocumentDialog
+        <WorkspaceDocumentDialog origin-key="PurchaseRequestsView:form" @invalidated="showForm = false"
           material-supply
-          v-if="showForm && can('purchase_request.create')"
+          v-if="can('purchase_request.create')"
           v-model:show="showForm"
           :title="
             purchaseRequestForm.requestId ? '修改采购申请' : '新建采购申请'
@@ -350,9 +352,9 @@ function addPricedMaterial(): void {
           }}</template>
         </WorkspaceDocumentDialog>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-        <WorkspaceDocumentDialog
+        <WorkspaceDocumentDialog origin-key="PurchaseRequestsView:conversion" @invalidated="conversionOpen = false"
           material-supply
-          v-if="selectedRequest && can('purchase_order.create')"
+          v-if="can('purchase_order.create')"
           v-model:show="conversionOpen"
           :title="`申请 ${selectedRequest ? documentLabel(selectedRequest) : ''} 转采购订单`"
           :data="requestConversionFormRows"
@@ -402,7 +404,7 @@ function addPricedMaterial(): void {
           </template>
           <template #cell-material="{ row: { line, index } }"
             ><span>{{
-              selectedRequest.lines.find(
+              selectedRequest?.lines.find(
                 (item) => item.id === line.purchase_request_line_id,
               )?.material_name
             }}</span></template
@@ -435,7 +437,7 @@ function addPricedMaterial(): void {
           variant="text"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'PurchaseRequest',
               document_id: item.id,
@@ -473,7 +475,7 @@ function addPricedMaterial(): void {
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'PurchaseRequest',
               document_id: item.id,

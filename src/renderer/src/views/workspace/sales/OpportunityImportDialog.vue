@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import AppModal from '../../../components/app/AppModal.vue'
 import { ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NCheckbox, NModal, NUpload } from 'naive-ui'
+import { NCheckbox,  NUpload } from 'naive-ui'
 import type { OpportunityImportPreview, OpportunityImportRow } from '../../../../../shared/crm-api'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
@@ -67,7 +68,7 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <NModal v-model:show="show" preset="card" title="导入商机 CSV"
+  <AppModal :busy="busy" origin-key="OpportunityImportDialog:import" @invalidated="show = false" v-model:show="show" preset="card" title="导入商机 CSV"
     :mask-closable="!checking && !busy" :closable="!checking && !busy"
     :style="{width:'min(800px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}">
     <div class="stack">
@@ -99,5 +100,5 @@ async function submit(): Promise<void> {
           @click="submit">{{ busy ? '正在导入…' : '确认导入' }}</AppButton>
       </template>
     </div>
-  </NModal>
+  </AppModal>
 </template>

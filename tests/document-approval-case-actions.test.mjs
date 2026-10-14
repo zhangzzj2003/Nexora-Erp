@@ -13,7 +13,7 @@ function environment(t, callApi, refresh = async () => {}) {
   const previous = globalThis.window
   globalThis.window = { nexora: { callApi } }
   const scope = effectScope(), state = createAppState()
-  state.user.value = { id: 1, roles: ['admin'], permissions: ['other_inbound.view'] }
+  state.user.value = { id: 1, roles: ['admin', 'viewer'], permissions: ['other_inbound.view', 'inventory.view'] }
   state.server.value = { id: 'instance-a', fingerprint: 'a' }
   const actions = scope.run(() => createDocumentApprovalCaseActions(state, refresh))
   t.after(() => { scope.stop(); globalThis.window = previous })
@@ -159,4 +159,37 @@ test('维护依据单独提交且失败保留，同实例断线保留，换实�
   state.connectionLost.value=true;assert.equal(state.documentApprovalEvidence.value[key],'现场记录')
   state.server.value={id:'second',fingerprint:'second'}
   assert.deepEqual(state.documentApprovalEvidence.value,{})
+})
+
+// 动画等待的是完整新快照，旧正文可以保留，但不能保留旧版本的操作权限。
+test('同单刷新保留正文，等待和失败期间均不可使用旧审批动作', async t => {
+  let finish, reject, delayed = false, writes = 0
+  const { state, actions } = environment(t, async action => {
+    if (action === 'actDocumentApproval') { writes++; return draft() }
+    if (delayed) return new Promise((resolve, fail) => { finish = resolve; reject = fail })
+    return draft()
+  })
+  assert.equal(await actions.openDocumentApproval(target), true)
+  const displayed = state.documentApprovalRecord.value
+  delayed = true
+  const refresh = actions.loadDocumentApproval()
+  // 只有实际授权变化才清理依据；角色、权限集合重排不能取消正在刷新的审批。
+  state.user.value = { ...state.user.value, roles: [...state.user.value.roles].reverse(), permissions: [...state.user.value.permissions].reverse() }
+  assert.equal(state.documentApprovalRecord.value, displayed)
+  assert.equal(state.documentApprovalLoading.value, true)
+  assert.equal(await actions.actDocumentApproval('submit'), false)
+  reject(Error('刷新失败，请重新核对'))
+  assert.equal(await refresh, false)
+  assert.equal(state.documentApprovalRecord.value, displayed)
+  assert.equal(await actions.actDocumentApproval('submit'), false)
+  assert.equal(writes, 0)
+  const retry = actions.openDocumentApproval(target)
+  assert.equal(state.documentApprovalRecord.value, displayed)
+  finish(draft())
+  assert.equal(await retry, true)
+  const another = actions.openDocumentApproval({ ...target, document_id: 2 })
+  assert.equal(state.documentApprovalRecord.value, null)
+  actions.closeDocumentApproval()
+  finish({ ...draft(), document_id: 2 })
+  assert.equal(await another, false)
 })

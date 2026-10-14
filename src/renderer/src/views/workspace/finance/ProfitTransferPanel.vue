@@ -15,7 +15,7 @@ import ProfitTransferEvidence from './ProfitTransferEvidence.vue'
 import { journalStatusLabels } from './journal-display'
 import { localTime } from '../../../utils/formatters'
 
-const emit = defineEmits<{ openJournal: [id: number] }>()
+const emit = defineEmits<{ openJournal: [id: number, event?: Event] }>()
 const store = usePiniaAppStore()
 const { profitTransferOptions: options, profitTransferPreview: preview, profitTransferPolicyChanges: changes,
   profitTransferLoading: loading, profitTransferError: loadError, busy, connectionLost, user } = storeToRefs(store)
@@ -113,10 +113,10 @@ async function generate(): Promise<void> {
       <p v-if="!options.periods.length" class="muted">暂无会计期间。请先在“会计期间”建立公司使用的期间。</p>
     </template>
     <template v-if="preview && !loading && preview.period.id === periodId">
-      <p v-if="preview.journal_id">本期间已有{{ journalStatusLabels[preview.journal_status!] }}结转：<AppButton variant="text" @click="emit('openJournal', preview!.journal_id!)">查看{{ relatedDocumentLabel(preview, 'journal') }}</AppButton>。取消未过账草稿或在原期间末过账冲销后，才能重建。</p>
+      <p v-if="preview.journal_id">本期间已有{{ journalStatusLabels[preview.journal_status!] }}结转：<AppButton variant="text" @click="emit('openJournal', preview!.journal_id!, $event)">查看{{ relatedDocumentLabel(preview, 'journal') }}</AppButton>。取消未过账草稿或在原期间末过账冲销后，才能重建。</p>
       <p>{{ preview.can_generate ? '预览通过，可填写依据并生成草稿。' : '当前不能生成，请先核对以下事项。' }}</p>
       <ul v-if="preview.blockers.length"><li v-for="item in preview.blockers" :key="item">{{ item }}</li></ul>
-      <ProfitTransferEvidence :evidence="preview.evidence" :can-open-journal="can('journal.view')" @open-journal="id => emit('openJournal', id)" />
+      <ProfitTransferEvidence :evidence="preview.evidence" :can-open-journal="can('journal.view')" @open-journal="(id, event) => emit('openJournal', id, event)" />
       <ul class="muted"><li v-for="item in preview.warnings" :key="item">{{ item }}</li></ul>
       <form v-if="can('profit_transfer.generate') && !preview.journal_id" class="ledger-editor" @submit.prevent="generate">
         <div class="form-grid"><label>凭证依据编号<AppInput v-model.trim="reference" required maxlength="80" :disabled="busy" /></label><label>生成依据<AppInput v-model.trim="reason" required maxlength="200" :disabled="busy" /></label></div>

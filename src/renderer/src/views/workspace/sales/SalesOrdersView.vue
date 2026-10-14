@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 复用公共物料资料的单行展开状态，新增或重选时收起其他行。
 import { useDocumentMaterialDetails } from "../../../composables/use-document-material-details";
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
@@ -27,8 +30,8 @@ import {
   recordColumns,
   matchesRecordQuery,
 } from "../../../utils/workspace-records";
-import { computed, ref, watch } from "vue";
-import { NModal } from "naive-ui";
+import { computed, ref, watch, onUnmounted } from "vue";
+
 import type {
   SalesOrder,
   SalesOrderContract,
@@ -83,6 +86,12 @@ const contract = ref<SalesOrderContract | null>(null);
 const contractBody = ref("");
 const acceptanceReference = ref("");
 const contractReason = ref("");
+// 同一订单取消后重开也必须隔离请求，不能仅比较订单 ID。
+let contractRead = 0;
+watch(contractOpen, (open) => {
+  if (!open) { contractRead++; contractLoading.value = false; }
+}, { flush: "sync" });
+onUnmounted(() => { contractRead++; });
 watch(
   () =>
     `${user.value?.id}:${user.value?.permissions.join("|")}:${connectionLost.value}`,
@@ -97,6 +106,7 @@ watch(
   { flush: "sync" },
 );
 async function openContract(order: SalesOrder): Promise<void> {
+  const ticket = ++contractRead;
   error.value = "";
   contractOrder.value = order;
   contract.value = null;
@@ -106,7 +116,7 @@ async function openContract(order: SalesOrder): Promise<void> {
   contractOpen.value = true;
   contractLoading.value = true;
   const result = await loadSalesOrderContract(order.id);
-  if (contractOpen.value && contractOrder.value?.id === order.id) {
+  if (ticket === contractRead && contractOpen.value && contractOrder.value?.id === order.id) {
     contract.value = result;
     contractBody.value = result?.current?.body ?? "";
     contractLoading.value = false;
@@ -182,7 +192,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
 <template>
   <section class="stack">
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
@@ -192,7 +202,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
             type="button"
             variant="secondary"
             :disabled="busy"
-            @click="openContract(detailItem)"
+            @click.capture="captureDialogOrigin('SalesOrdersView:contract', $event)" @click="openContract(detailItem)"
             >合同正文</AppButton
           >
           <AppButton
@@ -228,7 +238,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
         </template>
       </template>
     </DocumentApprovalDialog>
-    <NModal
+    <AppModal :busy="busy" origin-key="SalesOrdersView:contract" @invalidated="contractOpen = false" :ready="!contractLoading && !!contract" :load-error="error"
       v-model:show="contractOpen"
       preset="card"
       title="销售合同正文与修订历史"
@@ -323,9 +333,9 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
           </div>
         </template>
       </template>
-    </NModal>
+    </AppModal>
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-    <WorkspaceDocumentDialog
+    <WorkspaceDocumentDialog origin-key="SalesOrdersView:form" @invalidated="createOpen = false"
       v-if="can('sales_order.create')"
       v-model:show="createOpen"
       title="新建销售订单"
@@ -476,7 +486,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
           v-if="can('sales_order.create')"
           type="button"
           :disabled="busy"
-          @click="createOpen = true"
+          @click.capture="captureDialogOrigin('SalesOrdersView:form', $event)" @click="createOpen = true"
           variant="primary"
         >
           新建销售订单
@@ -498,7 +508,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
               variant="text"
               :disabled="busy || connectionLost"
               :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-              @click="
+              @click.capture="captureDialogOrigin('document-approval', $event)" @click="
                 store.openDocumentApproval({
                   document_type: 'SalesOrder',
                   document_id: item.id,
@@ -556,7 +566,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'SalesOrder',
               document_id: item.id,

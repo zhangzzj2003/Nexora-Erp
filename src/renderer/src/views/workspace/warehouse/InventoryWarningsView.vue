@@ -1,8 +1,11 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {storeToRefs} from 'pinia'
 import {RouterLink} from 'vue-router'
-import {NCheckbox,NCollapse,NModal} from 'naive-ui'
+import {NCheckbox,NCollapse } from 'naive-ui'
 import type {InventoryWarningRow,InventoryWarningStatus} from '../../../../../shared/inventory-warning-api'
 import {inventoryWarningLabels,warningThresholdValid} from '../../../../../shared/inventory-warning-api'
 import {usePiniaAppStore} from '../../../store/app-store'
@@ -67,24 +70,30 @@ const duplicate=computed(()=>form.value.version===0 && overview.value?.rows.some
 const invalid=computed(()=>disabled.value || !mayManage.value || !form.value.warehouse_id || !form.value.material_id
   || !warningThresholdValid(form.value.threshold) || !form.value.reason.trim() || duplicate.value)
 function rowRecord(value:Pick<InventoryWarningRow,'id'>):InventoryWarningRow|undefined{return overview.value?.rows.find(row=>row.id===value.id)}
+// 详情和修订的打开意图独立于服务端结果，等待期间允许取消。
+const editorPending = ref(false)
+let openRead = 0
 async function open(value:Pick<InventoryWarningRow,'id'>,edit=false):Promise<void>{
   const row=rowRecord(value);if(!row || disabled.value)return
+  const ticket=++openRead
   preparing.value=true
+  if(edit){detailOpen.value=false;editorPending.value=true}else detailOpen.value=true
   try{
-    if(edit){detailOpen.value=false;await store.editWarningRule(row)}
-    else detailOpen.value=await store.loadWarningDetail(row)
-  }finally{preparing.value=false}
+    const loaded=edit?await store.editWarningRule(row):await store.loadWarningDetail(row)
+    if(ticket!==openRead){if(edit)editing.value=false;return}
+    if(!loaded){if(edit)editing.value=false;else detailOpen.value=false}
+  }finally{if(ticket===openRead){preparing.value=false;editorPending.value=false}}
 }
 function start():void{if(!disabled.value && store.startWarningRule())detailOpen.value=false}
 // 弹窗只切换可见性，不卸载背景列表；保存及刷新证据期间统一阻止关闭和重复提交。
-function updateEditor(show:boolean):void {if(!busy.value && !saving.value)editing.value=show}
+function updateEditor(show:boolean):void {if(!busy.value && !saving.value){if(!show){openRead++;editorPending.value=false;preparing.value=false}editing.value=show}}
 async function saveRule():Promise<void> {
   if(invalid.value)return
   saving.value=true
   try{await store.saveWarningRule()}finally{saving.value=false}
 }
-function closeDetail():void {detailOpen.value=false;store.clearWarningDetail()}
-watch(detail,value=>{if(!value)detailOpen.value=false})
+function closeDetail():void {openRead++;preparing.value=false;detailOpen.value=false;store.clearWarningDetail()}
+watch(detail,value=>{if(!value && !preparing.value)detailOpen.value=false})
 function prepareLedger():void {
   if(detail.value)Object.assign(store.ledgerQuery,{warehouse_id:detail.value.row.warehouse_id,
     material_id:detail.value.row.material_id,from_date:'',to_date:'',source_type:null})
@@ -95,7 +104,7 @@ watch(()=>`${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${
   if(!connectionLost.value && store.can('inventory.view'))refresh()
 })
 onMounted(refresh)
-onUnmounted(()=>{store.clearWarningDetail()})
+onUnmounted(()=>{openRead++;store.clearWarningDetail()})
 const statusOptions=[{value:'attention',label:'缺货或低库存'},...Object.entries(inventoryWarningLabels).map(([value,label])=>({value,label})),{value:'all',label:'全部规则'}]
 const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarningStatus]??'未知状态'
 </script>
@@ -111,7 +120,7 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
       <p v-if="connectionLost" role="alert">服务端连接已中断，旧库存数量和证据已失效。未保存阈值与修订版本保留；恢复后请核对最新记录。</p>
       <p v-if="failure && (editing || overview)" class="warning-notice" role="alert">{{ failure }} 请刷新预警后重试。</p>
       <!-- Naive 弹窗提供焦点锁定；标题和页脚固定，表单仅在正文区滚动。 -->
-      <NModal :show="editing && mayManage" preset="card" role="dialog" aria-modal="true" :title="form.version ? '修订预警规则' : '配置库存预警'"
+      <AppModal :busy="busy" origin-key="InventoryWarningsView:form" @invalidated="openRead++; editorPending = false; preparing = false; editing = false" :show="(editing || editorPending) && mayManage" :ready="!editorPending" :load-error="failure" preset="card" role="dialog" aria-modal="true" :title="form.version ? '修订预警规则' : '配置库存预警'"
         class="warning-dialog" :mask-closable="false" :close-on-esc="!busy && !saving" :closable="!busy && !saving"
         :style="{width:'min(760px, calc(100vw - 32px))'}" @update:show="updateEditor">
         <form id="inventory-warning-form" class="warning-editor stack" @submit.prevent="saveRule">
@@ -138,7 +147,7 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
             </div>
           </div>
         </template>
-      </NModal>
+      </AppModal>
       <WorkspaceTable title="库存预警" :show-title="false" :columns="columns" :data="rows" :loading="loading" :error="failure"
         :pagination="{page,pageSize,total,disabled:loading}" @page-change="changePage" :min-table-width="1120">
         <template #filters>
@@ -148,7 +157,7 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
         </template>
         <template #actions>
           <AppButton type="button" :disabled="disabled" :loading="loading" @click="refresh">刷新预警</AppButton>
-          <AppButton v-if="mayManage" type="button" variant="primary" :disabled="disabled || !overview" @click="start">配置预警规则</AppButton>
+          <AppButton v-if="mayManage" type="button" variant="primary" :disabled="disabled || !overview" @click.capture="captureDialogOrigin('InventoryWarningsView:form', $event)" @click="start">配置预警规则</AppButton>
         </template>
         <template #beforeTable>
           <div v-if="overview" class="warning-scope" role="status">
@@ -166,14 +175,14 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
         <template #cell-threshold="{row}">{{ row.threshold }}</template>
         <template #cell-shortage="{row}">{{ row.shortage===null ? '不参与预警' : row.shortage }}</template>
         <template #cell-status="{row}"><AppStatusTag :label="statusLabel(row.status)" :tone="warningTone(row.status)" /><span class="warning-muted">规则 v{{ row.version }}</span></template>
-        <template #cell-actions="{row}"><div class="warning-actions"><AppButton type="button" :disabled="disabled" size="small" variant="text" @click="open(row)">详情与历史</AppButton><AppButton v-if="mayManage" type="button" :disabled="disabled" size="small" variant="text" @click="open(row,true)">修订规则</AppButton></div></template>
+        <template #cell-actions="{row}"><div class="warning-actions"><AppButton type="button" :disabled="disabled" size="small" variant="text" @click.capture="captureDialogOrigin('InventoryWarningsView:detail', $event)" @click="open(row)">详情与历史</AppButton><AppButton v-if="mayManage" type="button" :disabled="disabled" size="small" variant="text" @click.capture="captureDialogOrigin('InventoryWarningsView:form', $event)" @click="open(row,true)">修订规则</AppButton></div></template>
         <template #errorActions><AppButton :disabled="disabled" @click="refresh">重新读取预警</AppButton></template>
         <template #empty>
           <strong>{{ connectionLost ? '连接中断，旧预警已失效' : !overview?.summary.configured ? '当前范围尚未配置预警规则' : filter==='attention' && !query ? '当前没有缺货或低库存规则' : '没有符合筛选条件的规则' }}</strong>
           <span>未配置与停用规则不表示库存充足，请按实际管理范围核对阈值。</span>
           <div v-if="!connectionLost && overview" class="warning-actions">
             <AppButton v-if="overview.summary.configured" :disabled="disabled" @click="showAllRules">查看全部规则</AppButton>
-            <AppButton v-else-if="mayManage" variant="primary" :disabled="disabled" @click="start">配置预警规则</AppButton>
+            <AppButton v-else-if="mayManage" variant="primary" :disabled="disabled" @click.capture="captureDialogOrigin('InventoryWarningsView:form', $event)" @click="start">配置预警规则</AppButton>
           </div>
         </template>
       </WorkspaceTable>
@@ -194,7 +203,7 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
         <AppButton v-if="eventPage?.next_before_id" type="button" :disabled="eventLoading || connectionLost" @click="store.loadWarningEvents(true)">{{ eventLoading ? '正在加载…' : '加载更早事件' }}</AppButton>
       </section>
       <p class="warning-footnote">预警按各仓库已确认流水的现存量计算，不含草稿或未来需求，也不等同于 MRP 净需求。未配置与停用规则不表示库存充足。</p>
-      <NModal :show="detailOpen && !!detail && !editing" preset="card" role="dialog" aria-modal="true" title="预警规则详情与历史"
+      <AppModal :busy="busy" origin-key="InventoryWarningsView:detail" @invalidated="closeDetail()" :show="detailOpen && !editing" :ready="!preparing && !!detail" :load-error="failure" preset="card" role="dialog" aria-modal="true" title="预警规则详情与历史"
         class="warning-dialog" :style="{width:'min(820px, calc(100vw - 32px))'}" @update:show="show=>{if(!show)closeDetail()}">
         <section v-if="detail" aria-label="库存预警修订证据" class="stack warning-evidence">
         <h3>{{ detail.row.warehouse_code }} · {{ detail.row.sku }} · v{{ detail.row.version }}</h3>
@@ -210,7 +219,7 @@ const statusLabel=(value:unknown)=>inventoryWarningLabels[value as InventoryWarn
         </NCollapse>
         </section>
         <template #footer><div class="warning-dialog-footer warning-dialog-footer--end"><AppButton @click="closeDetail">关闭</AppButton></div></template>
-      </NModal>
+      </AppModal>
     </template>
   </section>
 </template>

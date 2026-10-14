@@ -10,7 +10,7 @@ import vue from '@vitejs/plugin-vue'
 test('分户方案统一审批与独立撤销保护启用入口及失效确认弹窗',async t=>{
   const server=await createServer({configFile:false,plugins:[{
     name:'opening-approval-view',enforce:'pre',
-    transform(code,id){if(id.endsWith('/SubledgerOpeningsView.vue'))return code.replaceAll("'naive-ui'","'virtual:journal-modal'")},
+    transform(code,id){if(id.endsWith('/SubledgerOpeningsView.vue'))return code.replaceAll("'naive-ui'","'virtual:journal-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:journal-modal'")},
     resolveId(id,importer){
       if(id==='virtual:journal-modal')return '\0journal-modal'
       if(importer?.includes('/SubledgerOpeningsView.vue') && id.endsWith('/store/app-store'))return '\0journal-store'
@@ -21,7 +21,7 @@ test('分户方案统一审批与独立撤销保护启用入口及失效确认�
         'DocumentApprovalDialog.vue','ControlFundsSelector.vue','WorkspaceSelect.vue','AppInput.vue'])if(id.endsWith('/'+file))return '\0journal-stub'
     },load(id){
       if(id==='\0journal-stub')return 'export default {render:()=>null}'
-      if(id==='\0journal-modal')return `import {defineComponent,h} from 'vue';export const NDatePicker={render:()=>null};export const NCheckbox={render:()=>null};export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
+      if(id==='\0journal-modal')return `import {defineComponent,h} from 'vue';export const NDatePicker={render:()=>null};export const NCheckbox={render:()=>null};export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
       if(id==='\0journal-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return()=>h('section',(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row}))))}})`
       if(id==='\0journal-button')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`
       if(id==='\0journal-store')return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';export const calls=[];

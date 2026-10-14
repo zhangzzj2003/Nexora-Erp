@@ -4,14 +4,19 @@ import { watch } from 'vue'
 
 export function createJournalActions(state: AppState, perform: (action: () => Promise<unknown>, success: string) => Promise<void>) {
   let optionsTicket = 0
-  const owner = () => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`
+  function cancelJournalPreparation(): void {
+    // 关闭等待只取消在途选项回填，已有草稿和辅助选择继续保留。
+    optionsTicket++
+  }
+  // 角色与权限按集合比较，副本排序不会修改用户快照，例行返回顺序变化也不取消读取。
+  const owner = () => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.slice().sort().join('|')}:${state.user.value?.permissions.slice().sort().join('|')}`
   watch(owner, () => {
     optionsTicket++
     state.journalOptions.value = { accounts: [], periods: [] }
     state.journalForm.value = { id: null, version: 1, reference: '', journal_date: '', note: '', reason: '', lines: [] }
   }, { flush: 'sync' })
   // 短暂断线只失效在途读取；已填写金额和辅助选择保留，提交由页面禁用。
-  watch(state.connectionLost, () => { optionsTicket++ }, { flush: 'sync' })
+  watch(state.connectionLost, cancelJournalPreparation, { flush: 'sync' })
   async function editJournal(item?: Journal): Promise<void> {
     if (!window.nexora) throw new Error('请在桌面应用中建立凭证。')
     const identity = owner(), ticket = ++optionsTicket
@@ -101,6 +106,6 @@ export function createJournalActions(state: AppState, perform: (action: () => Pr
     if (identity !== owner()) throw new Error('会话或权限已变化，请重新读取凭证附件。')
     return result
   }
-  return { editJournal, saveJournal, changeJournalStatus, reverseJournal, loadJournalChanges,
+  return { editJournal, cancelJournalPreparation, saveJournal, changeJournalStatus, reverseJournal, loadJournalChanges,
     loadJournalAttachments, uploadJournalAttachment, reverseJournalAttachment, saveJournalAttachment }
 }

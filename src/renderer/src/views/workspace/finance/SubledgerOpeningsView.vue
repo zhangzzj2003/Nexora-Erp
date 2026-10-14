@@ -1,9 +1,12 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NDatePicker, NModal } from 'naive-ui'
+import { NDatePicker } from 'naive-ui'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -102,12 +105,19 @@ async function reload(): Promise<void> {
   if (mode.value === 'orders') { await store.loadSubledgerOrders(); return }
   source.value = null; closeDetail(); if (await loadSubledger() && mode.value === 'balances') await querySubledger()
 }
+let editRead = 0
+watch(editing, value => {
+  if (!value) { editRead++; preparing.value = false; store.cancelSubledgerPreparation() }
+}, { flush: 'sync' })
+// 退出页面时同时取消 Pinia 准备请求，已经填写的分户草稿不受影响。
+onUnmounted(() => { editRead++; store.cancelSubledgerPreparation() })
 async function edit(item?: SubledgerOpening): Promise<void> {
   if (preparing.value || disabled.value) return
-  preparing.value = true; operationError.value = ''
-  try { if (await editSubledger(item)) editing.value = true }
-  catch (cause) { operationError.value = displayError(cause) }
-  finally { preparing.value = false }
+  const ticket = ++editRead
+  preparing.value = true; operationError.value = ''; editing.value = true
+  try { if (!await editSubledger(item) && ticket === editRead) editing.value = false }
+  catch (cause) { if (ticket === editRead) operationError.value = displayError(cause) }
+  finally { if (ticket === editRead) preparing.value = false }
 }
 async function inspect(item: SubledgerOpening): Promise<void> {
   closeDetail(); const ticket = ++detailTicket; detail.value = item; detailLoading.value = true
@@ -171,7 +181,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
 </script>
 
 <template>
-  <DocumentApprovalDialog />
+  <DocumentApprovalDialog origin-key="document-approval" />
   <section class="stack ledger-metadata-page subledger-page">
     <div class="ledger-actions" aria-label="分户期初内容">
       <AppButton :variant="mode === 'balances' ? 'primary' : 'secondary'" @click="mode = 'balances'">未结余额</AppButton>
@@ -206,8 +216,8 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
         <template #cell-kind="{ row }">{{ subledgerKindLabels[row.kind] }}</template>
         <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template>
         <template #cell-actions="{ row }"><div class="row-actions">
-          <AppButton variant="text" :disabled="disabled" @click="source = row">来源与资金</AppButton>
-          <AppButton v-if="can('finance.record')" variant="text" :disabled="disabled" @click="register(row)">登记资金</AppButton>
+          <AppButton variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerOpeningsView:source', $event)" @click="source = row">来源与资金</AppButton>
+          <AppButton v-if="can('finance.record')" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerOpeningsView:payment', $event)" @click="register(row)">登记资金</AppButton>
         </div></template>
         <template #empty>{{ !report ? '选择截止日后查询。没有已确认方案时，请先查看分户方案。' : report.opening ? '当前条件下没有历史未结单据。已结清单据仍保留在结果中。' : '尚无已启用分户期初；可在分户方案中逐笔建立历史未结来源。' }}</template>
       </WorkspaceTable>
@@ -215,16 +225,16 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
     <template v-else-if="mode === 'plans'">
       <p>先确认总账期初，再逐对象及完整辅助组合核对分户。首次启用前不得已有业务往来来源、订单资金登记或已过账凭证；错误方案可取消后重建。</p>
       <WorkspaceTable class="journal-list-table" title="分户期初方案" :show-title="false" :columns="plans" :data="filteredPlans" :min-table-width="1030" :loading="loading">
-        <template #actions><AppButton v-if="can('subledger_opening.create')" variant="primary" :disabled="disabled || active || preparing" @click="edit()">{{ preparing ? '正在读取…' : '新增分户方案' }}</AppButton></template>
+        <template #actions><AppButton v-if="can('subledger_opening.create')" variant="primary" :disabled="disabled || active || preparing" @click.capture="captureDialogOrigin('SubledgerOpeningsView:form', $event)" @click="edit()">{{ preparing ? '正在读取…' : '新增分户方案' }}</AppButton></template>
         <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
         <template #cell-count="{ row }">{{ row.lines.length }}</template>
         <template #cell-status="{ row }">{{ openingStatusLabels[row.status] }} · v{{ row.version }}<small class="approval-caption">{{ approvalCaption(row) }}</small></template>
         <template #cell-actions="{ row }"><div class="row-actions">
-          <AppButton variant="text" :disabled="disabled" @click="openDocumentApproval({document_type:'SubledgerOpening',document_id:row.id,intent:'execute'})">单据审批</AppButton>
-          <AppButton v-if="['confirmed','reversed'].includes(row.status)" variant="text" :disabled="disabled" @click="openDocumentApproval({document_type:'SubledgerOpening',document_id:row.id,intent:'reverse'})">撤销审批</AppButton>
-          <AppButton variant="text" :disabled="disabled" @click="inspect(row)">核对与审计</AppButton>
-          <AppButton v-if="can('subledger_opening.create') && ['draft', 'rejected'].includes(row.status)" variant="text" :disabled="disabled || preparing" @click="edit(row)">编辑</AppButton>
-          <AppButton v-for="action in actions(row)" :key="action" variant="text" :disabled="disabled" @click="ask(row, action)">{{ openingActionLabels[action] }}</AppButton>
+          <AppButton variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({document_type:'SubledgerOpening',document_id:row.id,intent:'execute'})">单据审批</AppButton>
+          <AppButton v-if="['confirmed','reversed'].includes(row.status)" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({document_type:'SubledgerOpening',document_id:row.id,intent:'reverse'})">撤销审批</AppButton>
+          <AppButton variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerOpeningsView:detail', $event)" @click="inspect(row)">核对与审计</AppButton>
+          <AppButton v-if="can('subledger_opening.create') && ['draft', 'rejected'].includes(row.status)" variant="text" :disabled="disabled || preparing" @click.capture="captureDialogOrigin('SubledgerOpeningsView:form', $event)" @click="edit(row)">编辑</AppButton>
+          <AppButton v-for="action in actions(row)" :key="action" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerOpeningsView:command', $event)" @click="ask(row, action)">{{ openingActionLabels[action] }}</AppButton>
         </div></template>
         <template #empty>暂无分户方案。请先独立审核并确认总账期初，再建立历史未结明细。</template>
       </WorkspaceTable>
@@ -241,18 +251,18 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
         <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
         <template #cell-status="{ row }">{{ fundCaption(row) }} · v{{ row.version }}<small v-if="row.executed_at">执行于 {{ localTime(row.executed_at) }}</small></template>
         <template #cell-actions="{ row }"><div class="row-actions">
-          <AppButton variant="text" :disabled="disabled" @click="openDocumentApproval({document_type:'SubledgerPayment',document_id:row.id,intent:'execute'})">资金审批</AppButton>
-          <AppButton v-for="action in fundActions(row)" :key="action" variant="text" :disabled="disabled" @click="askFund(row,action)">{{ action === 'post' ? '确认资金' : '取消草稿' }}</AppButton>
-          <AppButton v-if="can('finance.reverse') && !alreadyReversed(row)" variant="text" :disabled="disabled" @click="askReverse(row)">建立反向草稿</AppButton>
+          <AppButton variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({document_type:'SubledgerPayment',document_id:row.id,intent:'execute'})">资金审批</AppButton>
+          <AppButton v-for="action in fundActions(row)" :key="action" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerOpeningsView:fund-command', $event)" @click="askFund(row,action)">{{ action === 'post' ? '确认资金' : '取消草稿' }}</AppButton>
+          <AppButton v-if="can('finance.reverse') && !alreadyReversed(row)" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerOpeningsView:command', $event)" @click="askReverse(row)">建立反向草稿</AppButton>
         </div></template>
         <template #empty>暂无历史单据的资金登记。在未结余额中选择单据登记收付款。</template>
       </WorkspaceTable>
     </template>
 
-    <NModal :show="editing" preset="card" :title="store.subledgerForm.id === null ? '新增分户期初' : '编辑分户期初'" :style="modalStyle" :mask-closable="false" :close-on-esc="!busy" :closable="!busy" @update:show="value => { if (!busy) editing = value }">
+    <AppModal :busy="busy" origin-key="SubledgerOpeningsView:form" @invalidated="editing = false" :ready="!preparing" :load-error="operationError" :show="editing" preset="card" :title="store.subledgerForm.id === null ? '新增分户期初' : '编辑分户期初'" :style="modalStyle" :mask-closable="false" :close-on-esc="!busy" :closable="!busy" @update:show="value => { if (!busy) editing = value }">
       <SubledgerEditor @saved="editing = false; mode = 'plans'" />
-    </NModal>
-    <NModal :show="!!detail" preset="card" title="分户核对与审计" :style="modalStyle" @update:show="value => { if (!value) closeDetail() }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="SubledgerOpeningsView:detail" @invalidated="closeDetail()" :ready="!detailLoading" :load-error="error" :show="!!detail" preset="card" title="分户核对与审计" :style="modalStyle" @update:show="value => { if (!value) closeDetail() }">
       <p v-if="error" role="alert">{{ error }}</p>
       <div v-if="detail" class="subledger-detail-tabs" aria-label="分户核对内容">
         <AppButton :aria-pressed="detailTab === 'evidence'" :variant="detailTab === 'evidence' ? 'primary' : 'secondary'" @click="detailTab = 'evidence'">金额核对与审计</AppButton>
@@ -260,8 +270,8 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
       </div>
       <SubledgerEvidence v-if="detail && detailTab === 'evidence'" :record="detail" :check="check" :changes="changes" :loading="detailLoading" />
       <SubledgerAttachments v-if="detail && !detailLoading && detailTab === 'attachments'" :opening-id="detail.id" :opening-version="detail.version" />
-    </NModal>
-    <NModal :show="!!source" preset="card" title="历史来源与资金" :style="modalStyle" @update:show="value => { if (!value) source = null }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="SubledgerOpeningsView:source" @invalidated="source = null" :show="!!source" preset="card" title="历史来源与资金" :style="modalStyle" @update:show="value => { if (!value) source = null }">
       <div v-if="source" class="ledger-editor">
         <p>{{ subledgerKindLabels[source.kind] }} · {{ source.party_name }} · 原单 {{ source.document_reference }} · {{ source.document_date }}</p>
         <p>控制科目 {{ source.account_code }} · {{ source.account_name }}；{{ auxiliaryText(source.auxiliary) }}</p>
@@ -276,8 +286,8 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
         <p v-for="row in source.settlements" :key="`settlement-${row.id}`">核销 {{ documentLabel(row) }} · {{ row.from_document_reference }} → {{ row.to_document_reference }} · {{ row.amount }} 元 · 依据：{{ row.reason }} · {{ localTime(row.executed_at!) }}</p>
         <p v-for="row in source.payments" :key="row.id">资金 {{ documentLabel(row) }} · 依据：{{ row.note }} · {{ auxiliaryText(row.auxiliary) }}</p>
       </div>
-    </NModal>
-    <NModal :show="!!command || !!reversal" preset="card" :title="command ? openingActionLabels[command.action] : '建立反向分户草稿'" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) { command = null; reversal = null } }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="SubledgerOpeningsView:command" @invalidated="command = null; reversal = null" :show="!!command || !!reversal" preset="card" :title="command ? openingActionLabels[command.action] : '建立反向分户草稿'" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) { command = null; reversal = null } }">
       <form class="ledger-editor" @submit.prevent="confirm">
         <p v-if="command">方案 {{ command.record.reference }} · 版本 {{ command.record.version }}。提交、审核与确认均须逐组合一致；审核、核准与批准按角色按钮权限办理。</p>
         <p v-if="command?.action === 'reverse'">仅未过账且从未执行分户资金的期初可撤销，即使资金已冲销也不能重设历史。</p>
@@ -286,16 +296,16 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
         <p v-if="operationError" role="alert">{{ operationError }}</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !reason">{{ busy ? '正在处理…' : command ? openingActionLabels[command.action] : '保存反向草稿' }}</AppButton>
       </form>
-    </NModal>
-    <NModal :show="!!fundCommand" preset="card" :title="fundCommand?.action === 'post' ? '确认分户资金' : '取消资金草稿'" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) fundCommand = null }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="SubledgerOpeningsView:fund-command" @invalidated="fundCommand = null" :show="!!fundCommand" preset="card" :title="fundCommand?.action === 'post' ? '确认分户资金' : '取消资金草稿'" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) fundCommand = null }">
       <form class="ledger-editor" @submit.prevent="confirmFund">
         <p v-if="fundCommand">{{ documentLabel(fundCommand.record) }} · {{ fundCommand.record.document_reference }} · {{ fundCommand.record.amount }} 元。执行会重新核对当前余额、原方案和期间。</p>
         <label>资金操作依据<AppInput v-model.trim="fundReason" required maxlength="200" :disabled="disabled" /></label>
         <p v-if="operationError" role="alert">{{ operationError }}</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !fundReason">确认操作</AppButton>
       </form>
-    </NModal>
-    <NModal :show="!!payment" preset="card" title="登记历史单据资金" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) payment = null }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="SubledgerOpeningsView:payment" @invalidated="payment = null" :show="!!payment" preset="card" title="登记历史单据资金" :style="smallStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) payment = null }">
       <form v-if="payment" class="ledger-editor" @submit.prevent="savePayment">
         <p>{{ payment.party_name }} · 原单 {{ payment.document_reference }}。所查截止日未结 {{ payment.outstanding_amount }} 元；服务端按保存及执行时最新余额校验，草稿与批准不更新余额。</p>
         <p>{{ paymentLabel(paymentForm) }}；保存与实际执行时间由服务端分别记录（UTC），不能倒签。金额填正数；超出可收付或可退金额时会拒绝。</p>
@@ -308,7 +318,7 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
         <p v-if="operationError" role="alert">{{ operationError }}</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !fundsReady || !paymentForm.amount || !paymentForm.reference || !paymentForm.reason">{{ busy ? '正在保存…' : '保存资金草稿' }}</AppButton>
       </form>
-    </NModal>
+    </AppModal>
   </section>
 </template>
 

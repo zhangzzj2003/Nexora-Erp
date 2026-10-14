@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
-import { onMounted, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { useDialogPreparation } from '../../../composables/use-dialog-presentation'
 import type {
   AccountingPeriod,
   FinanceMetadataChange,
@@ -15,18 +16,29 @@ const props = defineProps<{ load: () => Promise<Change[]> }>()
 const rows = ref<Change[]>([])
 const loading = ref(false)
 const error = ref('')
+const prepared = ref(false)
+let readGeneration = 0
+// 历史首屏属于详情的一部分；预布局期间读取完成后，公共弹窗才能开始展开。
+useDialogPreparation(() => !prepared.value || loading.value, error)
+onBeforeUnmount(() => { readGeneration++ })
 const columns = [
   { key: 'created_at', title: '时间' }, { key: 'changed_by_name', title: '操作者' },
   { key: 'changes', title: '变更' }, { key: 'reason', title: '依据 / 原因' }
 ]
 async function reload(): Promise<void> {
   if (loading.value) return
+  const generation = ++readGeneration
   loading.value = true
   error.value = ''
-  rows.value = []
-  try { rows.value = await props.load() }
-  catch (cause) { error.value = displayError(cause) }
-  finally { loading.value = false }
+  try {
+    const result = await props.load()
+    // 关闭或切换历史组件后，迟到响应不能恢复上一条记录。
+    if (generation === readGeneration) rows.value = result
+  } catch (cause) {
+    if (generation === readGeneration) error.value = displayError(cause)
+  } finally {
+    if (generation === readGeneration) { loading.value = false; prepared.value = true }
+  }
 }
 function description(item: Change): string {
   const { before, after } = item

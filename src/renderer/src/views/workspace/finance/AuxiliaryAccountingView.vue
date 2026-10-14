@@ -1,9 +1,12 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 凭证与来源保留内部 ID，界面优先显示服务端保存的业务单号。
 import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NCheckbox, NCollapse, NDatePicker, NModal } from 'naive-ui'
+import { NCheckbox, NCollapse, NDatePicker } from 'naive-ui'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
@@ -102,7 +105,9 @@ function description(value: AuxiliaryChange['after'] | null): string {
   if ('required_kinds' in value) return `${value.required_kinds.map(item => auxiliaryLabels[item]).join('、') || '无必填维度'} · ${value.start_date} · 版本 ${value.version}`
   return `${value.code} · ${value.name} · ${value.is_active ? '启用' : '停用'} · 版本 ${value.version}`
 }
-function inspectJournal(id: number): void { selectedEntity.value = null; void openLedgerReportJournal(id) }
+function inspectJournal(id: number, event?: Event): void {
+  if (event) captureDialogOrigin('AuxiliaryAccountingView:journal', event)
+  void openLedgerReportJournal(id) }
 </script>
 
 <template>
@@ -131,7 +136,7 @@ function inspectJournal(id: number): void { selectedEntity.value = null; void op
         <p>{{ report.account.code }} · {{ report.account.name }} · {{ auxiliaryLabels[report.filters.kind] }} · {{ report.filters.from_date }} 至 {{ report.filters.to_date }} · 人民币 · 生成于 {{ localTime(report.generated_at) }}</p>
         <WorkspaceTable title="辅助余额" :show-title="false" :columns="balanceColumns" :data="report.rows" :min-table-width="1100">
           <template #cell-name="{ row }">{{ row.name }}<span v-if="row.code"> · {{ row.code }}</span></template>
-          <template #cell-actions="{ row }"><AppButton variant="text" @click="selectedEntity = row.entity_id">核对明细</AppButton></template>
+          <template #cell-actions="{ row }"><AppButton variant="text" @click.capture="captureDialogOrigin('AuxiliaryAccountingView:detail', $event)" @click="selectedEntity = row.entity_id">核对明细</AppButton></template>
           <template #empty>所选科目、辅助对象和日期范围没有已确认期初或已过账分录。</template>
         </WorkspaceTable>
         <p>合计净额（借方为正）：期初 {{ report.totals.opening_net }} 元 · 本期借方 {{ report.totals.debit }} 元 · 本期贷方 {{ report.totals.credit }} 元 · 期末 {{ report.totals.closing_net }} 元。</p>
@@ -141,9 +146,9 @@ function inspectJournal(id: number): void { selectedEntity.value = null; void op
     </template>
     <template v-else>
       <WorkspaceTable title="部门与项目辅助档案" :columns="itemColumns" :data="items" :min-table-width="800">
-        <template #actions><AppButton v-if="can('auxiliary.manage')" variant="primary" :disabled="!options || busy || loading || connectionLost" @click="editItem()">新增辅助档案</AppButton></template>
+        <template #actions><AppButton v-if="can('auxiliary.manage')" variant="primary" :disabled="!options || busy || loading || connectionLost" @click.capture="captureDialogOrigin('AuxiliaryAccountingView:item', $event)" @click="editItem()">新增辅助档案</AppButton></template>
         <template #cell-kind="{ row }">{{ auxiliaryLabels[row.kind as AuxiliaryKind] }}</template><template #cell-is_active="{ row }">{{ row.is_active ? '启用' : '停用' }}</template>
-        <template #cell-actions="{ row }"><AppButton v-if="can('auxiliary.manage')" variant="text" :disabled="busy || connectionLost" @click="editItem(row)">修改 / 启停</AppButton><span v-else>只读</span></template>
+        <template #cell-actions="{ row }"><AppButton v-if="can('auxiliary.manage')" variant="text" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('AuxiliaryAccountingView:item', $event)" @click="editItem(row)">修改 / 启停</AppButton><span v-else>只读</span></template>
         <template #empty>{{ loading ? '正在读取档案…' : '暂无部门或项目辅助档案。客户和供应商复用基础资料，不在此重复建档。' }}</template>
       </WorkspaceTable>
       <p class="muted">客户与供应商请在基础资料中维护；部门与项目编码、类型保存后固定。名称和启停修改不会重写已过账快照。</p>
@@ -151,7 +156,7 @@ function inspectJournal(id: number): void { selectedEntity.value = null; void op
         <template #cell-account="{ row }">{{ row.code }} · {{ row.name }}{{ row.is_active ? '' : '（停用）' }}</template>
         <template #cell-required="{ row }">{{ row.policy?.required_kinds.map((kind: AuxiliaryKind) => auxiliaryLabels[kind]).join('、') || '无必填维度' }}</template>
         <template #cell-date="{ row }">{{ row.policy?.start_date || '未配置' }}</template><template #cell-version="{ row }">{{ row.policy?.version ?? 0 }}</template>
-        <template #cell-actions="{ row }"><AppButton v-if="can('auxiliary.configure')" variant="text" :disabled="busy || connectionLost || !row.is_active" @click="editRule(row.id)">配置必填维度</AppButton><span v-else>只读</span></template>
+        <template #cell-actions="{ row }"><AppButton v-if="can('auxiliary.configure')" variant="text" :disabled="busy || connectionLost || !row.is_active" @click.capture="captureDialogOrigin('AuxiliaryAccountingView:policy', $event)" @click="editRule(row.id)">配置必填维度</AppButton><span v-else>只读</span></template>
         <template #empty>{{ loading ? '正在读取科目…' : '暂无科目，请先建立总账科目。' }}</template>
       </WorkspaceTable>
       <NCollapse><AppCollapseItem name="changes" :title="`辅助档案与规则变更记录（${changes.length} 条）`">
@@ -162,7 +167,7 @@ function inspectJournal(id: number): void { selectedEntity.value = null; void op
         </WorkspaceTable>
       </AppCollapseItem></NCollapse>
     </template>
-    <NModal v-model:show="editingItem" preset="card" :title="itemForm.id === null ? '新增辅助档案' : '修改辅助档案'" :style="modalStyle" :mask-closable="!busy">
+    <AppModal :busy="busy" origin-key="AuxiliaryAccountingView:item" @invalidated="editingItem = false" v-model:show="editingItem" preset="card" :title="itemForm.id === null ? '新增辅助档案' : '修改辅助档案'" :style="modalStyle" :mask-closable="!busy">
       <form v-if="can('auxiliary.manage')" class="ledger-editor" @submit.prevent="saveItem">
         <p v-if="operationError" role="alert">{{ operationError }}</p><div class="form-grid">
           <label>档案类型<WorkspaceSelect v-model="itemForm.kind" :options="[{ value: 'department', label: '部门' }, { value: 'project', label: '项目' }]" :disabled="itemForm.id !== null || busy" /></label>
@@ -172,8 +177,8 @@ function inspectJournal(id: number): void { selectedEntity.value = null; void op
         </div><NCheckbox v-if="itemForm.id !== null" v-model:checked="itemForm.is_active" :disabled="busy">启用此档案</NCheckbox>
         <div class="form-actions"><AppButton type="submit" variant="primary" :disabled="busy || connectionLost">{{ busy ? '正在保存…' : '保存档案' }}</AppButton><AppButton type="button" variant="secondary" :disabled="busy" @click="editingItem = false">返回</AppButton></div>
       </form>
-    </NModal>
-    <NModal v-model:show="editingPolicy" preset="card" title="配置科目辅助规则" :style="modalStyle" :mask-closable="!busy">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="AuxiliaryAccountingView:policy" @invalidated="editingPolicy = false" v-model:show="editingPolicy" preset="card" title="配置科目辅助规则" :style="modalStyle" :mask-closable="!busy">
       <form v-if="can('auxiliary.configure')" class="ledger-editor" @submit.prevent="saveRule">
         <p>科目：{{ options?.accounts.find(item => item.id === policyForm.account_id)?.code }} · {{ options?.accounts.find(item => item.id === policyForm.account_id)?.name }}</p>
         <p>启用日起，原始分录保存、提交、审核和过账均检查必填维度；旧过账记录及冲销保留原快照。</p>
@@ -183,21 +188,21 @@ function inspectJournal(id: number): void { selectedEntity.value = null; void op
         <label>配置依据<AppInput v-model.trim="policyForm.reason" required maxlength="200" :disabled="busy" /></label>
         <div class="form-actions"><AppButton type="submit" variant="primary" :disabled="busy || connectionLost">{{ busy ? '正在保存…' : '保存辅助规则' }}</AppButton><AppButton type="button" variant="secondary" :disabled="busy" @click="editingPolicy = false">返回</AppButton></div>
       </form>
-    </NModal>
-    <NModal :show="!!selectedRow" preset="card" :title="selectedRow ? `${selectedRow.name} · 辅助来源明细` : ''" :style="modalStyle" @update:show="value => { if (!value) selectedEntity = null }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="AuxiliaryAccountingView:detail" @invalidated="selectedEntity = null" :show="!!selectedRow" preset="card" :title="selectedRow ? `${selectedRow.name} · 辅助来源明细` : ''" :style="modalStyle" @update:show="value => { if (!value) selectedEntity = null }">
       <WorkspaceTable v-if="selectedRow" title="本次查询的来源快照" :columns="entryColumns" :data="selectedRow.entries" :min-table-width="1200">
-        <template #cell-source="{ row }"><AppButton v-if="row.journal_id && can('journal.view')" variant="text" :disabled="connectionLost" @click="inspectJournal(row.journal_id)">{{ relatedDocumentLabel(row, 'journal') }}</AppButton><span v-else>{{ row.journal_id ? `${relatedDocumentLabel(row, 'journal')}` : `${relatedDocumentLabel(row, 'opening_balance')}` }}</span></template>
+        <template #cell-source="{ row }"><AppButton v-if="row.journal_id && can('journal.view')" variant="text" :disabled="connectionLost" @click.capture="captureDialogOrigin('AuxiliaryAccountingView:journal', $event)" @click="inspectJournal(row.journal_id)">{{ relatedDocumentLabel(row, 'journal') }}</AppButton><span v-else>{{ row.journal_id ? `${relatedDocumentLabel(row, 'journal')}` : `${relatedDocumentLabel(row, 'opening_balance')}` }}</span></template>
         <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template><template #cell-range="{ row }">{{ row.opening_contribution ? '期初累计' : '本期发生' }}</template>
       </WorkspaceTable>
-    </NModal>
-    <NModal :show="!!journal || journalLoading || !!journalError" preset="card" :title="journal ? `${documentLabel(journal)} · ${journalStatusLabels[journal.status]}` : '当前凭证详情'" :style="modalStyle" @update:show="value => { if (!value) closeLedgerReportJournal() }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="AuxiliaryAccountingView:journal" @invalidated="closeLedgerReportJournal()" :ready="!journalLoading && !!journal" :load-error="journalError" :show="!!journal || journalLoading || !!journalError" preset="card" :title="journal ? `${documentLabel(journal)} · ${journalStatusLabels[journal.status]}` : '当前凭证详情'" :style="modalStyle" @update:show="value => { if (!value) closeLedgerReportJournal() }">
       <p v-if="journalLoading" role="status">正在读取当前凭证…</p><p v-if="journalError" role="alert">{{ journalError }}</p>
       <div v-if="journal" class="stack"><p>{{ journal.journal_date }} · {{ journal.reference }} · 当前版本 {{ journal.version }}；来源表保留本次查询快照。</p>
         <WorkspaceTable title="当前凭证分录" :columns="journalColumns" :data="journal.lines" :min-table-width="1100"><template #cell-account_name="{ row }">{{ row.account_code }} · {{ row.account_name }}</template><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable>
         <NCollapse><AppCollapseItem v-if="journal.business_source" name="business" title="生成时的业务来源"><BusinessSourceEvidence :source="journal.business_source.evidence" :mapping="journal.business_source.mapping" /></AppCollapseItem><AppCollapseItem v-if="journal.profit_transfer" name="transfer" title="生成时的损益结转来源"><ProfitTransferEvidence :evidence="journal.profit_transfer.evidence" :can-open-journal="can('journal.view')" @open-journal="inspectJournal" /></AppCollapseItem></NCollapse>
         <JournalHistory :key="`${journal.id}:${journal.version}`" :load="() => loadJournalChanges(journal!.id)" />
       </div>
-    </NModal>
+    </AppModal>
   </section>
 </template>
 

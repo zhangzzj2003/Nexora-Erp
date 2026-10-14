@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -10,9 +13,9 @@ import { NDatePicker, NCheckbox } from 'naive-ui'
 import { datePickerString, vDateField, dateOutsideRange } from '../../../utils/date-field'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import type {
   OpeningBalance,
   OpeningBalanceAction,
@@ -109,18 +112,26 @@ function actions(record: OpeningBalance): OpeningBalanceAction[] {
   if (record.status === 'confirmed' && record.reversal_approval?.status === 'approved' && can('opening_balance.reverse')) result.push('reverse')
   return result
 }
+// 新建与修订都等待选项读取完成；关闭后忽略对应请求的页面结果。
+let editorRead = 0
+watch(showForm, value => {
+  if (!value) { editorRead++; opening.value = false; store.cancelOpeningBalancePreparation() }
+}, { flush: 'sync' })
+// 离开页面也停止 store 回填，避免关闭后的异步选项重置原有期初草稿。
+onUnmounted(() => { editorRead++; store.cancelOpeningBalancePreparation() })
 async function edit(item?: OpeningBalance): Promise<void> {
   if (opening.value || busy.value || connectionLost.value) return
-  opening.value = true
+  const ticket = ++editorRead
+  opening.value = true; showForm.value = true; error.value = ''
   try {
-    if (await editOpeningBalance(item)) {
-      zero.value = form.value.lines.length === 0
-      showForm.value = true
-    }
+    const loaded = await editOpeningBalance(item)
+    if (ticket !== editorRead || !showForm.value) return
+    if (loaded) zero.value = form.value.lines.length === 0
+    else showForm.value = false
   } catch (cause) {
-    error.value = displayError(cause)
+    if (ticket === editorRead) error.value = displayError(cause)
   } finally {
-    opening.value = false
+    if (ticket === editorRead) opening.value = false
   }
 }
 async function save(): Promise<void> {
@@ -161,7 +172,7 @@ const approvalCaption = (record: OpeningBalance) => !record.approval?.version &&
 
 <template>
   <section class="stack ledger-metadata-page opening-balances-page">
-    <DocumentApprovalDialog />
+    <DocumentApprovalDialog origin-key="document-approval" />
     <WorkspaceTable
       class="journal-list-table"
       title="期初余额"
@@ -174,7 +185,7 @@ const approvalCaption = (record: OpeningBalance) => !record.approval?.version &&
         ><AppButton
           v-if="can('opening_balance.create')"
           :disabled="active || busy || connectionLost || opening"
-          @click="edit()"
+          @click.capture="captureDialogOrigin('OpeningBalancesView:form', $event)" @click="edit()"
           variant="primary"
           type="button"
           >{{ opening ? '正在读取科目…' : '新增期初方案' }}</AppButton
@@ -208,13 +219,13 @@ const approvalCaption = (record: OpeningBalance) => !record.approval?.version &&
       }}<small class="approval-caption">{{ approvalCaption(row) }}</small></template>
       <template #cell-actions="{ row }"
         ><div class="ledger-actions">
-          <AppButton :disabled="busy || connectionLost" @click="openDocumentApproval({ document_type: 'OpeningBalance', document_id: row.id, intent: 'execute' })" variant="text" type="button">单据审批</AppButton>
-          <AppButton v-if="['confirmed', 'reversed'].includes(row.status)" :disabled="busy || connectionLost" @click="openDocumentApproval({ document_type: 'OpeningBalance', document_id: row.id, intent: 'reverse' })" variant="text" type="button">撤销审批</AppButton>
-          <AppButton @click="detailId = row.id" variant="text" type="button">详情</AppButton
+          <AppButton :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({ document_type: 'OpeningBalance', document_id: row.id, intent: 'execute' })" variant="text" type="button">单据审批</AppButton>
+          <AppButton v-if="['confirmed', 'reversed'].includes(row.status)" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({ document_type: 'OpeningBalance', document_id: row.id, intent: 'reverse' })" variant="text" type="button">撤销审批</AppButton>
+          <AppButton @click.capture="captureDialogOrigin('OpeningBalancesView:detail', $event)" @click="detailId = row.id" variant="text" type="button">详情</AppButton
           ><AppButton
             v-if="can('opening_balance.create') && ['draft', 'rejected'].includes(row.status)"
             :disabled="busy || connectionLost || opening"
-            @click="edit(row)"
+            @click.capture="captureDialogOrigin('OpeningBalancesView:form', $event)" @click="edit(row)"
             variant="text"
             type="button"
             >编辑</AppButton
@@ -222,7 +233,7 @@ const approvalCaption = (record: OpeningBalance) => !record.approval?.version &&
             v-for="action in actions(row)"
             :key="action"
             :disabled="busy || connectionLost"
-            @click="ask(row, action)"
+            @click.capture="captureDialogOrigin('OpeningBalancesView:command', $event)" @click="ask(row, action)"
             variant="text"
             type="button"
             >{{ openingActionLabels[action] }}</AppButton
@@ -235,7 +246,7 @@ const approvalCaption = (record: OpeningBalance) => !record.approval?.version &&
           : '暂无正式期初。先建立科目及最早开放期间，再新增期初方案；零余额公司也须明确确认零期初。'
       }}</template>
     </WorkspaceTable>
-    <NModal
+    <AppModal :busy="busy" origin-key="OpeningBalancesView:form" @invalidated="showForm = false" :ready="!opening" :load-error="error"
       v-model:show="showForm"
       preset="card"
       :title="form.id === null ? '新增期初方案' : `编辑${documentLabel(form, records)}`"
@@ -398,8 +409,8 @@ const approvalCaption = (record: OpeningBalance) => !record.approval?.version &&
           >
         </div>
       </form>
-    </NModal>
-    <NModal
+    </AppModal>
+    <AppModal :busy="busy" origin-key="OpeningBalancesView:command" @invalidated="command = null"
       :show="command !== null"
       preset="card"
       :title="command ? `${openingActionLabels[command.action]} · ${documentLabel(command.record)}` : ''"
@@ -432,8 +443,8 @@ const approvalCaption = (record: OpeningBalance) => !record.approval?.version &&
           >
         </div>
       </form>
-    </NModal>
-    <NModal
+    </AppModal>
+    <AppModal :busy="busy" origin-key="OpeningBalancesView:detail" @invalidated="detailId = null"
       :show="!!detail"
       preset="card"
       :title="detail ? `${documentLabel(detail)} · ${openingStatusLabels[detail.status]}` : ''"
@@ -467,6 +478,6 @@ const approvalCaption = (record: OpeningBalance) => !record.approval?.version &&
           :load="() => loadOpeningBalanceChanges(detail!.id)"
         />
       </div>
-    </NModal>
+    </AppModal>
   </section>
 </template>

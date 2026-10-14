@@ -24,7 +24,7 @@ test('真实表单必填位置、工时未声明区别于零；只读和无权�
   },load(id){if(id==='\0equipment-view-dialog')return 'export default {render:()=>null}';if(id==='\0equipment-view-store')return storeModule
     if(id==='\0equipment-view-table')return `import {defineComponent,h} from 'vue';export default defineComponent({setup(_props,{slots}){return ()=>h('section',[slots.filters?.(),slots.actions?.(),slots.empty?.()])}})`
     if(id==='\0equipment-view-select')return `import {defineComponent,h} from 'vue';export default defineComponent({setup(){return ()=>h('span')}})`
-    if(id==='\0equipment-view-naive')return `import {defineComponent,h} from 'vue';const Body=defineComponent({setup(_props,{slots}){return ()=>h('div',slots.default?.())}});export const NCheckbox=Body,NDatePicker=Body,NCollapse=Body;export const NModal=defineComponent({props:['show'],setup(props,{slots}){return ()=>props.show?h('div',slots.default?.()):null}})`
+    if(id==='\0equipment-view-naive')return `import {defineComponent,h} from 'vue';const Body=defineComponent({setup(_props,{slots}){return ()=>h('div',slots.default?.())}});export const NCheckbox=Body,NDatePicker=Body,NCollapse=Body;export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(props,{slots}){return ()=>props.show?h('div',slots.default?.()):null}})`
   }},vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false},appType:'custom'})
   t.after(()=>server.close())
   const {usePiniaAppStore}=await server.ssrLoadModule('\0equipment-view-store')

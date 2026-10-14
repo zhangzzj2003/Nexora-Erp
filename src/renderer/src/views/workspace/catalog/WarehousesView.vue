@@ -1,11 +1,14 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref , watch, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal, NPopconfirm } from 'naive-ui'
+import {  NPopconfirm } from 'naive-ui'
 import type { Warehouse, WarehouseChange } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
@@ -37,28 +40,37 @@ const columns = [
   { key: 'name', title: '仓库名称' },
   { key: 'actions', title: '操作' }
 ]
+// 等待期间只保留打开意图；取消与切页递增代次，迟到结果不能重开弹窗。
+let formRead = 0
+let auditRead = 0
+const dialogSession = computed(() => `${store.server?.id}:${store.server?.fingerprint}:${store.user?.id}:${store.user?.permissions.join('|')}`)
+watch(showForm, value => { if (!value) { formRead++; detailLoading.value = false } }, { flush: 'sync' })
+watch(auditOpen, value => { if (!value) { auditRead++; auditLoading.value = false } }, { flush: 'sync' })
+watch(dialogSession, () => { formRead++; auditRead++; showForm.value = false; auditOpen.value = false }, { flush: 'sync' })
+onUnmounted(() => { formRead++; auditRead++ })
 async function edit(item?: Warehouse): Promise<void> {
+  const ticket = ++formRead
   detailError.value = ''
   if (!item) {
+    detailLoading.value = false
     editingId.value = undefined
     Object.assign(form, { code: '', name: '', version: 0, reason: '' })
     showForm.value = true
     return
   }
   if (!window.nexora || connectionLost.value) return
-  const user = store.user
-  const server = store.server
+  const session = dialogSession.value
   detailLoading.value = true
+  showForm.value = true
   try {
     const latest = await window.nexora.callApi('warehouseDetail', { id: item.id })
-    if (store.user !== user || store.server !== server || connectionLost.value) return
+    if (ticket !== formRead || !showForm.value || session !== dialogSession.value || connectionLost.value) return
     editingId.value = item.id
     Object.assign(form, { code: latest.code, name: latest.name, version: latest.version, reason: '' })
-    showForm.value = true
   } catch (cause) {
-    detailError.value = displayError(cause)
+    if (ticket === formRead) detailError.value = displayError(cause)
   } finally {
-    detailLoading.value = false
+    if (ticket === formRead) detailLoading.value = false
   }
 }
 async function save(): Promise<void> {
@@ -66,20 +78,20 @@ async function save(): Promise<void> {
 }
 async function loadAudit(more = false): Promise<void> {
   if (!window.nexora || auditLoading.value || connectionLost.value) return
-  const user = store.user
-  const server = store.server
+  const session = dialogSession.value
+  const ticket = ++auditRead
   auditError.value = ''
   auditLoading.value = true
   try {
     const rows = await window.nexora.callApi('recentWarehouseChanges',
       more && auditRows.value.length ? { before_id: auditRows.value[auditRows.value.length - 1].id } : {})
-    if (store.user !== user || store.server !== server || connectionLost.value) return
+    if (ticket !== auditRead || !auditOpen.value || session !== dialogSession.value || connectionLost.value) return
     auditRows.value = more ? [...auditRows.value, ...rows] : rows
     auditHasMore.value = rows.length === 100
   } catch (cause) {
-    auditError.value = displayError(cause)
+    if (ticket === auditRead) auditError.value = displayError(cause)
   } finally {
-    auditLoading.value = false
+    if (ticket === auditRead) auditLoading.value = false
   }
 }
 function openAudit(): void {
@@ -103,13 +115,13 @@ function openAudit(): void {
         <AppButton
           v-if="can('warehouse.manage')"
           :disabled="busy || connectionLost"
-          @click="edit()"
+          @click.capture="captureDialogOrigin('WarehousesView:form', $event)" @click="edit()"
           variant="primary"
           type="button"
           >新增仓库</AppButton
         >
         <AppButton type="button" variant="secondary" :disabled="connectionLost || auditLoading"
-          @click="openAudit">变更记录</AppButton>
+          @click.capture="captureDialogOrigin('WarehousesView:audit', $event)" @click="openAudit">变更记录</AppButton>
       </template>
       <template #filters>
         <label class="catalog-search"
@@ -119,7 +131,7 @@ function openAudit(): void {
       </template>
       <template #beforeTable>
         <p v-if="detailError" role="alert">{{ detailError }}</p>
-        <NModal
+        <AppModal :busy="busy" origin-key="WarehousesView:form" @invalidated="showForm = false" :ready="!detailLoading" :load-error="detailError"
           v-model:show="showForm"
           preset="card"
           :mask-closable="!busy"
@@ -158,8 +170,8 @@ function openAudit(): void {
               >
             </div>
           </form>
-        </NModal>
-        <NModal v-model:show="auditOpen" preset="card" title="仓库资料变更记录"
+        </AppModal>
+        <AppModal :busy="busy" origin-key="WarehousesView:audit" @invalidated="auditOpen = false" :ready="!auditLoading" :load-error="auditError" v-model:show="auditOpen" preset="card" title="仓库资料变更记录"
           :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
           <p>升级前的修改历史无法推断；这里保留升级后新增、修改和删除的前后快照。</p>
           <p v-if="auditError" role="alert">{{ auditError }}</p>
@@ -174,7 +186,7 @@ function openAudit(): void {
           <p v-if="!auditRows.length && !auditLoading">暂无升级后的变更记录。</p>
           <AppButton v-if="auditHasMore" type="button" variant="secondary" :disabled="auditLoading"
             @click="loadAudit(true)">加载更早记录</AppButton>
-        </NModal>
+        </AppModal>
       </template>
       <template #cell-code="{ row: item }">{{ item.code }}</template>
       <template #cell-name="{ row: item }">{{ item.name }}</template>
@@ -183,7 +195,7 @@ function openAudit(): void {
           <template v-if="can('warehouse.manage')">
             <AppButton
               :disabled="busy || connectionLost || detailLoading"
-              @click="edit(item)"
+              @click.capture="captureDialogOrigin('WarehousesView:form', $event)" @click="edit(item)"
               variant="text"
               type="button"
               >编辑</AppButton

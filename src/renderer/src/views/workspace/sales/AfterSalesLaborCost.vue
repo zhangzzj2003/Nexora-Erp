@@ -1,7 +1,10 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 import {computed,ref,watch} from 'vue'
 import {storeToRefs} from 'pinia'
-import {NCollapse,NModal} from 'naive-ui'
+import {NCollapse } from 'naive-ui'
 import type {AfterSalesEvidence,AfterSalesLaborCostSummary} from '../../../../../shared/after-sales-api'
 import {usePiniaAppStore} from '../../../store/app-store'
 import AppButton from '../../../components/app/AppButton.vue'
@@ -62,8 +65,8 @@ async function save():Promise<void>{
           工时 #{{ entry.labor_id }} · {{ entry.hours }} 小时 ·
           {{ entry.reversed?'已更正，不计入合计':entry.latest?.action==='set'?`${entry.latest.hourly_rate} 元/小时，计 ${entry.latest.amount} 元`:'待核价' }}
           <span v-if="!entry.reversed&&row.labor.find(item=>item.id===entry.labor_id)?.created_by!==user?.id">
-            <AppButton :disabled="disabled" @click="open(entry.labor_id,false)">{{ entry.latest?.action==='set'?'更正核价':'核定成本' }}</AppButton>
-            <AppButton v-if="entry.latest?.action==='set'" :disabled="disabled" @click="open(entry.labor_id,true)">撤销核价</AppButton>
+            <AppButton :disabled="disabled" @click.capture="captureDialogOrigin('AfterSalesLaborCost:command', $event)" @click="open(entry.labor_id,false)">{{ entry.latest?.action==='set'?'更正核价':'核定成本' }}</AppButton>
+            <AppButton v-if="entry.latest?.action==='set'" :disabled="disabled" @click.capture="captureDialogOrigin('AfterSalesLaborCost:command', $event)" @click="open(entry.labor_id,true)">撤销核价</AppButton>
           </span>
         </li>
       </ul>
@@ -74,7 +77,7 @@ async function save():Promise<void>{
         </li></ul>
       </AppCollapseItem></NCollapse>
     </template>
-    <NModal :show="!!command" preset="card" :title="command?.void?'撤销内部核价':'核定内部工时成本'" style="width:min(650px,calc(100vw - 48px))" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value&&!busy)command=null}">
+    <AppModal :busy="busy" origin-key="AfterSalesLaborCost:command" @invalidated="command = null" :show="!!command" preset="card" :title="command?.void?'撤销内部核价':'核定内部工时成本'" style="width:min(650px,calc(100vw - 48px))" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value&&!busy)command=null}">
       <form v-if="command" class="cost-form" @submit.prevent="save">
         <p>工时 #{{ command.entryId }} · 售后版本 v{{ row.version }}。更正会追加新记录，原核价与依据继续保留。</p>
         <label v-if="!command.void">内部标准小时成本（元）<AppInput v-model.trim="hourlyRate" type="number" min="0.01" max="100000" step="0.01" required :disabled="busy" /></label>
@@ -83,7 +86,7 @@ async function save():Promise<void>{
         <p v-if="error" role="alert">{{ error }}</p>
         <div class="cost-actions"><AppButton type="submit" variant="primary" :disabled="disabled||!reason.trim()||!evidence.trim()||(!command.void&&!hourlyRate.trim())">保存核价</AppButton><AppButton :disabled="busy" @click="command=null">取消</AppButton></div>
       </form>
-    </NModal>
+    </AppModal>
   </section>
 </template>
 <style scoped>

@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal, NPopconfirm, NSwitch, NCollapse } from 'naive-ui'
+import {  NPopconfirm, NSwitch, NCollapse } from 'naive-ui'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import AppButton from '../../../components/app/AppButton.vue'
@@ -46,27 +49,35 @@ const auditColumns = [{key:'label',title:'调整项目'}, {key:'before',title:'�
 const blocked = computed(() => busy.value || connectionLost.value || !can('catalog.manage') || !nodes.value.length)
 const modalStyle = {width:'min(820px, calc(100vw - 32px))',maxHeight:'calc(100vh - 64px)',overflowY:'auto' as const}
 
+// 本页目录窗口共用请求代次，切换入口或关闭后不得接纳迟到的目录响应。
+const preparing = ref(false)
+let formRead = 0
+watch([showForm, showField, auditOpen], () => { if (!showForm.value && !showField.value && !auditOpen.value) { formRead++; preparing.value = false; store.cancelCatalogPreparation() } }, { flush: 'sync' })
+onUnmounted(() => { formRead++; store.cancelCatalogPreparation() })
 async function editCategory(code?: string, parent?: string): Promise<void> {
-  if (blocked.value || !await reloadMaterialCategories()) return
+  if (blocked.value) return
+  const ticket = ++formRead; preparing.value = true; showForm.value = true
+  if (!await reloadMaterialCategories() || ticket !== formRead || !showForm.value) { if (ticket === formRead) { showForm.value = false; preparing.value = false }; return }
   const node = nodes.value.find(entry => entry.code === code)
   editing.value = !!node
   form.value = node ? {code:node.code,parent_code:node.parent_code,name:node.name,enabled:node.enabled,
     sort_order:node.sort_order,notes:node.notes,version:node.version,reason:''}
     : {code:parent ? `${parent}-` : '',parent_code:parent ?? null,name:'',enabled:true,sort_order:0,notes:'',reason:''}
-  showForm.value = true
+  preparing.value = false
 }
 async function saveCategory(): Promise<void> {
   if (await saveMaterialCategory({...form.value}, editing.value)) {showForm.value = false; form.value.name = ''}
 }
 async function editField(id?: number): Promise<void> {
-  if (!selected.value || blocked.value || !await reloadMaterialCategories()) return
-  if (!selected.value) return
+  if (!selected.value || blocked.value) return
+  const ticket = ++formRead; preparing.value = true; showField.value = true
+  if (!await reloadMaterialCategories() || ticket !== formRead || !showField.value || !selected.value) { if (ticket === formRead) { showField.value = false; preparing.value = false }; return }
   const field = selected.value.fields.find(entry => entry.id === id)
   fieldForm.value = {code:selected.value.code,field_id:field?.id,name:field?.name ?? '',kind:field?.kind ?? 'text',
     unit:field?.unit ?? '',options:field ? [...field.options] : [],allow_custom:field?.allow_custom ?? false,
     required:field?.required ?? false,enabled:field?.enabled ?? true,sort_order:field?.sort_order ?? 0,
     version:selected.value.version,reason:''}
-  showField.value = true
+  preparing.value = false
 }
 function changeKind(): void {
   // 仅未使用字段可改类型；切换后清除与新类型不适用的配置。
@@ -86,7 +97,12 @@ async function remove(field = false): Promise<void> {
   }
 }
 async function history(node: MaterialCategoryNode): Promise<void> {
-  if (await loadMaterialCategoryChanges(node.code)) {auditTitle.value = `${node.name} · 分类与模板变更`; auditOpen.value = true}
+  const ticket = ++formRead; preparing.value = true; auditOpen.value = true
+  const loaded = await loadMaterialCategoryChanges(node.code)
+  if (ticket !== formRead || !auditOpen.value) return
+  if (loaded) auditTitle.value = `${node.name} · 分类与模板变更`
+  else auditOpen.value = false
+  preparing.value = false
 }
 function fieldKind(field: MaterialSpecField): string {return `${kindOptions.find(option => option.value === field.kind)?.label}${field.unit ? ` / ${field.unit}` : ''}`}
 </script>
@@ -97,9 +113,9 @@ function fieldKind(field: MaterialSpecField): string {return `${kindOptions.find
     <p v-if="!nodes.length && materialCategories.length" class="material-hint">服务端尚未提供分类与规格模板管理，请升级 ERP 服务。</p>
     <WorkspaceTable :show-title="false" title="物料类别" :columns="categoryColumns" :data="rows" :min-table-width="1050" :pagination="{page,pageSize,total}" @page-change="changePage">
       <template #actions>
-        <AppButton v-if="can('catalog.manage')" variant="primary" type="button" :disabled="blocked" @click="editCategory()">新增大类</AppButton>
-        <AppButton v-if="can('catalog.manage') && form.name" variant="secondary" type="button" :disabled="blocked" @click="showForm = true">继续类别草稿</AppButton>
-        <AppButton v-if="can('catalog.manage') && fieldForm.name" variant="secondary" type="button" :disabled="blocked" @click="showField = true">继续规格草稿</AppButton>
+        <AppButton v-if="can('catalog.manage')" variant="primary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="editCategory()">新增大类</AppButton>
+        <AppButton v-if="can('catalog.manage') && form.name" variant="secondary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="showForm = true">继续类别草稿</AppButton>
+        <AppButton v-if="can('catalog.manage') && fieldForm.name" variant="secondary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:field', $event)" @click="showField = true">继续规格草稿</AppButton>
       </template>
       <template #filters>
         <label class="catalog-search">搜索类别<AppInput v-model="query" placeholder="类别名称、前缀或说明" /></label>
@@ -109,24 +125,24 @@ function fieldKind(field: MaterialSpecField): string {return `${kindOptions.find
       <template #cell-parent="{row}">{{ row.parent_code ? nodes.find(node => node.code === row.parent_code)?.name : '大类' }}</template>
       <template #cell-status="{row}">{{ row.enabled ? '启用' : '停用' }}<p v-if="row.parent_code && !nodes.find(node => node.code === row.parent_code)?.enabled" class="material-hint">所属大类已停用</p></template>
       <template #cell-actions="{row}"><div class="catalog-actions">
-        <AppButton v-if="can('catalog.manage')" variant="text" type="button" :disabled="blocked" @click="editCategory(row.code)">编辑</AppButton>
-        <AppButton v-if="!row.parent_code && can('catalog.manage')" variant="text" type="button" :disabled="blocked || !row.enabled" @click="editCategory(undefined,row.code)">新增子类</AppButton>
+        <AppButton v-if="can('catalog.manage')" variant="text" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="editCategory(row.code)">编辑</AppButton>
+        <AppButton v-if="!row.parent_code && can('catalog.manage')" variant="text" type="button" :disabled="blocked || !row.enabled" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="editCategory(undefined,row.code)">新增子类</AppButton>
         <AppButton v-if="row.parent_code" variant="text" type="button" @click="selectedCode = row.code">规格字段</AppButton>
-        <AppButton variant="text" type="button" :disabled="busy || connectionLost" @click="history(row)">变更记录</AppButton>
+        <AppButton variant="text" type="button" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('MaterialCategoriesView:audit', $event)" @click="history(row)">变更记录</AppButton>
       </div></template>
       <template #empty>暂无匹配类别。</template>
     </WorkspaceTable>
     <label class="material-category-filter">查看子类规格模板<WorkspaceSelect v-model="selectedCode" :options="selectedOptions" placeholder="选择子类" /></label>
     <WorkspaceTable v-if="selected" :title="`${selected.name} · 规格模板 v${selected.template_version}`" :columns="fieldColumns" :data="selected.fields" :min-table-width="850">
-      <template #actions><AppButton v-if="can('catalog.manage')" variant="primary" type="button" :disabled="blocked" @click="editField()">新增规格字段</AppButton></template>
+      <template #actions><AppButton v-if="can('catalog.manage')" variant="primary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:field', $event)" @click="editField()">新增规格字段</AppButton></template>
       <template #cell-kind="{row}">{{ fieldKind(row) }}</template>
       <template #cell-options="{row}">{{ row.options.join('、') || '—' }}<p v-if="row.allow_custom" class="material-hint">允许自定义值</p></template>
       <template #cell-required="{row}">{{ row.required ? '是' : '否' }}</template>
       <template #cell-enabled="{row}">{{ row.enabled ? '启用' : '停用' }}</template>
-      <template #cell-actions="{row}"><AppButton v-if="can('catalog.manage')" variant="text" type="button" :disabled="blocked" @click="editField(row.id)">编辑</AppButton></template>
+      <template #cell-actions="{row}"><AppButton v-if="can('catalog.manage')" variant="text" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:field', $event)" @click="editField(row.id)">编辑</AppButton></template>
       <template #empty>暂无规格字段，可按本类物料的实际参数新增。</template>
     </WorkspaceTable>
-    <NModal v-model:show="showForm" preset="card" :style="modalStyle" :mask-closable="!busy" :closable="!busy" :close-on-esc="!busy">
+    <AppModal :busy="busy" origin-key="MaterialCategoriesView:form" @invalidated="showForm = false" :ready="!preparing" v-model:show="showForm" preset="card" :style="modalStyle" :mask-closable="!busy" :closable="!busy" :close-on-esc="!busy">
       <form v-if="can('catalog.manage')" class="catalog-editor" @submit.prevent="saveCategory">
         <h3>{{ editing ? '编辑物料类别' : '新增物料类别' }}</h3>
         <fieldset class="material-section" :disabled="blocked"><div class="form-grid">
@@ -143,8 +159,8 @@ function fieldKind(field: MaterialSpecField): string {return `${kindOptions.find
           <NPopconfirm v-if="editing" @positive-click="remove()"><template #trigger><AppButton type="button" variant="text" :disabled="blocked || !form.reason?.trim()">移除未使用类别</AppButton></template>确认移除？短码仍会保留占用，已使用类别将被拒绝。</NPopconfirm>
         </div>
       </form>
-    </NModal>
-    <NModal v-model:show="showField" preset="card" :style="modalStyle" :mask-closable="!busy" :closable="!busy" :close-on-esc="!busy">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="MaterialCategoriesView:field" @invalidated="showField = false" :ready="!preparing" v-model:show="showField" preset="card" :style="modalStyle" :mask-closable="!busy" :closable="!busy" :close-on-esc="!busy">
       <form v-if="can('catalog.manage')" class="catalog-editor" @submit.prevent="saveField">
         <h3>{{ fieldForm.field_id ? '编辑规格字段' : '新增规格字段' }} · {{ fieldCategory?.name }}</h3>
         <fieldset class="material-section" :disabled="blocked"><div class="form-grid">
@@ -163,12 +179,12 @@ function fieldKind(field: MaterialSpecField): string {return `${kindOptions.find
           <NPopconfirm v-if="fieldForm.field_id" @positive-click="remove(true)"><template #trigger><AppButton type="button" variant="text" :disabled="blocked || usedField || !fieldForm.reason.trim()">移除未使用字段</AppButton></template>确认移除未使用字段？已使用的字段请停用。</NPopconfirm>
         </div>
       </form>
-    </NModal>
-    <NModal v-model:show="auditOpen" preset="card" :style="modalStyle" :title="auditTitle">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="MaterialCategoriesView:audit" @invalidated="auditOpen = false" :ready="!preparing" v-model:show="auditOpen" preset="card" :style="modalStyle" :title="auditTitle">
       <article v-for="entry in auditRows" :key="entry.id" class="catalog-audit-item"><strong>{{ localTime(entry.created_at) }} · {{ entry.changed_by_name }}</strong><span>{{ entry.reason }}</span>
         <small>类别版本 {{ entry.before?.version ?? 0 }} → {{ entry.after.version }}；模板版本 {{ entry.before?.template_version ?? 0 }} → {{ entry.after.template_version }}</small>
         <NCollapse><AppCollapseItem :name="entry.id" title="查看变更前后资料"><WorkspaceTable title="分类与规格调整" :show-title="false" :columns="auditColumns" :data="materialCategoryAuditRows(entry)" :min-table-width="650"><template #empty>本次未调整类别或规格定义。</template></WorkspaceTable></AppCollapseItem></NCollapse>
       </article><p v-if="!auditRows.length" class="material-hint">初始类别由升级收录，尚无人工修改记录。</p>
-    </NModal>
+    </AppModal>
   </section>
 </template>

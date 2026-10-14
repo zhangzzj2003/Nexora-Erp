@@ -1,11 +1,14 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import { usePiniaAppStore } from '../../../store/app-store'
 import { workspaceRouteGroups } from '../../../router/workspace-routes'
 import { menuIconComponents } from '../../../utils/menu-icon-components'
@@ -122,7 +125,7 @@ onMounted(reload)
             type="button"
             :disabled="busy"
             :aria-label="`更换${entry.label}${entry.isGroup ? '分组' : '页面'}图标`"
-            @click="openEditor(entry)"
+            @click.capture="captureDialogOrigin('MenuManagementView:editor', $event)" @click="openEditor(entry)"
             variant="secondary"
             size="small"
             >更换图标</AppButton
@@ -131,7 +134,7 @@ onMounted(reload)
       </div>
       <p v-if="!groups.length" class="muted">没有匹配的菜单。</p>
     </template>
-    <NModal
+    <AppModal :busy="busy" origin-key="MenuManagementView:editor" @invalidated="editing = null"
       :show="!!editing"
       preset="card"
       :title="`${editing?.label ?? ''} · 选择图标`"
@@ -197,7 +200,7 @@ onMounted(reload)
           }}</AppButton>
         </div>
       </template>
-    </NModal>
+    </AppModal>
   </section>
 </template>
 

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import {
   documentSearch,
@@ -7,7 +10,7 @@ import {
 } from "../../../../../shared/document-numbering";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { NModal } from "naive-ui";
+
 import type {
   AfterSalesAction,
   AfterSalesEvidence,
@@ -122,9 +125,15 @@ async function editRecord(id: number): Promise<void> {
     preparing.value = false;
   }
 }
+// 打开意图与业务结果分离，准备期间可取消，取消后不再采纳本次结果。
+const commandPending = ref(false)
+const responsibilityPending = ref(false)
+const laborPending = ref(false)
+watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.permissions.join('|')}`, () => { commandPending.value = false; responsibilityPending.value = false; laborPending.value = false }, { flush: 'sync' })
+onUnmounted(() => { commandPending.value = false; responsibilityPending.value = false; laborPending.value = false })
 async function prepare(id: number, action: AfterSalesAction): Promise<void> {
   if (disabled.value) return;
-  preparing.value = true;
+  commandPending.value = true; preparing.value = true;
   command.value = null;
   reason.value = "";
   evidence.value = "";
@@ -133,12 +142,13 @@ async function prepare(id: number, action: AfterSalesAction): Promise<void> {
   try {
     if (
       (await store.loadAfterSalesDetail(id)) &&
+      commandPending.value &&
       detail.value &&
       actions(detail.value).includes(action)
     )
       command.value = { row: detail.value, action };
   } finally {
-    preparing.value = false;
+    commandPending.value = false; preparing.value = false;
   }
 }
 async function execute(): Promise<void> {
@@ -169,7 +179,7 @@ async function prepareLabor(entryId: number | null): Promise<void> {
   if (disabled.value || !detail.value || !store.can("after_sales.labor"))
     return;
   const id = detail.value.id;
-  preparing.value = true;
+  laborPending.value = true; preparing.value = true;
   laborCommand.value = null;
   laborHours.value = "";
   reason.value = "";
@@ -178,6 +188,7 @@ async function prepareLabor(entryId: number | null): Promise<void> {
   try {
     if (
       (await store.loadAfterSalesDetail(id)) &&
+      laborPending.value &&
       detail.value &&
       detail.value.kind === "repair" &&
       ["received", "repaired"].includes(detail.value.status)
@@ -195,7 +206,7 @@ async function prepareLabor(entryId: number | null): Promise<void> {
       if (active) laborCommand.value = { row: detail.value, entryId };
     }
   } finally {
-    preparing.value = false;
+    laborPending.value = false; preparing.value = false;
   }
 }
 async function executeLabor(): Promise<void> {
@@ -234,7 +245,7 @@ function canAssess(row: AfterSalesEvidence): boolean {
 }
 async function prepareResponsibility(id: number): Promise<void> {
   if (disabled.value) return;
-  preparing.value = true;
+  responsibilityPending.value = true; preparing.value = true;
   responsibilityCommand.value = null;
   reason.value = "";
   responsibilityOutcome.value = "";
@@ -243,6 +254,7 @@ async function prepareResponsibility(id: number): Promise<void> {
   try {
     if (
       (await store.loadAfterSalesDetail(id)) &&
+      responsibilityPending.value &&
       detail.value &&
       canAssess(detail.value)
     ) {
@@ -251,7 +263,7 @@ async function prepareResponsibility(id: number): Promise<void> {
       responsibilityBasis.value = detail.value.responsibility?.basis ?? "";
     }
   } finally {
-    preparing.value = false;
+    responsibilityPending.value = false; preparing.value = false;
   }
 }
 async function executeResponsibility(): Promise<void> {
@@ -449,7 +461,7 @@ onUnmounted(() => store.clearAfterSalesDetail());
         ><AppButton
           tone="info"
           :disabled="disabled"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'AfterSalesCase',
               document_id: detail.id,
@@ -461,7 +473,7 @@ onUnmounted(() => store.clearAfterSalesDetail());
           tone="error"
           v-if="detail.status === 'closed' && store.can('after_sales.reverse')"
           :disabled="disabled"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'AfterSalesCase',
               document_id: detail.id,
@@ -480,7 +492,7 @@ onUnmounted(() => store.clearAfterSalesDetail());
           v-for="action in actions(detail)"
           :key="action"
           :disabled="disabled"
-          @click="prepare(detail.id, action)"
+          @click.capture="captureDialogOrigin('AfterSalesView:command', $event)" @click="prepare(detail.id, action)"
           >{{ afterSalesCommand[action] }}</AppButton
         >
       </div>
@@ -496,7 +508,7 @@ onUnmounted(() => store.clearAfterSalesDetail());
       <div v-if="detail && canAssess(detail)" class="after-toolbar">
         <AppButton
           :disabled="disabled"
-          @click="prepareResponsibility(detail.id)"
+          @click.capture="captureDialogOrigin('AfterSalesView:responsibility', $event)" @click="prepareResponsibility(detail.id)"
           >{{
             detail.responsibility ? "更正责任核定" : "登记责任核定"
           }}</AppButton
@@ -510,7 +522,7 @@ onUnmounted(() => store.clearAfterSalesDetail());
         "
         class="after-toolbar"
       >
-        <AppButton :disabled="disabled" @click="prepareLabor(null)"
+        <AppButton :disabled="disabled" @click.capture="captureDialogOrigin('AfterSalesView:labor', $event)" @click="prepareLabor(null)"
           >登记实际维修工时</AppButton
         >
         <AppButton
@@ -521,14 +533,14 @@ onUnmounted(() => store.clearAfterSalesDetail());
           )"
           :key="entry.id"
           :disabled="disabled"
-          @click="prepareLabor(entry.id)"
+          @click.capture="captureDialogOrigin('AfterSalesView:labor', $event)" @click="prepareLabor(entry.id)"
           >更正工时 {{ documentLabel(entry) }}</AppButton
         >
       </div>
     </template>
-    <DocumentApprovalDialog title="售后方案审批" />
-    <NModal
-      :show="!!command"
+    <DocumentApprovalDialog origin-key="document-approval" title="售后方案审批" />
+    <AppModal :busy="busy" origin-key="AfterSalesView:command" @invalidated="commandPending = false; command = null" :ready="!commandPending && !!command" :load-error="failure"
+      :show="commandPending || !!command"
       preset="card"
       :title="command ? afterSalesCommand[command.action] : ''"
       style="
@@ -621,9 +633,9 @@ onUnmounted(() => store.clearAfterSalesDetail());
           >
         </div>
       </form>
-    </NModal>
-    <NModal
-      :show="!!responsibilityCommand"
+    </AppModal>
+    <AppModal :busy="busy" origin-key="AfterSalesView:responsibility" @invalidated="responsibilityPending = false; responsibilityCommand = null" :ready="!responsibilityPending && !!responsibilityCommand" :load-error="failure"
+      :show="responsibilityPending || !!responsibilityCommand"
       preset="card"
       :title="
         responsibilityCommand?.responsibility ? '更正责任核定' : '登记责任核定'
@@ -693,9 +705,9 @@ onUnmounted(() => store.clearAfterSalesDetail());
           >
         </div>
       </form>
-    </NModal>
-    <NModal
-      :show="!!laborCommand"
+    </AppModal>
+    <AppModal :busy="busy" origin-key="AfterSalesView:labor" @invalidated="laborPending = false; laborCommand = null" :ready="!laborPending && !!laborCommand" :load-error="failure"
+      :show="laborPending || !!laborCommand"
       preset="card"
       :title="laborCommand?.entryId ? '更正维修工时' : '登记实际维修工时'"
       style="width: min(700px, calc(100vw - 48px))"
@@ -768,7 +780,7 @@ onUnmounted(() => store.clearAfterSalesDetail());
           >
         </div>
       </form>
-    </NModal>
+    </AppModal>
   </section>
 </template>
 <style scoped>

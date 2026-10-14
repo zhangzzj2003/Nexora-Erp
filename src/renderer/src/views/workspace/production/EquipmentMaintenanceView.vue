@@ -1,9 +1,12 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import {computed,onMounted,onUnmounted,ref,watch} from 'vue'
 import {storeToRefs} from 'pinia'
-import {NCheckbox,NModal} from 'naive-ui'
+import {NCheckbox } from 'naive-ui'
 import type {EquipmentEntity,MaintenanceAction,MaintenanceJobRecord,MaintenanceCommand} from '../../../../../shared/equipment-api'
 import {usePiniaAppStore} from '../../../store/app-store'
 import AppButton from '../../../components/app/AppButton.vue'
@@ -49,17 +52,21 @@ async function inspect(kind:EquipmentEntity,id:number,edit=false):Promise<void>{
   if(disabled.value)return;preparing.value=true;clearMeter()
   try{if(edit){if(await store.editEquipmentRecord(kind,id))editor.value=true}else await store.loadEquipmentDetail(kind,id)}finally{preparing.value=false}
 }
+// 打开意图与业务结果分离，准备期间可取消，取消后不再采纳本次结果。
+const commandPending = ref(false)
+watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.permissions.join('|')}`, () => { commandPending.value = false }, { flush: 'sync' })
+onUnmounted(() => { commandPending.value = false })
 async function prepare(id:number,action:MaintenanceAction):Promise<void>{
-  if(disabled.value)return;preparing.value=true;command.value=null;reason.value='';evidence.value='';error.value=''
-  try{if(await store.loadEquipmentDetail('job',id) && detail.value?.kind==='job' && actions(detail.value.row).includes(action)){
+  if(disabled.value)return;commandPending.value = true; preparing.value = true;command.value=null;reason.value='';evidence.value='';error.value=''
+  try{if(await store.loadEquipmentDetail('job',id) && commandPending.value && detail.value?.kind==='job' && actions(detail.value.row).includes(action)){
     const row=detail.value.row
     if(action==='reverse'){
       const fixed=await store.maintenanceCorrectionEvidence(id)
-      if(!fixed)return
+      if(!fixed || !commandPending.value)return
       reason.value=fixed.reason;evidence.value=fixed.evidence
     }
     command.value={row,action};solution.value=detail.value.row.solution;hours.value='';amount.value=''
-  }}finally{preparing.value=false}
+  }}finally{commandPending.value = false; preparing.value = false}
 }
 async function execute():Promise<void>{
   if(!command.value || disabled.value)return
@@ -138,7 +145,7 @@ onMounted(()=>{void store.loadEquipment()});onUnmounted(()=>store.clearEquipment
           <template #cell-name="{row}"><strong>{{ documentLabel(row) }}</strong><span class="equipment-secondary">{{ row.reference }} · {{ row.equipment_snapshot.code }} · {{ row.equipment_snapshot.name }}</span></template>
           <template #cell-executor="{row}">{{ maintenanceKind[row.kind as keyof typeof maintenanceKind] }} · {{ row.assigned_to_name }}<span v-if="row.plan_due_date" class="equipment-secondary">本次到期 {{ row.plan_due_date }}</span><span v-if="row.plan_due_hours" class="equipment-secondary">本次阈值 {{ row.plan_due_hours }} 小时</span></template>
           <template #cell-status="{row}">{{ maintenanceStatus[row.status as keyof typeof maintenanceStatus] }} · v{{ row.version }}<span v-if="row.parts_outbound_id" class="equipment-secondary">出库 {{ relatedDocumentLabel(row, 'parts_outbound') }} · {{ partsStatus[row.parts_status as keyof typeof partsStatus] }}</span></template>
-          <template #cell-actions="{row}"><div class="equipment-toolbar"><AppButton size="small" :disabled="disabled" @click="inspect('job',row.id)">详情与证据</AppButton><AppButton v-if="row.can_edit && store.can('equipment.create')" size="small" :disabled="disabled" @click="inspect('job',row.id,true)">修订工单</AppButton><AppButton size="small" :disabled="disabled" @click="store.openDocumentApproval({document_type:'MaintenanceJob',document_id:row.id,intent:'execute'})">单据审批</AppButton><AppButton v-if="(row.status==='accepted' && store.can('equipment.reverse')) || (row.reversal_approval?.version??0)>0" size="small" :disabled="disabled" @click="store.openDocumentApproval({document_type:'MaintenanceJob',document_id:row.id,intent:'reverse'})">验收更正审批</AppButton><AppButton v-for="action in actions(row)" :key="action" size="small" :disabled="disabled" @click="prepare(row.id,action)">{{ maintenanceCommand[action] }}</AppButton></div></template>
+          <template #cell-actions="{row}"><div class="equipment-toolbar"><AppButton size="small" :disabled="disabled" @click="inspect('job',row.id)">详情与证据</AppButton><AppButton v-if="row.can_edit && store.can('equipment.create')" size="small" :disabled="disabled" @click="inspect('job',row.id,true)">修订工单</AppButton><AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="store.openDocumentApproval({document_type:'MaintenanceJob',document_id:row.id,intent:'execute'})">单据审批</AppButton><AppButton v-if="(row.status==='accepted' && store.can('equipment.reverse')) || (row.reversal_approval?.version??0)>0" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="store.openDocumentApproval({document_type:'MaintenanceJob',document_id:row.id,intent:'reverse'})">验收更正审批</AppButton><AppButton v-for="action in actions(row)" :key="action" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('EquipmentMaintenanceView:command', $event)" @click="prepare(row.id,action)">{{ maintenanceCommand[action] }}</AppButton></div></template>
           <template #empty>{{ empty }}</template>
         </WorkspaceTable>
         <p v-if="overview" class="equipment-secondary">读取时间：{{ store.localTime(overview.as_of) }}。停机时长为此时的登记区间，不等于现场自动采集或生产工时。</p>
@@ -166,8 +173,8 @@ onMounted(()=>{void store.loadEquipment()});onUnmounted(()=>store.clearEquipment
           <AppButton type="submit" variant="primary" :disabled="disabled">登记读数</AppButton>
         </form>
       </template>
-      <DocumentApprovalDialog />
-      <NModal :show="!!command" preset="card" :title="command?maintenanceCommand[command.action]:''" :style="{width:'min(760px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)command=null}">
+      <DocumentApprovalDialog origin-key="document-approval" />
+      <AppModal :busy="busy" origin-key="EquipmentMaintenanceView:command" @invalidated="commandPending = false; command = null" :ready="!commandPending && !!command" :load-error="failure" :show="commandPending || !!command" preset="card" :title="command?maintenanceCommand[command.action]:''" :style="{width:'min(760px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value){commandPending=false;command=null}}">
         <form v-if="command" class="equipment-operation" @submit.prevent="execute">
           <EquipmentEvidence :detail="{kind:'job',row:command.row}" compact />
           <p>{{ maintenanceEffect(command.action) }}</p>
@@ -181,7 +188,7 @@ onMounted(()=>{void store.loadEquipment()});onUnmounted(()=>store.clearEquipment
           <p v-if="error" role="alert">{{ error }} 原因与依据保留；关闭后读取最新证据，复核状态与版本后重试。</p>
           <AppButton type="submit" variant="primary" :disabled="disabled || (command.action!=='reverse' && (!reason.trim() || !evidence.trim()))">{{ busy?'正在处理…':maintenanceCommand[command.action] }}</AppButton>
         </form>
-      </NModal>
+      </AppModal>
     </template>
   </section>
 </template>

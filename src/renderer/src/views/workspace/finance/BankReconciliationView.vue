@@ -1,7 +1,10 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal, NUpload } from 'naive-ui'
+import {  NUpload } from 'naive-ui'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -115,7 +118,7 @@ const importColumns = [{ key: 'document', title: '导入文件' }]
       <div>待勾对收付款：{{ unmatchedSources.length }} 笔</div>
     </div>
 
-    <NModal title="登记银行账户" v-if="can('bank_reconciliation.account')" v-model:show="accountOpen" preset="card"
+    <AppModal :busy="busy" origin-key="BankReconciliationView:account" @invalidated="accountOpen = false" title="登记银行账户" v-if="can('bank_reconciliation.account')" v-model:show="accountOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(640px, calc(100vw - 32px))' }">
       <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
       <form @submit.prevent="submitAccount">
@@ -125,9 +128,9 @@ const importColumns = [{ key: 'document', title: '导入文件' }]
         </div>
         <AppButton type="submit" variant="primary" :disabled="busy || connectionLost">保存账户</AppButton>
       </form>
-    </NModal>
+    </AppModal>
 
-    <NModal title="导入银行 CSV" v-if="can('bank_reconciliation.record')" v-model:show="csvOpen" preset="card"
+    <AppModal :busy="busy" origin-key="BankReconciliationView:csv" @invalidated="csvOpen = false" title="导入银行 CSV" v-if="can('bank_reconciliation.record')" v-model:show="csvOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(800px, calc(100vw - 32px))' }">
       <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
       <p class="muted">表头固定为 transaction_id,occurred_on,amount,counterparty,note。日期使用 YYYY-MM-DD，入账金额为正，出账为负；最多 500 笔、1 MiB。预检后再确认整批导入。</p>
@@ -148,9 +151,9 @@ const importColumns = [{ key: 'document', title: '导入文件' }]
         <p v-for="item in bankCsvPreview.sample" :key="item.transaction_id" class="muted">{{ item.occurred_on }} · {{ item.transaction_id }} · ¥{{ item.amount }} · {{ item.counterparty }}</p>
         <AppButton type="button" variant="primary" :disabled="busy || connectionLost || !bankCsvPreview.can_import" @click="submitCsv">确认整批导入</AppButton>
       </div>
-    </NModal>
+    </AppModal>
 
-    <NModal title="登记银行流水" v-if="can('bank_reconciliation.record')" v-model:show="lineOpen" preset="card"
+    <AppModal :busy="busy" origin-key="BankReconciliationView:line" @invalidated="lineOpen = false" title="登记银行流水" v-if="can('bank_reconciliation.record')" v-model:show="lineOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(800px, calc(100vw - 32px))' }">
       <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
       <form @submit.prevent="submitLine">
@@ -165,9 +168,9 @@ const importColumns = [{ key: 'document', title: '导入文件' }]
         </div>
         <AppButton type="submit" variant="primary" :disabled="busy || connectionLost">登记流水</AppButton>
       </form>
-    </NModal>
+    </AppModal>
 
-    <NModal title="逐笔勾对" v-if="can('bank_reconciliation.match')" v-model:show="matchOpen" preset="card"
+    <AppModal :busy="busy" origin-key="BankReconciliationView:match" @invalidated="matchOpen = false" title="逐笔勾对" v-if="can('bank_reconciliation.match')" v-model:show="matchOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(800px, calc(100vw - 32px))' }">
       <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
       <p class="muted">银行流水 #{{ selectedLine?.id }} · {{ selectedLine?.account_code }} · ¥{{ selectedLine?.amount }}</p>
@@ -178,20 +181,20 @@ const importColumns = [{ key: 'document', title: '导入文件' }]
         </div>
         <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !candidateSources.length">确认勾对</AppButton>
       </form>
-    </NModal>
+    </AppModal>
 
     <WorkspaceTable title="待勾对银行流水" :columns="lineColumns" :data="unmatchedLines" :min-table-width="850">
       <template #actions>
-        <AppButton v-if="can('bank_reconciliation.account')" type="button" @click="accountOpen = true">登记账户</AppButton>
-        <AppButton v-if="can('bank_reconciliation.record')" type="button" variant="primary" :disabled="!bankOverview?.accounts.length" @click="lineOpen = true">登记流水</AppButton>
-        <AppButton v-if="can('bank_reconciliation.record')" type="button" :disabled="!bankOverview?.accounts.length" @click="csvOpen = true">导入 CSV</AppButton>
+        <AppButton v-if="can('bank_reconciliation.account')" type="button" @click.capture="captureDialogOrigin('BankReconciliationView:account', $event)" @click="accountOpen = true">登记账户</AppButton>
+        <AppButton v-if="can('bank_reconciliation.record')" type="button" variant="primary" :disabled="!bankOverview?.accounts.length" @click.capture="captureDialogOrigin('BankReconciliationView:line', $event)" @click="lineOpen = true">登记流水</AppButton>
+        <AppButton v-if="can('bank_reconciliation.record')" type="button" :disabled="!bankOverview?.accounts.length" @click.capture="captureDialogOrigin('BankReconciliationView:csv', $event)" @click="csvOpen = true">导入 CSV</AppButton>
       </template>
       <template #cell-document="{ row: item }">
         <strong>#{{ item.id }} · {{ item.account_code }} · ¥{{ item.amount }}</strong>
         <p class="muted">{{ item.occurred_on }} · 交易号 {{ item.transaction_id }} · {{ item.counterparty }} · 登记人 {{ item.created_by_name }}<span v-if="item.import_batch_id"> · 导入批次 #{{ item.import_batch_id }}</span><span v-if="item.note"> · {{ item.note }}</span></p>
       </template>
       <template #cell-actions="{ row: item }">
-        <AppButton v-if="can('bank_reconciliation.match')" type="button" :disabled="busy || connectionLost" @click="beginMatch(item.id)">选择收付款</AppButton>
+        <AppButton v-if="can('bank_reconciliation.match')" type="button" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('BankReconciliationView:match', $event)" @click="beginMatch(item.id)">选择收付款</AppButton>
       </template>
     </WorkspaceTable>
 

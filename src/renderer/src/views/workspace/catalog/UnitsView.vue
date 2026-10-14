@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
+import { computed, reactive, ref , watch, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -35,9 +38,20 @@ const auditOpen = ref(false)
 const auditRows = ref<MaterialUnitChange[]>([])
 const auditTitle = ref('')
 
+// 等待期间只保留打开意图；取消与切页递增代次，迟到结果不能重开弹窗。
+let formRead = 0
+let auditRead = 0
+const dialogSession = computed(() => `${store.server?.id}:${store.server?.fingerprint}:${store.user?.id}:${store.user?.permissions.join('|')}`)
+watch(showForm, value => { if (!value) { formRead++; loading.value = false } }, { flush: 'sync' })
+watch(auditOpen, value => { if (!value) { auditRead++; loading.value = false } }, { flush: 'sync' })
+watch(dialogSession, () => { formRead++; auditRead++; showForm.value = false; auditOpen.value = false }, { flush: 'sync' })
+onUnmounted(() => { formRead++; auditRead++ })
 async function edit(item?: MaterialUnit): Promise<void> {
+  if (auditOpen.value && loading.value) auditOpen.value = false
+  const ticket = ++formRead
   detailError.value = ''
   if (!item) {
+    loading.value = false
     editingId.value = undefined
     referenced.value = false
     Object.assign(form, {name:'', enabled:true, notes:'', version:undefined, reason:''})
@@ -45,35 +59,36 @@ async function edit(item?: MaterialUnit): Promise<void> {
     return
   }
   if (!window.nexora || connectionLost.value || loading.value) return
-  const user = store.user, server = store.server
+  const session = dialogSession.value
   loading.value = true
+  showForm.value = true
   try {
     // 编辑前读取新版本，避免另一客户端停用或改名后被旧列表覆盖。
     const latest = await window.nexora.callApi('materialUnitDetail', {id:item.id})
-    if (store.user !== user || store.server !== server || connectionLost.value) return
+    if (ticket !== formRead || !showForm.value || session !== dialogSession.value || connectionLost.value) return
     editingId.value = latest.id
     referenced.value = latest.material_count > 0
     Object.assign(form, {name:latest.name, enabled:latest.enabled, notes:latest.notes, version:latest.version, reason:''})
-    showForm.value = true
-  } catch (cause) { detailError.value = displayError(cause) }
-  finally { loading.value = false }
+  } catch (cause) { if (ticket === formRead) detailError.value = displayError(cause) }
+  finally { if (ticket === formRead) loading.value = false }
 }
 async function save(): Promise<void> {
   if (await saveMaterialUnit({...form}, editingId.value)) showForm.value = false
 }
 async function history(item: MaterialUnit): Promise<void> {
   if (!window.nexora || loading.value || connectionLost.value) return
-  const user = store.user, server = store.server
+  const session = dialogSession.value
+  const ticket = ++auditRead
+  auditOpen.value = true
   loading.value = true
   detailError.value = ''
   try {
     const changes = await window.nexora.callApi('materialUnitChanges', {id:item.id})
-    if (store.user !== user || store.server !== server || connectionLost.value) return
+    if (ticket !== auditRead || !auditOpen.value || session !== dialogSession.value || connectionLost.value) return
     auditRows.value = changes
     auditTitle.value = `${item.name} · 单位变更记录`
-    auditOpen.value = true
-  } catch (cause) { detailError.value = displayError(cause) }
-  finally { loading.value = false }
+  } catch (cause) { if (ticket === auditRead) detailError.value = displayError(cause) }
+  finally { if (ticket === auditRead) loading.value = false }
 }
 </script>
 
@@ -82,7 +97,7 @@ async function history(item: MaterialUnit): Promise<void> {
     <WorkspaceTable :show-title="false" title="单位列表" :data="rows" :columns="columns" :min-table-width="760"
       :pagination="{page, pageSize, total, disabled:connectionLost}" @page-change="changePage">
       <template #actions>
-        <AppButton v-if="can('catalog.manage')" type="button" variant="primary" :disabled="busy || connectionLost" @click="edit()">新增单位</AppButton>
+        <AppButton v-if="can('catalog.manage')" type="button" variant="primary" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('UnitsView:form', $event)" @click="edit()">新增单位</AppButton>
       </template>
       <template #filters>
         <label class="catalog-search">搜索单位<AppInput v-model="query" placeholder="单位名称或备注" maxlength="120" /></label>
@@ -90,7 +105,7 @@ async function history(item: MaterialUnit): Promise<void> {
       </template>
       <template #beforeTable>
         <p v-if="detailError" role="alert">{{detailError}}</p>
-        <NModal v-model:show="showForm" preset="card" :mask-closable="!busy"
+        <AppModal :busy="busy" origin-key="UnitsView:form" @invalidated="showForm = false" :ready="!loading" :load-error="detailError" v-model:show="showForm" preset="card" :mask-closable="!busy"
           :style="{width:'min(680px, calc(100vw - 32px))', maxHeight:'calc(100vh - 48px)', overflowY:'auto'}">
           <form v-if="showForm && can('catalog.manage')" class="catalog-editor" @submit.prevent="save">
             <h3>{{editingId ? '编辑单位' : '新增单位'}}</h3>
@@ -111,8 +126,8 @@ async function history(item: MaterialUnit): Promise<void> {
               <AppButton type="button" variant="secondary" :disabled="busy" @click="showForm=false">取消</AppButton>
             </div>
           </form>
-        </NModal>
-        <NModal v-model:show="auditOpen" preset="card" :title="auditTitle"
+        </AppModal>
+        <AppModal :busy="busy" origin-key="UnitsView:audit" @invalidated="auditOpen = false" :ready="!loading" :load-error="detailError" v-model:show="auditOpen" preset="card" :title="auditTitle"
           :style="{width:'min(760px, calc(100vw - 32px))', maxHeight:'calc(100vh - 48px)', overflowY:'auto'}">
           <p v-if="!auditRows.length">暂无人工变更记录，初始化目录不生成历史操作。</p>
           <div v-for="change in auditRows" :key="change.id" class="catalog-audit-item">
@@ -121,7 +136,7 @@ async function history(item: MaterialUnit): Promise<void> {
             <span>备注：{{change.before?.notes || '无'}} → {{change.after.notes || '无'}}</span>
             <small>{{change.reason}} · {{change.changed_by_name}} · {{localTime(change.created_at)}}</small>
           </div>
-        </NModal>
+        </AppModal>
       </template>
       <template #cell-name="{row}">{{row.name}}</template>
       <template #cell-status="{row}">{{row.enabled ? '启用' : '停用'}}</template>
@@ -129,8 +144,8 @@ async function history(item: MaterialUnit): Promise<void> {
       <template #cell-notes="{row}">{{row.notes || '—'}}</template>
       <template #cell-actions="{row}">
         <div class="catalog-actions">
-          <AppButton v-if="can('catalog.manage')" type="button" variant="text" :disabled="busy || loading || connectionLost" @click="edit(row)">编辑</AppButton>
-          <AppButton type="button" variant="text" :disabled="loading || connectionLost" @click="history(row)">变更记录</AppButton>
+          <AppButton v-if="can('catalog.manage')" type="button" variant="text" :disabled="busy || loading || connectionLost" @click.capture="captureDialogOrigin('UnitsView:form', $event)" @click="edit(row)">编辑</AppButton>
+          <AppButton type="button" variant="text" :disabled="loading || connectionLost" @click.capture="captureDialogOrigin('UnitsView:audit', $event)" @click="history(row)">变更记录</AppButton>
         </div>
       </template>
       <template #empty>暂无匹配的单位。</template>

@@ -51,6 +51,8 @@
 | `system/` | `PermissionCatalogView.vue` | 独立维护操作权限的中文名称，模块与单据仍按树状目录查看 |
 | `system/` | `ConnectionSettingsView.vue` | 查看连接、修改密码和管理本机服务 |
 
+业务窗口统一使用 `AppModal`；新增、详情、审批和批次入口显式登记自己的 `origin-key`，数据与必需历史准备好后展开。外层壳稳定挂载，关闭阶段仅保留不可交互画面；刷新和迟到响应不能恢复旧业务权限。会话失效无条件关闭本地意图，不能受保存忙碌状态阻拦。公共接口、子组件准备屏障和异步取消规则见 [弹窗来源动画与详情准备](../../../../../docs/dialog-origin-motion.md)。
+
 页面组件处理展示与表单绑定；跨页面草稿和服务端快照放在 `store/state.ts`，业务写操作放在 `store/modules/`。权限与地址规则只在 `router/workspace-routes.ts` 维护。
 
 全应用按钮使用 `components/app/AppButton.vue` 二次封装 Naive UI `NButton`，统一主操作、次操作、文字操作与导航按钮的交互。`variant` 支持 `primary`、`secondary`、`text`、`plain`；默认 `type="button"`，提交表单须显式传 `type="submit"`，`loading` 同时禁用重复操作。导航、标签及启动卡片用 `plain` 保留专属结构样式，图标通过 `icon` 插槽传入。

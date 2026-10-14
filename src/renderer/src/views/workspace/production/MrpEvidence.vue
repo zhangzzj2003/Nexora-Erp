@@ -14,7 +14,7 @@ import type { MrpRow, MrpSuggestion } from '../../../../../shared/mrp-api'
 import { mrpMode, mrpSourceLabel, mrpStatus, mrpCanConvert } from './mrp-display'
 const store = usePiniaAppStore()
 const { mrpDetail: item, mrpCheck: check, mrpChanges: changes, busy, connectionLost, user } = storeToRefs(store)
-const emit = defineEmits<{ convert: [suggestion: MrpSuggestion] }>()
+const emit = defineEmits<{ convert: [suggestion: MrpSuggestion, event?: Event] }>()
 const query = ref(''); const source = ref<MrpRow | null>(null)
 watch(item, () => { source.value = null })
 const rows = computed(() => (item.value?.snapshot.rows ?? []).filter(row => `${row.sku} ${row.name} ${row.date}`.toLowerCase().includes(query.value.toLowerCase().trim())))
@@ -50,7 +50,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
           <span class="muted mrp-line">{{ conversions(row.key)!.target_status === 'cancelled' ? '原单已取消，须新建计划' : '已转原单，按原单流程执行' }}</span>
           <AppButton v-if="store.can(conversions(row.key)!.purchase_request_id ? 'purchase_request.view' : 'production.view')" size="small" @click="store.navigateToRoute(conversions(row.key)!.purchase_request_id ? 'purchaseRequests' : 'workOrders')">打开原单列表</AppButton>
         </template>
-        <AppButton v-else-if="canConvert(row)" size="small" variant="primary" :disabled="busy || connectionLost" @click="emit('convert',row)">{{ row.supply_mode === 'buy' ? '转采购申请' : '转生产工单' }}</AppButton>
+        <AppButton v-else-if="canConvert(row)" size="small" variant="primary" :disabled="busy || connectionLost" @click="emit('convert',row,$event)">{{ row.supply_mode === 'buy' ? '转采购申请' : '转生产工单' }}</AppButton>
         <span v-else class="muted">{{ item.status !== 'approved' || !['approved', 'executed'].includes(item.approval?.status ?? '') ? '须完成本单独立审批' : !check?.matched ? '须新建重算' : '缺少计划或原单建单权限' }}</span>
       </template>
       <template #empty>没有净缺口，不需要新增采购或生产供给。</template>

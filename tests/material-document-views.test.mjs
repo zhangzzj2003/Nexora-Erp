@@ -41,7 +41,7 @@ export const useAppStore=()=>state
 export const usePiniaAppStore=()=>reactive(state)
 `
 const modalSource = `import { defineComponent,h } from 'vue'
-export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return()=>p.show?h('section',{'data-modal':p.title},slots.default?.()):null}})
+export { NModal as default }; export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return()=>p.show?h('section',{'data-modal':p.title},slots.default?.()):null}})
 export const NDatePicker=defineComponent({render:()=>null})
 export const NPopconfirm=defineComponent({setup(p,{slots}){return()=>slots.default?.()}})
 `
@@ -72,7 +72,7 @@ test('十四个物料单据页面共用表格弹窗，新增和删除直接修�
     transform(code,id){
       if(id.includes('/views/workspace/') || id.endsWith('/WorkspaceDocumentDialog.vue')) {
         return code.replace(/const (showForm|createOpen|conversionOpen) = ref\(false\)/g,'const $1 = ref(true)')
-          .replace("'naive-ui'","'virtual:material-document-modal'")
+          .replace("'naive-ui'","'virtual:material-document-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:material-document-modal'")
       }
     },
     resolveId(id,importer){

@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { NModal } from 'naive-ui'
+import AppModal from '../app/AppModal.vue'
+import type { DialogOrigin } from '../../utils/dialog-origin'
 import AppButton from '../app/AppButton.vue'
 
 // 各业务保留自己的草稿和确认操作，共享弹窗只负责标题、滚动区和操作保护。
 const props = withDefaults(defineProps<{
   // 多物料统一表格按需加宽，其他批次业务保留原尺寸。
   wide?: boolean
+  // 打开意图与数据就绪分开，来源只用于当前窗口的往返动画。
+  originKey?: string
+  origin?: DialogOrigin | null
+  ready?: boolean
   show: boolean
   title: string
   documentNumber: string
@@ -17,8 +22,18 @@ const props = withDefaults(defineProps<{
   loadError?: string
   issue?: string
   loadingText?: string
-}>(), { busy: false, disabled: false, loading: false, loadError: '', issue: '', loadingText: '正在读取可用批次…' })
-const emit = defineEmits<{ 'update:show': [show: boolean]; submit: [] }>()
+}>(), { ready: true, busy: false, disabled: false, loading: false, loadError: '', issue: '', loadingText: '正在读取可用批次…' })
+const emit = defineEmits<{
+  'update:show': [show: boolean]
+  submit: []
+  // 声明并转发生命周期，保留其他 attrs 透传且避免同一事件重复上报。
+  'after-enter': []
+  'before-leave': []
+  'after-leave': []
+  'load-error': [error: string]
+  // 会话失效不能被保存中的普通关闭保护挡住。
+  invalidated: []
+}>()
 function updateShow(show: boolean): void {
   // 保存期间所有关闭途径保持一致，避免请求仍在执行时让用户误以为已取消。
   if (!props.busy) emit('update:show', show)
@@ -29,7 +44,9 @@ function submit(): void {
 </script>
 
 <template>
-  <NModal :show="show" preset="card" :title="`${title} · ${documentNumber}`"
+  <AppModal :busy="busy" :show="show" :origin-key="originKey" :origin="origin" :ready="ready && !loading" :load-error="loadError" preset="card" :title="`${title} · ${documentNumber}`"
+    @after-enter="emit('after-enter')" @before-leave="emit('before-leave')" @after-leave="emit('after-leave')"
+    @load-error="emit('load-error', $event)" @invalidated="emit('invalidated')"
     class="workspace-lot-dialog" :mask-closable="!busy" :close-on-esc="!busy" :closable="!busy"
     :style="{ width: `min(${wide ? 1280 : 1120}px, calc(100vw - 32px))`, maxHeight: 'calc(100dvh - 48px)' }"
     @update:show="updateShow">
@@ -51,7 +68,7 @@ function submit(): void {
         </div>
       </footer>
     </form>
-  </NModal>
+  </AppModal>
 </template>
 
 <style scoped>

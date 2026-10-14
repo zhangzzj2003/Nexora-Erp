@@ -4,7 +4,8 @@ import AppButton from '../app/AppButton.vue'
 
 // 来源事件由服务端成功保存时固定；点击仅查看关联单据，不再次执行重开。
 defineProps<{ links: OtherInboundReopenLink[]; currentId: number; localTime: (value: string) => string; disabled?: boolean }>()
-defineEmits<{ open: [id: number] }>()
+// 原事件同步送到所属弹窗，换单时仍能记住实际点击的来源单号。
+defineEmits<{ open: [id: number, event?: Event] }>()
 </script>
 
 <template>
@@ -13,14 +14,14 @@ defineEmits<{ open: [id: number] }>()
     <ol>
       <li v-for="link in links" :key="link.id">
         <AppButton type="button" variant="text" :disabled="disabled || link.source_id === currentId"
-          @click="$emit('open', link.source_id)">{{ link.source_document_no || `其他入库 #${link.source_id}` }}</AppButton>
+          @click="$emit('open', link.source_id, $event)">{{ link.source_document_no || `其他入库 #${link.source_id}` }}</AppButton>
         <span class="reopen-trace-event">
           <strong>{{ link.kind === 'reversed' ? '已冲销 → 冲销重开新单' : '已取消 → 重开为新单' }}</strong>
           <small>{{ localTime(link.created_at) }} · {{ link.created_by_name }}</small>
         </span>
         <span aria-hidden="true">→</span>
         <AppButton type="button" variant="text" :disabled="disabled || link.new_id === currentId"
-          @click="$emit('open', link.new_id)">{{ link.new_document_no || `其他入库 #${link.new_id}` }}</AppButton>
+          @click="$emit('open', link.new_id, $event)">{{ link.new_document_no || `其他入库 #${link.new_id}` }}</AppButton>
       </li>
     </ol>
     <p>每张原单只能成功重开一次；新单独立审批，原单及库存历史保留。</p>

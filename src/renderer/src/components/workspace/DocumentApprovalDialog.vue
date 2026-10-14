@@ -7,9 +7,10 @@ import { documentApprovalLayout } from "../../utils/document-approval-layout";
 import { usePiniaAppStore } from "../../store/app-store";
 import DocumentApprovalPanel from "./DocumentApprovalPanel.vue";
 import OtherInboundReopenTrace from "./OtherInboundReopenTrace.vue";
+import { captureDialogOrigin } from '../../utils/dialog-origin';
 
 // 审批复用查看详情的公共单据布局，业务内容始终来自服务端送审快照。
-withDefaults(defineProps<{ title?: string }>(), { title: "单据审批" });
+withDefaults(defineProps<{ title?: string; originKey?: string }>(), { title: "单据审批", originKey: "document-approval" });
 // 业务状态操作统一在页脚承载：提示语、审批控件、页面业务按钮与关闭依次排开。
 defineSlots<{
   default?: () => unknown;
@@ -49,6 +50,9 @@ const columns = [
   <!-- 未打开时不读取审批摘要，保持页面进入时审批内容按需加载的原行为。 -->
   <WorkspaceDocumentDialog
     :show="!!target"
+    :origin-key="originKey"
+    :ready="!!target && businessActionsReady"
+    :load-error="error"
     read-only
     :busy="busy"
     class="document-approval-dialog"
@@ -74,12 +78,14 @@ const columns = [
         :local-time="store.localTime"
         :disabled="disabled"
         @open="
-          (id) =>
+          (id, event) => {
+            captureDialogOrigin(originKey, event);
             store.openDocumentApproval({
               document_type: 'WarehouseInbound',
               document_id: id,
               intent: 'execute',
-            })
+            });
+          }
         "
       />
       <slot />

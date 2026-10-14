@@ -79,36 +79,43 @@ export function createSalesActions(
     }, '销售订单草稿已创建。')
   }
 
+  let contractEpoch = 0
+  // 合同与附件属于同一实例、证书及权限会话；普通账号快照刷新不应误伤在途读取。
+  // 角色与权限按集合比较，副本排序不会修改用户快照，例行返回顺序变化也不取消读取。
+  watch(() => `${state.server?.value?.id}:${state.server?.value?.fingerprint}:${state.user?.value?.id}:${state.user?.value?.roles?.slice().sort().join('|')}:${state.user?.value?.permissions?.slice().sort().join('|')}:${state.connectionLost?.value}`,
+    () => { contractEpoch++ }, { flush: 'sync' })
+
   async function loadSalesOrderContract(orderId: number): Promise<SalesOrderContract | null> {
     if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('sales.view')) return null
-    const actorId = state.user.value.id
+    const owner = contractEpoch
     try {
       const result = await window.nexora.callApi('salesOrderContract', { orderId })
-      return actorId === state.user.value?.id && !state.connectionLost.value &&
+      return owner === contractEpoch && !state.connectionLost.value &&
         !!state.user.value?.permissions.includes('sales.view') ? result : null
     } catch (cause) {
-      if (actorId === state.user.value?.id) state.error.value = displayError(cause)
+      if (owner === contractEpoch) state.error.value = displayError(cause)
       return null
     }
   }
 
   async function reviseSalesOrderContract(orderId: number, expected_version: number,
     body: string, acceptance_reference: string, reason: string): Promise<SalesOrderContract | null> {
-    if (!window.nexora || !state.user.value?.permissions.includes('sales_order.confirm')) return null
-    const actorId = state.user.value.id
+    if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('sales_order.confirm')) return null
+    const owner = contractEpoch
     let saved: SalesOrderContract | null = null
     await perform(async () => {
+      // 排队提交期间切换会话后，不能向新的服务端发送原合同的写入。
+      if (owner !== contractEpoch || state.connectionLost.value || !state.user.value?.permissions.includes('sales_order.confirm')) {
+        throw new Error('会话或连接已变化，请重新打开销售合同。')
+      }
       saved = await window.nexora!.callApi('reviseSalesOrderContract', {
         orderId, expected_version, body, acceptance_reference, reason
       })
     }, `销售订单 #${orderId} 合同正文已追加修订，原版本保留。`)
-    return actorId === state.user.value?.id && !!state.user.value?.permissions.includes('sales_order.confirm') ? saved : null
+    return owner === contractEpoch && !state.connectionLost.value && !!state.user.value?.permissions.includes('sales_order.confirm') ? saved : null
   }
 
-  let attachmentEpoch = 0
-  watch(() => `${state.user?.value?.id}:${state.user?.value?.permissions?.join('|')}:${state.connectionLost?.value}`,
-    () => { attachmentEpoch++ }, {flush: 'sync'})
-  const contractAttachmentOwner = (): number => attachmentEpoch
+  const contractAttachmentOwner = (): number => contractEpoch
 
   async function loadSalesContractAttachments(orderId: number, revisionId: number): Promise<SalesOrderContractAttachmentList> {
     if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('sales.view')) {

@@ -1,12 +1,18 @@
 <script setup lang="ts" generic="TRow extends object">
-import { NModal } from 'naive-ui'
+import AppModal from '../app/AppModal.vue'
+import type { DialogOrigin } from '../../utils/dialog-origin'
 import AppButton from '../app/AppButton.vue'
 import WorkspaceTable from './WorkspaceTable.vue'
 import type { WorkspaceTableColumn } from '../../utils/table-columns'
 
 // 单据弹窗只统一布局和交互边界，基础字段、物料选择及保存业务仍由页面提供。
 const props = withDefaults(defineProps<{
+  // 打开意图与数据就绪分开，来源只用于当前窗口的往返动画。
+  originKey?: string
+  origin?: DialogOrigin | null
+  ready?: boolean
   show: boolean
+  loadError?: string
   title: string
   data: TRow[]
   columns: readonly WorkspaceTableColumn[]
@@ -31,13 +37,20 @@ const props = withDefaults(defineProps<{
   materialSupply?: boolean
   materialId?: (row: TRow) => number
 }>(), {
-  busy: false, disabled: false, submitDisabled: false, addDisabled: false, readOnly: false,
+  ready: true, loadError: '', busy: false, disabled: false, submitDisabled: false, addDisabled: false, readOnly: false,
   submitLabel: '保存草稿', hint: '', minTableWidth: 760, showAdd: true,
   addLabel: '添加物料', linesTitle: '物料明细', showLines: true,
   emptyText: '尚未添加物料，请点击“添加物料”新增一行，再在表格内搜索选择。'
 })
 const emit = defineEmits<{
   'update:show': [show: boolean]
+  // 显式声明生命周期，避免事件既作为 attrs 透传又由公共壳重复上报。
+  'after-enter': []
+  'before-leave': []
+  'after-leave': []
+  'load-error': [error: string]
+  // 会话失效必须直达页面，不能被保存中的普通关闭保护挡住。
+  invalidated: []
   submit: []
   addMaterial: []
 }>()
@@ -67,7 +80,9 @@ function submit(): void {
 
 <template>
   <!-- 单据编辑与详情统一加宽，宽屏多展示物料信息，窄屏仍在两侧各留 16px。 -->
-  <NModal :show="show" @update:show="updateShow" preset="card" :title="title"
+  <AppModal :busy="busy" :show="show" :origin-key="originKey" :origin="origin" :ready="ready" :load-error="loadError" @update:show="updateShow" preset="card" :title="title"
+    @after-enter="emit('after-enter')" @before-leave="emit('before-leave')" @after-leave="emit('after-leave')"
+    @load-error="emit('load-error', $event)" @invalidated="emit('invalidated')"
     class="workspace-document-dialog" :mask-closable="!busy" :close-on-esc="!busy" :closable="!busy"
     :style="{ width: 'min(1280px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)' }">
     <form class="document-form" @submit.prevent="submit">
@@ -109,7 +124,7 @@ function submit(): void {
         </slot>
       </footer>
     </form>
-  </NModal>
+  </AppModal>
 </template>
 
 <style scoped>

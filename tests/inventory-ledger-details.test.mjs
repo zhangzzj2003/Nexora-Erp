@@ -22,7 +22,7 @@ const deferred = () => { let resolve, reject; const promise = new Promise((a, b)
 function setup(t, response) {
   const old = globalThis.window
   const scope = effectScope(), state = createAppState(), calls = []
-  state.user.value = { id: 1, roles: ['admin'], permissions: ['inventory.view', 'inventory_report.view'] }
+  state.user.value = { id: 1, roles: ['admin', 'viewer'], permissions: ['inventory.view', 'inventory_report.view'] }
   globalThis.window = { nexora: { callApi: async (op, input) => {
     calls.push([op, structuredClone(input)])
     if (response) return response(op, input)
@@ -53,7 +53,7 @@ test('台账物料详情独立分页，保留完整范围汇总和主表页码',
   assert.equal(state.ledgerDocumentRecord.value.document_id, 8)
   actions.closeLedgerDocument()
   assert.equal(state.ledgerMaterialTarget.value.material_id, 3)
-  state.user.value = { ...state.user.value }
+  state.user.value = { ...state.user.value, roles: [...state.user.value.roles].reverse(), permissions: [...state.user.value.permissions].reverse() }
   assert.equal(state.ledgerMaterialTarget.value.material_id, 3)
   actions.closeLedgerMaterial()
   assert.equal(JSON.stringify([state.ledgerQuery.value, state.ledgerResult.value]), before)
@@ -82,27 +82,28 @@ test('报表详情使用稳定编号及行仓库，余额忽略隐藏的开始�
   assert.equal(calls.length, before)
 })
 
-test('物料资料失败不遮掉台账；分页失败可原页重试；错误范围不可展示', async t => {
+test('物料资料失败不报首屏就绪；分页失败保留旧正文；错误范围不能覆盖成功快照', async t => {
   let fail = true, wrong = false
   const { state, actions } = setup(t, async (op, input) => {
     if (op === 'materialDetail') throw Error('物料读取失败')
     if (fail && input.page === 2) throw Error('明细读取失败')
     return pageResult(input.page, wrong ? { ...ledgerRow, material_id: 99 } : ledgerRow)
   })
-  await actions.openLedgerMaterial(ledgerRow)
+  assert.equal(await actions.openLedgerMaterial(ledgerRow), false)
   assert.match(state.ledgerMaterialError.value, /物料读取失败/)
   assert.equal(state.ledgerMaterialResult.value.rows.length, 1)
-  await actions.queryLedgerMaterial(2)
+  assert.equal(await actions.queryLedgerMaterial(2), false)
   assert.equal(state.ledgerMaterialQuery.value.page, 2)
-  assert.equal(state.ledgerMaterialResult.value.rows.length, 0)
+  assert.equal(state.ledgerMaterialResult.value.rows.length, 1)
   assert.match(state.ledgerMaterialRowsError.value, /明细读取失败/)
   fail = false
   await actions.queryLedgerMaterial(state.ledgerMaterialQuery.value.page)
   assert.equal(state.ledgerMaterialRowsError.value, '')
   wrong = true
-  await actions.queryLedgerMaterial()
-  assert.equal(state.ledgerMaterialResult.value.rows.length, 0)
+  assert.equal(await actions.queryLedgerMaterial(), false)
+  assert.equal(state.ledgerMaterialResult.value.rows.length, 1)
   assert.match(state.ledgerMaterialRowsError.value, /范围或分页不匹配/)
+  assert.equal(state.ledgerMaterialResult.value.rows[0].material_id, 3)
 })
 
 test('关闭、切换物料、筛选及断线阻止晚到的响应重开详情', async t => {
@@ -170,4 +171,33 @@ test('台账单据 IPC 使用受限读取路径并校验流水与单据响应', 
   await assert.rejects(callBackend('inventoryLedgerDocument', { movement_id: -1 }))
   await assert.rejects(callBackend('inventoryLedgerDocument', { movement_id: 20 }), /不一致/)
   assert.throws(() => validateInventoryLedgerDocument({ movement_id: 19, document: {} }, 19))
+})
+
+// 首屏须等资料和流水都完成，刷新复用已展示正文，关闭始终撤销这次展开意图。
+test('库存详情复合读取只有全部成功才就绪，同单刷新保留正文并支持取消', async t => {
+  let delayed = false
+  const pending = []
+  const { state, actions } = setup(t, (op, input) => {
+    const result = op === 'materialDetail' ? { id: input.id, name: '连接器' } : pageResult(input.page)
+    if (!delayed) return result
+    const task = deferred(); pending.push({ ...task, result }); return task.promise
+  })
+  assert.equal(await actions.openLedgerMaterial(ledgerRow), true)
+  const material = state.ledgerMaterialDetail.value, rows = state.ledgerMaterialResult.value
+  delayed = true
+  let ready = false
+  const refresh = actions.openLedgerMaterial(ledgerRow).then(value => { ready = value; return value })
+  assert.equal(state.ledgerMaterialDetail.value, material)
+  assert.equal(state.ledgerMaterialResult.value, rows)
+  pending[0].resolve(pending[0].result)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(ready, false)
+  assert.equal(state.ledgerMaterialRowsLoading.value, true)
+  pending[1].resolve(pending[1].result)
+  assert.equal(await refresh, true)
+  const cancelled = actions.openLedgerMaterial(ledgerRow)
+  actions.closeLedgerMaterial()
+  pending[2].resolve(pending[2].result); pending[3].resolve(pending[3].result)
+  assert.equal(await cancelled, false)
+  assert.equal(state.ledgerMaterialTarget.value, null)
 })

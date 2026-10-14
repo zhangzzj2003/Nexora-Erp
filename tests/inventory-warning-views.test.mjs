@@ -21,7 +21,7 @@ async saveWarningRule(){fixture.calls++;await new Promise(resolve=>{fixture.rele
 
 }));`
 test('真实阈值与原因必填，冲突保留版本；未配置、只读和无权页面明确区分',async t=>{
-  const server=await createServer({configFile:false,plugins:[{name:'warning-view-fixture',enforce:'pre',transform(code,id){if(id.endsWith('/InventoryWarningsView.vue'))return code.replace("from 'naive-ui'","from 'virtual:warning-view-naive'")},resolveId(id,importer){
+  const server=await createServer({configFile:false,plugins:[{name:'warning-view-fixture',enforce:'pre',transform(code,id){if(id.endsWith('/InventoryWarningsView.vue'))return code.replace("from 'naive-ui'","from 'virtual:warning-view-naive'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:warning-view-naive'")},resolveId(id,importer){
     if(importer?.includes('/views/workspace/warehouse/') && id.endsWith('/store/app-store'))return '\0warning-view-store'
     if(id.endsWith('/WorkspaceTable.vue'))return '\0warning-view-table'
     if(id.endsWith('/WorkspaceSelect.vue'))return '\0warning-view-select'
@@ -31,7 +31,7 @@ test('真实阈值与原因必填，冲突保留版本；未配置、只读和�
     if(id==='\0warning-view-select')return `import {defineComponent,h} from 'vue';export default defineComponent({setup(){return ()=>h('span')}})`
     // 折叠容器使用真实实现，确保公共折叠项得到正确的上下文与键盘语义。
     if(id==='\0warning-view-naive')return `import {defineComponent,h} from 'vue';export {NCollapse} from 'naive-ui';const Body=defineComponent({setup(_props,{slots}){return ()=>h('div',slots.default?.())}});export const NCheckbox=Body;
-export const NModal=defineComponent({props:{show:Boolean,title:String,maskClosable:Boolean,closable:Boolean,closeOnEsc:Boolean},setup(props,{slots}){return ()=>props.show?h('div',{role:'dialog','aria-label':props.title,'data-mask-closable':String(props.maskClosable)},[slots.default?.(),slots.footer?.()]):null}});`
+export { NModal as default }; export const NModal=defineComponent({props:{show:Boolean,title:String,maskClosable:Boolean,closable:Boolean,closeOnEsc:Boolean},setup(props,{slots}){return ()=>props.show?h('div',{role:'dialog','aria-label':props.title,'data-mask-closable':String(props.maskClosable)},[slots.default?.(),slots.footer?.()]):null}});`
   }},vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false},appType:'custom'})
   t.after(()=>server.close())
   const {usePiniaAppStore,fixture}=await server.ssrLoadModule('\0warning-view-store')

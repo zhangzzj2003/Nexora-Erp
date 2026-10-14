@@ -1,9 +1,12 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
@@ -33,10 +36,14 @@ const columns = [{key:'reference',title:'计划编号',width:'240'}, {key:'start
   {key:'suggestion_count',title:'供给建议'}, {key:'warning_count',title:'警告'}, {key:'status',title:'阶段',width:'150'}, {key:'actions',title:'核对 / 审核',width:'360'}]
 const modalStyle = { width:'min(600px, calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto' as const }
 const actions = (item: MrpPlan) => mrpActions(item,user.value?.permissions ?? [],user.value?.id ?? 0)
+// 打开意图与业务结果分离，准备期间可取消，取消后不再采纳本次结果。
+const commandPending = ref(false)
+watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.permissions.join('|')}`, () => { commandPending.value = false }, { flush: 'sync' })
+onUnmounted(() => { commandPending.value = false })
 async function openAction(item: MrpPlan, action: MrpAction): Promise<void> {
-  preparing.value = true
-  try { if (await store.loadMrpDetail(item)) { command.value = {record:detail.value!,action}; reason.value = '' } }
-  finally { preparing.value = false }
+  commandPending.value = true; preparing.value = true
+  try { if (await store.loadMrpDetail(item) && commandPending.value) { command.value = {record:detail.value!,action}; reason.value = '' } }
+  finally { commandPending.value = false; preparing.value = false }
 }
 async function act(): Promise<void> {
   const value = command.value
@@ -44,7 +51,8 @@ async function act(): Promise<void> {
   if (!current || current.version !== value?.record.version || !actions(current).includes(value.action)) { operationError.value = '计划阶段或审批已变化，请关闭并重新读取。'; return }
   if (value && reason.value.trim() && await store.changeMrpStatus(value.record,value.action,reason.value)) command.value = null
 }
-function openConversion(row: MrpSuggestion): void {
+function openConversion(row: MrpSuggestion, event?: Event): void {
+  if (event) captureDialogOrigin('MaterialPlanningView:conversion', event)
   if (disabled.value || !detail.value || !mrpCanConvert(detail.value, check.value, row, user.value?.permissions ?? [])) return
   conversionPlan.value = { id: detail.value.id, version: detail.value.version }; conversion.value = row; reason.value = ''; reference.value = ''; warehouse.value = null }
 async function convert(): Promise<void> {
@@ -78,16 +86,16 @@ watch(connectionLost, lost => { command.value = null; conversion.value = null; i
         <template #cell-reference="{ row }"><strong>{{ documentLabel(row) }} · {{ row.reference }}</strong><span class="muted mrp-line">{{ row.created_by_name }} · {{ store.localTime(row.created_at) }}</span></template>
         <template #cell-status="{ row }">{{ mrpStatus[row.status] }} · v{{ row.version }}</template>
         <template #cell-actions="{ row }"><div class="mrp-toolbar"><AppButton size="small" :disabled="disabled" @click="store.loadMrpDetail(row)">结果与来源</AppButton>
-          <AppButton size="small" :disabled="disabled" @click="store.openDocumentApproval({document_type:'MrpPlan',document_id:row.id,intent:'execute'})">单据审批</AppButton>
-          <AppButton v-for="action in actions(row)" :key="action" size="small" :disabled="disabled" @click="openAction(row,action)">{{ mrpAction[action] }}</AppButton></div></template>
+          <AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="store.openDocumentApproval({document_type:'MrpPlan',document_id:row.id,intent:'execute'})">单据审批</AppButton>
+          <AppButton v-for="action in actions(row)" :key="action" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('MaterialPlanningView:command', $event)" @click="openAction(row,action)">{{ mrpAction[action] }}</AppButton></div></template>
         <template #empty>{{ query ? '没有匹配的计划。' : store.can('mrp.create') ? '尚无计划。进入需求编排，安排日期后计算并保存草稿。' : '尚无固定计划，须由计划编制人员建立。' }}</template>
       </WorkspaceTable>
       <MrpEvidence @convert="openConversion" />
     </template>
     <MrpEditor v-else-if="mode==='input' && store.can('mrp.create')" @saved="mode='plans'" />
     <MrpPolicies v-else-if="mode==='policies'" />
-    <DocumentApprovalDialog />
-    <NModal :show="!!command" preset="card" :title="command ? mrpAction[command.action] : ''" :style="modalStyle" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)command=null}">
+    <DocumentApprovalDialog origin-key="document-approval" />
+    <AppModal :busy="busy" origin-key="MaterialPlanningView:command" @invalidated="commandPending = false; command = null" :ready="!commandPending && !!command" :load-error="error" :show="commandPending || !!command" preset="card" :title="command ? mrpAction[command.action] : ''" :style="modalStyle" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value){commandPending=false;command=null}}">
       <form v-if="command" class="mrp-editor" @submit.prevent="act">
         <p>{{ command.record.reference }} · {{ mrpStatus[command.record.status] }} · v{{ command.record.version }}</p>
         <p v-if="!check?.matched" role="alert">来源变化或起日已过期。取消仍须核对当前原单依赖；后续供给须新建计划重算。</p>
@@ -96,8 +104,8 @@ watch(connectionLost, lost => { command.value = null; conversion.value = null; i
         <p v-if="operationError" role="alert">{{ operationError }}</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !reason.trim()">确认{{ mrpAction[command.action] }}</AppButton>
       </form>
-    </NModal>
-    <NModal :show="!!conversion" preset="card" title="建议转入原单" :style="modalStyle" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)conversion=null}">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="MaterialPlanningView:conversion" @invalidated="conversion = null" :show="!!conversion" preset="card" title="建议转入原单" :style="modalStyle" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)conversion=null}">
       <form v-if="conversion" class="mrp-editor" @submit.prevent="convert">
         <p>{{ conversion.sku }} · {{ conversion.name }} · {{ conversion.quantity }} {{ conversion.unit }} · 需求日 {{ conversion.due_date }}</p>
         <p v-if="conversion.late" role="alert">提前期不足，应于 {{ conversion.required_release_date }} 投放。保存原单不保证按期交付，须另行核对可行交期。</p>
@@ -108,6 +116,6 @@ watch(connectionLost, lost => { command.value = null; conversion.value = null; i
         <p v-if="operationError" role="alert">{{ operationError }}</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !reason.trim() || !check?.matched || (conversion.supply_mode==='make' && !warehouse)">确认建立{{ conversion.supply_mode==='buy' ? '采购申请' : '生产工单' }}草稿</AppButton>
       </form>
-    </NModal>
+    </AppModal>
   </section>
 </template>

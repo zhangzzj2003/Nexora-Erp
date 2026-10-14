@@ -7,7 +7,8 @@ import type { AppState } from '../state'
 export function createProductionAssociationActions(state: AppState) {
   let owner = 0, reads = 0
   const available = () => !!window.nexora && !state.connectionLost.value && !!state.user.value?.permissions.includes('production.view')
-  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.permissions.join('|')}`,
+  // 角色与权限按集合比较，副本排序不会修改用户快照，例行返回顺序变化也不取消读取。
+  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.slice().sort().join('|')}:${state.user.value?.permissions.slice().sort().join('|')}:${state.connectionLost.value}`,
     () => {owner++; closeProductionAssociations()}, {flush: 'sync'})
   function closeProductionAssociations(): void {
     reads++; state.productionAssociationTarget.value = null; state.productionAssociationRecord.value = null
@@ -17,7 +18,8 @@ export function createProductionAssociationActions(state: AppState) {
     const target = state.productionAssociationTarget.value
     if (!target || !available()) return false
     const ticket = ++reads, session = owner
-    state.productionAssociationLoading.value = true; state.productionAssociationRecord.value = null; state.productionAssociationError.value = ''
+    // 同目标刷新保留正文和表格高度；权限及连接变化仍由上方同步监听立即清空。
+    state.productionAssociationLoading.value = true; state.productionAssociationError.value = ''
     try {
       const record = await window.nexora!.callApi('productionAssociations', {...target, include_references: includeReferences})
       if (ticket !== reads || session !== owner || !available()) return false
@@ -33,6 +35,9 @@ export function createProductionAssociationActions(state: AppState) {
   async function openProductionAssociations(target: ProductionAssociationTarget): Promise<boolean> {
     if (!available() || state.busy.value) return false
     const input = productionAssociationInput({...target, include_references: false})
+    if (state.productionAssociationTarget.value?.kind !== input.kind || state.productionAssociationTarget.value?.id !== input.id) {
+      state.productionAssociationRecord.value = null
+    }
     state.productionAssociationTarget.value = {kind: input.kind, id: input.id}
     return loadProductionAssociations()
   }

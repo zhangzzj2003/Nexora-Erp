@@ -10,14 +10,14 @@ import {inboundFlowStoreSource} from './fixtures/inbound-flow-ui.mjs'
 // 真实详情、审批控件和批次表参与测试，仅将依赖 DOM 的外壳换为可读取的 HTML。
 async function environment(t){
  const server=await createServer({configFile:false,plugins:[{name:'inbound-flow-tests',enforce:'pre',
-  transform(code,id){if(id.endsWith('.vue'))return code.replace(/(['"])naive-ui\1/g,"'virtual:flow-naive'")},
+  transform(code,id){if(id.endsWith('.vue'))return code.replace(/(['"])naive-ui\1/g,"'virtual:flow-naive'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:flow-naive'")},
   resolveId(id,importer){
    if(id==='virtual:flow-naive')return '\0flow-naive'
    if(importer?.includes('/src/renderer/')&&id.endsWith('/store/app-store'))return '\0flow-store'
    for(const name of ['WorkspaceTable','AppButton','AppInput','WorkspaceSelect'])if(id.endsWith('/'+name+'.vue'))return '\0flow-'+name
   },load(id){
    if(id==='\0flow-store')return inboundFlowStoreSource
-   if(id==='\0flow-naive')return `import {defineComponent,h} from 'vue';export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return()=>p.show?h('section',{'data-modal':p.title},slots.default?.()):null}});export const NDatePicker=defineComponent({props:['formattedValue','disabled'],setup(p,{attrs}){return()=>h('input',{...attrs,value:p.formattedValue,disabled:p.disabled,'data-date':true})}});export const NDropdown=defineComponent({setup(p,{slots}){return()=>h('span',slots.default?.())}})`
+   if(id==='\0flow-naive')return `import {defineComponent,h} from 'vue';export { NModal as default }; export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return()=>p.show?h('section',{'data-modal':p.title},slots.default?.()):null}});export const NDatePicker=defineComponent({props:['formattedValue','disabled'],setup(p,{attrs}){return()=>h('input',{...attrs,value:p.formattedValue,disabled:p.disabled,'data-date':true})}});export const NDropdown=defineComponent({setup(p,{slots}){return()=>h('span',slots.default?.())}})`
    if(id==='\0flow-WorkspaceTable')return `import {defineComponent,h} from 'vue';export const tables=[];export default defineComponent({props:['data','columns','title'],setup(p,{slots}){tables.push({p,slots});return()=>h('div',[slots.heading?.(),slots.actions?.(),slots.filters?.(),h('table',{'aria-label':p.title},[h('thead',p.columns.map(c=>h('th',c.title))),h('tbody',p.data.map(row=>h('tr',p.columns.map(c=>h('td',slots['cell-'+c.key]?.({row}))))))])])}})`
    if(id==='\0flow-AppButton')return `import {defineComponent,h} from 'vue';export const buttons=[];export default defineComponent({props:['disabled','type'],setup(p,{slots,attrs}){return()=>{buttons.push({p,attrs,text:slots.default?.().map(v=>v.children).join('')});return h('button',{...attrs,type:p.type,disabled:p.disabled},slots.default?.())}}})`
    if(id==='\0flow-AppInput')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['modelValue','disabled'],setup(p,{attrs}){return()=>h('input',{...attrs,value:p.modelValue,disabled:p.disabled})}})`

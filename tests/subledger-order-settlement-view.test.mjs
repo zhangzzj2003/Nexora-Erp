@@ -9,7 +9,7 @@ import vue from '@vitejs/plugin-vue'
 test('真实跨原单订单页面限定完整归属，保留失败输入并拒绝过期批准',async t=>{
   const server=await createServer({configFile:false,plugins:[{
     name:'subledger-order-view',enforce:'pre',
-    transform(code,id){if(id.endsWith('/SubledgerOrderSettlements.vue'))return code.replaceAll("'naive-ui'","'virtual:bridge-modal'")},
+    transform(code,id){if(id.endsWith('/SubledgerOrderSettlements.vue'))return code.replaceAll("'naive-ui'","'virtual:bridge-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:bridge-modal'")},
     resolveId(id,importer){
       if(id==='virtual:bridge-modal')return '\0bridge-modal'
       if(importer?.includes('/SubledgerOrderSettlements.vue')&&id.endsWith('/store/app-store'))return '\0bridge-store'
@@ -19,7 +19,7 @@ test('真实跨原单订单页面限定完整归属，保留失败输入并拒�
       if(id.endsWith('/WorkspaceSelect.vue')||id.endsWith('/AppInput.vue'))return '\0bridge-stub'
     },load(id){
       if(id==='\0bridge-stub')return 'export default {render:()=>null}'
-      if(id==='\0bridge-modal')return `import {defineComponent,h} from 'vue';export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}});export const NCollapse=defineComponent({setup(p,{slots}){return()=>h('section',slots.default?.())}})`
+      if(id==='\0bridge-modal')return `import {defineComponent,h} from 'vue';export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}});export const NCollapse=defineComponent({setup(p,{slots}){return()=>h('section',slots.default?.())}})`
       if(id==='\0bridge-collapse')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['title'],setup(p,{slots}){return()=>h('section',[h('p',p.title),slots.default?.()])}})`
       if(id==='\0bridge-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return()=>h('section',(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row}))))}})`
       if(id==='\0bridge-button')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`

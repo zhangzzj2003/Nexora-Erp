@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useDialogPreparation } from '../../../composables/use-dialog-presentation'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
@@ -16,6 +17,7 @@ const { can, loadJournalAttachments, uploadJournalAttachment, reverseJournalAtta
 const rows = ref<JournalAttachment[]>([])
 const canModify = ref(false)
 const loading = ref(false)
+const prepared = ref(false)
 const busy = ref(false)
 const error = ref('')
 const message = ref('')
@@ -23,7 +25,10 @@ const reason = ref('')
 const reverseId = ref<number | null>(null)
 const reverseReason = ref('')
 let ticket = 0
-const owner = (): string => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.join('|')}:${user.value?.permissions.join('|')}`
+let generation = 0
+const owner = (): string => `${props.journalId}:${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.roles?.slice().sort().join('|')}:${user.value?.permissions.slice().sort().join('|')}:${connectionLost.value}`
+// 附件及其服务端操作权限属于首屏，不能在详情展开后再插入列表和上传入口。
+useDialogPreparation(() => !prepared.value || loading.value, error)
 const columns = [
   { key: 'file_name', title: '文件' },
   { key: 'byte_count', title: '大小', width: '95' },
@@ -37,6 +42,8 @@ async function reload(): Promise<void> {
   if (!can('journal.view') || connectionLost.value) return
   const current = ++ticket
   loading.value = true
+  // 正文可保留作刷新画面，但旧权限不得在等待或失败期间继续启用写入。
+  canModify.value = false
   error.value = ''
   try {
     const result = await loadJournalAttachments(props.journalId)
@@ -46,79 +53,88 @@ async function reload(): Promise<void> {
   } catch (cause) {
     if (current === ticket) error.value = displayError(cause)
   } finally {
-    if (current === ticket) loading.value = false
+    if (current === ticket) { loading.value = false; prepared.value = true }
   }
 }
 
-watch(owner, () => {
+function invalidate(): void {
+  generation++
   ticket++
   rows.value = []
   canModify.value = false
   loading.value = false
+  prepared.value = false
+  busy.value = false
   error.value = ''
   message.value = ''
   reason.value = ''
   reverseId.value = null
-}, { flush: 'sync' })
-watch(connectionLost, (lost) => {
-  ticket++
-  if (lost) loading.value = false
-  if (!lost) void reload()
+  reverseReason.value = ''
+}
+watch(owner, () => {
+  invalidate()
+  if (!connectionLost.value && can('journal.view')) void reload()
 }, { flush: 'sync' })
 onMounted(reload)
-onUnmounted(() => { ticket++ })
+onUnmounted(invalidate)
 
 async function upload(): Promise<void> {
-  if (busy.value || connectionLost.value || !canModify.value || !can('journal.attachment') || !reason.value.trim()) return
+  if (busy.value || loading.value || error.value || connectionLost.value || !canModify.value || !can('journal.attachment') || !reason.value.trim()) return
+  const current = generation
   busy.value = true
   error.value = ''
   message.value = ''
   try {
     const result = await uploadJournalAttachment(props.journalId, reason.value.trim())
+    if (current !== generation) return
     if (result) {
       reason.value = ''
       message.value = `已保存附件 ${result.file_name}。`
       await reload()
     }
   } catch (cause) {
-    error.value = displayError(cause)
+    if (current === generation) error.value = displayError(cause)
   } finally {
-    busy.value = false
+    if (current === generation) busy.value = false
   }
 }
 
 async function download(item: JournalAttachment): Promise<void> {
-  if (busy.value || connectionLost.value || !can('journal.view')) return
+  if (busy.value || loading.value || error.value || connectionLost.value || !can('journal.view')) return
+  const current = generation
   busy.value = true
   error.value = ''
   message.value = ''
   try {
     const saved = await saveJournalAttachment(props.journalId, item.id)
-    if (saved) message.value = `已保存附件 ${item.file_name}。`
+    if (current === generation && saved) message.value = `已保存附件 ${item.file_name}。`
   } catch (cause) {
-    error.value = displayError(cause)
+    if (current === generation) error.value = displayError(cause)
   } finally {
-    busy.value = false
+    if (current === generation) busy.value = false
   }
 }
 
 async function reverse(): Promise<void> {
-  if (reverseId.value === null || busy.value || connectionLost.value || !canModify.value
+  const item = rows.value.find(item => item.id === reverseId.value)
+  if (reverseId.value === null || busy.value || loading.value || error.value || connectionLost.value || !canModify.value
     || !can('journal.attachment') || !reverseReason.value.trim()
-    || rows.value.find(item => item.id === reverseId.value)?.can_reverse === false) return
+    || !item || item.reversal || item.can_reverse === false) return
+  const current = generation
   busy.value = true
   error.value = ''
   message.value = ''
   try {
     await reverseJournalAttachment(props.journalId, reverseId.value, reverseReason.value.trim())
+    if (current !== generation) return
     reverseId.value = null
     reverseReason.value = ''
     message.value = '附件已撤销，原文件与撤销记录仍可核对。'
     await reload()
   } catch (cause) {
-    error.value = displayError(cause)
+    if (current === generation) error.value = displayError(cause)
   } finally {
-    busy.value = false
+    if (current === generation) busy.value = false
   }
 }
 </script>
@@ -132,7 +148,7 @@ async function reverse(): Promise<void> {
     <p class="muted">支持 PDF、PNG、JPEG，单文件不超过 5 MiB，最多 10 个有效附件。撤销只追加记录；审批期间、已取消凭证和已结账期间不能改动附件，原批准票据不能撤销。</p>
     <div v-if="can('journal.attachment') && canModify" class="ledger-actions">
       <label>上传依据<AppInput v-model.trim="reason" maxlength="200" placeholder="填写票据来源或补录原因" /></label>
-      <AppButton variant="secondary" type="button" :disabled="busy || loading || connectionLost || !reason.trim()" @click="upload">选择文件并上传</AppButton>
+      <AppButton variant="secondary" type="button" :disabled="busy || loading || !!error || connectionLost || !reason.trim()" @click="upload">选择文件并上传</AppButton>
     </div>
     <p v-else-if="can('journal.attachment') && !loading" class="muted">此凭证当前不允许新增或撤销附件。</p>
     <p v-if="message" role="status">{{ message }}</p>
@@ -147,16 +163,16 @@ async function reverse(): Promise<void> {
       </template>
       <template #cell-actions="{ row }">
         <div class="ledger-actions">
-          <AppButton variant="text" type="button" :disabled="busy || connectionLost" @click="download(row)">保存</AppButton>
+          <AppButton variant="text" type="button" :disabled="busy || loading || !!error || connectionLost" @click="download(row)">保存</AppButton>
           <AppButton v-if="!row.reversal && row.can_reverse !== false && canModify && can('journal.attachment')" variant="text" type="button"
-            :disabled="busy || connectionLost" @click="reverseId = row.id; reverseReason = ''">撤销</AppButton>
+            :disabled="busy || loading || !!error || connectionLost" @click="reverseId = row.id; reverseReason = ''">撤销</AppButton>
         </div>
       </template>
       <template #empty>{{ loading ? '正在读取附件…' : '暂无附件。' }}</template>
     </WorkspaceTable>
     <form v-if="reverseId !== null" class="ledger-actions" @submit.prevent="reverse">
       <label>撤销原因<AppInput v-model.trim="reverseReason" required maxlength="200" /></label>
-      <AppButton variant="secondary" type="submit" :disabled="busy || connectionLost || !reverseReason.trim()">确认撤销</AppButton>
+      <AppButton variant="secondary" type="submit" :disabled="busy || loading || !!error || connectionLost || !canModify || !reverseReason.trim()">确认撤销</AppButton>
       <AppButton variant="text" type="button" :disabled="busy" @click="reverseId = null">返回</AppButton>
     </form>
   </div>

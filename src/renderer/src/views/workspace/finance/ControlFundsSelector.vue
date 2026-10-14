@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useDialogPreparation } from '../../../composables/use-dialog-presentation'
 import { storeToRefs } from 'pinia'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import AppButton from '../../../components/app/AppButton.vue'
@@ -14,6 +15,8 @@ const props = defineProps<{ query: ControlFundsQuery; action: 'settlement' | 're
 const emit = defineEmits<{ 'update:modelValue': [value: FundsScopeChoice | undefined]; ready: [value: boolean] }>()
 const store = usePiniaAppStore(), { user, server, connectionLost } = storeToRefs(store)
 const options = ref<ControlFundsOptions | null>(null), selected = ref(''), loading = ref(false), error = ref('')
+// 资金归属属于首次操作所需数据；父弹窗等核对完成后再一次性展开。
+useDialogPreparation(loading, error)
 let ticket = 0
 const groups = computed(() => (options.value?.origin?.groups ?? []).filter(row => !row.blockers.length
   && (props.action === 'settlement' ? cents(row.outstanding_amount) > 0n : cents(row.outstanding_amount) < 0n)))

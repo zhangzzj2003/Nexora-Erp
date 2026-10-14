@@ -12,7 +12,7 @@ import { journalStatusLabels } from './journal-display'
 import { auxiliaryText } from './auxiliary-display'
 
 const props = defineProps<{ report: StatementReport; archived?: boolean; canOpenJournal: boolean; offline: boolean }>()
-const emit = defineEmits<{ openJournal: [id: number] }>()
+const emit = defineEmits<{ openJournal: [id: number, event?: Event] }>()
 const selected = ref<{ code: string; name: string; ids: number[] } | null>(null)
 const evidence = ref<HTMLElement | null>(null)
 const balanceColumns = [{ key: 'group', title: '分组', width: '170' }, { key: 'name', title: '项目', width: '260' },
@@ -71,14 +71,14 @@ async function inspect(row: { code: string; name: string; account_ids: number[] 
       <WorkspaceTable v-if="report.opening_balance_id" :title="`正式期初来源 · ${relatedDocumentLabel(report, 'opening_balance')}`" :columns="openingColumns" :data="openings" :min-table-width="890"><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable>
       <WorkspaceTable title="已过账分录来源" :columns="sourceColumns" :data="sources" :min-table-width="1670">
         <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template>
-        <template #cell-journal_id="{ row }"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', row.journal_id)">{{ relatedDocumentLabel(row, 'journal') }}</AppButton><span v-else>{{ relatedDocumentLabel(row, 'journal') }}</span></template>
+        <template #cell-journal_id="{ row }"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', row.journal_id, $event)">{{ relatedDocumentLabel(row, 'journal') }}</AppButton><span v-else>{{ relatedDocumentLabel(row, 'journal') }}</span></template>
         <template #footer><p>{{ canOpenJournal ? '点击凭证编号查看当前分录、来源证据与操作记录。' : '当前账号仅查看报表来源快照；另有凭证查看权限才可打开当前凭证。' }} 本表包含截至期末的历史分录，借贷原值未改变；本期利润只取日期范围内的损益科目。</p></template>
       </WorkspaceTable>
     </section>
     <WorkspaceTable v-if="report.unmapped.length" title="未映射非零科目" :columns="unmappedColumns" :data="report.unmapped" :min-table-width="800" />
     <div v-if="report.pending.length || report.unclassified_transfers.length" class="statement-report-context">
-      <p v-if="report.pending.length">待处理凭证：<span v-for="item in report.pending" :key="item.id"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', item.id)">{{ documentLabel(item) }}</AppButton><span v-else>{{ documentLabel(item) }}</span>（{{ journalStatusLabels[item.status] }}，{{ item.date }}） </span></p>
-      <p v-if="report.unclassified_transfers.length">待核对手工结转：<span v-for="id in report.unclassified_transfers" :key="id"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', id)">记-{{ id }}</AppButton><span v-else>记-{{ id }}</span> </span>；请核对后在配置中明确结转范围。</p>
+      <p v-if="report.pending.length">待处理凭证：<span v-for="item in report.pending" :key="item.id"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', item.id, $event)">{{ documentLabel(item) }}</AppButton><span v-else>{{ documentLabel(item) }}</span>（{{ journalStatusLabels[item.status] }}，{{ item.date }}） </span></p>
+      <p v-if="report.unclassified_transfers.length">待核对手工结转：<span v-for="id in report.unclassified_transfers" :key="id"><AppButton v-if="canOpenJournal" type="button" variant="text" :disabled="offline" @click="emit('openJournal', id, $event)">记-{{ id }}</AppButton><span v-else>记-{{ id }}</span> </span>；请核对后在配置中明确结转范围。</p>
     </div>
   </div>
 </template>

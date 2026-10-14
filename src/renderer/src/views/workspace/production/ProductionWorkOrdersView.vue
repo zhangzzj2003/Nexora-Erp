@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
@@ -17,11 +20,10 @@ import ProductionAssociationDialog from "../../../components/workspace/Productio
 import DocumentApprovalDialog from "../../../components/workspace/DocumentApprovalDialog.vue";
 import { matchesRecordQuery } from "../../../utils/workspace-records";
 import type { WorkspaceTableColumn } from "../../../utils/table-columns";
-import { computed, ref, watch, defineAsyncComponent } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute } from 'vue-router';
-// 物料区仅在工单详情实际打开时装载，避免列表页加载整个仓库工作流。
-const WorkOrderMaterialFlowPanel = defineAsyncComponent(() => import('../../../components/workspace/WorkOrderMaterialFlowPanel.vue'));
-import { NModal } from "naive-ui";
+// 首屏物料区必须同步注册加载屏障，避免父弹窗展开后才插入正文。
+import WorkOrderMaterialFlowPanel from '../../../components/workspace/WorkOrderMaterialFlowPanel.vue';
 import { storeToRefs } from "pinia";
 import { usePiniaAppStore } from "../../../store/app-store";
 import { submitCreateDialog } from "../../../utils/create-dialog";
@@ -111,7 +113,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
 <template>
   <section class="stack">
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <WorkOrderMaterialFlowPanel v-if="detailItem && detailIntent === 'execute' && can('material_flow.view')" :order-id="detailItem.id" />
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
@@ -122,7 +124,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('production-association', $event)" @click="
               store.openProductionAssociations({
                 kind: 'work_order',
                 id: detailItem.id,
@@ -179,8 +181,8 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
         </template>
       </template>
     </DocumentApprovalDialog>
-    <ProductionAssociationDialog />
-    <NModal
+    <ProductionAssociationDialog origin-key="production-association" />
+    <AppModal :busy="busy" origin-key="ProductionWorkOrdersView:create" @invalidated="createOpen = false"
       title="新建生产工单"
       v-if="can('work_order.create')"
       v-model:show="createOpen"
@@ -259,7 +261,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
           保存工单草稿
         </AppButton>
       </form>
-    </NModal>
+    </AppModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"
@@ -273,7 +275,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
           v-if="can('work_order.create')"
           type="button"
           :disabled="busy"
-          @click="createOpen = true"
+          @click.capture="captureDialogOrigin('ProductionWorkOrdersView:create', $event)" @click="createOpen = true"
           variant="primary"
         >
           新建生产工单
@@ -295,7 +297,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
               variant="text"
               :disabled="busy || connectionLost"
               :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-              @click="
+              @click.capture="captureDialogOrigin('document-approval', $event)" @click="
                 store.openDocumentApproval({
                   document_type: 'WorkOrder',
                   document_id: item.id,
@@ -362,7 +364,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'WorkOrder',
               document_id: item.id,

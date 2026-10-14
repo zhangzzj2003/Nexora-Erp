@@ -137,7 +137,7 @@ test('真实确认订单同时更新列表和打开的审批记录，不重复�
   assert.equal(store.busy, false)
 })
 
-test('写入响应丢失后重读审批，读取失败时清除旧操作权限并显示错误', async t => {
+test('写入响应丢失后重读审批，读取失败时保留正文并以实时错误锁住操作', async t => {
   let attempted = false, failRead = false
   const { store } = await environment(t, async (action, input) => {
     if (action === 'confirmPurchaseOrder') { attempted = true; throw Error('写入响应超时') }
@@ -150,9 +150,10 @@ test('写入响应丢失后重读审批，读取失败时清除旧操作权限�
   await store.confirmPurchaseOrder(7)
   assert.match(store.error, /响应超时/)
   assert.equal(store.documentApprovalRecord.status, 'executed')
+  const previous = store.documentApprovalRecord
   failRead = true
   await store.confirmPurchaseOrder(7)
-  assert.equal(store.documentApprovalRecord, null)
+  assert.equal(store.documentApprovalRecord, previous)
   assert.match(store.documentApprovalError, /读取失败/)
   assert.equal(store.busy, false)
 })
@@ -241,7 +242,13 @@ test('订单详情读取成功前没有确认入口，重试成功后才可执�
   await opening
   delay = false
   failRead = true
+  const previous = store.documentApprovalRecord
   assert.equal(await store.loadDocumentApproval(), false)
+  // 旧正文仍用于稳定布局，但读取失败后既不显示业务执行入口，也不能调用旧审批权限。
+  assert.equal(store.documentApprovalRecord, previous)
+  assert.equal(store.documentApprovalRecord.can_withdraw, true)
+  assert.equal(await store.actDocumentApproval('withdraw'), false)
+  assert.equal(calls.some(([action]) => action === 'actDocumentApproval'), false)
   await render()
   assert.equal(buttons.some(button => button.label === '确认订单'), false)
   assert.equal(calls.some(([action]) => action === 'confirmPurchaseOrder'), false)

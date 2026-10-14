@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import {
   documentSearch,
@@ -7,7 +10,7 @@ import {
 } from "../../../../../shared/document-numbering";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { NModal } from "naive-ui";
+
 import type {
   QualityAction,
   QualityEvidence,
@@ -105,21 +108,26 @@ async function editRecord(id: number): Promise<void> {
     preparing.value = false;
   }
 }
+// 打开意图与业务结果分离，准备期间可取消，取消后不再采纳本次结果。
+const commandPending = ref(false)
+watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.permissions.join('|')}`, () => { commandPending.value = false }, { flush: 'sync' })
+onUnmounted(() => { commandPending.value = false })
 async function prepare(id: number, action: QualityAction): Promise<void> {
   if (disabled.value) return;
-  preparing.value = true;
+  commandPending.value = true; preparing.value = true;
   command.value = null;
   reason.value = "";
   error.value = "";
   try {
     if (
       (await store.loadQualityDetail(id)) &&
+      commandPending.value &&
       detail.value &&
       actions(detail.value).includes(action)
     )
       command.value = { row: detail.value, action };
   } finally {
-    preparing.value = false;
+    commandPending.value = false; preparing.value = false;
   }
 }
 async function execute(): Promise<void> {
@@ -354,7 +362,7 @@ onUnmounted(() => store.clearQualityDetail());
           tone="info"
           size="small"
           :disabled="disabled"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'QualityDisposition',
               document_id: detail.id,
@@ -367,7 +375,7 @@ onUnmounted(() => store.clearQualityDetail());
           v-if="detail.status === 'posted' && store.can('quality.reverse')"
           size="small"
           :disabled="disabled"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'QualityDisposition',
               document_id: detail.id,
@@ -397,14 +405,14 @@ onUnmounted(() => store.clearQualityDetail());
           :key="action"
           size="small"
           :disabled="disabled"
-          @click="prepare(detail.id, action)"
+          @click.capture="captureDialogOrigin('QualityDispositionView:command', $event)" @click="prepare(detail.id, action)"
           >{{ qualityCommand[action] }}</AppButton
         >
       </div>
     </template>
-    <DocumentApprovalDialog title="不合格品处置审批" />
-    <NModal
-      :show="!!command"
+    <DocumentApprovalDialog origin-key="document-approval" title="不合格品处置审批" />
+    <AppModal :busy="busy" origin-key="QualityDispositionView:command" @invalidated="commandPending = false; command = null" :ready="!commandPending && !!command" :load-error="failure"
+      :show="commandPending || !!command"
       preset="card"
       :title="command ? qualityCommand[command.action] : ''"
       :style="{
@@ -416,7 +424,7 @@ onUnmounted(() => store.clearQualityDetail());
       :closable="!busy"
       @update:show="
         (value) => {
-          if (!value) command = null;
+          if (!value) { commandPending = false; command = null; }
         }
       "
     >
@@ -458,7 +466,7 @@ onUnmounted(() => store.clearQualityDetail());
           >{{ busy ? "正在处理…" : qualityCommand[command.action] }}</AppButton
         >
       </form>
-    </NModal>
+    </AppModal>
   </section>
 </template>
 <style scoped>

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { routeByKey } from '../../../router/workspace-routes';
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
@@ -300,7 +302,7 @@ const approvalLabels = {
     <!-- 旧入口保留历史证据，新业务统一进入工单关联的四类物料流程。 -->
     <div v-if="can('material_flow.view')" class="card"><p class="muted">此处保留历史直接领退料记录。新业务在生产工单与仓库四类页面办理。</p><AppButton @click="store.navigateToRoute('productionReturns')">前往工单生产退料</AppButton></div>
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <AppButton v-if="detailItem && can('production.view')" @click="router.push({ path: routeByKey('workOrders').path, query: { document_id: detailItem.work_order_id } })">返回生产工单</AppButton>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
@@ -330,7 +332,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="startLotPost(detailItem)"
+            @click.capture="captureDialogOrigin('MaterialReturnsView:lot', $event)" @click="startLotPost(detailItem)"
             >指定实物批次（可选）</AppButton
           >
           <AppButton
@@ -358,7 +360,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'MaterialReturn',
                 document_id: detailItem.id,
@@ -377,7 +379,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'MaterialReturn',
                 document_id: detailItem.id,
@@ -392,7 +394,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'MaterialReturn',
                 document_id: detailItem.id,
@@ -419,7 +421,7 @@ const approvalLabels = {
       </template>
     </DocumentApprovalDialog>
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-    <WorkspaceDocumentDialog
+    <WorkspaceDocumentDialog origin-key="MaterialReturnsView:form" @invalidated="createOpen = false"
       v-if="can('material_return.create')"
       v-model:show="createOpen"
       title="新建生产退料单"
@@ -557,7 +559,7 @@ const approvalLabels = {
               variant="text"
               :disabled="busy || connectionLost"
               :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-              @click="
+              @click.capture="captureDialogOrigin('document-approval', $event)" @click="
                 store.openDocumentApproval({
                   document_type: 'MaterialReturn',
                   document_id: item.id,
@@ -628,7 +630,7 @@ const approvalLabels = {
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'MaterialReturn',
               document_id: item.id,
@@ -652,14 +654,14 @@ const approvalLabels = {
       </template>
     </WorkspaceTable>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
-    <WorkspaceLotDialog
-      v-if="activeReturn && can('material_return.post')"
-      :show="true"
+    <WorkspaceLotDialog origin-key="MaterialReturnsView:lot" @invalidated="closeLotPost()"
+      v-if="can('material_return.post')"
+      :show="!!activeReturn"
       title="生产退料 · 回仓批次"
-      :document-number="documentLabel(activeReturn)"
+      :document-number="activeReturn ? documentLabel(activeReturn) : ''"
       :hint="
         '可归回原领料已记录的批次，数量不得超过该批次剩余可退量；实物无法对应原批次或原领料未记录批次时，登记“退料新批次”。退回仓库为 ' +
-        activeReturn.warehouse_name +
+        activeReturn?.warehouse_name +
         '。'
       "
       :busy="busy"
@@ -676,6 +678,7 @@ const approvalLabels = {
       "
       @submit="confirmLotPost"
     >
+      <template v-if="activeReturn">
       <WorkspaceLotLineEditor
         v-for="line in lotDrafts"
         :key="line.return_line_id"
@@ -724,6 +727,8 @@ const approvalLabels = {
           >原领料未登记可退批次，须登记退料新批次；旧单据仍可在批次核对页追踪差额。</span
         >
       </WorkspaceLotLineEditor>
+
+      </template>
     </WorkspaceLotDialog>
   </section>
 </template>

@@ -1,7 +1,10 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NCheckbox, NModal } from 'naive-ui'
+import { NCheckbox } from 'naive-ui'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -97,7 +100,7 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
     </div>
     <p class="muted">按人民币核对银行对账单与已确认期初、已过账总账。绑定时可迁入带依据的期初未达项，后续用到账流水或已过账凭证核销；未达项分别调节两侧余额。文件和期初凭据仍需人工核实。</p>
 
-    <NModal title="绑定银行账户与总账科目" v-if="can('bank_reconciliation.account')" v-model:show="bindingOpen" preset="card"
+    <AppModal :busy="busy" origin-key="BankBalanceView:binding" @invalidated="bindingOpen = false" title="绑定银行账户与总账科目" v-if="can('bank_reconciliation.account')" v-model:show="bindingOpen" preset="card"
       :mask-closable="!busy" :style="{ width: 'min(720px, calc(100vw - 32px))' }">
       <!-- 标题统一放在弹窗顶部，原表单与操作布局保持不变。 -->
       <p class="muted">启用日须与已确认总账期初一致。银行和总账期初可因未达项不同，但登记的两侧明细调节后必须相符。请按启用日前原始银行凭据和总账逐笔登记；保存后未达明细不可改写。</p>
@@ -122,7 +125,7 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
         <AppButton type="button" :disabled="busy || bankBindingForm.opening_items.length >= 100" @click="addOpeningItem">添加期初未达项</AppButton>
         <AppButton type="submit" variant="primary" :disabled="busy || connectionLost">保存绑定</AppButton>
       </form>
-    </NModal>
+    </AppModal>
 
     <WorkspaceTable title="银行账户与总账科目" :columns="[{ key: 'document', title: '账户与绑定' }, { key: 'actions', title: '操作', width: '170' }]"
       :data="bankBalanceOverview?.accounts ?? []" :min-table-width="750">
@@ -134,7 +137,7 @@ const statusLabel = (status: string): string => ({ draft: '待复核', approved:
       <template #cell-actions="{ row: item }">
         <AppButton v-if="can('bank_reconciliation.account')" type="button"
           :disabled="busy || connectionLost || bankBalanceOverview?.opening_items?.some(opening => opening.account_id === item.id)"
-          @click="beginBinding(item)">{{ bankBalanceOverview?.opening_items?.some(opening => opening.account_id === item.id) ? '期初已锁定' : item.ledger_account_id ? '核对绑定' : '设置绑定' }}</AppButton>
+          @click.capture="captureDialogOrigin('BankBalanceView:binding', $event)" @click="beginBinding(item)">{{ bankBalanceOverview?.opening_items?.some(opening => opening.account_id === item.id) ? '期初已锁定' : item.ledger_account_id ? '核对绑定' : '设置绑定' }}</AppButton>
       </template>
     </WorkspaceTable>
 

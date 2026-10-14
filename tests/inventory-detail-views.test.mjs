@@ -12,7 +12,7 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
   const server = await createServer({ configFile: false, plugins: [{
     name: 'inventory-detail-view-fixture', enforce: 'pre',
     transform(code, id) {
-      if (id.endsWith('/InventoryDetailDialogs.vue') || id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace("'naive-ui'", "'virtual:detail-modal'")
+      if (id.endsWith('/InventoryDetailDialogs.vue') || id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace("'naive-ui'", "'virtual:detail-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:detail-modal'")
     },
     resolveId(id) {
       if (id.endsWith('/store/app-store')) return '\0detail-store'
@@ -38,7 +38,7 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
               h('tbody',p.data.map(row=>h('tr',p.columns.map(c=>h('td',slots['cell-'+c.key]?.({row})??row[c.key])))))]),
             p.error,slots.errorActions?.(),slots.footer?.()])}})`
       if (id === '\0detail-modal') return `import {defineComponent,h} from 'vue';
-        export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return()=>p.show?h('div',{role:'dialog','aria-label':p.title},[slots.default?.(),slots.footer?h('footer',{class:'n-card__footer'},slots.footer()):null]):null}});
+        export { NModal as default }; export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return()=>p.show?h('div',{role:'dialog','aria-label':p.title},[slots.default?.(),slots.footer?h('footer',{class:'n-card__footer'},slots.footer()):null]):null}});
         export const NTabs=defineComponent({setup(p,{slots}){return()=>h('div',{role:'tablist'},slots.default?.())}});
         export const NTabPane=defineComponent({props:['tab'],setup(p,{slots}){return()=>h('section',{role:'tabpanel'},[h('h3',p.tab),slots.default?.()])}})`
       if (id === '\0detail-progress') return `import {defineComponent,h} from 'vue';export default defineComponent({props:['record','executionHint'],setup(p){return()=>h('p',{'data-approval-progress':''},p.executionHint||'审批进度')}})`

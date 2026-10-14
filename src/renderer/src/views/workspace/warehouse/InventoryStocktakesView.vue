@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 复用公共物料资料的单行展开状态，新增或重选时收起其他行。
 import { useDocumentMaterialDetails } from "../../../composables/use-document-material-details";
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
@@ -324,7 +326,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => st
 <template>
   <section class="stack">
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-    <WorkspaceDocumentDialog
+    <WorkspaceDocumentDialog origin-key="InventoryStocktakesView:form" @invalidated="createOpen = false"
       material-supply
       v-if="can('stocktake.create')"
       v-model:show="createOpen"
@@ -427,7 +429,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => st
           v-if="can('stocktake.create')"
           type="button"
           :disabled="busy || connectionLost"
-          @click="createOpen = true"
+          @click.capture="captureDialogOrigin('InventoryStocktakesView:form', $event)" @click="createOpen = true"
           variant="primary"
           >新建盘点单</AppButton
         >
@@ -445,7 +447,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => st
           variant="text"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'Stocktake',
               document_id: item.id,
@@ -515,7 +517,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => st
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'Stocktake',
               document_id: item.id,
@@ -535,11 +537,11 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => st
       </template>
     </WorkspaceTable>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
-    <WorkspaceLotDialog
-      v-if="activeStocktake && can('stocktake.post')"
-      :show="true"
+    <WorkspaceLotDialog origin-key="InventoryStocktakesView:lot" @invalidated="closeLotPost()"
+      v-if="can('stocktake.post')"
+      :show="!!activeStocktake"
       title="库存盘点 · 差异批次"
-      :document-number="documentLabel(activeStocktake)"
+      :document-number="activeStocktake ? documentLabel(activeStocktake) : ''"
       hint="盘亏选择本仓实际减少的已有批次；盘盈可补入已有批次，或登记明确标为“盘点发现”的新批次。仅填写实物标签上实际可见的来源批号与日期。"
       :busy="busy"
       :disabled="connectionLost"
@@ -554,6 +556,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => st
       "
       @submit="confirmLotPost"
     >
+      <template v-if="activeStocktake">
       <p v-if="lotOptions && !lotDrafts.length">
         这张盘点单没有数量差异，确认时不会生成库存或批次流水。
       </p>
@@ -624,9 +627,11 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => st
         @add="addLot(line)"
         @remove="(index) => line.lots.splice(index, 1)"
       />
+
+      </template>
     </WorkspaceLotDialog>
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
@@ -655,7 +660,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => st
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="startLotPost(detailItem)"
+            @click.capture="captureDialogOrigin('InventoryStocktakesView:lot', $event)" @click="startLotPost(detailItem)"
             >指定实物批次（可选）</AppButton
           >
           <AppButton
@@ -684,7 +689,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => st
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'Stocktake',
                 document_id: detailItem.id,
@@ -701,7 +706,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => st
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'Stocktake',
                 document_id: detailItem.id,

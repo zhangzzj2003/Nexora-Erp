@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 表格详情明确记录被点击的物料编号，返回时恢复到相同入口。
+import { captureDialogOrigin } from '../../utils/dialog-origin'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../app/AppButton.vue'
 // 日期直接使用 Naive UI，保持后端字符串格式以及原有必填和范围校验。
@@ -146,7 +148,7 @@ onUnmounted(() => { if (props.domain === 'inventory') store.closeLedgerMaterial(
     <template v-if="domain === 'inventory'" #cell-sku="{ row }">
       <AppButton variant="text" :disabled="connectionLost || !store.can('inventory.view')"
         :title="store.can('inventory.view') ? '查看物料详情与台账明细' : '需要库存查看权限'"
-        :aria-label="`查看物料 ${row.sku} 的详情与台账`" @click="store.openReportMaterial(row)">{{ row.sku }}</AppButton>
+        :aria-label="`查看物料 ${row.sku} 的详情与台账`" @click.capture="captureDialogOrigin('inventory-material', $event)" @click="store.openReportMaterial(row)">{{ row.sku }}</AppButton>
     </template>
     <template #empty>筛选范围内暂无记录。</template>
   </WorkspaceTable>

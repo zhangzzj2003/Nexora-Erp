@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentLabel } from "../../../../../shared/document-numbering";
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -723,7 +725,7 @@ async function reverseApproved(identifier: number): Promise<void> {
         <AppButton
           v-if="can('other_inbound.create')"
           :disabled="busy || connectionLost"
-          @click="startCreate"
+          @click.capture="captureDialogOrigin('OtherInboundsView:form', $event)" @click="startCreate"
           variant="primary"
           type="button"
           >新建其他入库</AppButton
@@ -742,7 +744,7 @@ async function reverseApproved(identifier: number): Promise<void> {
         />
       </template>
       <template #beforeTable>
-        <WorkspaceDocumentDialog
+        <WorkspaceDocumentDialog origin-key="OtherInboundsView:form" @invalidated="showForm = false"
           material-supply
           v-if="can('other_inbound.create')"
           v-model:show="showForm"
@@ -880,7 +882,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           type="button"
           variant="text"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="openInboundDetail(item.id)"
+          @click.capture="captureDialogOrigin('OtherInboundsView:detail', $event)" @click="openInboundDetail(item.id)"
           >{{ documentLabel(item) }}</AppButton
         >
       </template>
@@ -941,7 +943,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           size="small"
           :disabled="busy || connectionLost || !!pendingActionId"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="openInboundDetail(item.id)"
+          @click.capture="captureDialogOrigin('OtherInboundsView:detail', $event)" @click="openInboundDetail(item.id)"
           >查看</AppButton
         >
       </template>
@@ -951,23 +953,23 @@ async function reverseApproved(identifier: number): Promise<void> {
           : "暂无其他入库单。"
       }}</template>
     </WorkspaceTable>
-    <WorkspaceDocumentDialog
+    <WorkspaceDocumentDialog origin-key="OtherInboundsView:detail" @invalidated="detailInboundId = 0; store.closeDocumentApproval()"
       material-supply
-      v-if="detailInbound && !activeInbound"
-      :show="true"
+      :ready="!documentApprovalLoading" :load-error="documentApprovalError"
+      :show="!!detailInbound"
       read-only
-      :title="`其他入库详情 · ${documentLabel(detailInbound)}`"
-      :data="detailInbound.lines"
+      :title="detailInbound ? `其他入库详情 · ${documentLabel(detailInbound)}` : '其他入库详情'"
+      :data="detailInbound?.lines ?? []"
       :columns="detailColumns"
       :min-table-width="940"
-      :busy="busy || pendingActionId === detailInbound.id"
+      :busy="busy || pendingActionId === detailInbound?.id"
       @update:show="
         (value) => {
           if (!value) closeInboundDetail();
         }
       "
     >
-      <template #beforeBasicInfo>
+      <template v-if="detailInbound" #beforeBasicInfo>
         <DocumentApprovalPanel
           v-if="detailApprovalMatches"
           part="progress"
@@ -991,10 +993,10 @@ async function reverseApproved(identifier: number): Promise<void> {
           :current-id="detailInbound.id"
           :local-time="localTime"
           :disabled="!!pendingActionId"
-          @open="(id) => openInboundDetail(id)"
+          @open="(id, event) => { captureDialogOrigin('OtherInboundsView:detail', event); openInboundDetail(id) }"
         />
       </template>
-      <template #basicInfo>
+      <template v-if="detailInbound" #basicInfo>
         <div class="inbound-detail-field">
           <span>单号</span><strong>{{ documentLabel(detailInbound) }}</strong>
         </div>
@@ -1055,21 +1057,21 @@ async function reverseApproved(identifier: number): Promise<void> {
           ><strong>{{ detailInbound.reversal_reason || "—" }}</strong>
         </div>
       </template>
-      <template #cell-sku="{ row }"
+      <template v-if="detailInbound" #cell-sku="{ row }"
         ><strong>{{ row.sku }}</strong></template
       >
-      <template #cell-name="{ row }">{{ row.material_name }}</template>
-      <template #cell-quantity="{ row }">{{ row.quantity }}</template>
-      <template #cell-received="{ row }">{{
+      <template v-if="detailInbound" #cell-name="{ row }">{{ row.material_name }}</template>
+      <template v-if="detailInbound" #cell-quantity="{ row }">{{ row.quantity }}</template>
+      <template v-if="detailInbound" #cell-received="{ row }">{{
         inboundReceived(row, detailInbound.status)
       }}</template>
-      <template #cell-remaining="{ row }">{{
+      <template v-if="detailInbound" #cell-remaining="{ row }">{{
         detailInbound.reversal_id
           ? "已关闭"
           : inboundRemaining(row, detailInbound.status)
       }}</template>
-      <template #cell-unit="{ row }">{{ row.unit }}</template>
-      <template #cell-lots="{ row }">
+      <template v-if="detailInbound" #cell-unit="{ row }">{{ row.unit }}</template>
+      <template v-if="detailInbound" #cell-lots="{ row }">
         <div
           v-for="lot in row.physical_lots"
           :key="lot.id"
@@ -1091,10 +1093,10 @@ async function reverseApproved(identifier: number): Promise<void> {
             : "尚未登记实物批次"
         }}</span>
       </template>
-      <template #afterLines>
+      <template v-if="detailInbound" #afterLines>
         <DocumentApprovalPanel v-if="detailApprovalMatches" part="opinion" />
       </template>
-      <template #footer>
+      <template v-if="detailInbound" #footer>
         <!-- 下一步集中到固定页脚；批准不自动加库存，仓库在这里继续入库。 -->
         <div class="inbound-flow-footer">
           <p class="inbound-flow-hint" role="status">
@@ -1137,6 +1139,7 @@ async function reverseApproved(identifier: number): Promise<void> {
               :variant="action.variant"
               :tone="action.tone"
               :disabled="detailActionsDisabled"
+              @click.capture="action.key === 'lots' ? captureDialogOrigin('OtherInboundsView:lot', $event) : action.key === 'reopen' && captureDialogOrigin('OtherInboundsView:form', $event)"
               @click="
                 detailInbound &&
                 handleInboundAction(detailInbound.id, action.key)
@@ -1154,12 +1157,12 @@ async function reverseApproved(identifier: number): Promise<void> {
       </template>
     </WorkspaceDocumentDialog>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
-    <WorkspaceLotDialog
+    <WorkspaceLotDialog origin-key="OtherInboundsView:lot" @invalidated="activeInboundId = 0"
       wide
-      v-if="activeInbound && can('other_inbound.post')"
-      :show="true"
+      v-if="can('other_inbound.post')"
+      :show="!!activeInbound"
       title="其他入库 · 批次登记"
-      :document-number="documentLabel(activeInbound)"
+      :document-number="activeInbound ? documentLabel(activeInbound) : ''"
       hint="直接填写本次到货数量；同一物料可添加多批，未到货可移除全部批次。来源批号和日期可留空。"
       :busy="busy"
       :disabled="connectionLost"
@@ -1172,6 +1175,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       "
       @submit="confirmLotPost"
     >
+      <template v-if="activeInbound">
       <!-- 多收数量与原批准额度分开；选择用途只准备草稿，不自动增加库存或应付。 -->
       <div
         v-if="excessLines.length"
@@ -1202,7 +1206,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           v-if="excessDisposition === 'gift' && can('other_inbound.create')"
           type="button"
           :disabled="busy || connectionLost"
-          @click="startExcessGift"
+          @click.capture="captureDialogOrigin('OtherInboundsView:form', $event)" @click="startExcessGift"
           >新建多收赠品入库单</AppButton
         >
       </div>
@@ -1212,6 +1216,8 @@ async function reverseApproved(identifier: number): Promise<void> {
         @add="addInboundLot"
         @remove="removeInboundLot"
       />
+
+      </template>
     </WorkspaceLotDialog>
   </section>
 </template>

@@ -132,3 +132,29 @@ test('资金组合读取仅依赖资金权限；跨会话返回会报错，取�
   state.controlBalanceTransfers.value=[row];state.controlBalanceJournal.value=journal
   assert.equal(await actions.cancelControlBalanceJournal(row,journal,'取消'),false);assert.equal(calls.length,1)
 })
+
+// 保留的凭证仅供动画和阅读，刷新未完成或失败时不能复用旧批准进行过账。
+test('关联凭证刷新保留正文，但等待和失败都会阻止旧快照过账', async t => {
+  let delayed = false
+  const gate = deferred(), calls = []
+  const journal = { id: 9, status: 'approved', version: 2, approval: { status: 'approved', version: 3 } }
+  const { state, actions } = setup(t, ['control_transfer.view','control_transfer.post','journal.view','journal.post'],
+    async (operation, input) => {
+      calls.push([operation, input])
+      if (delayed) { await gate.promise; throw Error('凭证刷新失败') }
+      return journal
+    })
+  const row = { ...record(), journal_id: 9, approval: { status: 'approved', version: 3 } }
+  state.controlBalanceTransfers.value = [row]
+  assert.equal(await actions.loadControlBalanceJournal(9), true)
+  const displayed = state.controlBalanceJournal.value
+  delayed = true
+  const refresh = actions.loadControlBalanceJournal(9)
+  assert.equal(state.controlBalanceJournal.value, displayed)
+  assert.equal(await actions.postControlBalanceJournal(row, journal, '核对'), false)
+  gate.resolve()
+  assert.equal(await refresh, false)
+  assert.equal(state.controlBalanceJournal.value, displayed)
+  assert.equal(await actions.postControlBalanceJournal(row, journal, '核对'), false)
+  assert.equal(calls.filter(([operation]) => operation === 'changeJournalStatus').length, 0)
+})

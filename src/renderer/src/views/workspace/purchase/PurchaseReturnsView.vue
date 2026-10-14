@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 退货只在批准后转出库；共用审批弹窗保留固定正文和完整历史。
@@ -119,7 +121,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
 <template>
   <section class="stack">
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-    <WorkspaceDocumentDialog
+    <WorkspaceDocumentDialog origin-key="PurchaseReturnsView:form" @invalidated="createOpen = false"
       material-supply
       v-if="can('purchase_return.create')"
       v-model:show="createOpen"
@@ -232,7 +234,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
           v-if="can('purchase_return.create')"
           type="button"
           :disabled="busy"
-          @click="createOpen = true"
+          @click.capture="captureDialogOrigin('PurchaseReturnsView:form', $event)" @click="createOpen = true"
           variant="primary"
         >
           新建采购退货
@@ -253,7 +255,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             variant="text"
             :disabled="busy || connectionLost"
             :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               approvalStore.openDocumentApproval({
                 document_type: 'PurchaseReturn',
                 document_id: item.id,
@@ -318,7 +320,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             approvalStore.openDocumentApproval({
               document_type: 'PurchaseReturn',
               document_id: item.id,
@@ -342,7 +344,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
       </template>
     </WorkspaceTable>
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
@@ -385,7 +387,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               approvalStore.openDocumentApproval({
                 document_type: 'PurchaseReturn',
                 document_id: detailItem.id,
@@ -402,7 +404,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               approvalStore.openDocumentApproval({
                 document_type: 'PurchaseReturn',
                 document_id: detailItem.id,

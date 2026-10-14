@@ -21,7 +21,7 @@ export const usePiniaAppStore = defineStore('crm-contact-dialog-test',()=>({
   saveCrm:async function(kind){calls.push(kind);return this.saveResult},navigateToRoute(){}
 }));`
 const modalSource = `import { defineComponent,h } from 'vue';
-export const NModal=defineComponent({props:['show','title','maskClosable','closeOnEsc','closable'],setup(p,{slots}){
+export { NModal as default }; export const NModal=defineComponent({props:['show','title','maskClosable','closeOnEsc','closable'],setup(p,{slots}){
   return ()=>p.show?h('section',{'data-modal':p.title,'data-mask':String(p.maskClosable),'data-esc':String(p.closeOnEsc),'data-close':String(p.closable)},slots.default?.()):null
 }});export const NInputNumber=defineComponent({setup(){return()=>null}});`
 const buttonSource = `import {defineComponent,h} from 'vue';export default defineComponent({props:['type','disabled','loading'],setup(p,{attrs,slots}){
@@ -40,7 +40,7 @@ async function fixture(t) {
   const server = await createServer({configFile:false,plugins:[{
     name:'crm-contact-dialog-fixture',enforce:'pre',
     transform(code,id){
-      if(/\/(CustomerRelationsView|CrmEditor)\.vue$/.test(id))return code.replace("'naive-ui'","'virtual:contact-modal'")
+      if(/\/(CustomerRelationsView|CrmEditor)\.vue$/.test(id))return code.replace("'naive-ui'","'virtual:contact-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:contact-modal'")
     },resolveId(id,importer){
       if(id==='virtual:contact-modal')return '\0contact-modal'
       if(!importer?.includes('/views/workspace/sales/'))return

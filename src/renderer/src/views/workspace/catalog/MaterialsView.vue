@@ -1,11 +1,14 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal, NPopconfirm } from 'naive-ui'
+import {  NPopconfirm } from 'naive-ui'
 import type { Material } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { useLocalPagination } from '../../../composables/use-local-pagination'
@@ -43,15 +46,26 @@ const columns = [
   { key: 'suppliers', title: '供应商' },
   { key: 'actions', title: '操作' }
 ]
+// 编辑请求可以取消；数据与草稿准备好前公共壳仅在入口显示等待状态。
+const preparing = ref(false)
+let formRead = 0
+watch(showForm, value => { if (!value) { formRead++; preparing.value = false; store.cancelCatalogPreparation() } }, { flush: 'sync' })
+onUnmounted(() => { formRead++; store.cancelCatalogPreparation() })
 async function edit(item?: Material): Promise<void> {
+  const ticket = ++formRead
+  preparing.value = true
+  error.value = ''
+  showForm.value = true
+  try {
   // 列表可能来自另一客户端修改前的快照，编辑前读取最新资料与版本。
   const latest = item ? await loadMaterial(item.id) : undefined
-  if (item && !latest) return
+  if (ticket !== formRead || !showForm.value) return
+  if (item && !latest) { showForm.value = false; return }
   editingId.value = latest?.id
   form.value = materialDraft(latest)
   prepareMaterialSpecs(form.value, materialCategories.value)
   if (!latest) form.value.unit = defaultMaterialUnit(materialUnits.value)
-  showForm.value = true
+  } finally { if (ticket === formRead) preparing.value = false }
 }
 async function save(): Promise<void> {
   // 目录刷新导致选择失效时保留草稿，并显示可操作的错误提示。
@@ -87,11 +101,11 @@ function supplierNames(id: number): string {
       :min-table-width="1280"
     >
       <template #actions>
-        <AppButton v-if="can('catalog.manage') && (form.name || editingId) && !showForm" :disabled="busy || connectionLost" @click="showForm = true" variant="secondary" type="button">继续未保存草稿</AppButton>
+        <AppButton v-if="can('catalog.manage') && (form.name || editingId) && !showForm" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('MaterialsView:form', $event)" @click="showForm = true" variant="secondary" type="button">继续未保存草稿</AppButton>
         <AppButton
           v-if="can('catalog.manage')"
           :disabled="busy || connectionLost"
-          @click="edit()"
+          @click.capture="captureDialogOrigin('MaterialsView:form', $event)" @click="edit()"
           variant="primary"
           type="button"
           >新增物料</AppButton
@@ -105,7 +119,7 @@ function supplierNames(id: number): string {
       </template>
       <template #beforeTable>
         <!-- 资料和供应商绑定较多，桌面端加宽；小窗口仍保留两侧各 16px 的边距。 -->
-        <NModal
+        <AppModal :busy="busy" origin-key="MaterialsView:form" @invalidated="showForm = false" :ready="!preparing"
           v-model:show="showForm"
           preset="card"
           :mask-closable="!busy"
@@ -125,7 +139,7 @@ function supplierNames(id: number): string {
             :editing="!!editingId" :busy="busy" :disconnected="connectionLost"
             @save="save" @cancel="showForm = false"
           />
-        </NModal>
+        </AppModal>
       </template>
       <template #cell-category="{ row }">{{ materialCategoryLabel(row.category_code, materialCategories) }}</template>
       <template #cell-specification="{ row }"><div>{{ row.spec_summary || row.specification || '未填写' }}</div><span class="material-hint">{{ row.package }}</span></template>
@@ -135,7 +149,7 @@ function supplierNames(id: number): string {
         <div class="catalog-actions" v-if="can('catalog.manage')">
           <AppButton
             :disabled="busy || connectionLost"
-            @click="edit(row)"
+            @click.capture="captureDialogOrigin('MaterialsView:form', $event)" @click="edit(row)"
             variant="text"
             type="button"
             >编辑</AppButton

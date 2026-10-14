@@ -15,7 +15,9 @@ export function createStatementActions(state: AppState, perform: (action: () => 
     closeStatementArchive()
   }
   watch(state.statementQuery, invalidate, { deep: true, flush: 'sync' })
-  watch(() => `${state.user.value?.id}:${state.user.value?.permissions.join('|')}`, () => {
+  // 稳定身份字段避免常规账号刷新关闭详情，切服和断线仍立即失效。
+  // 角色与权限按集合比较，副本排序不会修改用户快照，例行返回顺序变化也不取消读取。
+  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.slice().sort().join('|')}:${state.user.value?.permissions.slice().sort().join('|')}:${state.connectionLost.value}`, () => {
     owner++; invalidate(); state.statementOptions.value = null
     state.statementPolicyChanges.value = []; state.statementArchives.value = []
   }, { flush: 'sync' })
@@ -30,7 +32,7 @@ export function createStatementActions(state: AppState, perform: (action: () => 
         window.nexora!.callApi('statementPolicyChanges', undefined),
         window.nexora!.callApi('statementArchives', undefined)
       ])
-      if (current !== ticket || !can('financial_statement.view')) return false
+      if (current !== ticket || !connected() || !can('financial_statement.view')) return false
       state.statementOptions.value = options; state.statementPolicyChanges.value = history; state.statementArchives.value = archives
       return true
     } catch (error) {
@@ -45,7 +47,7 @@ export function createStatementActions(state: AppState, perform: (action: () => 
     const filters = { ...state.statementQuery.value }
     try {
       const result = await window.nexora!.callApi('queryStatement', filters)
-      if (current !== ticket || !can('financial_statement.view')) return false
+      if (current !== ticket || !connected() || !can('financial_statement.view')) return false
       state.statementReport.value = result
       return true
     } catch (error) {
@@ -53,15 +55,20 @@ export function createStatementActions(state: AppState, perform: (action: () => 
       return false
     } finally { if (current === ticket) state.statementLoading.value = false }
   }
-  async function openStatementArchive(id: number): Promise<void> {
-    if (!can('financial_statement.view') || !connected()) return
-    closeStatementArchive()
+  async function openStatementArchive(id: number): Promise<boolean> {
+    if (!can('financial_statement.view') || !connected()) return false
+    // 归档不可变，同一归档重读时保留旧快照，换归档则先撤下旧内容。
+    if (state.statementArchive.value?.id !== id) closeStatementArchive()
     const current = ++detailTicket; state.statementArchiveLoading.value = true; state.statementError.value = ''
     try {
       const result = await window.nexora!.callApi('statementArchiveDetail', { id })
-      if (current === detailTicket && can('financial_statement.view')) state.statementArchive.value = result
+      if (current !== detailTicket || !connected() || !can('financial_statement.view')) return false
+      if (result.id !== id) throw Error('报表归档与当前选择不一致，请重新读取。')
+      state.statementArchive.value = result
+      return true
     } catch (error) {
       if (current === detailTicket) state.statementError.value = displayError(error)
+      return false
     } finally { if (current === detailTicket) state.statementArchiveLoading.value = false }
   }
   async function write(permission: string, action: () => Promise<unknown>, success: string): Promise<boolean> {

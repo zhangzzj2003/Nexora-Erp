@@ -9,7 +9,7 @@ import vue from '@vitejs/plugin-vue'
 test('实际核销页面匹配归属、保留失败输入，并拒绝过期审批执行',async t=>{
   const server=await createServer({configFile:false,plugins:[{
     name:'subledger-settlement-view',enforce:'pre',
-    transform(code,id){if(id.endsWith('/SubledgerSettlements.vue'))return code.replaceAll("'naive-ui'","'virtual:settlement-modal'")},
+    transform(code,id){if(id.endsWith('/SubledgerSettlements.vue'))return code.replaceAll("'naive-ui'","'virtual:settlement-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:settlement-modal'")},
     resolveId(id,importer){
       if(id==='virtual:settlement-modal')return '\0settlement-modal'
       if(importer?.includes('/SubledgerSettlements.vue') && id.endsWith('/store/app-store'))return '\0settlement-store'
@@ -18,7 +18,7 @@ test('实际核销页面匹配归属、保留失败输入，并拒绝过期审�
       if(id.endsWith('/WorkspaceSelect.vue')||id.endsWith('/AppInput.vue'))return '\0settlement-stub'
     },load(id){
       if(id==='\0settlement-stub')return 'export default {render:()=>null}'
-      if(id==='\0settlement-modal')return `import {defineComponent,h} from 'vue';export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
+      if(id==='\0settlement-modal')return `import {defineComponent,h} from 'vue';export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
       if(id==='\0settlement-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return()=>h('section',(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row}))))}})`
       if(id==='\0settlement-button')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`
       if(id==='\0settlement-store')return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';export const calls=[];export let saves=false;export const allowSave=()=>{saves=true};

@@ -11,7 +11,7 @@ import { auxiliaryText } from './auxiliary-display'
 import { journalTotals } from './journal-display'
 
 const props = defineProps<{ evidence: ProfitTransferEvidence; canOpenJournal?: boolean }>()
-const emit = defineEmits<{ openJournal: [id: number] }>()
+const emit = defineEmits<{ openJournal: [id: number, event?: Event] }>()
 const balances = [{ key: 'account', title: '损益科目' }, { key: 'balance', title: '待结余额（借正贷负，元）' },
   { key: 'auxiliary', title: '辅助组合' },
   { key: 'debit', title: '结转借方（元）' }, { key: 'credit', title: '结转贷方（元）' }]
@@ -39,7 +39,7 @@ const targetTotals = computed(() => journalTotals(props.evidence.lines.filter(it
         <div class="stack">
           <WorkspaceTable title="损益凭证来源" :columns="sources" :data="evidence.sources" :min-table-width="1190">
             <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template>
-            <template #cell-journal_id="{ row }"><AppButton v-if="canOpenJournal" variant="text" @click="emit('openJournal', row.journal_id)">{{ relatedDocumentLabel(row, 'journal') }}</AppButton><span v-else>{{ relatedDocumentLabel(row, 'journal') }}</span></template>
+            <template #cell-journal_id="{ row }"><AppButton v-if="canOpenJournal" variant="text" @click="emit('openJournal', row.journal_id, $event)">{{ relatedDocumentLabel(row, 'journal') }}</AppButton><span v-else>{{ relatedDocumentLabel(row, 'journal') }}</span></template>
             <template #empty>没有损益已过账来源。</template>
           </WorkspaceTable>
           <WorkspaceTable title="正式期初来源" :columns="opening" :data="evidence.opening_sources" :min-table-width="930">

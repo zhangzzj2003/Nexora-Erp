@@ -16,7 +16,7 @@ test("处置方案批准后才显示办理，结案更正独立审批且撤回�
         enforce: "pre",
         transform(code, id) {
           if (id.endsWith("/QualityDispositionView.vue"))
-            return code.replace("'naive-ui'", "'virtual:quality-modal'");
+            return code.replace("'naive-ui'", "'virtual:quality-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:quality-modal'");
         },
         resolveId(id, importer) {
           if (id === "virtual:quality-modal") return "\0quality-modal";
@@ -37,11 +37,11 @@ test("处置方案批准后才显示办理，结案更正独立审批且撤回�
         },
         load(id) {
           if (id === "\0quality-modal")
-            return `import {defineComponent,h} from 'vue';export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`;
+            return `import {defineComponent,h} from 'vue';export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`;
           if (id === "\0quality-stub")
             return "export default {render:()=>null}";
           if (id === "\0quality-button")
-            return `import {defineComponent,h} from 'vue';export const buttons=[];export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>{const children=slots.default?.();const label=(children??[]).map(v=>typeof v.children==='string'?v.children:'').join('').trim();buttons.push({label,click:attrs.onClick,disabled:p.disabled,aria:attrs['aria-label']});return h('button',attrs,children)}}})`;
+            return `import {defineComponent,h} from 'vue';export const buttons=[];export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>{const children=slots.default?.();const label=(children??[]).map(v=>typeof v.children==='string'?v.children:'').join('').trim();buttons.push({label,click:async event=>{for(const callback of [attrs.onClick].flat()){if(callback) await callback(event)}},disabled:p.disabled,aria:attrs['aria-label']});return h('button',attrs,children)}}})`;
           if (id === "\0quality-table")
             return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return()=>h('section',(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row}))))}})`;
           if (id === "\0quality-store")

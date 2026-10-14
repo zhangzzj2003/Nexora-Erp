@@ -56,22 +56,22 @@ test('总览打开全仓分布和独立流水，仓库切换不改变主表或�
   assert.equal(JSON.stringify(state.stockOverviewQuery.value), original)
 })
 
-test('仓库分布失败可独立重试，不阻止物料资料和流水', async t => {
+test('首屏分布失败不报就绪，重试失败保留原先全仓快照', async t => {
   let fail = true, mismatch = false
   const { state, actions } = setup(t, async (op, input) => {
     if (op === 'queryStock') { if (fail) throw Error('分布读取失败'); return page({ ...stock, id: mismatch ? 9 : 3 }) }
     return op === 'materialDetail' ? { id: 3 } : ledger(input)
   })
-  await actions.openStockMaterial(stock)
+  assert.equal(await actions.openStockMaterial(stock), false)
   assert.match(state.stockMaterialError.value, /分布读取失败/)
   assert.ok(state.ledgerMaterialDetail.value)
   assert.equal(state.ledgerMaterialRowsError.value, '')
   fail = false
-  await actions.loadStockMaterial()
+  assert.equal(await actions.loadStockMaterial(), true)
   assert.equal(state.stockMaterialSnapshot.value.id, 3)
   mismatch = true
-  await actions.loadStockMaterial()
-  assert.equal(state.stockMaterialSnapshot.value, null)
+  assert.equal(await actions.loadStockMaterial(), false)
+  assert.equal(state.stockMaterialSnapshot.value.id, 3)
   assert.match(state.stockMaterialError.value, /不一致/)
 })
 

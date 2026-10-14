@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -10,7 +13,7 @@ import { datePickerString, vDateField, dateOutsideRange } from '../../../utils/d
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import JournalHistory from './JournalHistory.vue'
@@ -220,7 +223,7 @@ onMounted(() => {
             期初为已确认启用余额加开始日前的已过账分录；本期仅计已过账凭证，草稿、待审核及已批准凭证不计入。未结账数据可随后续过账变化。
           </p>
           <p v-if="result?.opening_balance">
-            正式期初来源：<AppButton type="button" @click="showOpening = true" variant="text"
+            正式期初来源：<AppButton type="button" @click.capture="captureDialogOrigin('LedgerReportsView:opening', $event)" @click="showOpening = true" variant="text"
               >{{ documentLabel(result.opening_balance) }} ·
               {{ result.opening_balance.reference }}</AppButton
             >
@@ -271,7 +274,7 @@ onMounted(() => {
           ><AppButton
             type="button"
             :disabled="connectionLost"
-            @click="openLedgerReportJournal(Number(row.journal_id))"
+            @click.capture="captureDialogOrigin('LedgerReportsView:journal', $event)" @click="openLedgerReportJournal(Number(row.journal_id))"
             variant="text"
             >{{ relatedDocumentLabel(row, 'journal') }}</AppButton
           ></template
@@ -281,7 +284,7 @@ onMounted(() => {
             v-if="row.reversal_of_id"
             type="button"
             :disabled="connectionLost"
-            @click="openLedgerReportJournal(Number(row.reversal_of_id))"
+            @click.capture="captureDialogOrigin('LedgerReportsView:journal', $event)" @click="openLedgerReportJournal(Number(row.reversal_of_id))"
             variant="text"
             >{{ row.source }}</AppButton
           ><span v-else>{{ row.source }}</span></template
@@ -330,7 +333,7 @@ onMounted(() => {
         ><span class="ledger-report-money">{{ row.credit }}</span></template
       >
     </WorkspaceTable>
-    <NModal
+    <AppModal origin-key="LedgerReportsView:journal" @invalidated="closeLedgerReportJournal()" :ready="!journalLoading && !!journal" :load-error="journalError"
       :show="!!journal || journalLoading || !!journalError"
       preset="card"
       :title="journal ? `${documentLabel(journal)} · ${journalStatusLabels[journal.status]}` : '凭证详情'"
@@ -358,7 +361,7 @@ onMounted(() => {
           冲销原凭证：<AppButton
             type="button"
             :disabled="connectionLost"
-            @click="openLedgerReportJournal(journal.reversal_of_id)"
+            @click.capture="captureDialogOrigin('LedgerReportsView:journal', $event)" @click="openLedgerReportJournal(journal.reversal_of_id)"
             variant="text"
             >{{ relatedDocumentLabel(journal, 'reversal_of') }}</AppButton
           >
@@ -367,7 +370,7 @@ onMounted(() => {
           关联冲销：<AppButton
             type="button"
             :disabled="connectionLost"
-            @click="openLedgerReportJournal(journal.reversal_journal_id)"
+            @click.capture="captureDialogOrigin('LedgerReportsView:journal', $event)" @click="openLedgerReportJournal(journal.reversal_journal_id)"
             variant="text"
             >{{ relatedDocumentLabel(journal, 'reversal_journal') }}</AppButton
           >（须过账后才抵销）。
@@ -387,8 +390,8 @@ onMounted(() => {
           :load="() => loadJournalChanges(journal!.id)"
         />
       </div>
-    </NModal>
-    <NModal
+    </AppModal>
+    <AppModal origin-key="LedgerReportsView:opening" @invalidated="showOpening = false"
       v-model:show="showOpening"
       preset="card"
       title="正式期初来源"
@@ -423,6 +426,6 @@ onMounted(() => {
           :load="async () => result!.opening_balance!.changes"
         />
       </div>
-    </NModal>
+    </AppModal>
   </section>
 </template>

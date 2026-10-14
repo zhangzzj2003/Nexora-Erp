@@ -39,7 +39,7 @@ test("其他入库列表区分待登记、已登记和旧单未分配批次", as
             );
           // 弹窗内容默认进入 teleport，改写导入为内联替身才能在主渲染结果中断言。
           if (id.endsWith("/WorkspaceDocumentDialog.vue"))
-            return code.replace("'naive-ui'", "'virtual:other-inbound-modal'");
+            return code.replace("'naive-ui'", "'virtual:other-inbound-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:other-inbound-modal'");
         },
         resolveId(id, importer) {
           if (id === "virtual:other-inbound-modal")
@@ -69,7 +69,7 @@ test("其他入库列表区分待登记、已登记和旧单未分配批次", as
           if (id === "\0other-inbound-table")
             return `import {defineComponent,h} from 'vue';export default defineComponent({props:{data:Array},setup(props,{slots}){return ()=>h('section',[slots.filters?.(),...props.data.flatMap(row=>['document','source','lines','actions'].map(key=>slots['cell-'+key]?.({row}))),slots.empty?.()])}})`;
           if (id === "\0other-inbound-naive")
-            return `import {defineComponent,h} from 'vue';const Modal=defineComponent({props:{show:Boolean},setup(props,{slots}){return ()=>props.show?h('section',slots.default?.()):null}});export const NModal=Modal,NDatePicker=Modal;`;
+            return `import {defineComponent,h} from 'vue';const Modal=defineComponent({props:{show:Boolean},setup(props,{slots}){return ()=>props.show?h('section',slots.default?.()):null}});export { NModal as default }; export const NModal=Modal,NDatePicker=Modal;`;
         },
       },
       vue(),

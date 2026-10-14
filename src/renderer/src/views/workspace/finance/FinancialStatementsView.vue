@@ -1,9 +1,12 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 凭证与来源保留内部 ID，界面优先显示服务端保存的业务单号。
 import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NDatePicker, NModal, NCollapse } from 'naive-ui'
+import { NDatePicker,  NCollapse } from 'naive-ui'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
@@ -69,9 +72,11 @@ async function inspectArchive(id: number): Promise<void> {
   await openStatementArchive(id)
 }
 function closeArchive(): void { archiveVisible.value = false; returnToArchive = false; closeStatementArchive() }
-async function inspectJournal(id: number): Promise<void> {
+async function inspectJournal(id: number, event?: Event): Promise<void> {
+  if (event) captureDialogOrigin('FinancialStatementsView:journal', event)
   if (!can('journal.view')) return
-  if (archiveVisible.value) { returnToArchive = true; archiveVisible.value = false }
+  // 来源归档保留在底层，凭证关闭时能够直接收回原按钮。
+  if (archiveVisible.value) returnToArchive = true
   await openLedgerReportJournal(id)
 }
 function closeJournal(): void {
@@ -116,25 +121,25 @@ function closeJournal(): void {
     </form>
     <WorkspaceTable title="报表归档" :data="archiveRows" :columns="archiveColumns" :min-table-width="1040">
       <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
-      <template #cell-actions="{ row }"><AppButton type="button" variant="text" :disabled="connectionLost || archiveLoading" @click="inspectArchive(row.id)">查看快照</AppButton></template>
+      <template #cell-actions="{ row }"><AppButton type="button" variant="text" :disabled="connectionLost || archiveLoading" @click.capture="captureDialogOrigin('FinancialStatementsView:archive', $event)" @click="inspectArchive(row.id)">查看快照</AppButton></template>
       <template #empty>暂无归档。请先完成项目配置和期间核对，关闭期间后归档。</template>
     </WorkspaceTable>
     <NCollapse><AppCollapseItem name="statement-history" title="报表配置变更记录"><WorkspaceTable title="配置变更记录" :data="changes" :columns="historyColumns" :min-table-width="1050">
       <template #cell-created_at="{ row }">{{ localTime(row.created_at) }}</template>
       <template v-for="field in (['before', 'after'] as const)" #[`cell-${field}`]="{ row }"><NCollapse><AppCollapseItem :name="`policy-${row.id}-${field}`" :title="statementPolicyDescription(row[field])"><template v-if="row[field]"><ul><li v-for="line in row[field]!.lines" :key="line.code">{{ line.code }} · {{ line.name }} · {{ statementGroups[line.group] }}</li></ul><ul><li v-for="item in row[field]!.allocations" :key="item.account_id">科目 #{{ item.account_id }} → {{ item.line_code }}</li></ul><p>手工结转：{{ row[field]!.manual_transfer_ids.map(id => `记-${id}`).join('、') || '无' }}</p></template></AppCollapseItem></NCollapse></template>
     </WorkspaceTable></AppCollapseItem></NCollapse>
-    <NModal :show="archiveVisible" preset="card" :title="archive ? `财务报表归档 #${archive.id}` : '读取报表归档'" :style="modalStyle" @update:show="value => { if (!value) closeArchive() }">
+    <AppModal :busy="busy" origin-key="FinancialStatementsView:archive" @invalidated="closeArchive()" :ready="!archiveLoading && !!archive" :load-error="error" :show="archiveVisible" preset="card" :title="archive ? `财务报表归档 #${archive.id}` : '读取报表归档'" :style="modalStyle" @update:show="value => { if (!value) closeArchive() }">
       <p v-if="archiveLoading" role="status">正在读取归档快照…</p><p v-if="error" role="alert">{{ error }}</p>
       <div v-if="archive" class="stack"><p>归档于 {{ localTime(archive.created_at) }} · 操作者 {{ archives.find(item => item.id === archive!.id)?.created_by_name || `账号 #${archive.created_by}` }} · 依据 {{ archive.reason }}</p><AppButton type="button" variant="secondary" :disabled="connectionLost" @click="exportStatement(archive.snapshot)">导出归档 CSV</AppButton><StatementReportView :key="archive.id" :report="archive.snapshot" archived :can-open-journal="can('journal.view')" :offline="connectionLost" @open-journal="inspectJournal" /></div>
-    </NModal>
-    <NModal :show="!!journal || journalLoading || !!journalError" preset="card" :title="journal ? `${documentLabel(journal)} · ${journalStatusLabels[journal.status]}` : '当前凭证详情'" :style="modalStyle" @update:show="value => { if (!value) closeJournal() }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="FinancialStatementsView:journal" @invalidated="closeLedgerReportJournal(); archiveVisible = false; returnToArchive = false; closeStatementArchive()" :ready="!journalLoading && !!journal" :load-error="journalError" :show="!!journal || journalLoading || !!journalError" preset="card" :title="journal ? `${documentLabel(journal)} · ${journalStatusLabels[journal.status]}` : '当前凭证详情'" :style="modalStyle" @update:show="value => { if (!value) closeJournal() }">
       <p v-if="journalLoading" role="status">正在读取凭证…</p><p v-if="journalError" role="alert">{{ journalError }}</p>
       <div v-if="journal" class="stack"><p>{{ journal.journal_date }} · 期间 {{ journal.period_code }} · 依据 {{ journal.reference }} · 建单人 {{ journal.created_by_name }} · 当前版本 {{ journal.version }}</p><p v-if="journal.note">备注：{{ journal.note }}</p>
-        <p v-if="journal.reversal_of_id">冲销原凭证：<AppButton type="button" variant="text" :disabled="connectionLost" @click="inspectJournal(journal.reversal_of_id)">{{ relatedDocumentLabel(journal, 'reversal_of') }}</AppButton></p>
+        <p v-if="journal.reversal_of_id">冲销原凭证：<AppButton type="button" variant="text" :disabled="connectionLost" @click.capture="captureDialogOrigin('FinancialStatementsView:journal', $event)" @click="inspectJournal(journal.reversal_of_id)">{{ relatedDocumentLabel(journal, 'reversal_of') }}</AppButton></p>
         <WorkspaceTable title="当前凭证分录" :data="journal.lines" :columns="journalColumns" :min-table-width="1090"><template #cell-account_name="{ row }">{{ row.account_code }} · {{ row.account_name }}</template><template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template></WorkspaceTable>
         <NCollapse><AppCollapseItem v-if="journal.business_source" name="business" title="生成时的业务来源"><BusinessSourceEvidence :source="journal.business_source.evidence" :mapping="journal.business_source.mapping" /></AppCollapseItem><AppCollapseItem v-if="journal.profit_transfer" name="transfer" title="生成时的损益结转来源"><ProfitTransferEvidence :evidence="journal.profit_transfer.evidence" :can-open-journal="can('journal.view')" @open-journal="inspectJournal" /></AppCollapseItem></NCollapse>
         <JournalHistory :key="`${journal.id}:${journal.version}`" :load="() => loadJournalChanges(journal!.id)" />
       </div>
-    </NModal>
+    </AppModal>
   </section>
 </template>

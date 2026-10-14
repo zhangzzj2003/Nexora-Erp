@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -8,7 +11,7 @@ import { NDatePicker } from 'naive-ui'
 import { datePickerString, vDateField, dateOutsideRange } from '../../../utils/date-field'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import type { AccountingPeriod } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
@@ -51,6 +54,8 @@ async function openClosing(item: AccountingPeriod, mode: 'close' | 'reopen' | 'h
   if (mode === 'close') await store.loadPeriodClosingCheck(item.id)
   else await store.loadPeriodClosingHistory(item.id)
 }
+// 取消准备必须同时废弃服务端读取，迟到结果不能重新显示结账内容。
+function closeClosing(): void { closingTarget.value = null; store.closePeriodClosing() }
 async function retryClosing(): Promise<void> {
   if (!closingTarget.value) return
   if (closingMode.value === 'close') await store.loadPeriodClosingCheck(closingTarget.value.id)
@@ -76,7 +81,7 @@ async function confirmClosing(): Promise<void> {
         ><AppButton
           v-if="can('accounting_period.manage')"
           :disabled="busy || connectionLost"
-          @click="edit()"
+          @click.capture="captureDialogOrigin('AccountingPeriodsView:form', $event)" @click="edit()"
           variant="primary"
           type="button"
           >新增期间</AppButton
@@ -91,18 +96,18 @@ async function confirmClosing(): Promise<void> {
       <template #cell-status="{ row }">{{ row.status === 'open' ? '开放' : '已结账' }}</template>
       <template #cell-actions="{ row }">
         <div class="ledger-actions">
-          <AppButton v-if="can('accounting_period.manage') && row.status === 'open'" :disabled="busy || connectionLost" @click="edit(row)" variant="text" type="button">编辑名称</AppButton>
-          <AppButton v-if="can('accounting_period.closing_view') && row.status === 'open'" :disabled="busy || connectionLost" @click="openClosing(row, 'close')" variant="text" type="button">结账检查</AppButton>
-          <AppButton v-if="can('accounting_period.closing_view') && can('accounting_period.reopen') && row.status === 'closed'" :disabled="busy || connectionLost" @click="openClosing(row, 'reopen')" variant="text" type="button">重开期间</AppButton>
-          <AppButton v-if="can('accounting_period.closing_view')" :disabled="connectionLost" @click="openClosing(row, 'history')" variant="text" type="button">结账记录</AppButton>
-          <AppButton :disabled="connectionLost" @click="history = row" variant="text" type="button">变更记录</AppButton>
+          <AppButton v-if="can('accounting_period.manage') && row.status === 'open'" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('AccountingPeriodsView:form', $event)" @click="edit(row)" variant="text" type="button">编辑名称</AppButton>
+          <AppButton v-if="can('accounting_period.closing_view') && row.status === 'open'" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('AccountingPeriodsView:closing', $event)" @click="openClosing(row, 'close')" variant="text" type="button">结账检查</AppButton>
+          <AppButton v-if="can('accounting_period.closing_view') && can('accounting_period.reopen') && row.status === 'closed'" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('AccountingPeriodsView:closing', $event)" @click="openClosing(row, 'reopen')" variant="text" type="button">重开期间</AppButton>
+          <AppButton v-if="can('accounting_period.closing_view')" :disabled="connectionLost" @click.capture="captureDialogOrigin('AccountingPeriodsView:closing', $event)" @click="openClosing(row, 'history')" variant="text" type="button">结账记录</AppButton>
+          <AppButton :disabled="connectionLost" @click.capture="captureDialogOrigin('AccountingPeriodsView:history', $event)" @click="history = row" variant="text" type="button">变更记录</AppButton>
         </div>
       </template>
       <template #empty>{{
         query ? '没有匹配的期间。' : '暂无会计期间。请先确定公司使用的日期范围。'
       }}</template>
     </WorkspaceTable>
-    <NModal
+    <AppModal :busy="busy" origin-key="AccountingPeriodsView:form" @invalidated="showForm = false"
       v-model:show="showForm"
       preset="card"
       :title="form.id === null ? '新增会计期间' : '编辑期间名称'"
@@ -179,8 +184,8 @@ async function confirmClosing(): Promise<void> {
           >
         </div>
       </form>
-    </NModal>
-    <NModal
+    </AppModal>
+    <AppModal :busy="busy" origin-key="AccountingPeriodsView:history" @invalidated="history = null"
       :show="history !== null"
       preset="card"
       :title="history ? `${history.code} · 变更记录` : '变更记录'"
@@ -196,8 +201,8 @@ async function confirmClosing(): Promise<void> {
         :key="history.id"
         :load="() => loadAccountingPeriodChanges(history!.id)"
       />
-    </NModal>
-    <NModal :show="closingTarget !== null" preset="card" :title="`${closingTarget?.code ?? ''} · ${closingMode === 'close' ? '结账检查' : closingMode === 'reopen' ? '重开期间' : '结账记录'}`" :mask-closable="!busy" :style="{ width: 'min(1180px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }" @update:show="value => { if (!value) closingTarget = null }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="AccountingPeriodsView:closing" @invalidated="closeClosing()" :ready="!checking" :load-error="closingError" :show="closingTarget !== null" preset="card" :title="`${closingTarget?.code ?? ''} · ${closingMode === 'close' ? '结账检查' : closingMode === 'reopen' ? '重开期间' : '结账记录'}`" :mask-closable="!busy" :style="{ width: 'min(1180px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }" @update:show="value => { if (!value) closeClosing() }">
       <div v-if="closingTarget && can('accounting_period.closing_view')" class="stack">
         <p v-if="checking" role="status">正在读取期间检查与证据…</p>
         <p v-if="closingError" role="alert">{{ closingError }} <AppButton :disabled="checking || connectionLost" @click="retryClosing" variant="text" type="button">重新读取</AppButton></p>
@@ -216,11 +221,11 @@ async function confirmClosing(): Promise<void> {
         </template>
         <form v-if="closingMode !== 'history' && !checking && !closingError && can(`accounting_period.${closingMode}`)" class="ledger-editor" @submit.prevent="confirmClosing">
           <label>核对依据 / 操作原因<AppInput v-model.trim="reason" required maxlength="200" :disabled="busy" placeholder="填写结账核对依据或重开更正原因" /></label>
-          <div class="form-actions"><AppButton :disabled="busy || connectionLost || !reason.trim() || (closingMode === 'close' ? !closingCheck?.can_close : laterClosed.length > 0)" variant="primary" type="submit">{{ busy ? '正在处理…' : closingMode === 'close' ? '确认结账' : '确认重开' }}</AppButton><AppButton type="button" :disabled="busy" @click="closingTarget = null" variant="secondary">取消</AppButton></div>
+          <div class="form-actions"><AppButton :disabled="busy || connectionLost || !reason.trim() || (closingMode === 'close' ? !closingCheck?.can_close : laterClosed.length > 0)" variant="primary" type="submit">{{ busy ? '正在处理…' : closingMode === 'close' ? '确认结账' : '确认重开' }}</AppButton><AppButton type="button" :disabled="busy" @click="closeClosing" variant="secondary">取消</AppButton></div>
         </form>
         <PeriodClosingHistory v-if="closingMode === 'history' && !checking && !closingError" />
         <p v-if="closingMode === 'close' && !can('accounting_period.close')" class="muted">当前账号可查看检查结果；结账需另行获得“结账会计期间”权限。</p>
       </div>
-    </NModal>
+    </AppModal>
   </section>
 </template>

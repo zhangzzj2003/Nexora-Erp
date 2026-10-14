@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 记录实际点击的物料或单据单元格，关闭详情时回到该入口。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -117,14 +119,14 @@ onUnmounted(closeLedgerMaterial)
       >
       <template #cell-sku="{ row }">
         <AppButton variant="text" :disabled="connectionLost" :aria-label="`查看物料 ${row.sku} 的详情与台账`"
-          @click="openLedgerMaterial(row)">{{ row.sku }}</AppButton>
+          @click.capture="captureDialogOrigin('inventory-material', $event)" @click="openLedgerMaterial(row)">{{ row.sku }}</AppButton>
       </template>
       <template #cell-time="{ row }"><span class="ledger-time">{{ ledgerTime(row.created_at) }}</span></template>
       <template #cell-operator="{ row }">{{ row.created_by_name || '—' }}</template>
       <template #cell-source_type="{ row }">{{ movementTypeLabel(row.source_type) }}</template>
       <template #cell-source_document="{ row }">
         <AppButton variant="text" :disabled="connectionLost" :aria-label="`查看单据 ${relatedDocumentLabel(row, 'source')} 详情`"
-          @click="openLedgerDocument(row)">{{ relatedDocumentLabel(row, 'source') }}</AppButton>
+          @click.capture="captureDialogOrigin('inventory-document', $event)" @click="openLedgerDocument(row)">{{ relatedDocumentLabel(row, 'source') }}</AppButton>
       </template>
       <template #cell-quantity="{ row: item }"
         >{{ item.quantity.startsWith('-') ? '' : '+' }}{{ item.quantity }} {{ item.unit }}</template
@@ -153,7 +155,7 @@ onUnmounted(closeLedgerMaterial)
       :data="ledgerResult.groups"
       :min-table-width="680"
     >
-      <template #cell-sku="{ row }"><AppButton variant="text" :disabled="connectionLost" @click="openLedgerMaterial(row)">{{ row.sku }}</AppButton></template>
+      <template #cell-sku="{ row }"><AppButton variant="text" :disabled="connectionLost" @click.capture="captureDialogOrigin('inventory-material', $event)" @click="openLedgerMaterial(row)">{{ row.sku }}</AppButton></template>
       <template #cell-opening="{ row }">{{ row.opening_quantity }} {{ row.unit }}</template>
       <template #cell-closing="{ row }">{{ row.closing_quantity }} {{ row.unit }}</template>
     </WorkspaceTable>

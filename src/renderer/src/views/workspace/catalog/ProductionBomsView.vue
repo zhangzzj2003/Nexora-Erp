@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 复用公共物料资料的单行展开状态，新增或重选时收起其他行。
 import { useDocumentMaterialDetails } from '../../../composables/use-document-material-details'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -80,7 +82,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => bo
 <template>
   <section class="stack">
     <!-- 业务草稿仍由 Pinia 保存，公共弹窗只负责布局和交互边界。 -->
-    <WorkspaceDocumentDialog
+    <WorkspaceDocumentDialog origin-key="ProductionBomsView:form" @invalidated="createOpen = false"
       v-if="can('bom.create')" v-model:show="createOpen" title="新建 BOM 版本"
       :data="componentRows" :columns="componentColumns" :busy="busy" :disabled="connectionLost"
       :submit-disabled="Boolean(bomIssue)" :add-disabled="bomForm.lines.length >= 100"
@@ -131,7 +133,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => bo
           v-if="can('bom.create')"
           type="button"
           :disabled="busy || connectionLost"
-          @click="createOpen = true"
+          @click.capture="captureDialogOrigin('ProductionBomsView:form', $event)" @click="createOpen = true"
           variant="primary"
         >
           新建 BOM 版本

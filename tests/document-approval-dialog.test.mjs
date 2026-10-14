@@ -14,12 +14,12 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
       documentApprovalRecord:ref(null),documentApprovalLoading:ref(false),documentApprovalError:ref(''),
       documentApprovalReasons:ref({}),documentApprovalEvidence:ref({}),busy:ref(false),connectionLost:ref(false),roles:ref([{code:'admin',label:'管理员'}]),
       localTime:value=>value,closeDocumentApproval(){calls.push('close')},loadDocumentApproval(){calls.push('refresh')},
-      actDocumentApproval(action){calls.push(action)}
+      actDocumentApproval(action){calls.push(action)},openDocumentApproval(target){calls.push(target)}
     }));`
   const server = await createServer({ configFile: false, plugins: [{
     name: 'approval-dialog-fixture', enforce: 'pre',
     transform(code, id) {
-      if (id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace("'naive-ui'", "'virtual:approval-dialog-modal'")
+      if (id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace("'naive-ui'", "'virtual:approval-dialog-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:approval-dialog-modal'")
     }, resolveId(id, importer) {
       if (id === 'virtual:approval-dialog-modal') return '\0approval-dialog-modal'
       if ((importer?.includes('DocumentApprovalDialog') || importer?.includes('DocumentApprovalPanel')) && id.endsWith('/store/app-store')) return '\0approval-dialog-store'
@@ -28,10 +28,10 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
       for (const name of ['AppButton.vue', 'AppInput.vue']) if (id.endsWith('/' + name)) return '\0approval-dialog-' + name
     }, load(id) {
       if (id === '\0approval-dialog-store') return fixture
-      if (id === '\0approval-dialog-modal') return `import {defineComponent,h} from 'vue';export const captured={};export const NModal=defineComponent({props:['show','title','maskClosable','closeOnEsc','closable'],setup(p,{slots,attrs}){Object.assign(captured,{props:p,attrs,slots});return()=>p.show?h('section',{...attrs,'data-title':p.title},slots.default?.()):null}})`
+      if (id === '\0approval-dialog-modal') return `import {defineComponent,h} from 'vue';export const captured={};export { NModal as default }; export const NModal=defineComponent({props:['show','title','maskClosable','closeOnEsc','closable'],setup(p,{slots,attrs}){Object.assign(captured,{props:p,attrs,slots});return()=>p.show?h('section',{...attrs,'data-title':p.title},slots.default?.()):null}})`
       // 表格仅替换绘制，列数据与行插槽仍经过真实公共单据组件。
       if (id === '\0approval-dialog-table') return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns','emptyText'],setup(p,{slots}){return()=>h('section',{'data-table':true},[slots.heading?.(),...p.data.map(row=>h('article',p.columns.map(c=>slots['cell-'+c.key]?.({row})))),p.data.length?null:h('p',p.emptyText)])}})`
-      if (id === '\0approval-dialog-AppButton.vue') return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`
+      if (id === '\0approval-dialog-AppButton.vue') return `import {defineComponent,h} from 'vue';export const buttons=[];export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>{const content=slots.default?.();buttons.push({attrs,content});return h('button',{...attrs,disabled:p.disabled},content)}}})`
       if (id === '\0approval-dialog-AppInput.vue') return `import {defineComponent,h} from 'vue';export default defineComponent({props:['modelValue','disabled'],setup(p,{attrs}){return()=>h('input',{...attrs,value:p.modelValue,disabled:p.disabled})}})`
     }
   }, vue()], optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
@@ -39,7 +39,7 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   const { usePiniaAppStore } = await server.ssrLoadModule('\0approval-dialog-store')
   const pinia = createPinia(), store = usePiniaAppStore(pinia)
   const { default: Dialog } = await server.ssrLoadModule('/src/renderer/src/components/workspace/DocumentApprovalDialog.vue')
-  const render = (slots) => renderToString(createSSRApp({ render: () => h(Dialog, null, slots) }).use(pinia))
+  const render = (slots, props) => renderToString(createSSRApp({ render: () => h(Dialog, props, slots) }).use(pinia))
   store.documentApprovalRecord = { document_type: 'WarehouseInbound', document_id: 1, document_no: 'QTRK-20261007-000001', intent: 'execute', business_status: 'draft',
     summary: [{label:'仓库',value:'主仓库'},{label:'用途',value:'赠品'},{label:'入库说明',value:'完整说明'.repeat(40)},
       {label:'参考号',value:'REF-1'},{label:'入库明细',value:'电阻 × 100 个'}], content_matches: true,
@@ -116,6 +116,10 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.match(html, /<button[^>]*disabled[^>]*>刷新记录/)
   assert.doesNotMatch(html, /<button[^>]*disabled[^>]*>关闭</)
   store.documentApprovalLoading = false
+  // 失败后仍可重试读取，但旧快照的真实审批动作必须禁用。
+  html = await render()
+  assert.doesNotMatch(html, /<button[^>]*disabled[^>]*>刷新记录/)
+  assert.match(html, /<button[^>]*disabled[^>]*>撤回审批/)
   store.documentApprovalError = ''
   store.documentApprovalRecord.can_review = true
   html = await render()
@@ -261,4 +265,18 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   assert.match(html,/<button[^>]*disabled[^>]*>提交审批/)
   store.documentApprovalReasons['SubledgerSettlement:1:execute']='原单核对依据'
   assert.doesNotMatch(await render(),/<button[^>]*disabled[^>]*>提交审批/)
+
+  // 共享详情的溯源按钮沿用调用方自定义来源 key，并同步保留真正的点击元素。
+  const { buttons } = await server.ssrLoadModule('\0approval-dialog-AppButton.vue')
+  const { getDialogOrigin, clearDialogOrigins } = await server.ssrLoadModule('/src/renderer/src/utils/dialog-origin.ts')
+  t.after(clearDialogOrigins)
+  store.documentApprovalTarget={document_type:'WarehouseInbound',document_id:1,intent:'execute'}
+  store.documentApprovalRecord={...savedRecord,reopen_trace:[{id:1,source_id:1,new_id:2,kind:'cancelled',source_document_no:'原单',new_document_no:'关联新单',created_by_name:'仓库员',created_at:'2026-10-14'}]}
+  buttons.length=0
+  await render(undefined,{originKey:'custom:approval'})
+  const link=buttons.find(button=>button.content?.some(node=>node.children==='关联新单'))
+  const event={currentTarget:{getBoundingClientRect:()=>({left:10,top:20,width:80,height:32})}}
+  link.attrs.onClick(event)
+  assert.deepEqual(calls.at(-1),{document_type:'WarehouseInbound',document_id:2,intent:'execute'})
+  assert.equal(getDialogOrigin('custom:approval').element,event.currentTarget)
 })

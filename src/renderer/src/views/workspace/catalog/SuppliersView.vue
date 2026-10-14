@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -6,9 +9,9 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal, NPopconfirm } from 'naive-ui'
+import {  NPopconfirm } from 'naive-ui'
 import type { Supplier, SupplierChange } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
@@ -70,28 +73,37 @@ const materialColumns = [
   { key: 'unit', title: '单位' },
   { key: 'actions', title: '操作' }
 ]
+// 等待期间只保留打开意图；取消与切页递增代次，迟到结果不能重开弹窗。
+let formRead = 0
+let auditRead = 0
+const dialogSession = computed(() => `${store.server?.id}:${store.server?.fingerprint}:${store.user?.id}:${store.user?.permissions.join('|')}`)
+watch(showForm, value => { if (!value) { formRead++; detailLoading.value = false } }, { flush: 'sync' })
+watch(auditOpen, value => { if (!value) { auditRead++; auditLoading.value = false } }, { flush: 'sync' })
+watch(dialogSession, () => { formRead++; auditRead++; showForm.value = false; auditOpen.value = false }, { flush: 'sync' })
+onUnmounted(() => { formRead++; auditRead++ })
 async function edit(item?: Supplier): Promise<void> {
+  const ticket = ++formRead
   detailError.value = ''
   if (!item) {
+    detailLoading.value = false
     editingId.value = undefined
     Object.assign(form, supplierDraft())
     showForm.value = true
     return
   }
   if (!window.nexora || connectionLost.value) return
-  const user = store.user
-  const server = store.server
+  const session = dialogSession.value
   detailLoading.value = true
+  showForm.value = true
   try {
     const latest = await window.nexora.callApi('supplierDetail', { id: item.id })
-    if (store.user !== user || store.server !== server || connectionLost.value) return
+    if (ticket !== formRead || !showForm.value || session !== dialogSession.value || connectionLost.value) return
     editingId.value = item.id
     Object.assign(form, supplierDraft(latest))
-    showForm.value = true
   } catch (cause) {
-    detailError.value = displayError(cause)
+    if (ticket === formRead) detailError.value = displayError(cause)
   } finally {
-    detailLoading.value = false
+    if (ticket === formRead) detailLoading.value = false
   }
 }
 async function save(): Promise<void> {
@@ -99,20 +111,20 @@ async function save(): Promise<void> {
 }
 async function loadAudit(more = false): Promise<void> {
   if (!window.nexora || auditLoading.value || connectionLost.value) return
-  const user = store.user
-  const server = store.server
+  const session = dialogSession.value
+  const ticket = ++auditRead
   auditError.value = ''
   auditLoading.value = true
   try {
     const rows = await window.nexora.callApi('recentSupplierChanges',
       more && auditRows.value.length ? { before_id: auditRows.value[auditRows.value.length - 1].id } : {})
-    if (store.user !== user || store.server !== server || connectionLost.value) return
+    if (ticket !== auditRead || !auditOpen.value || session !== dialogSession.value || connectionLost.value) return
     auditRows.value = more ? [...auditRows.value, ...rows] : rows
     auditHasMore.value = rows.length === 100
   } catch (cause) {
-    auditError.value = displayError(cause)
+    if (ticket === auditRead) auditError.value = displayError(cause)
   } finally {
-    auditLoading.value = false
+    if (ticket === auditRead) auditLoading.value = false
   }
 }
 function openAudit(): void {
@@ -165,6 +177,8 @@ watch(selectedId, () => {
   materialQuery.value = ''
   boundQuery.value = ''
 })
+// 供应商被刷新移除时只关闭意图，公共壳仍能完成来源消失后的淡出和离场清理。
+watch(selectedSupplier, supplier => { if (!supplier) bindOpen.value = false }, { flush: 'sync' })
 async function bindMaterial(): Promise<void> {
   if (!materialId.value || !selectedSupplier.value) return
   await store.setSupplierMaterial(selectedId.value, materialId.value, true)
@@ -193,13 +207,13 @@ async function submitBinding(): Promise<void> {
         <AppButton
           v-if="can('catalog.manage')"
           :disabled="busy || connectionLost"
-          @click="edit()"
+          @click.capture="captureDialogOrigin('SuppliersView:form', $event)" @click="edit()"
           variant="primary"
           type="button"
           >新增供应商</AppButton
         >
         <AppButton type="button" variant="secondary" :disabled="connectionLost || auditLoading"
-          @click="openAudit">变更记录</AppButton>
+          @click.capture="captureDialogOrigin('SuppliersView:audit', $event)" @click="openAudit">变更记录</AppButton>
       </template>
       <template #filters>
         <label class="catalog-search"
@@ -217,7 +231,7 @@ async function submitBinding(): Promise<void> {
       >
       <template #beforeTable>
         <p v-if="detailError" role="alert">{{ detailError }}</p>
-        <NModal
+        <AppModal :busy="busy" origin-key="SuppliersView:form" @invalidated="showForm = false" :ready="!detailLoading" :load-error="detailError"
           v-model:show="showForm"
           preset="card"
           :mask-closable="!busy"
@@ -261,8 +275,8 @@ async function submitBinding(): Promise<void> {
               >
             </div>
           </form>
-        </NModal>
-        <NModal v-model:show="auditOpen" preset="card" title="供应商资料变更记录"
+        </AppModal>
+        <AppModal :busy="busy" origin-key="SuppliersView:audit" @invalidated="auditOpen = false" :ready="!auditLoading" :load-error="auditError" v-model:show="auditOpen" preset="card" title="供应商资料变更记录"
           :style="{ width: 'min(900px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }">
           <p>升级前的修改历史无法推断；这里保留升级后新增、修改和删除的前后快照。</p>
           <p v-if="auditError" role="alert">{{ auditError }}</p>
@@ -277,7 +291,7 @@ async function submitBinding(): Promise<void> {
           <p v-if="!auditRows.length && !auditLoading">暂无升级后的变更记录。</p>
           <AppButton v-if="auditHasMore" type="button" variant="secondary" :disabled="auditLoading"
             @click="loadAudit(true)">加载更早记录</AppButton>
-        </NModal>
+        </AppModal>
       </template>
       <template #cell-status="{ row: item }"><span :class="item.profile_status === 'complete' ? 'supplier-complete' : 'supplier-pending'">{{ supplierStatusLabel(item) }}</span></template>
       <template #cell-contact_name="{ row: item }">{{ item.contact_name || '—' }}</template>
@@ -289,7 +303,7 @@ async function submitBinding(): Promise<void> {
           <template v-if="can('catalog.manage')">
             <AppButton
               :disabled="busy || connectionLost || detailLoading"
-              @click="edit(item)"
+              @click.capture="captureDialogOrigin('SuppliersView:form', $event)" @click="edit(item)"
               variant="text"
               type="button"
               >{{ item.profile_status === 'complete' ? '编辑' : '完善资料' }}</AppButton
@@ -324,7 +338,7 @@ async function submitBinding(): Promise<void> {
           v-if="can('catalog.manage')"
           type="button"
           :disabled="busy || connectionLost"
-          @click="bindOpen = true"
+          @click.capture="captureDialogOrigin('SuppliersView:binding', $event)" @click="bindOpen = true"
           variant="primary"
           >绑定物料</AppButton
         >
@@ -335,42 +349,6 @@ async function submitBinding(): Promise<void> {
         <label class="catalog-search"
           >搜索已绑定物料<AppInput v-model="boundQuery" placeholder="物料编码、名称或规格"
         /></label>
-      </template>
-      <template #beforeTable>
-        <NModal
-          v-model:show="bindOpen"
-          preset="card"
-          title="绑定物料"
-          :mask-closable="!busy"
-          :style="{ width: 'min(760px, calc(100vw - 32px))' }"
-        >
-          <form v-if="can('catalog.manage')" class="inline-form" @submit.prevent="submitBinding">
-            <label
-              >搜索可绑定物料<AppInput v-model="materialQuery" placeholder="物料编码、名称或规格"
-            /></label>
-            <label
-              >选择物料<WorkspaceMaterialSelect :materials="materials"
-                v-model="materialId"
-                required
-                :options="[
-                  { label: '请选择物料', value: 0, disabled: true },
-                  ...availableMaterials.map((item) => ({
-                    label: (item.sku + ' · ' + item.name + ' · ' + item.unit).trim(),
-                    value: item.id
-                  }))
-                ]"
-            /></label>
-            <AppButton
-              :disabled="busy || connectionLost || !materialId"
-              variant="primary"
-              type="submit"
-              >绑定物料</AppButton
-            >
-            <span v-if="!availableMaterials.length" class="muted"
-              >没有匹配的未绑定物料，可先到物料管理添加。</span
-            >
-          </form>
-        </NModal>
       </template>
       <template #cell-sku="{ row: item }">{{ item.sku }}</template>
       <template #cell-name="{ row: item }">{{ item.name }}</template>
@@ -391,5 +369,40 @@ async function submitBinding(): Promise<void> {
       >
       <template #empty>{{ boundQuery ? '没有匹配的已绑定物料。' : '尚未绑定物料。' }}</template>
     </WorkspaceTable>
+    <!-- 弹窗独立于供应商明细表挂载，列表目标消失不能截断关闭动画。 -->
+    <AppModal :busy="busy" origin-key="SuppliersView:binding" @invalidated="bindOpen = false"
+      v-model:show="bindOpen"
+      preset="card"
+      title="绑定物料"
+      :mask-closable="!busy"
+      :style="{ width: 'min(760px, calc(100vw - 32px))' }"
+    >
+      <form v-if="can('catalog.manage')" class="inline-form" @submit.prevent="submitBinding">
+        <label
+          >搜索可绑定物料<AppInput v-model="materialQuery" placeholder="物料编码、名称或规格"
+        /></label>
+        <label
+          >选择物料<WorkspaceMaterialSelect :materials="materials"
+            v-model="materialId"
+            required
+            :options="[
+              { label: '请选择物料', value: 0, disabled: true },
+              ...availableMaterials.map((item) => ({
+                label: (item.sku + ' · ' + item.name + ' · ' + item.unit).trim(),
+                value: item.id
+              }))
+            ]"
+        /></label>
+        <AppButton
+          :disabled="busy || connectionLost || !materialId"
+          variant="primary"
+          type="submit"
+          >绑定物料</AppButton
+        >
+        <span v-if="!availableMaterials.length" class="muted"
+          >没有匹配的未绑定物料，可先到物料管理添加。</span
+        >
+      </form>
+    </AppModal>
   </section>
 </template>

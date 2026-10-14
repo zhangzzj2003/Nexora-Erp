@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, useId } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+import AppModal from '../app/AppModal.vue'
+import { captureDialogOrigin } from '../../utils/dialog-origin'
 import AppButton from '../app/AppButton.vue'
 import WorkspaceTable from './WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../store/app-store'
@@ -12,6 +13,8 @@ const props = withDefaults(defineProps<{ materialId: number; active?: boolean }>
 const store = usePiniaAppStore()
 const { materialSupplyRows, materialSupplyLoading, materialSupplyErrors, materialSupplyEpoch, connectionLost } = storeToRefs(store)
 const open = ref(false)
+// 同一物料可同时出现在多个表格中；每个单元格实例使用独立来源，避免嵌套回程串位。
+const originKey = `material-supply:${useId()}`
 const entry = computed(() => materialSupplyRows.value[props.materialId])
 const loading = computed(() => !!materialSupplyLoading.value[props.materialId])
 const error = computed(() => materialSupplyErrors.value[props.materialId] ?? '')
@@ -31,7 +34,7 @@ const columns = [{key: 'phase', title: '阶段', width: '100'}, {key: 'source', 
   <!-- 四项始终显示明确标签；未知、失败和无权限不伪装成零库存。 -->
   <span v-if="!materialId" class="supply-placeholder">选择物料后查看</span>
   <AppButton v-else variant="plain" type="button" class="material-supply-cell" :disabled="!active || connectionLost"
-    :aria-label="`${entry?.row.name ?? '当前物料'}物料供需，点击查看来源`" @click="showDetails">
+    :aria-label="`${entry?.row.name ?? '当前物料'}物料供需，点击查看来源`" @click.capture="captureDialogOrigin(originKey, $event)" @click="showDetails">
     <span v-for="phase in materialSupplyPhases" :key="phase" class="supply-count">
       <span>{{ materialSupplyLabels[phase] }}</span>
       <strong>{{ connectionLost ? '—' : loading ? '…' : error ? '—' : entry ? formatMaterialSupplyQuantity(entry.row[`${phase}_quantity`]) : '—' }}</strong>
@@ -39,7 +42,7 @@ const columns = [{key: 'phase', title: '阶段', width: '100'}, {key: 'source', 
     <span class="supply-caption">{{ connectionLost ? '连接已断开' : error ? '读取失败，点击重试' : '全仓 · 查看来源' }}</span>
   </AppButton>
   <!-- 当前供需独立于原单据正文，历史明细与审批冻结数量保持原样。 -->
-  <NModal :show="open && active" @update:show="value => open = value" preset="card"
+  <AppModal :show="open && active" :origin-key="originKey" :ready="!loading && !!entry" :load-error="error" @update:show="value => open = value" preset="card"
     :title="`物料供需${entry ? ` · ${entry.row.sku}` : ''}`" class="material-supply-dialog"
     :style="{ width: 'min(860px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)' }">
     <section class="supply-detail">
@@ -62,7 +65,7 @@ const columns = [{key: 'phase', title: '阶段', width: '100'}, {key: 'source', 
       </WorkspaceTable>
     </section>
     <template #footer><AppButton type="button" @click="open = false">关闭</AppButton></template>
-  </NModal>
+  </AppModal>
 </template>
 
 <style scoped>

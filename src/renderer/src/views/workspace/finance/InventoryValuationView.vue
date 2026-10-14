@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -9,7 +12,7 @@ import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { submitCreateDialog } from '../../../utils/create-dialog'
@@ -90,7 +93,7 @@ async function submitPrice(): Promise<void> {
         <AppButton
           v-if="can('inventory_valuation.record') && priceable.length"
           :disabled="busy || connectionLost"
-          @click="showForm = true"
+          @click.capture="captureDialogOrigin('InventoryValuationView:form', $event)" @click="showForm = true"
           variant="primary"
           type="button"
           >登记核价</AppButton
@@ -116,7 +119,7 @@ async function submitPrice(): Promise<void> {
             <span>核价修订记录</span><strong>{{ inventoryCostInputs.length }}</strong>
           </div>
         </div>
-        <NModal title="登记库存核价"
+        <AppModal :busy="busy" origin-key="InventoryValuationView:form" @invalidated="showForm = false" title="登记库存核价"
           v-model:show="showForm"
           preset="card"
           :mask-closable="!busy"
@@ -178,7 +181,7 @@ async function submitPrice(): Promise<void> {
               >
             </div>
           </form>
-        </NModal>
+        </AppModal>
       </template>
       <template #cell-material="{ row: item }"
         ><strong>{{ item.sku }}</strong

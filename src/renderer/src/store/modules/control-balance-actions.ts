@@ -8,6 +8,7 @@ import { displayError } from '../../utils/formatters.ts'
 export function createControlBalanceActions(state: AppState,
   perform: (run: () => Promise<unknown>, message: string) => Promise<void>, refreshHistory: () => Promise<void>) {
   let owner = 0, readTicket = 0, detailTicket = 0, reportTicket = 0, journalTicket = 0
+  let journalReading = false, journalFailed = false
   const can = (permission: string) => state.user.value?.permissions.includes(permission) ?? false
   const connected = () => !!window.nexora && !state.connectionLost.value
   function clear(): void {
@@ -15,10 +16,12 @@ export function createControlBalanceActions(state: AppState,
     state.controlBalanceTransfers.value = []; state.controlBalanceOptions.value = null
     state.controlBalanceDetail.value = null; state.controlBalanceChanges.value = []
     state.controlBalanceJournal.value = null
+    journalReading = false; journalFailed = false
     state.controlBalanceReport.value = null; state.controlBalanceError.value = ''; state.controlBalanceLoading.value = false
     state.controlBalanceReportLoading.value = false
   }
-  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`,
+  // 角色与权限按集合比较，副本排序不会修改用户快照，例行返回顺序变化也不取消读取。
+  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.slice().sort().join('|')}:${state.user.value?.permissions.slice().sort().join('|')}`,
     () => { owner++; clear() }, { flush: 'sync' })
   watch(state.connectionLost, () => { owner++; clear() }, { flush: 'sync' })
   const valid = (session: number) => session === owner && connected() && can('control_transfer.view')
@@ -44,7 +47,11 @@ export function createControlBalanceActions(state: AppState,
   async function loadControlBalanceDetail(id: number): Promise<boolean> {
     if (!connected() || !can('control_transfer.view')) return false
     const session = owner, ticket = ++detailTicket
-    state.controlBalanceDetail.value = null; state.controlBalanceChanges.value = []; state.controlBalanceError.value = ''
+    // 同单刷新保留已展开依据，换单时才清除，避免正文闪烁。
+    if (state.controlBalanceDetail.value?.id !== id) {
+      state.controlBalanceDetail.value = null; state.controlBalanceChanges.value = []
+    }
+    state.controlBalanceError.value = ''
     try {
       const [record, changes] = await Promise.all([window.nexora!.callApi('controlBalanceDetail', { id }),
         window.nexora!.callApi('controlBalanceChanges', { id })])
@@ -55,16 +62,22 @@ export function createControlBalanceActions(state: AppState,
   function closeControlBalanceDetail(): void {
     detailTicket++; state.controlBalanceDetail.value = null; state.controlBalanceChanges.value = []
   }
-  function closeControlBalanceJournal(): void { journalTicket++; state.controlBalanceJournal.value = null }
+  function closeControlBalanceJournal(): void {
+    journalTicket++; state.controlBalanceJournal.value = null; journalReading = false; journalFailed = false
+  }
   async function loadControlBalanceJournal(id: number): Promise<boolean> {
     if (!valid(owner) || !can('journal.view')) return false
     const session = owner, ticket = ++journalTicket
-    state.controlBalanceJournal.value = null; state.controlBalanceError.value = ''
+    if (state.controlBalanceJournal.value?.id !== id) state.controlBalanceJournal.value = null
+    state.controlBalanceError.value = ''; journalReading = true; journalFailed = false
     try {
       const journal = await window.nexora!.callApi('journalDetail', { id })
       if (!valid(session) || ticket !== journalTicket || !can('journal.view')) return false
       state.controlBalanceJournal.value = journal; return true
-    } catch (error) { if (valid(session) && ticket === journalTicket) state.controlBalanceError.value = displayError(error); return false }
+    } catch (error) {
+      if (valid(session) && ticket === journalTicket) { state.controlBalanceError.value = displayError(error); journalFailed = true }
+      return false
+    } finally { if (session === owner && ticket === journalTicket) journalReading = false }
   }
   async function queryControlBalances(to_date: string): Promise<boolean> {
     if (!connected() || !can('control_transfer.view')) return false
@@ -100,20 +113,22 @@ export function createControlBalanceActions(state: AppState,
   return { loadControlBalances, loadControlBalanceDetail, closeControlBalanceDetail, queryControlBalances, loadControlFundsOptions,
     loadControlBalanceJournal, closeControlBalanceJournal,
     cancelControlBalanceJournal: (row: ControlBalanceTransfer, journal: Journal, reason: string) => {
-      if (!current(row) || row.status !== 'draft' || row.journal_id !== journal.id
+      if (journalReading || journalFailed || !current(row) || row.status !== 'draft' || row.journal_id !== journal.id
         || !['draft','rejected','submitted','approved'].includes(journal.status)
         || ['submitted','approved'].includes(journal.approval?.status ?? '')) return Promise.resolve(false)
       return write([row.reverses_id ? 'control_transfer.reverse' : 'control_transfer.create', 'journal.view', 'journal.cancel'], async () => {
-        if (!current(row) || state.controlBalanceJournal.value?.id !== journal.id
+        // 刷新或失败保留的旧凭证仅可展示，不能作为过账或取消的执行依据。
+        if (journalReading || journalFailed || !current(row) || state.controlBalanceJournal.value?.id !== journal.id
           || state.controlBalanceJournal.value.version !== journal.version || state.controlBalanceJournal.value.approval?.version !== journal.approval?.version) throw Error('关联凭证或审批已变化，请重新核对。')
         await window.nexora!.callApi('changeJournalStatus', { id: journal.id, version: journal.version, action: 'cancel', reason })
       }, '未过账的关联凭证已取消，可重新生成或取消转账草稿。')
     },
     postControlBalanceJournal: (row: ControlBalanceTransfer, journal: Journal, reason: string) => {
-      if (!current(row) || row.status !== 'draft' || row.approval?.status !== 'approved' || row.journal_id !== journal.id
+      if (journalReading || journalFailed || !current(row) || row.status !== 'draft' || row.approval?.status !== 'approved' || row.journal_id !== journal.id
         || journal.status !== 'approved' || journal.approval?.status !== 'approved') return Promise.resolve(false)
       return write([transferPermission(row), 'journal.view', 'journal.post'], async () => {
-        if (!current(row) || state.controlBalanceJournal.value?.id !== journal.id
+        // 刷新或失败保留的旧凭证仅可展示，不能作为过账或取消的执行依据。
+        if (journalReading || journalFailed || !current(row) || state.controlBalanceJournal.value?.id !== journal.id
           || state.controlBalanceJournal.value.version !== journal.version || state.controlBalanceJournal.value.approval?.version !== journal.approval?.version) throw Error('转账或凭证审批已变化，请重新核对。')
         await window.nexora!.callApi('changeJournalStatus', { id: journal.id, version: journal.version, action: 'post', reason })
       }, '凭证已过账，余额转账在同一事务中生效。')

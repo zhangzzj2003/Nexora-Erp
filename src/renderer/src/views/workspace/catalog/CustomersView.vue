@@ -1,11 +1,14 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal, NUpload, NCheckbox } from 'naive-ui'
+import {  NUpload, NCheckbox } from 'naive-ui'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { matchesRecordQuery } from '../../../utils/workspace-records'
@@ -139,13 +142,13 @@ async function submitImport(): Promise<void> {
           v-if="can('customer.manage')"
           type="button"
           :disabled="busy || connectionLost"
-          @click="importOpen = true"
+          @click.capture="captureDialogOrigin('CustomersView:import', $event)" @click="importOpen = true"
         >导入客户 CSV</AppButton>
         <AppButton
           v-if="can('customer.manage')"
           type="button"
           :disabled="busy || connectionLost"
-          @click="customerOpen = true"
+          @click.capture="captureDialogOrigin('CustomersView:form', $event)" @click="customerOpen = true"
           variant="primary"
         >
           新增客户
@@ -158,7 +161,7 @@ async function submitImport(): Promise<void> {
         </label>
       </template>
       <template #beforeTable>
-        <NModal
+        <AppModal :busy="busy" origin-key="CustomersView:import" @invalidated="importOpen = false"
           v-if="can('customer.manage')"
           v-model:show="importOpen"
           preset="card"
@@ -197,8 +200,8 @@ async function submitImport(): Promise<void> {
                 @click="submitImport">确认导入</AppButton>
             </template>
           </div>
-        </NModal>
-        <NModal
+        </AppModal>
+        <AppModal :busy="busy" origin-key="CustomersView:form" @invalidated="customerOpen = false"
           v-if="can('customer.manage')"
           v-model:show="customerOpen"
           preset="card"
@@ -228,7 +231,7 @@ async function submitImport(): Promise<void> {
               >{{ checkingCandidates ? '正在核对客户' : duplicateCandidates.length ? '仍要添加客户' : '添加客户' }}</AppButton
             >
           </form>
-        </NModal>
+        </AppModal>
       </template>
       <template #empty>{{ customerQuery ? '没有匹配的客户。' : '暂无客户，请先新增。' }}</template>
     </WorkspaceTable>

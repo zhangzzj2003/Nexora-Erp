@@ -1,9 +1,12 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel } from '../../../../../shared/document-numbering'
 import { computed,onMounted,onUnmounted,ref,watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import type { CrmKind,CrmRecord,CrmContact,CrmActivity,CrmOpportunity,CrmQuote,CrmQuoteAction } from '../../../../../shared/crm-api'
 import { usePiniaAppStore } from '../../../store/app-store'
 import AppButton from '../../../components/app/AppButton.vue'
@@ -50,6 +53,7 @@ const columns=computed(()=>[{key:'title',title:mode.value==='contact'?'联系人
   {key:'context',title:mode.value==='contact'?'联系信息':mode.value==='quote'?'报价金额 / 有效期':'负责人 / 日期',width:'22%'},{key:'status',title:'阶段',width:'13%'},{key:'actions',title:'处理 / 证据',width:'25%'}])
 function selectMode(value:CrmKind):void{if(busy.value)return;mode.value=value;editor.value=null;store.clearCrmDetail();query.value=''}
 function closeEditor():void {
+  contactPending.value=false
   // 弹窗关闭只收起视图，Pinia 中的草稿继续保留；保存期间禁止关闭。
   if(!busy.value)editor.value=null
 }
@@ -66,9 +70,14 @@ function newRecord(kind:CrmKind, source?:CrmContact|CrmOpportunity):void {
   if(kind==='opportunity')forms.value.opportunity.owner_id ||= user.value?.id??0
   if(kind==='quote' && source && 'stage' in source){forms.value.quote.opportunity_id=source.id;forms.value.quote.contact_id=source.contact_id}
 }
+// 联系人编辑与命令读取分别保存打开意图，取消后不会被迟到结果重开。
+const contactPending=ref(false), commandPending=ref(false)
+onUnmounted(()=>{contactPending.value=false;commandPending.value=false})
+watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}`,()=>{contactPending.value=false;commandPending.value=false},{flush:'sync'})
 async function editRecord(kind:Exclude<CrmKind,'activity'>, id:number):Promise<void>{
   if(disabled.value)return;preparing.value=true
-  try{if(await store.editCrm(kind,id))editor.value=kind}finally{preparing.value=false}
+  if(kind==='contact')contactPending.value=true
+  try{if(await store.editCrm(kind,id) && (kind!=='contact' || contactPending.value))editor.value=kind}finally{preparing.value=false;contactPending.value=false}
 }
 function canEdit(row:CrmRecord):boolean{
   return mode.value!=='activity' && store.can(permission(mode.value)) && ('lines' in row?['draft','rejected'].includes(row.status) && !['won','lost'].includes(row.opportunity_stage):'stage' in row?row.stage!=='won':true)
@@ -76,15 +85,15 @@ function canEdit(row:CrmRecord):boolean{
 function quoteCommands(row:CrmRecord):(CrmQuoteAction|'convert')[]{return 'lines' in row?quoteActions(row,user.value?.permissions??[],user.value?.id??0):[]}
 function canReopen(row:CrmRecord):boolean{return 'stage' in row && ['won','lost'].includes(row.stage) && row.orders.every(item=>item.status==='cancelled') && store.can('crm_opportunity.manage')}
 async function openCommand(kind:CrmKind,id:number,action:Command):Promise<void>{
-  if(disabled.value)return;preparing.value=true;command.value=null;reason.value='';acceptance.value='';error.value=''
+  if(disabled.value)return;commandPending.value=true;preparing.value=true;command.value=null;reason.value='';acceptance.value='';error.value=''
   try{
-    if(!await store.loadCrmDetail(kind,id) || !detail.value)return
+    if(!await store.loadCrmDetail(kind,id) || !detail.value || !commandPending.value)return
     const record=detail.value.record
     if(kind==='quote' && !quoteCommands(record).includes(action as CrmQuoteAction|'convert'))return
     if(kind==='activity' && (record as CrmActivity).status!=='planned')return
     if(kind==='opportunity' && !canReopen(record))return
     command.value={kind,record,action}
-  }finally{preparing.value=false}
+  }finally{preparing.value=false;commandPending.value=false}
 }
 async function execute():Promise<void>{
   const task=command.value
@@ -109,10 +118,10 @@ onUnmounted(()=>store.clearCrmDetail())
   <section class="stack crm-workspace">
     <div class="crm-toolbar"><AppButton v-for="kind in (['contact','activity','opportunity','quote'] as const)" :key="kind" :variant="mode===kind?'primary':'secondary'" :disabled="busy" @click="selectMode(kind)">{{ crmKindLabel[kind] }}</AppButton>
       <AppButton :disabled="disabled" @click="store.loadCrm()">{{ loading?'正在读取…':'刷新资料' }}</AppButton>
-      <AppButton v-if="store.can('customer.assign')" :disabled="disabled || !options" @click="ownerModal=true">分配客户负责人</AppButton>
-      <AppButton v-if="mode==='contact' && store.can('crm_contact.manage')" :disabled="disabled || !options" @click="contactImportOpen=true">导入联系人 CSV</AppButton>
-      <AppButton v-if="mode==='opportunity' && store.can('crm_opportunity.manage')" :disabled="disabled || !options" @click="opportunityImportOpen=true">导入商机 CSV</AppButton>
-      <AppButton v-if="store.can(permission(mode))" :disabled="disabled || !options" @click="newRecord(mode)">新建{{ crmKindLabel[mode] }}</AppButton></div>
+      <AppButton v-if="store.can('customer.assign')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('CustomerRelationsView:owner', $event)" @click="ownerModal=true">分配客户负责人</AppButton>
+      <AppButton v-if="mode==='contact' && store.can('crm_contact.manage')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('ContactImportDialog:import', $event)" @click="contactImportOpen=true">导入联系人 CSV</AppButton>
+      <AppButton v-if="mode==='opportunity' && store.can('crm_opportunity.manage')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('OpportunityImportDialog:import', $event)" @click="opportunityImportOpen=true">导入商机 CSV</AppButton>
+      <AppButton v-if="store.can(permission(mode))" :disabled="disabled || !options" @click.capture="captureDialogOrigin('CustomerRelationsView:contact', $event)" @click="newRecord(mode)">新建{{ crmKindLabel[mode] }}</AppButton></div>
     <p>按客户追踪联系人、跟进和商机；报价经独立审核后，登记客户接受依据并转销售订单草稿。</p>
     <p v-if="connectionLost" role="alert">服务端连接中断，当前资料和可执行动作已失效。未保存的输入保留，恢复连接后重新读取再保存。</p>
     <p v-if="failure" role="alert">{{ failure }} 请刷新资料后重试。</p>
@@ -133,33 +142,33 @@ onUnmounted(()=>store.clearCrmDetail())
         <template #cell-status="{row}">{{ rowStatus(row) }}<span v-if="mode==='activity' && (row as CrmActivity).overdue" class="crm-secondary">已逾期</span><span v-if="mode==='quote' && (row as CrmQuote).expired" class="crm-secondary">有效期已过</span></template>
         <template #cell-actions="{row}"><div class="crm-toolbar">
           <AppButton size="small" :disabled="disabled" @click="store.loadCrmDetail(mode,row.id)">详情与依据</AppButton>
-          <AppButton v-if="canEdit(row)" size="small" :disabled="disabled" @click="editRecord(mode as Exclude<CrmKind,'activity'>,row.id)">修订</AppButton>
+          <AppButton v-if="canEdit(row)" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:contact', $event)" @click="editRecord(mode as Exclude<CrmKind,'activity'>,row.id)">修订</AppButton>
           <AppButton v-if="mode==='contact' && (row as CrmContact).is_active && store.can('crm_activity.manage')" size="small" :disabled="disabled" @click="newRecord('activity',row as CrmContact)">安排跟进</AppButton>
           <AppButton v-if="mode==='opportunity' && !['won','lost'].includes((row as CrmOpportunity).stage) && store.can('crm_quote.create')" size="small" :disabled="disabled" @click="newRecord('quote',row as CrmOpportunity)">编制报价</AppButton>
           <AppButton v-if="mode==='opportunity' && store.can('crm_activity.manage')" size="small" :disabled="disabled" @click="newRecord('activity',row as CrmOpportunity)">安排跟进</AppButton>
-          <AppButton v-if="canReopen(row)" size="small" :disabled="disabled" @click="openCommand('opportunity',row.id,'reopen')">重开商机</AppButton>
-          <template v-if="mode==='activity' && (row as CrmActivity).status==='planned' && store.can('crm_activity.manage')"><AppButton size="small" :disabled="disabled" @click="openCommand('activity',row.id,'complete')">完成跟进</AppButton><AppButton size="small" :disabled="disabled" @click="openCommand('activity',row.id,'cancelActivity')">取消跟进</AppButton></template>
+          <AppButton v-if="canReopen(row)" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:command', $event)" @click="openCommand('opportunity',row.id,'reopen')">重开商机</AppButton>
+          <template v-if="mode==='activity' && (row as CrmActivity).status==='planned' && store.can('crm_activity.manage')"><AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:command', $event)" @click="openCommand('activity',row.id,'complete')">完成跟进</AppButton><AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:command', $event)" @click="openCommand('activity',row.id,'cancelActivity')">取消跟进</AppButton></template>
           <!-- 每张报价拥有自己的审批步骤；原提交/审核动作不再走无审批版本的接口。 -->
-          <AppButton v-if="mode==='quote'" size="small" :disabled="disabled" @click="store.openDocumentApproval({document_type:'CrmQuote',document_id:row.id,intent:'execute'})">单据审批</AppButton>
-          <AppButton v-for="action in quoteCommands(row)" :key="action" size="small" :disabled="disabled" @click="openCommand('quote',row.id,action)">{{ crmCommandLabel[action] }}</AppButton>
+          <AppButton v-if="mode==='quote'" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="store.openDocumentApproval({document_type:'CrmQuote',document_id:row.id,intent:'execute'})">单据审批</AppButton>
+          <AppButton v-for="action in quoteCommands(row)" :key="action" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:command', $event)" @click="openCommand('quote',row.id,action)">{{ crmCommandLabel[action] }}</AppButton>
         </div></template>
         <template #empty>{{ connectionLost ? '连接恢复后将重新读取资料。' : failure ? '资料读取失败，请刷新后重试。' : query || customer ? '当前筛选没有匹配记录。' : store.can(permission(mode)) ? `尚无${crmKindLabel[mode]}，可从上方新建。` : `尚无${crmKindLabel[mode]}，须由有权限的人员建立。` }}</template>
       </WorkspaceTable>
       <CrmEvidence />
-      <DocumentApprovalDialog />
+      <DocumentApprovalDialog origin-key="document-approval" />
     </template>
     <!-- 联系人复用现有表单与 Naive UI 弹窗，列表保留在背景；修订沿用同一入口。 -->
-    <NModal :show="editor==='contact' && store.can('crm_contact.manage')" preset="card"
+    <AppModal :busy="busy" origin-key="CustomerRelationsView:contact" @invalidated="contactPending = false; editor = null" :show="(editor==='contact' || contactPending) && store.can('crm_contact.manage')" :ready="!contactPending" :load-error="failure" preset="card"
       :title="store.crmEdit.contact ? '修订联系人' : '新建联系人'"
       :style="{width:'min(860px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}"
       :mask-closable="false" :close-on-esc="!busy" :closable="!busy"
       @update:show="value=>{if(!value)closeEditor()}">
       <CrmEditor v-if="editor==='contact' && store.can('crm_contact.manage')" kind="contact" dialog
         @saved="editor=null" @close="closeEditor" />
-    </NModal>
+    </AppModal>
     <ContactImportDialog v-if="store.can('crm_contact.manage')" v-model:show="contactImportOpen" />
     <OpportunityImportDialog v-if="store.can('crm_opportunity.manage')" v-model:show="opportunityImportOpen" />
-    <NModal :show="!!command" preset="card" :title="command ? crmCommandLabel[command.action] : ''" :style="{width:'min(680px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)command=null}">
+    <AppModal :busy="busy" origin-key="CustomerRelationsView:command" @invalidated="commandPending = false; command = null" :show="commandPending || !!command" :ready="!commandPending && !!command" :load-error="failure" preset="card" :title="command ? crmCommandLabel[command.action] : ''" :style="{width:'min(680px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value){commandPending=false;command=null}}">
       <form v-if="command" class="crm-operation" @submit.prevent="execute">
         <p>{{ rowTitle(command.record) }} · {{ rowStatus(command.record) }} · v{{ command.record.version }}</p>
         <template v-if="command.kind==='quote'">
@@ -178,8 +187,8 @@ onUnmounted(()=>store.clearCrmDetail())
         <p v-if="error" role="alert">{{ error }} 当前输入已保留；关闭后刷新资料，核对最新版本再重试。</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !reason.trim() || (command.action==='convert' && !acceptance.trim())">{{ busy?'正在处理…':`确认${crmCommandLabel[command.action]}` }}</AppButton>
       </form>
-    </NModal>
-    <NModal :show="ownerModal" preset="card" title="分配客户负责人" :style="{width:'min(680px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)ownerModal=false}">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="CustomerRelationsView:owner" @invalidated="ownerModal = false" :show="ownerModal" preset="card" title="分配客户负责人" :style="{width:'min(680px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" :mask-closable="!busy" :closable="!busy" @update:show="value=>{if(!value)ownerModal=false}">
       <form class="crm-operation" @submit.prevent="saveOwner">
         <p>旧客户保持未分配，须根据实际业务依据由管理员指定负责人。转交后原负责人立即失去该客户的 CRM 访问权。</p>
         <label>客户<WorkspaceSelect v-model="ownerCustomer" :options="(options?.customers??[]).map(row=>({label:row.name,value:row.id}))" required :disabled="disabled" /></label>
@@ -194,7 +203,7 @@ onUnmounted(()=>store.clearCrmDetail())
           <ul v-else><li v-for="change in ownerChanges" :key="change.id">v{{ change.version }} · {{ ownerName(change.before_owner_id) }} → {{ ownerName(change.after_owner_id) }} · {{ change.reason }} · 操作账号 #{{ change.changed_by }} · {{ change.created_at }}</li></ul>
         </template>
       </form>
-    </NModal>
+    </AppModal>
   </section>
 </template>
 <style scoped>

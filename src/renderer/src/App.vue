@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { NConfigProvider, darkTheme, dateZhCN, zhCN, enUS, dateEnUS } from 'naive-ui'
 import { storeToRefs } from 'pinia'
 // 控件配色集中维护，主题切换由根样式变量与 Naive UI 共同驱动。
@@ -12,10 +12,15 @@ import OnboardingView from './views/OnboardingView.vue'
 import WorkspaceShell from './views/WorkspaceShell.vue'
 import AppMessageProvider from './components/feedback/AppMessageProvider.vue'
 import AppTitleBar from './components/app/AppTitleBar.vue'
+import { invalidateDialogPresentations } from './composables/use-dialog-presentation'
 import { usesIntegratedTitleBar } from '../../shared/window-chrome'
 
 // 根组件统一启动和释放桌面连接资源；页面状态仍由 Pinia store 管理。
-const { screen, initialize, dispose } = useAppStore()
+const { screen, initialize, dispose, user, server } = useAppStore()
+// 身份和授权失效时立即释放弹窗及离场画面；同账号常规刷新不打断正在查看的详情。
+watch(() => JSON.stringify([screen.value, server.value?.id, server.value?.fingerprint,
+  user.value?.id, [...(user.value?.roles ?? [])].sort(), [...(user.value?.permissions ?? [])].sort()]),
+  () => invalidateDialogPresentations(), { flush: 'sync' })
 const { isDarkTheme, colorPalette } = storeToRefs(useThemeStore())
 const naiveThemeOverrides = computed(() => appThemeOverrides(colorPalette.value))
 // Naive UI 内置控件和应用文案读取同一语言，切换偏好不重建路由或表单。

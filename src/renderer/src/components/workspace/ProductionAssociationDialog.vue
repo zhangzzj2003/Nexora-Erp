@@ -7,6 +7,8 @@ import AppButton from '../app/AppButton.vue'
 import { documentLabel } from '../../../../shared/document-numbering'
 
 // 共用单据表格弹窗只读展示关联，不提供领料、补证或批准等写入动作。
+// 原始入口与关联详情分别维护来源，异步读取完成才进入展开阶段。
+withDefaults(defineProps<{ originKey?: string }>(), { originKey: 'production-association' })
 const store = usePiniaAppStore()
 const {productionAssociationTarget: target, productionAssociationRecord: record,
   productionAssociationLoading: loading, productionAssociationError: error, connectionLost} = storeToRefs(store)
@@ -19,7 +21,7 @@ const labels: Record<string,string> = {draft:'草稿',inspected:'已质检',post
 </script>
 
 <template>
-  <WorkspaceDocumentDialog :show="!!target" :title="`生产关联单据${record ? ` · ${documentLabel(selectedCompletion ?? record.work_order)}` : ''}`"
+  <WorkspaceDocumentDialog :show="!!target" :origin-key="originKey" :ready="!loading && !!record" :load-error="error" :title="`生产关联单据${record ? ` · ${documentLabel(selectedCompletion ?? record.work_order)}` : ''}`"
     :data="record?.components ?? []" :columns="columns" :read-only="true" :min-table-width="1070"
     lines-title="物料需求与实际单据" empty-text="暂无组件需求。"
     hint="本查询展示工单层面的领退料及登记来源，不能证明某台产品或某次分批完工的实际耗用。"

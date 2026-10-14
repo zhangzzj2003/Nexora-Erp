@@ -10,7 +10,7 @@ import vue from '@vitejs/plugin-vue'
 test('凭证统一审批保留历史入口，原批准和失效操作弹窗不能直接过账',async t=>{
   const server=await createServer({configFile:false,plugins:[{
     name:'journal-approval-view',enforce:'pre',
-    transform(code,id){if(id.endsWith('/JournalsView.vue'))return code.replaceAll("'naive-ui'","'virtual:journal-modal'")},
+    transform(code,id){if(id.endsWith('/JournalsView.vue'))return code.replaceAll("'naive-ui'","'virtual:journal-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:journal-modal'")},
     resolveId(id,importer){
       if(id==='virtual:journal-modal')return '\0journal-modal'
       if(importer?.includes('/JournalsView.vue') && id.endsWith('/store/app-store'))return '\0journal-store'
@@ -21,7 +21,7 @@ test('凭证统一审批保留历史入口，原批准和失效操作弹窗不�
         'DocumentApprovalDialog.vue','WorkspaceSelect.vue','AppInput.vue'])if(id.endsWith('/'+file))return '\0journal-stub'
     },load(id){
       if(id==='\0journal-stub')return 'export default {render:()=>null}'
-      if(id==='\0journal-modal')return `import {defineComponent,h} from 'vue';export const NDatePicker={render:()=>null};export const NCollapse={render:()=>null};export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
+      if(id==='\0journal-modal')return `import {defineComponent,h} from 'vue';export const NDatePicker={render:()=>null};export const NCollapse={render:()=>null};export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
       if(id==='\0journal-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return()=>h('section',(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row}))))}})`
       if(id==='\0journal-button')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`
       if(id==='\0journal-store')return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';export const calls=[];

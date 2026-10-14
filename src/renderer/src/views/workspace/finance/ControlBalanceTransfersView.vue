@@ -1,7 +1,10 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NCollapse, NDatePicker, NModal } from 'naive-ui'
+import { NCollapse, NDatePicker } from 'naive-ui'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
@@ -81,7 +84,7 @@ watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:
   editing.value = false; showDetail.value = false; showJournal.value = false; command.value = null; form.value = fresh(); extraAuxiliary.value = []
 }, { flush: 'sync' })
 onMounted(loadControlBalances)
-onUnmounted(() => { closeControlBalanceDetail(); closeControlBalanceJournal() })
+onUnmounted(() => { detailRead++; journalRead++; closeControlBalanceDetail(); closeControlBalanceJournal() })
 function start(): void {
   if (disabled.value || !can('control_transfer.create') || !options.value) return
   form.value = fresh(); extraAuxiliary.value = []; error.value = ''; editing.value = true
@@ -97,14 +100,22 @@ async function save(): Promise<void> {
     from_scope, to_scope, amount: form.value.amount, reference: form.value.reference, reason: form.value.reason }
   if (await createControlBalanceTransfer(input)) editing.value = false
 }
+// 页面加载标志也按请求代次隔离，旧请求不能提前解除新详情的准备屏障。
+let detailRead = 0, journalRead = 0
+watch(showDetail, value => { if (!value) { detailRead++; detailLoading.value = false } }, { flush: 'sync' })
+watch(showJournal, value => { if (!value) { journalRead++; journalLoading.value = false } }, { flush: 'sync' })
 async function inspect(id: number): Promise<void> {
+  const ticket = ++detailRead
   showDetail.value = true; detailLoading.value = true
-  await loadControlBalanceDetail(id); detailLoading.value = false
+  await loadControlBalanceDetail(id)
+  if (ticket === detailRead) detailLoading.value = false
 }
 async function inspectJournal(id: number): Promise<void> {
   if (!can('journal.view') || disabled.value) return
+  const ticket = ++journalRead
   showJournal.value = true; journalLoading.value = true
-  await loadControlBalanceJournal(id); journalLoading.value = false
+  await loadControlBalanceJournal(id)
+  if (ticket === journalRead) journalLoading.value = false
 }
 function ask(row: ControlBalanceTransfer, action: CommandAction): void {
   if (disabled.value || !available(row, action)) return
@@ -137,7 +148,7 @@ async function confirm(): Promise<void> {
       <AppButton :aria-pressed="mode === 'records'" :variant="mode === 'records' ? 'primary' : 'secondary'" @click="mode = 'records'">转账记录</AppButton>
       <AppButton :aria-pressed="mode === 'balances'" :variant="mode === 'balances' ? 'primary' : 'secondary'" @click="mode = 'balances'">截止日组合余额</AppButton>
       <AppButton :disabled="disabled" @click="loadControlBalances">{{ loading ? '正在核对…' : '读取最新依据' }}</AppButton>
-      <AppButton v-if="can('control_transfer.create')" :disabled="disabled || !options" variant="primary" @click="start">新增余额转账</AppButton>
+      <AppButton v-if="can('control_transfer.create')" :disabled="disabled || !options" variant="primary" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:form', $event)" @click="start">新增余额转账</AppButton>
     </div>
     <p v-if="readError" role="alert">{{ readError }}</p>
     <NCollapse v-if="blockedOrigins.length"><AppCollapseItem name="blocked" :title="`${blockedOrigins.length} 个原单存在组合依据缺口`">
@@ -152,12 +163,12 @@ async function confirm(): Promise<void> {
       <template #cell-scopes="{ row }"><p>来源：{{ row.evidence.source.reference || '#' + row.from_scope.source_id }}</p><p>目标：{{ row.evidence.target.reference || '#' + row.to_scope.source_id }}</p></template>
       <template #cell-status="{ row }">{{ controlCaption(row) }}<p v-if="row.journal_id && row.journal_status">凭证 #{{ row.journal_id }} · {{ journalStatusLabels[row.journal_status] }}</p></template>
       <template #cell-actions="{ row }"><div class="ledger-actions">
-        <AppButton variant="text" :disabled="disabled" @click="inspect(row.id)">组合、来源与审计</AppButton>
-        <AppButton variant="text" :disabled="disabled" @click="openDocumentApproval({ document_type: 'ControlBalanceTransfer', document_id: row.id, intent: 'execute' })">转账审批</AppButton>
-        <AppButton v-if="available(row, 'generate')" variant="text" :disabled="disabled" @click="ask(row, 'generate')">生成固定凭证</AppButton>
-        <AppButton v-if="row.journal_id && can('journal.view')" variant="text" :disabled="disabled" @click="inspectJournal(row.journal_id)">关联凭证</AppButton>
-        <AppButton v-if="available(row, 'reverse')" variant="text" :disabled="disabled" @click="ask(row, 'reverse')">建立反向转账</AppButton>
-        <AppButton v-if="available(row, 'cancel')" variant="text" :disabled="disabled" @click="ask(row, 'cancel')">取消草稿</AppButton>
+        <AppButton variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:detail', $event)" @click="inspect(row.id)">组合、来源与审计</AppButton>
+        <AppButton variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({ document_type: 'ControlBalanceTransfer', document_id: row.id, intent: 'execute' })">转账审批</AppButton>
+        <AppButton v-if="available(row, 'generate')" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:command', $event)" @click="ask(row, 'generate')">生成固定凭证</AppButton>
+        <AppButton v-if="row.journal_id && can('journal.view')" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:journal', $event)" @click="inspectJournal(row.journal_id)">关联凭证</AppButton>
+        <AppButton v-if="available(row, 'reverse')" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:command', $event)" @click="ask(row, 'reverse')">建立反向转账</AppButton>
+        <AppButton v-if="available(row, 'cancel')" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:command', $event)" @click="ask(row, 'cancel')">取消草稿</AppButton>
       </div></template>
       <template #empty>暂无往来余额转账。读取最新依据后，可选择已核对的原单组合建立草稿。</template>
     </WorkspaceTable>
@@ -173,7 +184,7 @@ async function confirm(): Promise<void> {
       </WorkspaceTable>
       </template>
     </template>
-    <NModal :show="editing" preset="card" title="往来余额转账草稿" :style="modalStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!busy) editing = value }">
+    <AppModal :busy="busy" origin-key="ControlBalanceTransfersView:form" @invalidated="editing = false" :show="editing" preset="card" title="往来余额转账草稿" :style="modalStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!busy) editing = value }">
       <form class="ledger-editor" @submit.prevent="save">
         <label>往来类别<WorkspaceSelect v-model="form.kind" :disabled="disabled" :options="[{ value: 'receivable', label: controlKindLabels.receivable }, { value: 'payable', label: controlKindLabels.payable }]" /></label>
         <label>转账用途<WorkspaceSelect v-model="form.operation" :disabled="disabled" :options="[{ value: 'reclassify', label: controlOperationLabels.reclassify }, { value: 'allocate', label: controlOperationLabels.allocate }]" /></label>
@@ -193,29 +204,29 @@ async function confirm(): Promise<void> {
         <p v-if="error" role="alert">{{ error }}</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !source || (newTarget ? !form.account_id : !target) || cents(form.amount) <= 0n || cents(form.amount) > limit || !form.reference || !form.reason">保存转账草稿</AppButton>
       </form>
-    </NModal>
-    <NModal :show="showDetail" preset="card" title="固定组合、来源与审计" :style="modalStyle" @update:show="value => { showDetail = value; if (!value) closeControlBalanceDetail() }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="ControlBalanceTransfersView:detail" @invalidated="showDetail = false; closeControlBalanceDetail()" :ready="!detailLoading && !!detail" :load-error="readError" :show="showDetail" preset="card" title="固定组合、来源与审计" :style="modalStyle" @update:show="value => { showDetail = value; if (!value) closeControlBalanceDetail() }">
       <p v-if="detailLoading" role="status">正在读取转账原始依据…</p><p v-if="readError" role="alert">{{ readError }}</p>
       <template v-if="detail"><p>{{ documentLabel(detail) }} · {{ controlCaption(detail) }} · {{ detail.amount }} 元 · {{ detail.business_date }}（UTC）</p><p>参考号 {{ detail.reference }} · {{ detail.reason }}</p>
         <NCollapse :default-expanded-names="['source','target']"><AppCollapseItem v-for="side in ['source','target'] as const" :key="side" :name="side" :title="side === 'source' ? '来源固定组合' : '目标固定组合'">
-          <p>{{ scopeLabel(detail.evidence[side]) }}</p><p v-for="(item, index) in detail.evidence[side].evidence" :key="index">{{ controlEvidenceText(item) }} <AppButton v-if="'journal_id' in item && item.journal_id && can('journal.view')" variant="text" :disabled="disabled" @click="inspectJournal(item.journal_id)">查看来源凭证</AppButton></p>
+          <p>{{ scopeLabel(detail.evidence[side]) }}</p><p v-for="(item, index) in detail.evidence[side].evidence" :key="index">{{ controlEvidenceText(item) }} <AppButton v-if="'journal_id' in item && item.journal_id && can('journal.view')" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:journal', $event)" @click="inspectJournal(item.journal_id)">查看来源凭证</AppButton></p>
         </AppCollapseItem><AppCollapseItem name="audit" :title="`${changes.length} 条不可覆盖的转账审计`"><p v-for="item in changes" :key="item.id">{{ localTime(item.created_at) }} · 操作者 #{{ item.changed_by }} · {{ item.action }} · v{{ item.snapshot.version }} · {{ item.reason }}</p></AppCollapseItem></NCollapse>
       </template>
-    </NModal>
-    <NModal :show="showJournal" preset="card" title="关联及来源凭证" :style="modalStyle" @update:show="value => { showJournal = value; if (!value) closeControlBalanceJournal() }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="ControlBalanceTransfersView:journal" @invalidated="showJournal = false; closeControlBalanceJournal()" :ready="!journalLoading && !!journal" :load-error="readError" :show="showJournal" preset="card" title="关联及来源凭证" :style="modalStyle" @update:show="value => { showJournal = value; if (!value) closeControlBalanceJournal() }">
       <p v-if="journalLoading" role="status">正在读取真实凭证…</p><p v-if="readError" role="alert">{{ readError }}</p>
       <template v-if="journal"><p>{{ documentLabel(journal) }} · {{ journal.journal_date }} · {{ journalStatusLabels[journal.status] }} · 参考号 {{ journal.reference }}</p>
         <WorkspaceTable title="实际凭证分录" :data="journal.lines" :min-table-width="1000" :columns="[{ key: 'account_code', title: '控制科目' }, { key: 'summary', title: '摘要' }, { key: 'auxiliary', title: '完整辅助', width: '300' }, { key: 'debit', title: '借方（元）' }, { key: 'credit', title: '贷方（元）' }]">
           <template #cell-auxiliary="{ row }">{{ auxiliaryText(row.auxiliary) }}</template>
         </WorkspaceTable>
-        <AppButton :disabled="disabled" @click="openDocumentApproval({ document_type: 'Journal', document_id: journal.id, intent: 'execute' })">凭证审批</AppButton>
+        <AppButton :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({ document_type: 'Journal', document_id: journal.id, intent: 'execute' })">凭证审批</AppButton>
         <template v-for="row in records.filter(row => row.journal_id === journal?.id)" :key="row.id"><p>本凭证关联 {{ documentLabel(row) }}。实际过账将再次核对转账批准、来源额度与开放期间，并同时生效余额。</p>
-          <AppButton v-if="available(row, 'post')" :disabled="disabled" variant="primary" @click="ask(row, 'post')">过账凭证并生效转账</AppButton>
-          <AppButton v-if="available(row, 'cancelJournal')" :disabled="disabled" @click="ask(row, 'cancelJournal')">取消未过账凭证</AppButton>
+          <AppButton v-if="available(row, 'post')" :disabled="disabled" variant="primary" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:command', $event)" @click="ask(row, 'post')">过账凭证并生效转账</AppButton>
+          <AppButton v-if="available(row, 'cancelJournal')" :disabled="disabled" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:command', $event)" @click="ask(row, 'cancelJournal')">取消未过账凭证</AppButton>
         </template>
       </template>
-    </NModal>
-    <NModal :show="!!command" preset="card" title="确认转账操作" :style="modalStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) command = null }">
+    </AppModal>
+    <AppModal :busy="busy" origin-key="ControlBalanceTransfersView:command" @invalidated="command = null" :show="!!command" preset="card" title="确认转账操作" :style="modalStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) command = null }">
       <form class="ledger-editor" @submit.prevent="confirm"><p v-if="command">{{ documentLabel(command.row) }} · {{ command.row.amount }} 元 · {{ command.row.reference }}</p>
         <p v-if="command?.action === 'reverse'">原转账与凭证保留。下游转账、资金及凭证须先倒序更正，反向转账和新凭证都须重新批准；过账后才恢复归属。</p>
         <p v-if="command?.action === 'post'">确认把已批准的固定凭证过账，并在同一事务中生效转账；失败不会留下单边变动。</p>
@@ -225,7 +236,7 @@ async function confirm(): Promise<void> {
         <label>操作依据<AppInput v-model.trim="commandReason" required maxlength="200" :disabled="disabled" /></label><p v-if="error" role="alert">{{ error }}</p>
         <AppButton type="submit" variant="primary" :disabled="disabled || !commandReason">{{ command?.action === 'generate' ? '生成固定凭证' : command?.action === 'reverse' ? '保存反向转账草稿' : command?.action === 'post' ? '过账并生效转账' : command?.action === 'cancelJournal' ? '取消未过账凭证' : '取消未生效草稿' }}</AppButton>
       </form>
-    </NModal>
-    <DocumentApprovalDialog />
+    </AppModal>
+    <DocumentApprovalDialog origin-key="document-approval" />
   </section>
 </template>

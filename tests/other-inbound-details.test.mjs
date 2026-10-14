@@ -62,7 +62,7 @@ export default defineComponent({props:['type','disabled','variant'],setup(p,{slo
  const content=slots.default?.();buttons.push({props:p,attrs,content});return h('button',{...attrs,type:p.type,disabled:p.disabled},content)
 }}})`
 const modalSource = `import {defineComponent,h} from 'vue'
-export const NModal=defineComponent({props:['show','title'],setup(p,{slots,attrs}){return()=>p.show?h('section',{'data-modal':p.title},slots.default?.()):null}})
+export { NModal as default }; export const NModal=defineComponent({props:['show','title'],setup(p,{slots,attrs}){return()=>p.show?h('section',{'data-modal':p.title},slots.default?.()):null}})
 export const NDatePicker=NModal`
 // 原因与弹窗层级使用真实页面验证；选择器浮层依赖浏览器 DOM，仅替换其控件外壳。
 const selectSource = `import {defineComponent,h} from 'vue'
@@ -82,12 +82,12 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  const server=await createServer({configFile:false,plugins:[{
   name:'inbound-detail-fixtures',enforce:'pre',
   transform(code,id){
-   if(id.endsWith('/OtherInboundActions.vue'))return code.replace("'naive-ui'","'virtual:inbound-action-controls'")
+   if(id.endsWith('/OtherInboundActions.vue'))return code.replace("'naive-ui'","'virtual:inbound-action-controls'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:inbound-action-controls'")
    // 可设置初始选中 ID 来展开真实弹窗；正常打开事件另行直接触发验证。
    if(id.endsWith('/OtherInboundsView.vue'))return code.replace('const detailInboundId = ref(0)','const detailInboundId = ref(store.initialDetailId)')
     .replace('const reopenSourceId = ref(0)','const reopenSourceId = ref(store.initialReopenId)')
-    .replace('const showForm = ref(false)','const showForm = ref(store.initialShowForm)').replace("'naive-ui'","'virtual:inbound-detail-modal'")
-   if(id.endsWith('/WorkspaceDocumentDialog.vue'))return code.replace("'naive-ui'","'virtual:inbound-detail-modal'")
+    .replace('const showForm = ref(false)','const showForm = ref(store.initialShowForm)').replace("'naive-ui'","'virtual:inbound-detail-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:inbound-detail-modal'")
+   if(id.endsWith('/WorkspaceDocumentDialog.vue') || id.endsWith('/WorkspaceLotDialog.vue'))return code.replace("'naive-ui'","'virtual:inbound-detail-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:inbound-detail-modal'")
   },
   resolveId(id,importer){
    if(id==='virtual:inbound-action-controls')return '\0inbound-action-controls'
@@ -109,9 +109,14 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/warehouse/OtherInboundsView.vue')
  const {buttons}=await server.ssrLoadModule('\0inbound-detail-button')
  const {tables}=await server.ssrLoadModule('\0inbound-detail-table')
+ const {getDialogOrigin,clearDialogOrigins}=await server.ssrLoadModule('/src/renderer/src/utils/dialog-origin.ts')
+ t.after(clearDialogOrigins)
+ const sourceEvent=()=>({currentTarget:{getBoundingClientRect:()=>({left:10,top:20,width:80,height:32})}})
  let vnode
  // 筛选工具栏使用真实日期控件，为无浏览器的渲染提供其官方样式收集器。
- const render=()=>{tables.length=0;buttons.length=0;vnode=h(View);const app=createSSRApp({render:()=>vnode}).use(pinia);setupSsrStyles(app);return renderToString(app)}
+ const render=prepare=>{tables.length=0;buttons.length=0;vnode=h(View);const app=createSSRApp({render:()=>vnode}).use(pinia);setupSsrStyles(app)
+  if(prepare)app.mixin({created(){if(this.$options.__name==='OtherInboundsView')prepare(this.$.setupState)}})
+  return renderToString(app)}
  store.otherInbounds=[structuredClone(inbound)]
  const draft=JSON.stringify(store.otherInboundForm)
  store.connectionLost=true
@@ -410,7 +415,10 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  await render()
  assert.equal(buttons.filter(button=>text(button.content)==='重开为新单').length,1)
  const reopen=detailButton('重开为新单')
+ const reopenEvent=sourceEvent()
+ reopen.attrs.onClickCapture(reopenEvent)
  reopen.attrs.onClick();await flush()
+ assert.equal(getDialogOrigin('OtherInboundsView:form').element,reopenEvent.currentTarget)
  assert.deepEqual(store.calls.slice(-2),[['reopen',3],['closeApproval']])
  assert.equal(vnode.component.setupState.reopenSourceId,3)
  assert.equal(vnode.component.setupState.showForm,true)
@@ -438,5 +446,29 @@ test('其他入库各状态详情沿用历史字段，离线与只读账号可�
  html=await render();assert.doesNotMatch(formHtml(),/原单冲销原因|不应展示/)
  store.initialReopenId=0
  html=await render();assert.doesNotMatch(formHtml(),/原单冲销原因/)
+
+ // 溯源换单必须采集子组件里的实际单号入口，而不是继续沿用列表按钮。
+ store.initialShowForm=false;store.initialDetailId=3
+ store.documentApprovalTarget=approvalTarget;store.documentApprovalRecord=approvalRecord
+ store.otherInbounds=[{...inbound,reopen_trace:[{id:1,source_id:3,new_id:4,kind:'cancelled',source_document_no:'来源单',new_document_no:'溯源新单',created_by_name:'仓库员',created_at:'2026-10-14'}]}, {...inbound,id:4}]
+ await render()
+ const traceEvent=sourceEvent()
+ buttons.find(button=>text(button.content)==='溯源新单').attrs.onClick(traceEvent)
+ await flush()
+ assert.equal(vnode.component.setupState.detailInboundId,4)
+ assert.equal(getDialogOrigin('OtherInboundsView:detail').element,traceEvent.currentTarget)
+
+ // 多收赠品由批次窗口跳到新建单据，来源 key 必须属于 form，不能误写回 lot。
+ store.permissions=['other_inbound.create','other_inbound.post']
+ store.otherInbounds=[approved];store.otherInboundForm={lines:[]}
+ store.documentApprovalTarget=approvalTarget;store.documentApprovalRecord=approvalRecord
+ await render(page=>{page.startLotPost(approved);page.lotDrafts[0].lots[0].quantity='3';page.excessDisposition='gift'})
+ clearDialogOrigins()
+ const giftEvent=sourceEvent(),gift=buttons.find(button=>text(button.content)==='新建多收赠品入库单')
+ gift.attrs.onClickCapture(giftEvent);gift.attrs.onClick()
+ assert.equal(vnode.component.setupState.showForm,true)
+ assert.equal(vnode.component.setupState.activeInboundId,0)
+ assert.equal(getDialogOrigin('OtherInboundsView:form').element,giftEvent.currentTarget)
+ assert.equal(getDialogOrigin('OtherInboundsView:lot'),null)
 
 })

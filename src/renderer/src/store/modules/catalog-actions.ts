@@ -6,6 +6,7 @@ import type { MaterialUnitInput } from '../../../../shared/material-unit-api'
 import { displayError } from '../../utils/formatters.ts'
 import { materialCategoryBody, materialCategoryRevision, materialSpecFieldBody } from '../../../../shared/material-category-validation.ts'
 import type { MaterialCategoryInput, MaterialCategoryRevision, MaterialSpecFieldInput } from '../../../../shared/material-api'
+import { watch } from 'vue'
 
 // 基础资料操作独立维护；写入后由统一入口刷新服务端快照。
 export function createCatalogActions(
@@ -13,6 +14,31 @@ export function createCatalogActions(
   perform: (action: () => Promise<unknown>, success: string) => Promise<void>
 ) {
   const { materialForm, supplierForm } = state
+  let preparationTicket = 0, ownsBusy = false
+  function cancelCatalogPreparation(): void {
+    // 取消只废弃目录读取，不触碰已有编辑草稿；忙碌标记只能由持有它的读取释放。
+    preparationTicket++
+    if (ownsBusy) { ownsBusy = false; state.busy.value = false }
+  }
+  function beginPreparation(): number {
+    const ticket = ++preparationTicket
+    ownsBusy = true; state.busy.value = true; state.error.value = ''
+    return ticket
+  }
+  function preparationCurrent(ticket: number): boolean {
+    return ticket === preparationTicket && ownsBusy && !!state.user.value && !state.connectionLost.value
+  }
+  function finishPreparation(ticket: number): void {
+    if (ticket === preparationTicket && ownsBusy) { ownsBusy = false; state.busy.value = false }
+  }
+  // 使用稳定身份而非响应式对象引用，常规 me 刷新保留请求，撤权、换证书和短暂断线均立即失效。
+  // 角色与权限按集合比较，副本排序不会修改用户快照，例行返回顺序变化也不取消读取。
+  watch(() => `${state.server?.value?.id}:${state.server?.value?.fingerprint}:${state.user?.value?.id}:${state.user?.value?.roles?.slice().sort().join('|')}:${state.user?.value?.permissions?.slice().sort().join('|')}:${state.connectionLost?.value}`,
+    cancelCatalogPreparation, { flush: 'sync' })
+  if (state.busy) watch(state.busy, busy => {
+    // 全局退出流程可能先释放 busy；旧请求此后不能解除另一项操作新占用的锁。
+    if (!busy && ownsBusy) { ownsBusy = false; preparationTicket++ }
+  }, { flush: 'sync' })
 
   async function loadMaterial(id: number): Promise<Material | undefined> {
     if (!window.nexora || !state.user.value || state.busy.value) return undefined
@@ -20,21 +46,18 @@ export function createCatalogActions(
       state.error.value = '服务端连接已中断，恢复连接后才能加载物料。'
       return undefined
     }
-    const user = state.user.value
-    const server = state.server.value
-    state.busy.value = true
-    state.error.value = ''
+    const ticket = beginPreparation()
     try {
       // 单条查询不触发全业务刷新；切换账号、实例或断线后的迟到结果不打开编辑器。
       const latest = await window.nexora.callApi('materialDetail', { id, include_suppliers: true })
-      if (state.user.value !== user || state.server.value !== server || state.connectionLost.value) return undefined
+      if (!preparationCurrent(ticket)) return undefined
       state.materials.value = state.materials.value.map(item => item.id === id ? latest : item)
       return latest
     } catch (cause) {
-      if (state.user.value === user && state.server.value === server) state.error.value = displayError(cause)
+      if (preparationCurrent(ticket)) state.error.value = displayError(cause)
       return undefined
     } finally {
-      state.busy.value = false
+      finishPreparation(ticket)
     }
   }
 
@@ -121,15 +144,14 @@ export function createCatalogActions(
 
   async function reloadMaterialCategories(): Promise<boolean> {
     if (!window.nexora || !state.user.value || state.busy.value || state.connectionLost.value) return false
-    const user = state.user.value, server = state.server.value
-    state.busy.value = true
+    const ticket = beginPreparation()
     try {
       const rows = await window.nexora.callApi('materialCategories', undefined)
-      if (state.user.value !== user || state.server.value !== server || state.connectionLost.value) return false
+      if (!preparationCurrent(ticket)) return false
       state.materialCategories.value = rows
       return true
-    } catch (cause) {state.error.value = displayError(cause); return false}
-    finally {state.busy.value = false}
+    } catch (cause) {if (preparationCurrent(ticket)) state.error.value = displayError(cause); return false}
+    finally {finishPreparation(ticket)}
   }
 
   async function saveMaterialCategory(data: MaterialCategoryInput, editing: boolean): Promise<boolean> {
@@ -168,17 +190,16 @@ export function createCatalogActions(
   }
   async function loadMaterialCategoryChanges(code: string): Promise<boolean> {
     if (!window.nexora || !state.user.value || state.busy.value || state.connectionLost.value) return false
-    const user = state.user.value, server = state.server.value
-    state.busy.value = true
+    const ticket = beginPreparation()
     try {
       const rows = await window.nexora.callApi('materialCategoryChanges', {code})
-      if (state.user.value !== user || state.server.value !== server || state.connectionLost.value) return false
+      if (!preparationCurrent(ticket)) return false
       state.materialCategoryChanges.value = rows
       return true
-    } catch (cause) {state.error.value = displayError(cause); return false}
-    finally {state.busy.value = false}
+    } catch (cause) {if (preparationCurrent(ticket)) state.error.value = displayError(cause); return false}
+    finally {finishPreparation(ticket)}
   }
 
-  return { loadMaterial, createMaterial, createSupplier, saveMaterial, deleteMaterial, saveSupplier, deleteSupplier, setSupplierMaterial, saveMaterialUnit,
+  return { loadMaterial, cancelCatalogPreparation, createMaterial, createSupplier, saveMaterial, deleteMaterial, saveSupplier, deleteSupplier, setSupplierMaterial, saveMaterialUnit,
     reloadMaterialCategories, saveMaterialCategory, saveMaterialSpecField, removeMaterialCategory, loadMaterialCategoryChanges }
 }

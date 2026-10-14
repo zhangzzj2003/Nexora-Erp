@@ -5,7 +5,12 @@ import type { AppState } from '../state'
 export function createOpeningBalanceActions(state: AppState, perform: (action: () => Promise<unknown>, success: string) => Promise<void>) {
   let optionsTicket = 0
   let sessionTicket = 0
-  const identity = () => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`
+  function cancelOpeningBalancePreparation(): void {
+    // 退出准备阶段后禁止旧请求重写草稿，不清空本次仍需保留的输入。
+    optionsTicket++
+  }
+  // 角色与权限按集合比较，副本排序不会修改用户快照，例行返回顺序变化也不取消读取。
+  const identity = () => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.slice().sort().join('|')}:${state.user.value?.permissions.slice().sort().join('|')}`
   let owner = identity()
   const can = (permission: string): boolean => state.user.value?.permissions.includes(permission) ?? false
   const emptyForm = () => ({ id: null, version: 1, reference: '', effective_date: '', note: '', reason: '', lines: [] })
@@ -20,6 +25,8 @@ export function createOpeningBalanceActions(state: AppState, perform: (action: (
       state.openingBalanceForm.value = emptyForm()
     }
   }, { flush: 'sync' })
+  // 短暂断线也属于旧读取边界，恢复后必须显式重新打开，不能回填原请求。
+  watch(state.connectionLost, cancelOpeningBalancePreparation, { flush: 'sync' })
   async function editOpeningBalance(item?: OpeningBalance): Promise<boolean> {
     if (!window.nexora || !can('opening_balance.create') || state.connectionLost.value) return false
     const ticket = ++optionsTicket
@@ -72,5 +79,5 @@ export function createOpeningBalanceActions(state: AppState, perform: (action: (
     if (!window.nexora || !can('opening_balance.view')) throw new Error('没有查看期初记录的权限。')
     return window.nexora.callApi('openingBalanceChanges', { id })
   }
-  return { editOpeningBalance, saveOpeningBalance, changeOpeningBalanceStatus, loadOpeningBalanceChanges }
+  return { editOpeningBalance, cancelOpeningBalancePreparation, saveOpeningBalance, changeOpeningBalanceStatus, loadOpeningBalanceChanges }
 }

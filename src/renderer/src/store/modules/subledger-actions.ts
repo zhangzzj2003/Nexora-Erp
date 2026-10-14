@@ -7,6 +7,11 @@ import { fundsScopeBody } from '../../../../shared/control-balance-validation.ts
 
 export function createSubledgerActions(state: AppState, perform: (action: () => Promise<unknown>, success: string) => Promise<void>) {
   let owner = 0; let readTicket = 0; let queryTicket = 0; let detailTicket = 0; let editTicket = 0; let loadingTicket = 0
+  let detailId: number | null = null, detailReading = false, detailFailed = false
+  function cancelSubledgerPreparation(): void {
+    // 取消编辑准备只废弃选项读取，不删除已输入的控制科目和历史明细。
+    editTicket++
+  }
   const can = (permission: string): boolean => state.user.value?.permissions.includes(permission) ?? false
   const connected = (): boolean => !!window.nexora && !state.connectionLost.value
   const emptyForm = () => ({ id: null, version: 1, reference: '', opening_balance_id: 0, opening_version: 0,
@@ -16,12 +21,15 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
     readTicket++; queryTicket++; detailTicket++; editTicket++; loadingTicket++
     state.subledgerLoading.value = false; state.subledgerReport.value = null
     state.subledgerChanges.value = []; state.subledgerCheck.value = null; state.subledgerError.value = ''
+    detailId = null; detailReading = false; detailFailed = false
   }
   function clearSubledgerDetail(): void {
     detailTicket++; state.subledgerChanges.value = []; state.subledgerCheck.value = null
+    detailId = null; detailReading = false; detailFailed = false
   }
   watch(state.subledgerQuery, clearReport, { deep: true, flush: 'sync' })
-  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.join('|')}:${state.user.value?.permissions.join('|')}`, () => {
+  // 角色与权限按集合比较，副本排序不会修改用户快照，例行返回顺序变化也不取消读取。
+  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.slice().sort().join('|')}:${state.user.value?.permissions.slice().sort().join('|')}`, () => {
     owner++; invalidateReads(); state.subledgerOpenings.value = []; state.subledgerPayments.value = []
     state.subledgerSettlements.value = []
     state.subledgerOptions.value = null; state.subledgerForm.value = emptyForm()
@@ -91,7 +99,7 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
     // 排队写操作在发送前重新检查原会话，不能把期初或资金写入另一个实例。
     await perform(async () => { if (session !== owner || !can(permission) || !connected()) throw new Error('会话或连接已变化，请重新打开分户方案。'); await run(); saved = session === owner && can(permission) }, message)
     if (!saved || session !== owner || !can(permission)) return false
-    detailTicket++; state.subledgerChanges.value = []; state.subledgerCheck.value = null
+    clearSubledgerDetail()
     await loadSubledger()
     return session === owner && can(permission)
   }
@@ -110,24 +118,34 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
     return saved
   }
   async function changeSubledgerStatus(item: SubledgerOpening, action: OpeningBalanceAction, reason: string): Promise<boolean> {
+    // 同单核对未完成或失败时，旧检查只供呈现，不能触发状态变更。
+    if (detailId === item.id && (detailReading || detailFailed)) return false
     if (['submit','approve','reject'].includes(action)) return false
     if (action === 'confirm' && item.approval?.status !== 'approved') return false
     if (action === 'reverse' && item.reversal_approval?.status !== 'approved') return false
     if (action === 'cancel' && ['submitted','approved'].includes(item.approval?.status ?? '')) return false
     const permission = ['approve','reject'].includes(action) ? 'subledger_opening.review' : `subledger_opening.${action}`
-    return write(permission, () => window.nexora!.callApi('changeSubledgerStatus', { id: item.id, version: item.version, action, reason }), '分户期初状态已更新。')
+    return write(permission, () => {
+      if (detailId === item.id && (detailReading || detailFailed)) throw Error('分户核对尚未完成，请重新读取。')
+      return window.nexora!.callApi('changeSubledgerStatus', { id: item.id, version: item.version, action, reason })
+    }, '分户期初状态已更新。')
   }
   async function loadSubledgerDetail(item: SubledgerOpening): Promise<boolean> {
     if (!can('subledger_opening.view') || !connected()) return false
     const ticket = ++detailTicket; const session = owner
-    state.subledgerChanges.value = []; state.subledgerCheck.value = null
+    // 刷新同一方案保留正文；切换方案后不得显示上一方案的审计与金额。
+    if (detailId !== item.id) { state.subledgerChanges.value = []; state.subledgerCheck.value = null }
+    detailId = item.id; detailReading = true; detailFailed = false; state.subledgerError.value = ''
     try {
       const [changes, check] = await Promise.all([window.nexora!.callApi('subledgerChanges', { id: item.id }),
         item.evidence || ['cancelled','reversed'].includes(item.status) ? Promise.resolve(item.evidence)
           : window.nexora!.callApi('subledgerCheck', { id: item.id })])
-      if (ticket !== detailTicket || session !== owner || !can('subledger_opening.view')) return false
+      if (ticket !== detailTicket || session !== owner || !can('subledger_opening.view') || !connected()) return false
       state.subledgerChanges.value = changes; state.subledgerCheck.value = check; return true
-    } catch (error) { if (ticket === detailTicket && session === owner) state.subledgerError.value = displayError(error); return false }
+    } catch (error) {
+      if (ticket === detailTicket && session === owner) { state.subledgerError.value = displayError(error); detailFailed = true }
+      return false
+    } finally { if (ticket === detailTicket && session === owner) detailReading = false }
   }
   async function exportSubledger(): Promise<void> {
     const report = state.subledgerReport.value
@@ -138,7 +156,7 @@ export function createSubledgerActions(state: AppState, perform: (action: () => 
       if (saved && session === owner && can('subledger_opening.view')) state.notice.value = '分户未结余额 CSV 已保存。'
     } catch (error) { if (session === owner) state.subledgerError.value = displayError(error) }
   }
-  return { loadSubledger, refreshSubledgerApproval, querySubledger, editSubledger, saveSubledger, changeSubledgerStatus, loadSubledgerDetail, clearSubledgerDetail, exportSubledger,
+  return { loadSubledger, refreshSubledgerApproval, querySubledger, editSubledger, cancelSubledgerPreparation, saveSubledger, changeSubledgerStatus, loadSubledgerDetail, clearSubledgerDetail, exportSubledger,
     createSubledgerSettlement: (input: SubledgerSettlementInput) => write('finance.record',
       () => window.nexora!.callApi('createSubledgerSettlement', { ...input }), '历史原单核销草稿已保存，批准执行后更新余额。'),
     changeSubledgerSettlementStatus: (item: SubledgerSettlement, action: 'post' | 'cancel', reason: string) => {

@@ -10,7 +10,8 @@ export function approvalTargetKey(target: DocumentApprovalTarget): string {
 export function createDocumentApprovalCaseActions(state: AppState, refreshData: () => Promise<void>, refreshDomain?: (target: DocumentApprovalTarget) => Promise<void>, currentRoute?: () => string) {
   let owner = 0, reads = 0
   const available = () => !!window.nexora && !!state.user.value && !state.connectionLost.value
-  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles.join('|')}:${state.user.value?.permissions.join('|')}`, () => {
+  // 角色与权限按集合比较，副本排序不会修改用户快照，例行返回顺序变化也不取消读取。
+  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.slice().sort().join('|')}:${state.user.value?.permissions.slice().sort().join('|')}`, () => {
     // 单据意见只属于当前实例和人员；旧请求不得恢复退出前的弹窗。
     owner++; reads++
     state.documentApprovalTarget.value = null; state.documentApprovalRecord.value = null
@@ -43,7 +44,7 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
     if (!available() || !target) return false
     const ticket = ++reads, session = owner, key = approvalTargetKey(target)
     state.documentApprovalLoading.value = true; state.documentApprovalError.value = ''
-    state.documentApprovalRecord.value = null
+    // 刷新期间保留同一单据的正文；加载和错误状态仍会锁住全部审批操作。
     try {
       const result = await window.nexora!.callApi('documentApproval', { ...target })
       if (session !== owner || ticket !== reads || !available()
@@ -74,8 +75,12 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
   }
   async function openDocumentApproval(target: DocumentApprovalTarget): Promise<boolean> {
     if (!available() || state.busy.value) return false
-    state.documentApprovalTarget.value = documentApprovalTarget(target)
-    state.documentApprovalRecord.value = null
+    const nextTarget = documentApprovalTarget(target)
+    // 换单不能借用上一张单据的正文；同单刷新则保持布局，等待新快照整体替换。
+    if (!state.documentApprovalTarget.value || approvalTargetKey(state.documentApprovalTarget.value) !== approvalTargetKey(nextTarget)) {
+      state.documentApprovalRecord.value = null
+    }
+    state.documentApprovalTarget.value = nextTarget
     return loadDocumentApproval()
   }
   function clearDocumentApproval(): void {
@@ -88,7 +93,8 @@ export function createDocumentApprovalCaseActions(state: AppState, refreshData: 
   }
   async function actDocumentApproval(action: DocumentApprovalAction): Promise<boolean> {
     const target = state.documentApprovalTarget.value, record = state.documentApprovalRecord.value
-    if (!available() || !target || !record || state.busy.value || state.documentApprovalLoading.value) return false
+    if (!available() || !target || !record || state.busy.value || state.documentApprovalLoading.value
+      || !!state.documentApprovalError.value || approvalTargetKey(record) !== approvalTargetKey(target)) return false
     if (!(action === 'submit' ? record.can_submit : action === 'withdraw' ? record.can_withdraw : record.can_review)) return false
     const session = owner, key = approvalTargetKey(target)
     state.busy.value = true; reads++; state.documentApprovalError.value = ''

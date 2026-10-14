@@ -1,7 +1,10 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NCollapse, NModal } from 'naive-ui'
+import { NCollapse } from 'naive-ui'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import AppInput from '../../../components/app/AppInput.vue'
@@ -90,7 +93,7 @@ async function confirm(): Promise<void> {
   <p>历史贷方可抵订单待结款，订单贷方也可抵历史待结款。双方必须为同一对象、控制科目及完整辅助组合；草稿和批准不占额度，执行才更新余额。</p>
   <div class="ledger-actions">
     <AppButton :disabled="disabled" @click="loadSubledgerOrders">{{ loading ? '正在核对…' : '读取最新核销依据' }}</AppButton>
-    <AppButton v-if="can('finance.record')" variant="primary" :disabled="disabled || !options?.active" @click="start">新增历史与订单核销</AppButton>
+    <AppButton v-if="can('finance.record')" variant="primary" :disabled="disabled || !options?.active" @click.capture="captureDialogOrigin('SubledgerOrderSettlements:form', $event)" @click="start">新增历史与订单核销</AppButton>
   </div>
   <p v-if="options && !options.active">请先确认并启用历史分户方案。</p>
   <p v-if="readError" role="alert">{{ readError }} 请重新读取核销依据。</p>
@@ -104,14 +107,14 @@ async function confirm(): Promise<void> {
     <template #cell-executed_at="{ row }">{{ row.executed_at ? localTime(row.executed_at) : '尚未执行' }}</template>
     <template #cell-status="{ row }">{{ caption(row) }} · v{{ row.version }}</template>
     <template #cell-actions="{ row }"><div class="row-actions">
-      <AppButton variant="text" :disabled="disabled" @click="detail = row">组合与凭证依据</AppButton>
-      <AppButton variant="text" :disabled="disabled" @click="openDocumentApproval({ document_type: 'SubledgerOrderSettlement', document_id: row.id, intent: 'execute' })">核销审批</AppButton>
-      <AppButton v-for="action in actions(row)" :key="action" variant="text" :disabled="disabled" @click="ask(row, action)">{{ action === 'post' ? '执行核销' : '取消草稿' }}</AppButton>
-      <AppButton v-if="can('finance.reverse') && canReverseSettlement(row, records)" variant="text" :disabled="disabled" @click="ask(row, 'reverse')">建立反向草稿</AppButton>
+      <AppButton variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerOrderSettlements:detail', $event)" @click="detail = row">组合与凭证依据</AppButton>
+      <AppButton variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({ document_type: 'SubledgerOrderSettlement', document_id: row.id, intent: 'execute' })">核销审批</AppButton>
+      <AppButton v-for="action in actions(row)" :key="action" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerOrderSettlements:command', $event)" @click="ask(row, action)">{{ action === 'post' ? '执行核销' : '取消草稿' }}</AppButton>
+      <AppButton v-if="can('finance.reverse') && canReverseSettlement(row, records)" variant="text" :disabled="disabled" @click.capture="captureDialogOrigin('SubledgerOrderSettlements:command', $event)" @click="ask(row, 'reverse')">建立反向草稿</AppButton>
     </div></template>
     <template #empty>{{ options && !options.active ? '先启用历史分户方案，再核对历史原单与订单。' : '暂无核销记录。读取最新依据后，可建立双向核销草稿。' }}</template>
   </WorkspaceTable>
-  <NModal :show="editing" preset="card" title="历史与订单核销草稿" :style="modalStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!busy) editing = value }">
+  <AppModal :busy="busy" origin-key="SubledgerOrderSettlements:form" @invalidated="editing = false" :show="editing" preset="card" title="历史与订单核销草稿" :style="modalStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!busy) editing = value }">
     <form class="ledger-editor" @submit.prevent="save">
       <label>核销方向<WorkspaceSelect v-model="form.direction" :options="[{ value: 'historical_credit', label: directionLabels.historical_credit }, { value: 'order_credit', label: directionLabels.order_credit }]" :disabled="disabled" /></label>
       <label>历史原单<WorkspaceSelect v-model="form.opening_line_id" :options="lineOptions" :disabled="disabled" /></label>
@@ -129,15 +132,15 @@ async function confirm(): Promise<void> {
       <p v-if="error" role="alert">{{ error }}</p>
       <AppButton type="submit" variant="primary" :disabled="disabled || !order || cents(form.amount) <= 0n || cents(form.amount) > limit || !form.reference || !form.reason">保存核销草稿</AppButton>
     </form>
-  </NModal>
-  <NModal :show="!!detail" preset="card" title="核销组合与凭证依据" :style="modalStyle" @update:show="value => { if (!value) detail = null }">
+  </AppModal>
+  <AppModal :busy="busy" origin-key="SubledgerOrderSettlements:detail" @invalidated="detail = null" :show="!!detail" preset="card" title="核销组合与凭证依据" :style="modalStyle" @update:show="value => { if (!value) detail = null }">
     <template v-if="detail"><p>{{ documentLabel(detail) }} · {{ detail.party_name }} · {{ detail.document_reference }} ↔ {{ relatedDocumentLabel(detail, 'order') }}</p>
       <p>{{ detail.account_code }} · {{ detail.account_name }} · {{ auxiliaryText(detail.auxiliary) }}</p>
       <p>参考号 {{ detail.reference }} · {{ detail.reason }}</p>
       <p v-for="(item, index) in detail.order_evidence" :key="index">{{ item.type === 'journal' ? `凭证 #${item.journal_id} · 订单 #${item.order_id} · ${item.source_key} · ${item.journal_date}` : `订单间核销 #${item.transfer_id}` }} · 分配 {{ item.amount }} 元</p>
     </template>
-  </NModal>
-  <NModal :show="!!command" preset="card" title="核销操作" :style="modalStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) command = null }">
+  </AppModal>
+  <AppModal :busy="busy" origin-key="SubledgerOrderSettlements:command" @invalidated="command = null" :show="!!command" preset="card" title="核销操作" :style="modalStyle" :mask-closable="false" :closable="!busy" :close-on-esc="!busy" @update:show="value => { if (!value && !busy) command = null }">
     <form class="ledger-editor" @submit.prevent="confirm">
       <p v-if="command">{{ documentLabel(command.row) }} · {{ command.row.document_reference }} ↔ {{ relatedDocumentLabel(command.row, 'order') }} · {{ command.row.amount }} 元。</p>
       <p v-if="command?.action === 'reverse'">原记录保留。等额反向草稿须重新批准、执行后才恢复双方余额；撤销后才可冲销原凭证依据。</p>
@@ -145,5 +148,5 @@ async function confirm(): Promise<void> {
       <p v-if="error" role="alert">{{ error }}</p>
       <AppButton type="submit" variant="primary" :disabled="disabled || !reason">{{ command?.action === 'reverse' ? '保存反向草稿' : command?.action === 'post' ? '执行核销' : '取消草稿' }}</AppButton>
     </form>
-  </NModal>
+  </AppModal>
 </template>

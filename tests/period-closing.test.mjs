@@ -71,11 +71,13 @@ test('失败显示可重试错误，写入保留旧版本且权限和离线状�
   assert.equal(state.periodClosingLoading.value,false)
   assert.equal(await actions.changePeriodClosingStatus(period,'close','核对'),false)
   assert.equal(period.version,3)
-  assert.deepEqual(calls.at(-1),['changePeriodClosingStatus',{id:1,version:3,action:'close',reason:'核对'}])
+  // 检查失败后不再向后端试写，旧检查不能成为执行依据。
+  assert.deepEqual(calls.at(-1),['periodClosingCheck',{id:1}])
   fail=false
   assert.equal(await actions.loadPeriodClosingCheck(1),true)
   assert.equal(state.periodClosingError.value,'')
   assert.equal(await actions.changePeriodClosingStatus(period,'close','核对'),true)
+  assert.deepEqual(calls.at(-1),['changePeriodClosingStatus',{id:1,version:3,action:'close',reason:'核对'}])
   const count=calls.length; state.connectionLost.value=true
   assert.equal(await actions.changePeriodClosingStatus(period,'close','核对'),false)
   state.connectionLost.value=false; state.user.value={id:1,permissions:['accounting_period.view']}

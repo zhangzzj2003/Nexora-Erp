@@ -26,7 +26,7 @@ test('批次数量核对使用精确小数，覆盖拆分、超量、负差异�
 
 // 仅替换基础控件的绘制层；公共组件的计算、行对象和事件保护均使用真实实现。
 const modalStub = `import {defineComponent,h} from 'vue';export const captured={};
-export const NModal=defineComponent({props:['show','title','closable','closeOnEsc','maskClosable'],setup(p,{slots,attrs}){
+export { NModal as default }; export const NModal=defineComponent({props:['show','title','closable','closeOnEsc','maskClosable','busy','ready','loadError','originKey','origin'],setup(p,{slots,attrs}){
  Object.assign(captured,{p,slots,attrs});return ()=>p.show?h('section',{...attrs,'data-closable':p.closable,'data-esc':p.closeOnEsc},[h('h2',p.title),slots.default?.(),slots.footer?.()]):null}});
 export const NDatePicker=defineComponent({props:['formattedValue','disabled','inputProps'],setup(p,{attrs}){return ()=>h('input',{...attrs,...p.inputProps,'data-date':true,value:p.formattedValue,disabled:p.disabled})}});`
 const tableStub = `import {defineComponent,h} from 'vue';export const capturedTable={};export default defineComponent({props:['data','columns','title'],setup(p,{slots}){
@@ -38,7 +38,7 @@ async function environment(t) {
   const server = await createServer({ configFile: false, plugins: [{ name: 'lot-dialog-test', enforce: 'pre',
     transform(code, id) {
       // 控件库默认作为外部依赖加载，显式替换路径后才能在 SSR 测试中展开日期与弹窗。
-      if (id.includes('/components/workspace/')) return code.replace(/'naive-ui'/g, "'virtual:lot-modal'")
+      if (id.includes('/components/workspace/')) return code.replace(/'naive-ui'/g, "'virtual:lot-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:lot-modal'")
     },
     resolveId(id) {
       if (id === 'virtual:lot-modal') return '\0lot-modal'
@@ -127,4 +127,35 @@ test('批次弹窗固定标题和页脚，禁止错误、读取中、断线或�
   vnode.component.props.busy=true;close();assert.equal(closes,0)
   vnode.component.props.busy=false;close();assert.equal(closes,1)
   assert.match(await renderToString(createSSRApp({render:()=>h(Dialog,{...base,busy:true})})),/data-closable="false" data-esc="false"/)
+})
+
+test('批次弹窗透传来源和呈现屏障，生命周期只上报一次且保存中允许失效清理', async t => {
+  const {server,load}=await environment(t)
+  const {default:Dialog}=await load('WorkspaceLotDialog')
+  const {captured}=await server.ssrLoadModule('\0lot-modal')
+  const origin={element:null,rect:{x:12,y:24,width:80,height:32}}
+  const base={show:true,title:'批次登记',documentNumber:'QTRK-001',hint:'批次说明',submitLabel:'确认',
+    originKey:'test:lot',origin,'data-dialog-contract':'forwarded'}
+  // 页面读取与批次读取任一未完成都必须阻止首屏展开。
+  for(const [ready,loading,expected] of [[false,false,false],[true,true,false],[true,false,true]]){
+    await renderToString(createSSRApp({render:()=>h(Dialog,{...base,ready,loading})}))
+    assert.equal(captured.p.ready,expected)
+  }
+  const events=[]
+  const vnode=h(Dialog,{...base,busy:true,loadError:'批次读取失败','onUpdate:show':()=>events.push('closed'),
+    onAfterEnter:()=>events.push('entered'),onBeforeLeave:()=>events.push('leaving'),onAfterLeave:()=>events.push('left'),
+    onLoadError:error=>events.push(error),onInvalidated:()=>events.push('invalidated')})
+  await renderToString(createSSRApp({render:()=>vnode}))
+  assert.equal(captured.p.busy,true)
+  assert.equal(captured.p.loadError,'批次读取失败')
+  assert.equal(captured.p.originKey,'test:lot')
+  assert.equal(captured.p.origin,origin)
+  assert.equal(captured.attrs['data-dialog-contract'],'forwarded')
+  captured.attrs['onUpdate:show'](false)
+  captured.attrs.onAfterEnter()
+  captured.attrs.onBeforeLeave()
+  captured.attrs.onAfterLeave()
+  captured.attrs.onLoadError('批次读取失败')
+  captured.attrs.onInvalidated()
+  assert.deepEqual(events,['entered','leaving','left','批次读取失败','invalidated'])
 })

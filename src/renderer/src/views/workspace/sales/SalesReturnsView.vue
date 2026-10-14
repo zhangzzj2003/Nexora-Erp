@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
@@ -298,7 +300,7 @@ async function reverseApproved(identifier: number): Promise<void> {
 <template>
   <section class="stack">
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
@@ -327,7 +329,7 @@ async function reverseApproved(identifier: number): Promise<void> {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="startLotPost(detailItem)"
+            @click.capture="captureDialogOrigin('SalesReturnsView:lot', $event)" @click="startLotPost(detailItem)"
             >指定实物批次（可选）</AppButton
           >
           <AppButton
@@ -357,7 +359,7 @@ async function reverseApproved(identifier: number): Promise<void> {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'SalesReturn',
                 document_id: detailItem.id,
@@ -374,7 +376,7 @@ async function reverseApproved(identifier: number): Promise<void> {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'SalesReturn',
                 document_id: detailItem.id,
@@ -401,7 +403,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       </template>
     </DocumentApprovalDialog>
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-    <WorkspaceDocumentDialog
+    <WorkspaceDocumentDialog origin-key="SalesReturnsView:form" @invalidated="createOpen = false"
       v-if="can('sales_return.create')"
       v-model:show="createOpen"
       title="新建销售退货单"
@@ -524,7 +526,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           v-if="can('sales_return.create')"
           type="button"
           :disabled="busy"
-          @click="createOpen = true"
+          @click.capture="captureDialogOrigin('SalesReturnsView:form', $event)" @click="createOpen = true"
           variant="primary"
         >
           新建销售退货单
@@ -546,7 +548,7 @@ async function reverseApproved(identifier: number): Promise<void> {
               variant="text"
               :disabled="busy || connectionLost"
               :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-              @click="
+              @click.capture="captureDialogOrigin('document-approval', $event)" @click="
                 store.openDocumentApproval({
                   document_type: 'SalesReturn',
                   document_id: item.id,
@@ -616,7 +618,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'SalesReturn',
               document_id: item.id,
@@ -640,14 +642,14 @@ async function reverseApproved(identifier: number): Promise<void> {
       </template>
     </WorkspaceTable>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
-    <WorkspaceLotDialog
-      v-if="activeReturn && can('sales_return.post')"
-      :show="true"
+    <WorkspaceLotDialog origin-key="SalesReturnsView:lot" @invalidated="closeLotPost()"
+      v-if="can('sales_return.post')"
+      :show="!!activeReturn"
       title="销售退货 · 回仓批次"
-      :document-number="documentLabel(activeReturn)"
+      :document-number="activeReturn ? documentLabel(activeReturn) : ''"
       :hint="
         '可归回原出库已记录的批次，数量不得超过该批次剩余可退量；实物不属于原批次或原出库未记录批次时，登记“退货新批次”。退回仓库为 ' +
-        activeReturn.warehouse_name +
+        activeReturn?.warehouse_name +
         '。'
       "
       :busy="busy"
@@ -664,6 +666,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       "
       @submit="confirmLotPost"
     >
+      <template v-if="activeReturn">
       <WorkspaceLotLineEditor
         v-for="line in lotDrafts"
         :key="line.return_line_id"
@@ -712,6 +715,8 @@ async function reverseApproved(identifier: number): Promise<void> {
           >原出库未登记可退批次，须登记退货新批次；旧单据仍可在批次核对页追踪差额。</span
         >
       </WorkspaceLotLineEditor>
+
+      </template>
     </WorkspaceLotDialog>
   </section>
 </template>

@@ -9,7 +9,7 @@ import { createPinia } from 'pinia'
 // 编译真实资金页面，只替换外壳与服务；旧批准及撤回不能打开或继续执行。
 test('资金页面保护独立批准执行、草稿取消与原记录反向入口',async t=>{
   const server=await createServer({configFile:false,plugins:[{name:'payment-view',enforce:'pre',
-    transform(code,id){if(id.endsWith('/PaymentRecordsView.vue'))return code.replaceAll("'naive-ui'","'virtual:payment-modal'")},
+    transform(code,id){if(id.endsWith('/PaymentRecordsView.vue'))return code.replaceAll("'naive-ui'","'virtual:payment-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:payment-modal'")},
     resolveId(id,importer){
       if(id==='virtual:payment-modal')return '\0payment-modal'
       if(importer?.includes('/PaymentRecordsView.vue') && id.endsWith('/store/app-store'))return '\0payment-store'
@@ -18,7 +18,7 @@ test('资金页面保护独立批准执行、草稿取消与原记录反向入�
       for(const file of ['DocumentApprovalDialog.vue','ControlFundsSelector.vue','AppInput.vue','WorkspaceSelect.vue'])if(id.endsWith('/'+file))return '\0payment-stub'
     },load(id){
       if(id==='\0payment-stub')return 'export default {render:()=>null}'
-      if(id==='\0payment-modal')return `import {defineComponent,h} from 'vue';export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
+      if(id==='\0payment-modal')return `import {defineComponent,h} from 'vue';export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
       if(id==='\0payment-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return()=>h('section',(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row}))))}})`
       if(id==='\0payment-button')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`
       if(id==='\0payment-store')return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';export const calls=[];

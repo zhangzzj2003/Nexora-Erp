@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentSearch, documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
@@ -8,7 +11,7 @@ import AppButton from '../../../components/app/AppButton.vue'
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, ref, watch } from 'vue'
-import { NModal } from 'naive-ui'
+
 import { matchesRecordQuery } from '../../../utils/workspace-records'
 import { submitCreateDialog } from '../../../utils/create-dialog'
 import { storeToRefs } from 'pinia'
@@ -93,7 +96,7 @@ const transferColumns = [
 
 <template>
   <section class="stack">
-    <NModal title="登记收付款"
+    <AppModal :busy="busy" origin-key="PaymentRecordsView:create" @invalidated="createOpen = false" title="登记收付款"
       v-if="can('finance.record')"
       v-model:show="createOpen"
       preset="card"
@@ -180,8 +183,8 @@ const transferColumns = [
           保存收付款草稿
         </AppButton>
       </form>
-    </NModal>
-    <NModal title="订单间核销"
+    </AppModal>
+    <AppModal :busy="busy" origin-key="PaymentRecordsView:transfer" @invalidated="transferOpen = false" title="订单间核销"
       v-if="can('finance.record')"
       v-model:show="transferOpen"
       preset="card"
@@ -208,7 +211,7 @@ const transferColumns = [
         </div>
         <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !debtOptions.length">保存核销草稿</AppButton>
       </form>
-    </NModal>
+    </AppModal>
     <!-- 冲销入口仍按原记录和反向记录判断，列表筛选不影响防重复冲销。 -->
     <WorkspaceTable
       :show-title="false"
@@ -222,7 +225,7 @@ const transferColumns = [
           v-if="can('finance.record')"
           type="button"
           :disabled="busy || connectionLost"
-          @click="createOpen = true"
+          @click.capture="captureDialogOrigin('PaymentRecordsView:create', $event)" @click="createOpen = true"
           variant="primary"
         >
           登记收付款
@@ -255,11 +258,11 @@ const transferColumns = [
       </template>
       <template #cell-actions="{ row: item }">
         <AppButton type="button" size="small" :disabled="busy || connectionLost"
-          @click="openDocumentApproval({ document_type: 'PaymentRecord', document_id: item.id, intent: 'execute' })">单据审批</AppButton>
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({ document_type: 'PaymentRecord', document_id: item.id, intent: 'execute' })">单据审批</AppButton>
         <AppButton v-if="mayAct(item, 'post')" type="button" size="small" :disabled="busy || connectionLost"
-          @click="ask(item, 'post')">确认资金</AppButton>
+          @click.capture="captureDialogOrigin('PaymentRecordsView:command', $event)" @click="ask(item, 'post')">确认资金</AppButton>
         <AppButton v-if="mayAct(item, 'cancel')" type="button" size="small" :disabled="busy || connectionLost"
-          @click="ask(item, 'cancel')">取消草稿</AppButton>
+          @click.capture="captureDialogOrigin('PaymentRecordsView:command', $event)" @click="ask(item, 'cancel')">取消草稿</AppButton>
         <form
           v-if="
             item.status === 'executed' && item.action !== 'reversal' &&
@@ -287,7 +290,7 @@ const transferColumns = [
     <WorkspaceTable title="订单间核销与撤销" :columns="transferColumns" :data="orderSettlements" :min-table-width="900">
       <template #actions>
         <AppButton v-if="can('finance.record')" type="button" variant="primary"
-          :disabled="busy || connectionLost || !creditOptions.length" @click="transferOpen = true">订单间核销</AppButton>
+          :disabled="busy || connectionLost || !creditOptions.length" @click.capture="captureDialogOrigin('PaymentRecordsView:transfer', $event)" @click="transferOpen = true">订单间核销</AppButton>
       </template>
       <template #cell-document="{ row: item }">
         <div>
@@ -302,11 +305,11 @@ const transferColumns = [
       </template>
       <template #cell-actions="{ row: item }">
         <AppButton type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
-          @click="openDocumentApproval({ document_type: 'OrderSettlementTransfer', document_id: item.id, intent: 'execute' })">核销审批</AppButton>
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="openDocumentApproval({ document_type: 'OrderSettlementTransfer', document_id: item.id, intent: 'execute' })">核销审批</AppButton>
         <AppButton v-if="mayAct(item, 'post')" type="button" size="small" :disabled="busy || connectionLost"
-          @click="ask(item, 'post', 'OrderSettlementTransfer')">确认核销</AppButton>
+          @click.capture="captureDialogOrigin('PaymentRecordsView:command', $event)" @click="ask(item, 'post', 'OrderSettlementTransfer')">确认核销</AppButton>
         <AppButton v-if="mayAct(item, 'cancel')" type="button" variant="secondary" size="small" :disabled="busy || connectionLost"
-          @click="ask(item, 'cancel', 'OrderSettlementTransfer')">取消草稿</AppButton>
+          @click.capture="captureDialogOrigin('PaymentRecordsView:command', $event)" @click="ask(item, 'cancel', 'OrderSettlementTransfer')">取消草稿</AppButton>
         <form v-if="item.status === 'executed' && !item.reverses_id && !orderSettlements.some(record => record.reverses_id === item.id && record.status !== 'cancelled')
           && can('finance.reverse')" class="inline-form" @submit.prevent="reverseOrderSettlement(item.id)">
           <label>撤销原因<AppInput v-model.trim="orderSettlementReversalReasons[item.id]" required maxlength="200" /></label>
@@ -316,13 +319,13 @@ const transferColumns = [
       <template #empty>暂无订单间核销记录。</template>
     </WorkspaceTable>
     <!-- 正常执行与取消使用业务版本，审批由共享弹窗独立保存审批版本。 -->
-    <NModal :show="!!command" preset="card" :title="command?.type === 'OrderSettlementTransfer' ? (command.action === 'post' ? '确认核销' : '取消核销草稿') : (command?.action === 'post' ? '确认资金' : '取消资金草稿')"
+    <AppModal :busy="busy" origin-key="PaymentRecordsView:command" @invalidated="command = null" :show="!!command" preset="card" :title="command?.type === 'OrderSettlementTransfer' ? (command.action === 'post' ? '确认核销' : '取消核销草稿') : (command?.action === 'post' ? '确认资金' : '取消资金草稿')"
       :mask-closable="!busy" @update:show="value => { if (!value) command = null }"
       :style="{ width: 'min(600px, calc(100vw - 32px))' }">
       <p class="muted">{{ command ? documentLabel(command.row) : '' }}。执行会重新核对最新余额及期间；草稿与批准本身不更新余额。</p>
       <label>操作依据<AppInput v-model.trim="commandReason" required maxlength="200" :disabled="busy" /></label>
       <AppButton type="button" :disabled="busy || connectionLost || !commandReason" @click="confirmCommand">确认操作</AppButton>
-    </NModal>
-    <DocumentApprovalDialog />
+    </AppModal>
+    <DocumentApprovalDialog origin-key="document-approval" />
   </section>
 </template>

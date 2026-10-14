@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
@@ -22,7 +25,7 @@ import WorkspaceLotLineEditor from "../../../components/workspace/WorkspaceLotLi
 import { matchesRecordQuery } from "../../../utils/workspace-records";
 import type { WorkspaceTableColumn } from "../../../utils/table-columns";
 import { computed, ref } from "vue";
-import { NModal } from "naive-ui";
+
 import { storeToRefs } from "pinia";
 import { usePiniaAppStore } from "../../../store/app-store";
 import { submitCreateDialog } from "../../../utils/create-dialog";
@@ -203,7 +206,7 @@ const approvalLabels = {
 <template>
   <section class="stack">
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
@@ -213,7 +216,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('production-association', $event)" @click="
               store.openProductionAssociations({
                 kind: 'completion',
                 id: detailItem.id,
@@ -258,7 +261,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="startLotPost(detailItem)"
+            @click.capture="captureDialogOrigin('ProductionCompletionsView:lot', $event)" @click="startLotPost(detailItem)"
             >指定实物批次（可选）</AppButton
           >
           <AppButton
@@ -287,7 +290,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'ProductionCompletion',
                 document_id: detailItem.id,
@@ -306,7 +309,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'ProductionCompletion',
                 document_id: detailItem.id,
@@ -321,7 +324,7 @@ const approvalLabels = {
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'ProductionCompletion',
                 document_id: detailItem.id,
@@ -387,8 +390,8 @@ const approvalLabels = {
         </template>
       </template>
     </DocumentApprovalDialog>
-    <ProductionAssociationDialog />
-    <NModal
+    <ProductionAssociationDialog origin-key="production-association" />
+    <AppModal :busy="busy" origin-key="ProductionCompletionsView:create" @invalidated="createOpen = false"
       title="新建完工报工单"
       v-if="can('production_completion.create')"
       v-model:show="createOpen"
@@ -456,7 +459,7 @@ const approvalLabels = {
           保存报工草稿
         </AppButton>
       </form>
-    </NModal>
+    </AppModal>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"
@@ -470,7 +473,7 @@ const approvalLabels = {
           v-if="can('production_completion.create')"
           type="button"
           :disabled="busy"
-          @click="createOpen = true"
+          @click.capture="captureDialogOrigin('ProductionCompletionsView:create', $event)" @click="createOpen = true"
           variant="primary"
         >
           新建完工报工单
@@ -492,7 +495,7 @@ const approvalLabels = {
               variant="text"
               :disabled="busy || connectionLost"
               :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-              @click="
+              @click.capture="captureDialogOrigin('document-approval', $event)" @click="
                 store.openDocumentApproval({
                   document_type: 'ProductionCompletion',
                   document_id: item.id,
@@ -565,7 +568,7 @@ const approvalLabels = {
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'ProductionCompletion',
               document_id: item.id,
@@ -589,11 +592,11 @@ const approvalLabels = {
       </template>
     </WorkspaceTable>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
-    <WorkspaceLotDialog
-      v-if="activeCompletion && can('production_completion.post')"
-      :show="true"
+    <WorkspaceLotDialog origin-key="ProductionCompletionsView:lot" @invalidated="activeCompletionId = 0"
+      v-if="can('production_completion.post')"
+      :show="!!activeCompletion"
       title="完工入库 · 成品批次"
-      :document-number="documentLabel(activeCompletion)"
+      :document-number="activeCompletion ? documentLabel(activeCompletion) : ''"
       hint="按实际分开的成品批次登记，数量之和须等于合格入库量。系统生成独立内部编号供实物标识；缺少日期时留空。"
       :busy="busy"
       :disabled="connectionLost"
@@ -606,6 +609,7 @@ const approvalLabels = {
       "
       @submit="confirmLotPost"
     >
+      <template v-if="activeCompletion">
       <WorkspaceLotLineEditor
         :lots="lotDrafts"
         :material-name="activeCompletion.product_name"
@@ -617,6 +621,8 @@ const approvalLabels = {
         @add="addLot"
         @remove="(index) => lotDrafts.splice(index, 1)"
       />
+
+      </template>
     </WorkspaceLotDialog>
   </section>
 </template>

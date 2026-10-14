@@ -73,7 +73,7 @@ test('其他入库保存失败保留完整草稿，成功后保留仓库并清�
 // 展开弹窗和表格插槽，以真实公共弹窗验证行数据传递及布局；表格本体另有真实 vxe 测试。
 const modalStub = `import { defineComponent, h } from 'vue'
 export const captured = {}
-export const NModal = defineComponent({ props:['show','title','maskClosable','closeOnEsc','closable'], setup(p,{slots,attrs}) {
+export { NModal as default }; export const NModal = defineComponent({ props:['show','title','maskClosable','closeOnEsc','closable','busy','ready','loadError','originKey','origin'], setup(p,{slots,attrs}) {
   Object.assign(captured, { props: p, slots, attrs })
   return () => p.show ? h('section', {...attrs, 'data-mask-closable':p.maskClosable, 'data-close-on-esc':p.closeOnEsc, 'data-closable':p.closable}, [h('h2',p.title),slots.default?.()]) : null
 }})`
@@ -93,7 +93,7 @@ test('统一弹窗按基础信息、分隔线、添加物料、表格及页脚�
   const server = await createServer({ configFile: false, plugins: [{ name: 'document-dialog-fixtures', enforce: 'pre',
     transform(code, id) {
       if (!id.endsWith('/WorkspaceDocumentDialog.vue')) return
-      return code.replace("'naive-ui'", "'virtual:document-modal'")
+      return code.replace("'naive-ui'", "'virtual:document-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:document-modal'")
         .replace("'./WorkspaceTable.vue'", "'virtual:document-table'")
         .replace("'../app/AppButton.vue'", "'virtual:document-button'")
     },
@@ -131,11 +131,24 @@ test('统一弹窗按基础信息、分隔线、添加物料、表格及页脚�
   assert.match(busy, /data-close-on-esc="false"/)
   assert.match(busy, /data-closable="false"/)
 
+  // 公共壳必须把呈现屏障与保存状态交给 AppModal，来源对象不能被改写。
+  const { captured } = await server.ssrLoadModule('\0document-modal')
+  const origin = { element: null, rect: { x: 12, y: 24, width: 80, height: 32 } }
+  await render({ busy: true, ready: false, loadError: '详情读取失败', originKey: 'test:document', origin, 'data-dialog-contract': 'forwarded' })
+  assert.equal(captured.props.busy, true)
+  assert.equal(captured.props.ready, false)
+  assert.equal(captured.props.loadError, '详情读取失败')
+  assert.equal(captured.props.originKey, 'test:document')
+  assert.equal(captured.props.origin, origin)
+  assert.equal(captured.attrs['data-dialog-contract'], 'forwarded')
+
   // 展开真实弹窗传给 Modal 的插槽，直接执行表单与关闭事件，校验保护逻辑而非按钮外观。
   let submits = 0, closes = 0, adds = 0
-  const vnode = h(Dialog, { ...base, onSubmit: () => submits++, onAddMaterial: () => adds++, 'onUpdate:show': () => closes++ }, slots)
+  const events = []
+  const vnode = h(Dialog, { ...base, onSubmit: () => submits++, onAddMaterial: () => adds++, 'onUpdate:show': () => closes++,
+    onAfterEnter: () => events.push('entered'), onBeforeLeave: () => events.push('leaving'), onAfterLeave: () => events.push('left'),
+    onLoadError: error => events.push(error), onInvalidated: () => events.push('invalidated') }, slots)
   await renderToString(createSSRApp({ render: () => vnode }))
-  const { captured } = await server.ssrLoadModule('\0document-modal')
   const form = captured.slots.default()[0]
   const { capturedTable } = await server.ssrLoadModule('\0document-table')
   const addButton = capturedTable.slots.actions().find(node => typeof node.props?.onClick === 'function')
@@ -152,6 +165,13 @@ test('统一弹窗按基础信息、分隔线、添加物料、表格及页脚�
   close()
   assert.equal(submits, 1)
   assert.equal(closes, 1)
+  // 每个生命周期只转发一次；失效通知即使保存中也必须交给页面强制清理。
+  captured.attrs.onAfterEnter()
+  captured.attrs.onBeforeLeave()
+  captured.attrs.onAfterLeave()
+  captured.attrs.onLoadError('详情读取失败')
+  captured.attrs.onInvalidated()
+  assert.deepEqual(events, ['entered', 'leaving', 'left', '详情读取失败', 'invalidated'])
   vnode.component.props.busy = false
   vnode.component.props.disabled = true
   submit()

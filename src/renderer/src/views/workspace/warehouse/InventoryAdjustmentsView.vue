@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 复用公共物料资料的单行展开状态，新增或重选时收起其他行。
 import { useDocumentMaterialDetails } from "../../../composables/use-document-material-details";
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
@@ -326,7 +328,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ad
         <AppButton
           v-if="can('adjustment.create')"
           :disabled="busy || connectionLost"
-          @click="showForm = true"
+          @click.capture="captureDialogOrigin('InventoryAdjustmentsView:form', $event)" @click="showForm = true"
           variant="primary"
           type="button"
           >新建调整</AppButton
@@ -340,9 +342,9 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ad
       ></template>
       <template #beforeTable>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
-        <WorkspaceDocumentDialog
+        <WorkspaceDocumentDialog origin-key="InventoryAdjustmentsView:form" @invalidated="showForm = false"
           material-supply
-          v-if="showForm && can('adjustment.create')"
+          v-if="can('adjustment.create')"
           v-model:show="showForm"
           title="新建库存调整"
           :data="adjustmentFormRows"
@@ -443,7 +445,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ad
           variant="text"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'StockAdjustment',
               document_id: item.id,
@@ -506,7 +508,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ad
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'StockAdjustment',
               document_id: item.id,
@@ -521,11 +523,11 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ad
       }}</template>
     </WorkspaceTable>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
-    <WorkspaceLotDialog
-      v-if="activeAdjustment && can('adjustment.post')"
-      :show="true"
+    <WorkspaceLotDialog origin-key="InventoryAdjustmentsView:lot" @invalidated="closeLotPost()"
+      v-if="can('adjustment.post')"
+      :show="!!activeAdjustment"
       title="库存调整 · 批次归属"
-      :document-number="documentLabel(activeAdjustment)"
+      :document-number="activeAdjustment ? documentLabel(activeAdjustment) : ''"
       hint="负向调整选择本仓实际减少的已有批次；正向调整可补入已有批次，或登记明确标为“调整新增”的新批次。只填写实物标签上可核对的来源批号与日期。"
       :busy="busy"
       :disabled="connectionLost"
@@ -540,6 +542,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ad
       "
       @submit="confirmLotPost"
     >
+      <template v-if="activeAdjustment">
       <WorkspaceLotLineEditor
         v-for="line in lotDrafts"
         :key="line.adjustment_line_id"
@@ -607,9 +610,11 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ad
         @add="addLot(line)"
         @remove="(index) => line.lots.splice(index, 1)"
       />
+
+      </template>
     </WorkspaceLotDialog>
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
@@ -638,7 +643,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ad
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="startLotPost(detailItem)"
+            @click.capture="captureDialogOrigin('InventoryAdjustmentsView:lot', $event)" @click="startLotPost(detailItem)"
             >指定实物批次（可选）</AppButton
           >
           <AppButton
@@ -669,7 +674,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ad
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'StockAdjustment',
                 document_id: detailItem.id,
@@ -686,7 +691,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ad
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'StockAdjustment',
                 document_id: detailItem.id,

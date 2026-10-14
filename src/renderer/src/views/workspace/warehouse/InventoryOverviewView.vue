@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 记录实际点击的物料或单据单元格，关闭详情时回到该入口。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 import { computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppButton from '../../../components/app/AppButton.vue'
@@ -65,11 +67,11 @@ onUnmounted(() => { clearTimeout(searchTimer); closeLedgerMaterial() })
           </div>
         </template>
       </template>
-      <template #cell-sku="{ row }"><AppButton variant="text" :disabled="connectionLost" :aria-label="`查看物料 ${row.sku} 的详情与库存`" @click="openStockMaterial(row)">{{ row.sku }}</AppButton></template>
+      <template #cell-sku="{ row }"><AppButton variant="text" :disabled="connectionLost" :aria-label="`查看物料 ${row.sku} 的详情与库存`" @click.capture="captureDialogOrigin('inventory-material', $event)" @click="openStockMaterial(row)">{{ row.sku }}</AppButton></template>
       <template #cell-category="{ row }"><span :title="row.category_name">{{ row.category_group_name }}</span></template>
       <template #cell-quantity="{ row }"><strong class="stock-quantity" :class="{ 'stock-negative': isNegativeStock(row.quantity) }">{{ row.quantity }}</strong> {{ row.unit }}</template>
       <!-- 行操作沿用公共小号次按钮，边框、间距与禁用态均由组件统一提供。 -->
-      <template #cell-actions="{ row }"><AppButton variant="secondary" size="small" :disabled="connectionLost" @click="openStockMaterial(row)">查看</AppButton></template>
+      <template #cell-actions="{ row }"><AppButton variant="secondary" size="small" :disabled="connectionLost" @click.capture="captureDialogOrigin('inventory-material', $event)" @click="openStockMaterial(row)">查看</AppButton></template>
       <template #errorActions><AppButton :disabled="loading || connectionLost" @click="queryStockOverview()">重新查询</AppButton></template>
       <template #empty>当前筛选范围内暂无物料，可调整搜索或分类条件。</template>
     </WorkspaceTable>

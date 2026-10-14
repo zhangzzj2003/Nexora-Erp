@@ -11,7 +11,7 @@ async function fixture(t) {
   const targets=['SubledgerEditor.vue','BusinessJournalPanel.vue','BusinessSourceEvidence.vue']
   const server=await createServer({configFile:false,plugins:[{
     name:'multiple-controls-view',enforce:'pre',
-    transform(code,id){if(targets.some(name=>id.endsWith('/'+name)))return code.replaceAll("'naive-ui'","'virtual:multi-modal'")},
+    transform(code,id){if(targets.some(name=>id.endsWith('/'+name)))return code.replaceAll("'naive-ui'","'virtual:multi-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:multi-modal'")},
     resolveId(id,importer){
       if(id==='virtual:multi-modal')return '\0multi-modal'
       if(targets.some(name=>importer?.endsWith('/'+name)) && id.endsWith('/store/app-store'))return '\0multi-store'
@@ -22,7 +22,7 @@ async function fixture(t) {
       if(id.endsWith('/AppInput.vue')||id.endsWith('/AppCollapseItem.vue'))return '\0multi-stub'
     },load(id){
       if(id==='\0multi-stub')return 'export default {render:()=>null}'
-      if(id==='\0multi-modal')return `import {defineComponent,h} from 'vue';export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}});export const NDatePicker={render:()=>null};export const NCollapse=defineComponent({setup(p,{slots}){return()=>h('div',slots.default?.())}})`
+      if(id==='\0multi-modal')return `import {defineComponent,h} from 'vue';export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}});export const NDatePicker={render:()=>null};export const NCollapse=defineComponent({setup(p,{slots}){return()=>h('div',slots.default?.())}})`
       if(id==='\0multi-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['title','data','columns'],setup(p,{slots}){return()=>h('section',[h('h2',p.title),slots.actions?.(),...(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row})??String(row[c.key]??'')))])}})`
       if(id==='\0multi-button')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`
       if(id==='\0multi-select')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled','modelValue','options'],setup(p,{attrs}){return()=>h('select',{...attrs,disabled:p.disabled},p.options?.map(item=>h('option',{value:item.value,selected:item.value===p.modelValue,disabled:item.disabled},item.label)))}})`

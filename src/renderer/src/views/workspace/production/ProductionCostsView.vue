@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
@@ -20,7 +23,7 @@ import {
 import type { WorkspaceTableColumn } from "../../../utils/table-columns";
 import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { NCollapse, NModal } from "naive-ui";
+import { NCollapse } from "naive-ui"
 import AppCollapseItem from "../../../components/app/AppCollapseItem.vue";
 import WorkspaceTable from "../../../components/workspace/WorkspaceTable.vue";
 import { usePiniaAppStore } from "../../../store/app-store";
@@ -258,7 +261,7 @@ const filteredEntries = computed(() =>
           "
           size="small"
           :disabled="busy || connectionLost || item.total_amount === null"
-          @click="openSettlement(item.work_order_id)"
+          @click.capture="captureDialogOrigin('ProductionCostsView:settlement', $event)" @click="openSettlement(item.work_order_id)"
           variant="primary"
           type="button"
           >结算完工成本</AppButton
@@ -302,7 +305,7 @@ const filteredEntries = computed(() =>
         costQuery ? "没有匹配的记录。" : "暂无生产工单。"
       }}</template>
     </WorkspaceTable>
-    <NModal
+    <AppModal :busy="busy" origin-key="ProductionCostsView:settlement" @invalidated="showSettlementForm = false"
       v-model:show="showSettlementForm"
       preset="card"
       title="结算完工成本"
@@ -362,7 +365,7 @@ const filteredEntries = computed(() =>
           >
         </div>
       </form>
-    </NModal>
+    </AppModal>
     <p v-if="productionCostReport?.unpriced_lines.some(line => line.execution_line_id)" class="muted">新发料执行存在未知成本，请先补齐原批次成本来源；未定价前不能正式结算。</p>
     <div v-if="can('production_cost.record')" class="two-columns">
       <div class="card">
@@ -526,7 +529,7 @@ const filteredEntries = computed(() =>
             variant="text"
             :disabled="busy || connectionLost"
             :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               openDocumentApproval({
                 document_type: 'ProductionCostSettlement',
                 document_id: item.id,
@@ -648,7 +651,7 @@ const filteredEntries = computed(() =>
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             openDocumentApproval({
               document_type: 'ProductionCostSettlement',
               document_id: item.id,
@@ -754,7 +757,7 @@ const filteredEntries = computed(() =>
         entryQuery ? "没有匹配的记录。" : "暂无成本记录。"
       }}</template>
     </WorkspaceTable>
-    <NModal
+    <AppModal :busy="busy" origin-key="ProductionCostsView:command" @invalidated="settlementCommand = null"
       :show="!!settlementCommand"
       preset="card"
       :title="
@@ -786,9 +789,9 @@ const filteredEntries = computed(() =>
         @click="confirmSettlement"
         >确认操作</AppButton
       >
-    </NModal>
+    </AppModal>
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
@@ -801,7 +804,7 @@ const filteredEntries = computed(() =>
             type="button"
             variant="primary"
             :disabled="busy || connectionLost"
-            @click="askSettlement(detailItem, 'post')"
+            @click.capture="captureDialogOrigin('ProductionCostsView:command', $event)" @click="askSettlement(detailItem, 'post')"
             >确认结算</AppButton
           >
           <AppButton
@@ -813,7 +816,7 @@ const filteredEntries = computed(() =>
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="askSettlement(detailItem, 'cancel')"
+            @click.capture="captureDialogOrigin('ProductionCostsView:command', $event)" @click="askSettlement(detailItem, 'cancel')"
             >取消草稿</AppButton
           >
           <!-- 冲销另行送审；完成后保留查询入口而不允许再次执行。 -->
@@ -826,7 +829,7 @@ const filteredEntries = computed(() =>
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               openDocumentApproval({
                 document_type: 'ProductionCostSettlement',
                 document_id: detailItem.id,
@@ -843,7 +846,7 @@ const filteredEntries = computed(() =>
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               openDocumentApproval({
                 document_type: 'ProductionCostSettlement',
                 document_id: detailItem.id,

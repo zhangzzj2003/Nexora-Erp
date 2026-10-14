@@ -44,7 +44,7 @@ export const usePiniaAppStore=defineStore('all-document-lot-tests',()=>{
  return {...state,...actions,selectedCompletionOrder:ref(null)}
 });export const useAppStore=()=>{const store=usePiniaAppStore();return {...storeToRefs(store),...Object.fromEntries(Object.entries(store).filter(([,v])=>typeof v==='function'))}};`;
 const tableStub = `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return ()=>h('table',[slots.actions?.(),slots.filters?.(),...(p.data??[]).map(row=>h('tr',p.columns.map(c=>h('td',slots['cell-'+c.key]?.({row})))) )])}})`;
-const modalStub = `import {defineComponent,h} from 'vue';export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return ()=>p.show?h('section',[h('h2',p.title),slots.default?.(),slots.footer?.()]):null}});export const NDatePicker=defineComponent({setup(){return()=>h('input')}});`;
+const modalStub = `import {defineComponent,h} from 'vue';export { NModal as default }; export const NModal=defineComponent({props:['show','title'],setup(p,{slots}){return ()=>p.show?h('section',[h('h2',p.title),slots.default?.(),slots.footer?.()]):null}});export const NDatePicker=defineComponent({setup(){return()=>h('input')}});`;
 
 test("全部十一类单据接入公共批次弹窗并保留原确认载荷、失败草稿和数量约束", async (t) => {
   const server = await createServer({
@@ -55,7 +55,7 @@ test("全部十一类单据接入公共批次弹窗并保留原确认载荷、�
         enforce: "pre",
         transform(code, id) {
           if (id.endsWith(".vue"))
-            return code.replace(/'naive-ui'/g, "'virtual:all-lot-naive'");
+            return code.replace(/'naive-ui'/g, "'virtual:all-lot-naive'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:all-lot-naive'");
         },
         resolveId(id, importer) {
           if (id === "virtual:all-lot-naive") return "\0all-lot-naive";
@@ -268,7 +268,7 @@ test("新增与详情只统一标题栏，基础信息、明细和原操作布�
       new URL("../src/renderer/src/views/workspace/" + file, import.meta.url),
       "utf8",
     );
-    assert.match(text, new RegExp(`<NModal\\s+title="${title}"`));
+    assert.match(text, new RegExp(`<AppModal\\b[^>]*title="${title}"`));
     assert.doesNotMatch(text, new RegExp(`<h[23]>${title}</h[23]>`));
   }
 });

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 批准与业务执行分开，审批入口复用共享 Pinia 和固定内容弹窗。
@@ -206,7 +208,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             variant="text"
             :disabled="busy || connectionLost"
             :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'Receipt',
                 document_id: item.id,
@@ -289,7 +291,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
           size="small"
           :disabled="busy || connectionLost"
           :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click="
+          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
               document_type: 'Receipt',
               document_id: item.id,
@@ -313,11 +315,11 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
       </template>
     </WorkspaceTable>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
-    <WorkspaceLotDialog
-      v-if="activeReceipt && can('receipt.post')"
-      :show="true"
+    <WorkspaceLotDialog origin-key="PurchaseReceiptsView:lot" @invalidated="activeReceiptId = 0"
+      v-if="can('receipt.post')"
+      :show="!!activeReceipt"
       title="采购入库 · 批次登记"
-      :document-number="documentLabel(activeReceipt)"
+      :document-number="activeReceipt ? documentLabel(activeReceipt) : ''"
       hint="按实际收货情况逐行登记批次，批次数量之和须等于入库数量。供应商批号和日期缺失时留空，系统会保留独立的入库来源编号。"
       :busy="busy"
       :disabled="connectionLost"
@@ -330,6 +332,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
       "
       @submit="confirmLotPost"
     >
+      <template v-if="activeReceipt">
       <WorkspaceLotLineEditor
         v-for="line in lotDrafts"
         :key="line.receipt_line_id"
@@ -361,9 +364,11 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
         @add="addLot(line)"
         @remove="(index) => line.lots.splice(index, 1)"
       />
+
+      </template>
     </WorkspaceLotDialog>
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
-    <DocumentApprovalDialog>
+    <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
@@ -392,7 +397,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="startLotPost(detailItem)"
+            @click.capture="captureDialogOrigin('PurchaseReceiptsView:lot', $event)" @click="startLotPost(detailItem)"
             >登记实物批次（可选）</AppButton
           >
           <AppButton
@@ -401,7 +406,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'Receipt',
                 document_id: detailItem.id,
@@ -418,7 +423,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
               store.openDocumentApproval({
                 document_type: 'Receipt',
                 document_id: detailItem.id,

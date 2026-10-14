@@ -14,7 +14,11 @@ const store = usePiniaAppStore()
 const { documentApprovalTarget: target, documentApprovalRecord: record,
   documentApprovalLoading: loading, documentApprovalError: error,
   documentApprovalReasons: reasons, documentApprovalEvidence: evidence, busy, connectionLost } = storeToRefs(store)
-const disabled = computed(() => busy.value || loading.value || connectionLost.value)
+const refreshDisabled = computed(() => busy.value || loading.value || connectionLost.value)
+// 旧审批正文可供核对，但刷新失败或目标已变化时不能沿用旧快照中的授权。
+const disabled = computed(() => refreshDisabled.value || !!error.value || !target.value || !record.value ||
+  record.value.document_type !== target.value.document_type ||
+  record.value.document_id !== target.value.document_id || record.value.intent !== target.value.intent)
 const key = computed(() => target.value ? approvalTargetKey(target.value) : '')
 // 按钮名称与授权动作一致；自定义步骤名称仍由顶部流程展示。
 const reviewLabel = computed(() => {
@@ -63,7 +67,7 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
   <template v-else>
       <div class="approval-footer">
         <!-- 送审区分正常与冲销意图；撤回、驳回和通过分别保留警告、危险与成功语义。 -->
-        <AppButton type="button" :disabled="disabled" @click="store.loadDocumentApproval()">刷新记录</AppButton>
+        <AppButton type="button" :disabled="refreshDisabled" @click="store.loadDocumentApproval()">刷新记录</AppButton>
         <AppButton v-if="record?.can_withdraw" tone="warning" type="button" :disabled="disabled"
           @click="store.actDocumentApproval('withdraw')">撤回审批</AppButton>
         <AppButton v-if="record?.can_submit" :tone="target?.intent === 'reverse' ? 'error' : 'info'" type="button" variant="primary"

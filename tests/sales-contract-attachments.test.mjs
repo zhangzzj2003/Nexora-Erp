@@ -119,3 +119,24 @@ test('同一账号重新登录也不接受退出前的附件响应', async t => 
   resolveList({ order_id: 7, revision_id: 6, can_modify: true, items: [item] })
   await assert.rejects(pending, /会话或权限已变化/)
 })
+
+test('合同附件读取和上传在切换实例证书后拒绝迟到结果', async t => {
+  const old = globalThis.window
+  t.after(() => { globalThis.window = old })
+  const state = createAppState()
+  state.server.value = { id: 'instance', fingerprint: 'first' }
+  state.user.value = { id: 1, permissions: ['sales.view', 'sales_order.confirm'] }
+  let finishRead, finishUpload
+  globalThis.window = { nexora: {
+    callApi: () => new Promise(resolve => { finishRead = resolve }),
+    uploadSalesContractAttachment: () => new Promise(resolve => { finishUpload = resolve })
+  } }
+  const actions = createSalesActions(state, async action => action())
+  const reading = actions.loadSalesContractAttachments(7, 6)
+  const uploading = actions.uploadSalesContractAttachment(7, 6, '依据')
+  state.server.value = { ...state.server.value, fingerprint: 'second' }
+  finishRead({ order_id: 7, revision_id: 6, can_modify: true, items: [item] })
+  finishUpload(item)
+  await assert.rejects(reading, /会话或权限已变化/)
+  await assert.rejects(uploading, /会话或权限已变化/)
+})

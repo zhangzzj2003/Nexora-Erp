@@ -10,7 +10,7 @@ import vue from '@vitejs/plugin-vue'
 test('维护页面只显示统一审批，旧开始弹窗重核当前批准和业务版本',async t=>{
   const server=await createServer({configFile:false,plugins:[{
     name:'maintenance-approval-view',enforce:'pre',
-    transform(code,id){if(id.endsWith('/EquipmentMaintenanceView.vue'))return code.replace("'naive-ui'","'virtual:maintenance-modal'")},
+    transform(code,id){if(id.endsWith('/EquipmentMaintenanceView.vue'))return code.replace("'naive-ui'","'virtual:maintenance-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:maintenance-modal'")},
     resolveId(id,importer){
       if(id==='virtual:maintenance-modal')return '\0maintenance-modal'
       if(importer?.includes('/EquipmentMaintenanceView.vue') && id.endsWith('/store/app-store'))return '\0maintenance-store'
@@ -19,7 +19,7 @@ test('维护页面只显示统一审批，旧开始弹窗重核当前批准和�
       for(const file of ['EquipmentEditor.vue','EquipmentEvidence.vue','DocumentApprovalDialog.vue','WorkspaceSelect.vue','AppInput.vue'])if(id.endsWith('/'+file))return '\0maintenance-stub'
     },load(id){
       if(id==='\0maintenance-stub')return 'export default {render:()=>null}'
-      if(id==='\0maintenance-modal')return `import {defineComponent,h} from 'vue';export const NCheckbox={render:()=>null};export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
+      if(id==='\0maintenance-modal')return `import {defineComponent,h} from 'vue';export const NCheckbox={render:()=>null};export { NModal as default }; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})`
       if(id==='\0maintenance-table')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return()=>h('section',(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row}))))}})`
       if(id==='\0maintenance-button')return `import {defineComponent,h} from 'vue';export default defineComponent({props:['disabled'],setup(p,{slots,attrs}){return()=>h('button',{...attrs,disabled:p.disabled},slots.default?.())}})`
       if(id==='\0maintenance-store')return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';export const calls=[];

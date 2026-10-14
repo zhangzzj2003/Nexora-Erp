@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+import AppModal from '../app/AppModal.vue'
 import AppButton from '../app/AppButton.vue'
 import WorkspaceTable from './WorkspaceTable.vue'
 import WorkspaceDocumentDialog from './WorkspaceDocumentDialog.vue'
@@ -18,9 +18,15 @@ import { materialFlowApprovalExecutionHint } from '../../utils/material-flow-pro
 
 const store = usePiniaAppStore()
 const { connectionLost, roles, stockMaterialMode, stockMaterialSnapshot, stockMaterialLoading, stockMaterialError,
-  ledgerMaterialTarget: materialTarget,
+  ledgerMaterialTarget: materialTarget, ledgerMaterialDetail: material,
+  ledgerMaterialLoading: materialLoading, ledgerMaterialError: materialError,
+  ledgerMaterialRowsLoading: rowsLoading, ledgerMaterialRowsError: rowsError,
   ledgerDocumentTarget: documentTarget, ledgerDocumentRecord: document,
   ledgerDocumentLoading: documentLoading, ledgerDocumentError: documentError } = storeToRefs(store)
+// 资料、首屏流水与全仓分布共同构成首屏；其中任一失败都不展开残缺详情。
+const materialReady = computed(() => !!material.value && !materialLoading.value && !rowsLoading.value
+  && (!stockMaterialMode.value || (!!stockMaterialSnapshot.value && !stockMaterialLoading.value)))
+const materialLoadError = computed(() => materialError.value || rowsError.value || (stockMaterialMode.value ? stockMaterialError.value : ''))
 const layout = computed(() => documentApprovalLayout(document.value))
 // 普通领料按权限直接签收，仅更正有独立审批；不能把无审批记录展示为待送审。
 const directReceipt = computed(() => document.value?.document_type === 'MaterialReceipt' && document.value.intent === 'execute')
@@ -31,7 +37,7 @@ const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: 
 
 <template>
   <!-- 三个库存入口统一上方资料、下方明细；关闭后回到原筛选和页码。 -->
-  <NModal :show="!!materialTarget" @update:show="value => { if (!value) store.closeLedgerMaterial() }" preset="card"
+  <AppModal :show="!!materialTarget" origin-key="inventory-material" :ready="materialReady" :load-error="materialLoadError" @update:show="value => { if (!value) store.closeLedgerMaterial() }" preset="card"
     :title="`物料详情 · ${materialTarget?.sku ?? ''}`" :style="{ width: 'min(1280px, calc(100vw - 32px))' }">
     <div class="ledger-material-content">
       <InventoryMaterialFacts compact />
@@ -43,7 +49,7 @@ const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: 
         <WorkspaceTable title="各仓库库存" :show-title="false" :columns="warehouseColumns"
           :data="stockMaterialSnapshot?.warehouses ?? []" :loading="stockMaterialLoading" :error="stockMaterialError" :min-table-width="660">
           <template #cell-quantity="{ row }"><strong :class="{ 'ledger-detail-error': isNegativeStock(row.quantity) }">{{ row.quantity }} {{ stockMaterialSnapshot?.unit }}</strong></template>
-          <template #cell-actions="{ row }"><AppButton variant="secondary" size="small" :disabled="connectionLost" @click="store.selectStockMaterialWarehouse(row.warehouse_id)">查看流水</AppButton></template>
+          <template #cell-actions="{ row }"><AppButton variant="secondary" size="small" :disabled="connectionLost || stockMaterialLoading || !!stockMaterialError || rowsLoading" @click="store.selectStockMaterialWarehouse(row.warehouse_id)">查看流水</AppButton></template>
           <template #empty>该物料尚无已确认的库存流水，各仓库当前数量为 0。</template>
           <template #errorActions><AppButton :disabled="connectionLost || stockMaterialLoading" @click="store.loadStockMaterial()">重新读取仓库分布</AppButton></template>
         </WorkspaceTable>
@@ -51,10 +57,10 @@ const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: 
       <InventoryMaterialLedger :overview="stockMaterialMode" />
     </div>
     <template #footer><div class="ledger-detail-actions"><AppButton @click="store.closeLedgerMaterial()">关闭</AppButton></div></template>
-  </NModal>
+  </AppModal>
 
   <!-- 只读单据使用公共详情外壳；不挂载审批表单或业务写入按钮。 -->
-  <WorkspaceDocumentDialog :show="!!documentTarget" :title="`单据详情 · ${documentTarget ? relatedDocumentLabel(documentTarget, 'source') : ''}`"
+  <WorkspaceDocumentDialog :show="!!documentTarget" origin-key="inventory-document" :ready="!documentLoading && !!document" :load-error="documentError" :title="`单据详情 · ${documentTarget ? relatedDocumentLabel(documentTarget, 'source') : ''}`"
     read-only :data="layout.lines" :columns="documentColumns" :show-lines="!!document && layout.showLines" :min-table-width="600"
     @update:show="value => { if (!value) store.closeLedgerDocument() }">
     <template #beforeBasicInfo>

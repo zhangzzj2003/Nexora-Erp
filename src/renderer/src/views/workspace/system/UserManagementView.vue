@@ -1,10 +1,13 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
 import AppButton from '../../../components/app/AppButton.vue'
 import { computed, reactive, ref, watch } from 'vue'
-import { NModal, NSwitch, NCheckbox } from 'naive-ui'
+import {  NSwitch, NCheckbox } from 'naive-ui'
 import type { User } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { useAppStore } from '../../../store/app-store'
@@ -98,7 +101,7 @@ const filteredUsers = computed(() =>
 
 <template>
   <section class="stack">
-    <NModal
+    <AppModal :busy="busy" origin-key="UserManagementView:editor" @invalidated="editorOpen = false"
       v-model:show="editorOpen"
       preset="card"
       :title="editingId === null ? '创建用户' : `编辑用户 · ${editingUsername}`"
@@ -191,8 +194,8 @@ const filteredUsers = computed(() =>
           }}</AppButton>
         </div>
       </form>
-    </NModal>
-    <NModal
+    </AppModal>
+    <AppModal :busy="busy" origin-key="UserManagementView:password" @invalidated="passwordOpen = false"
       v-model:show="passwordOpen"
       preset="card"
       title="重置密码"
@@ -230,7 +233,7 @@ const filteredUsers = computed(() =>
           >
         </div>
       </form>
-    </NModal>
+    </AppModal>
     <WorkspaceTable
       :show-title="false"
       title="用户管理"
@@ -239,7 +242,7 @@ const filteredUsers = computed(() =>
       :min-table-width="1200"
     >
       <template #actions
-        ><AppButton type="button" :disabled="busy" @click="openEditor()" variant="primary"
+        ><AppButton type="button" :disabled="busy" @click.capture="captureDialogOrigin('UserManagementView:editor', $event)" @click="openEditor()" variant="primary"
           >创建用户</AppButton
         ></template
       >
@@ -268,7 +271,7 @@ const filteredUsers = computed(() =>
           <AppButton
             type="button"
             :disabled="busy"
-            @click="openEditor(entry)"
+            @click.capture="captureDialogOrigin('UserManagementView:editor', $event)" @click="openEditor(entry)"
             variant="secondary"
             size="small"
             >编辑</AppButton
@@ -276,7 +279,7 @@ const filteredUsers = computed(() =>
           <AppButton
             type="button"
             :disabled="busy || entry.id === user?.id"
-            @click="openPassword(entry)"
+            @click.capture="captureDialogOrigin('UserManagementView:password', $event)" @click="openPassword(entry)"
             variant="secondary"
             size="small"
             >重置密码</AppButton

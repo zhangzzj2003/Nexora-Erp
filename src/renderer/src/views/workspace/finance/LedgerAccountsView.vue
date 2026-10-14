@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
 import AppInput from '../../../components/app/AppInput.vue'
 // 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
@@ -7,7 +10,7 @@ import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NModal } from 'naive-ui'
+
 import type { LedgerAccount } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
@@ -61,7 +64,7 @@ async function save(): Promise<void> {
         ><AppButton
           v-if="can('ledger_account.manage')"
           :disabled="busy || connectionLost"
-          @click="edit()"
+          @click.capture="captureDialogOrigin('LedgerAccountsView:form', $event)" @click="edit()"
           variant="primary"
           type="button"
           >新增科目</AppButton
@@ -85,12 +88,12 @@ async function save(): Promise<void> {
           <AppButton
             v-if="can('ledger_account.manage')"
             :disabled="busy || connectionLost"
-            @click="edit(row)"
+            @click.capture="captureDialogOrigin('LedgerAccountsView:form', $event)" @click="edit(row)"
             variant="text"
             type="button"
             >编辑</AppButton
           >
-          <AppButton :disabled="connectionLost" @click="history = row" variant="text" type="button"
+          <AppButton :disabled="connectionLost" @click.capture="captureDialogOrigin('LedgerAccountsView:history', $event)" @click="history = row" variant="text" type="button"
             >变更记录</AppButton
           >
         </div>
@@ -99,7 +102,7 @@ async function save(): Promise<void> {
         query ? '没有匹配的科目。' : '暂无科目。请按公司的科目表新增。'
       }}</template>
     </WorkspaceTable>
-    <NModal
+    <AppModal :busy="busy" origin-key="LedgerAccountsView:form" @invalidated="showForm = false"
       v-model:show="showForm"
       preset="card"
       :title="form.id === null ? '新增总账科目' : '编辑总账科目'"
@@ -171,8 +174,8 @@ async function save(): Promise<void> {
           >
         </div>
       </form>
-    </NModal>
-    <NModal
+    </AppModal>
+    <AppModal :busy="busy" origin-key="LedgerAccountsView:history" @invalidated="history = null"
       :show="history !== null"
       preset="card"
       :title="history ? `${history.code} · 变更记录` : '变更记录'"
@@ -188,6 +191,6 @@ async function save(): Promise<void> {
         :key="history.id"
         :load="() => loadLedgerAccountChanges(history!.id)"
       />
-    </NModal>
+    </AppModal>
   </section>
 </template>

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { ref } from 'vue'
+import { effectScope, ref } from 'vue'
+import { createAppState } from '../src/renderer/src/store/state.ts'
 import { callBackend } from '../src/main/backend.ts'
 import { createSalesActions } from '../src/renderer/src/store/modules/sales-actions.ts'
 
@@ -75,4 +76,48 @@ test('合同迟到读取在账号或查看权限变化后失效', async t => {
   state.user.value = { id: 3, permissions: [] }
   resolve(contract)
   assert.equal(await next, null)
+})
+
+test('合同读取使用稳定会话，切换证书或短暂断线后不接收旧正文和旧错误', async t => {
+  const previous = globalThis.window, scope = effectScope(), state = createAppState()
+  t.after(() => { globalThis.window = previous; scope.stop() })
+  state.server.value = { id: 'instance', fingerprint: 'first' }
+  state.user.value = { id: 1, roles: ['sales', 'viewer'], permissions: ['sales.view', 'sales_order.confirm'] }
+  const pending = []
+  globalThis.window = { nexora: { callApi: () => new Promise((resolve, reject) => pending.push({ resolve, reject })) } }
+  const actions = scope.run(() => createSalesActions(state, async action => action()))
+  const stable = actions.loadSalesOrderContract(4)
+  // 权限和角色集合没有变化时，排序差异不会使合同读取失效。
+  state.user.value = { ...state.user.value, roles: [...state.user.value.roles].reverse(), permissions: [...state.user.value.permissions].reverse() }
+  pending[0].resolve(contract)
+  assert.equal(await stable, contract)
+  const certificate = actions.loadSalesOrderContract(4)
+  state.server.value = { ...state.server.value, fingerprint: 'next' }
+  pending[1].resolve(contract)
+  assert.equal(await certificate, null)
+  const disconnected = actions.loadSalesOrderContract(4)
+  state.connectionLost.value = true
+  state.connectionLost.value = false
+  pending[2].reject(new Error('旧连接错误'))
+  assert.equal(await disconnected, null)
+  assert.equal(state.error.value, '')
+})
+
+test('合同登记排队期间切换服务端不能把旧合同写入新实例', async t => {
+  const previous = globalThis.window, scope = effectScope(), state = createAppState()
+  t.after(() => { globalThis.window = previous; scope.stop() })
+  state.server.value = { id: 'first', fingerprint: 'certificate' }
+  state.user.value = { id: 1, permissions: ['sales.view', 'sales_order.confirm'] }
+  let queued, release, calls = 0
+  globalThis.window = { nexora: { callApi: async () => { calls++; return contract } } }
+  const actions = scope.run(() => createSalesActions(state, action => {
+    queued = action
+    return new Promise(resolve => { release = resolve })
+  }))
+  const saving = actions.reviseSalesOrderContract(4, 0, '正文', '签署', '登记')
+  state.server.value = { ...state.server.value, id: 'second' }
+  await assert.rejects(queued(), /会话或连接已变化/)
+  release()
+  assert.equal(await saving, null)
+  assert.equal(calls, 0)
 })

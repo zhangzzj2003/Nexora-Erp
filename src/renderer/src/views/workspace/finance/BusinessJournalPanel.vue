@@ -1,10 +1,13 @@
 <script setup lang="ts">
+// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppModal from '../../../components/app/AppModal.vue'
 // 凭证与来源保留内部 ID，界面优先显示服务端保存的业务单号。
 import { documentSearch, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
-import { NModal, NDatePicker, NCollapse } from 'naive-ui'
+import {  NDatePicker, NCollapse } from 'naive-ui'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -17,7 +20,7 @@ import { auxiliaryLabels } from './auxiliary-display'
 import { journalStatusLabels } from './journal-display'
 import BusinessSourceEvidence from './BusinessSourceEvidence.vue'
 import AuxiliarySelector from './AuxiliarySelector.vue'
-const emit = defineEmits<{ openJournal: [id: number] }>()
+const emit = defineEmits<{ openJournal: [id: number, event?: Event] }>()
 const store = usePiniaAppStore()
 const { businessJournalSources: sources, businessJournalOptions: options, businessJournalPolicyChanges: changes,
   businessJournalLoading: loading, businessJournalError: loadError, busy, connectionLost, user } = storeToRefs(store)
@@ -103,11 +106,11 @@ async function generate(): Promise<void> {
       <template #filters><label>搜索来源<AppInput v-model="query" placeholder="单据类别、来源号或凭证号" /></label><label>来源状态<WorkspaceSelect v-model="filter" :options="filterOptions" aria-label="来源状态" /></label></template>
       <template #cell-key="{ row }">{{ row.label }} {{ relatedDocumentLabel(row, 'source') }}</template><template #cell-amount="{ row }">{{ row.blockers.some((item: string) => item.includes('核价') || item.includes('单价')) ? '待核价' : `¥${businessTotal(row)}` }}</template>
       <template #cell-state="{ row }"><span v-if="row.journal_id">{{ journalStatusLabels[row.journal_status as keyof typeof journalStatusLabels] }} · {{ relatedDocumentLabel(row, 'journal') }}</span><span v-else-if="row.blockers.length">{{ row.blockers.join('；') }}</span><span v-else>{{ row.no_amount ? '分位净额为零' : '可生成草稿' }}</span></template>
-      <template #cell-actions="{ row }"><div class="ledger-actions"><AppButton variant="text" :disabled="loading" @click="open(row)">核对来源</AppButton><AppButton v-if="row.journal_id" variant="text" @click="emit('openJournal', row.journal_id)">查看凭证</AppButton><AppButton v-else-if="can('business_journal.generate')" variant="text" :disabled="!row.can_generate || busy || connectionLost || loading" @click="open(row)">生成草稿</AppButton></div></template>
+      <template #cell-actions="{ row }"><div class="ledger-actions"><AppButton variant="text" :disabled="loading" @click.capture="captureDialogOrigin('BusinessJournalPanel:detail', $event)" @click="open(row)">核对来源</AppButton><AppButton v-if="row.journal_id" variant="text" @click="emit('openJournal', row.journal_id, $event)">查看凭证</AppButton><AppButton v-else-if="can('business_journal.generate')" variant="text" :disabled="!row.can_generate || busy || connectionLost || loading" @click.capture="captureDialogOrigin('BusinessJournalPanel:detail', $event)" @click="open(row)">生成草稿</AppButton></div></template>
       <template #empty>{{ loading ? '正在读取业务来源…' : query || filter ? '没有匹配的业务来源。可切换到全部来源查看。' : '暂无已确认的业务来源。' }}</template>
     </WorkspaceTable>
     <NCollapse v-if="changes.length"><AppCollapseItem name="history" :title="`科目配置历史（${changes.length} 次）`"><WorkspaceTable title="配置审计" :columns="changeColumns" :data="changeRows" :min-table-width="760" /></AppCollapseItem></NCollapse>
-    <NModal :show="selected !== null" preset="card" :title="selected ? `${selected.label} ${relatedDocumentLabel(selected, 'source')} · 来源核对` : ''" :mask-closable="!busy" :style="{ width: 'min(1050px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }" @update:show="value => { if (!value) selected = null }">
+    <AppModal :busy="busy" origin-key="BusinessJournalPanel:detail" @invalidated="selected = null" :show="selected !== null" preset="card" :title="selected ? `${selected.label} ${relatedDocumentLabel(selected, 'source')} · 来源核对` : ''" :mask-closable="!busy" :style="{ width: 'min(1050px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }" @update:show="value => { if (!value) selected = null }">
       <div v-if="selected" class="stack">
         <BusinessSourceEvidence :source="selected" :mapping="selectedMapping" :accounts="options?.accounts" />
         <AppButton variant="secondary" :disabled="loading || busy || connectionLost" @click="reloadSource">重新核对来源</AppButton>
@@ -127,7 +130,7 @@ async function generate(): Promise<void> {
           <div class="form-actions"><AppButton variant="primary" type="submit" :disabled="!selected.can_generate || loading || busy || connectionLost">{{ busy ? '正在生成…' : '生成凭证草稿' }}</AppButton><AppButton type="button" variant="secondary" :disabled="busy" @click="selected = null">返回</AppButton></div>
         </form>
       </div>
-    </NModal>
+    </AppModal>
   </section>
 </template>
 

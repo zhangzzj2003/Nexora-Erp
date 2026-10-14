@@ -21,7 +21,9 @@ export function createLedgerReportActions(state: AppState) {
     closeLedgerReportJournal()
   }
   watch(state.ledgerReportQuery, invalidate, { deep: true, flush: 'sync' })
-  watch(() => [state.user.value?.id, state.user.value?.permissions.join('|')], () => {
+  // 不监听 user 对象身份，只有账号、权限、实例或连接实际变化才清理详情。
+  // 角色与权限按集合比较，副本排序不会修改用户快照，例行返回顺序变化也不取消读取。
+  watch(() => `${state.server.value?.id}:${state.server.value?.fingerprint}:${state.user.value?.id}:${state.user.value?.roles?.slice().sort().join('|')}:${state.user.value?.permissions.slice().sort().join('|')}:${state.connectionLost.value}`, () => {
     invalidate(); optionsTicket++
     state.ledgerReportAccounts.value = []
   }, { flush: 'sync' })
@@ -50,16 +52,22 @@ export function createLedgerReportActions(state: AppState) {
       if (ticket === queryTicket) state.ledgerReportLoading.value = false
     }
   }
-  async function openLedgerReportJournal(id: number): Promise<void> {
-    if (!allowed() || !connected()) return
-    closeLedgerReportJournal()
+  async function openLedgerReportJournal(id: number): Promise<boolean> {
+    if (!allowed() || !connected()) return false
+    // 同凭证刷新保留正文，错误状态继续阻止界面依赖旧快照执行操作。
+    if (state.ledgerReportJournal.value?.id !== id) closeLedgerReportJournal()
+    state.ledgerReportJournalError.value = ''
     const ticket = ++detailTicket
     state.ledgerReportJournalLoading.value = true
     try {
       const record = await window.nexora!.callApi('journalDetail', { id })
-      if (ticket === detailTicket && allowed()) state.ledgerReportJournal.value = record
+      if (ticket !== detailTicket || !allowed() || !connected()) return false
+      if (record.id !== id) throw Error('凭证详情与当前选择不一致，请重新读取。')
+      state.ledgerReportJournal.value = record
+      return true
     } catch (cause) {
       if (ticket === detailTicket) state.ledgerReportJournalError.value = displayError(cause)
+      return false
     } finally {
       if (ticket === detailTicket) state.ledgerReportJournalLoading.value = false
     }
