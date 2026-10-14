@@ -30,9 +30,10 @@ test("生产四类先独立审批，完工保留质检，普通执行无需批�
         name: "production-approval-fixture",
         enforce: "pre",
         resolveId(id, importer) {
+          // 同步详情子面板与领域模块也必须复用同一测试会话，避免意外载入真实应用路由和图标。
           if (
-            importer?.includes("/views/workspace/") &&
-            id.endsWith("/store/app-store")
+            importer?.includes("/src/renderer/") &&
+            id.endsWith("/app-store")
           )
             return "\0production-approval-store";
           if (id.endsWith("/AppButton.vue"))

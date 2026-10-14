@@ -14,10 +14,10 @@ before(async () => {
   // 测试真实 Pinia 模块及 Vue 页面，仅替换 Electron 不存在的浏览器路由环境。
   server = await createServer({ configFile: false, plugins: [vue(), Icons({ compiler: 'vue3' }), {
     name: 'flow-test-router', enforce: 'pre',
-    transform(code, id) { if (id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace("'naive-ui'", "'virtual:flow-test-modal'") },
+    transform(code, id) { if (id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace(/(['"])\.\.\/app\/AppModal\.vue\1/g, "'virtual:flow-test-modal'") },
     resolveId(id) { if (id === 'virtual:flow-test-modal') return '\0flow-test-modal' },
     load(id) {
-      if (id === '\0flow-test-modal') return "import {defineComponent,h} from 'vue'; export const NModal=defineComponent({props:['show'],setup(p,{slots}){return()=>p.show?h('section',slots.default?.()):null}})"
+      if (id === '\0flow-test-modal') return "import {defineComponent,h} from 'vue'; export default defineComponent({props:['show','ready'],setup(p,{slots}){return()=>p.show&&p.ready!==false?h('section',slots.default?.()):null}})"
       if (id.endsWith('/router/browser-router.ts')) return "import { createRouter, createMemoryHistory } from 'vue-router'; export const workspaceRouter = createRouter({ history:createMemoryHistory(),routes:[] })"
     }
   }], ssr: { noExternal: ['vxe-table'] }, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' })
@@ -176,10 +176,13 @@ test('补发草稿编辑保留换料来源并使用补发专用额度', async t 
   const order = { ...summary, lines: [demand], sources: [signedSource], exchanges: [{ lines: [{ id: 8, replacement_available_quantity: '1' }] }] }
   const calls = []
   globalThis.window = { nexora: { callApi: async (action, input) => { calls.push({ action, input }); if (action === 'workOrderMaterialFlow') return order; if (action === 'materialFlowQuery') return page(); throw Error('保持草稿') } } }
-  const { view, flow } = await mountFlow('dispatch')
+  const { view, flow, app } = await mountFlow('dispatch')
   flow.documents['dispatch:9'] = { id: 9, kind: 'dispatch', version: 1, status: 'draft', work_order_id: 2, warehouse_id: 1, reference: '', reason: '', note: '',
     lines: [{ ...demand, id: 10, quantity: '2', exchange_line_id: 8, source_receipt_line_id: null, legacy_issue_line_id: null }] }
-  view.activeKind = 'dispatch'; view.activeId = 9
+  view.activeKind = 'dispatch'; view.activeId = 9; view.detailOpen = true
+  flow.readReady['dispatch:9'] = true; flow.readReady['order:2'] = true
+  app.documentApprovalTarget = { document_type: 'MaterialDispatch', document_id: 9, intent: 'execute' }
+  app.documentApprovalRecord = { document_type: 'MaterialDispatch', document_id: 9, intent: 'execute', status: 'draft', version: 1 }
   await view.editDraft()
   assert.equal(flow.drafts.dispatch.rows[0].exchange_line_id, 8); assert.equal(view.rowLimit(flow.drafts.dispatch.rows[0]), '3.000')
   await view.saveDraft()

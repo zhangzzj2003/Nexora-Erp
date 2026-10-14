@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import AppButton from '../app/AppButton.vue'
@@ -7,20 +7,45 @@ import WorkspaceTable from './WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../store/app-store'
 import { useMaterialFlowStore, materialFlowLabels, materialFlowRoutes, materialFlowStatusLabel } from '../../store/modules/material-flow-store'
 import { routeByKey } from '../../router/workspace-routes'
+import { useDialogPreparation } from '../../composables/use-dialog-presentation'
+import { captureDialogOrigin } from '../../utils/dialog-origin'
 import type { MaterialFlowKind } from '../../../../shared/material-flow-api'
 
 // 工单保留四个明确区域，跳转时携带工单约束，仓库列表与生产侧看到同一批单据。
 const props = defineProps<{ orderId: number }>()
 const app = usePiniaAppStore(), flow = useMaterialFlowStore(), router = useRouter()
-const { orders, loading, error, available } = storeToRefs(flow)
+const { orders, loading, readErrors, available } = storeToRefs(flow)
 const summary = computed(() => orders.value[props.orderId])
 const sections = computed(() => ([['dispatch', 'dispatches'], ['receipt', 'receipts'], ['exchange', 'exchanges'], ['return', 'returns']] as const)
   .map(([kind, field]) => ({ kind, title: materialFlowLabels[kind], items: summary.value?.[field] ?? [], hint: {
     dispatch: '仓库按工单发出，支持分批备料与出库。', receipt: '生产核对实物后签收，差额持续待处理。',
     exchange: '旧料交接后补发，新料签收后才完成。', return: '交回可用余料，仓库接收后才增加库存。'
   }[kind] })))
-watch([() => props.orderId, available], () => { if (available.value) void flow.loadOrder(props.orderId) }, { immediate: true })
-async function open(kind: MaterialFlowKind, id?: number): Promise<void> {
+const pending = ref(false), preparationError = ref('')
+let requestGeneration = 0, pendingOrder = 0
+function cancelRead(): void {
+  requestGeneration++
+  if (pendingOrder) flow.cancelRead(`order:${pendingOrder}`)
+  pendingOrder = 0; pending.value = false
+}
+async function load(): Promise<void> {
+  cancelRead(); preparationError.value = ''
+  if (!available.value || !props.orderId) return
+  const id = props.orderId, ticket = requestGeneration
+  pendingOrder = id; pending.value = true
+  const value = await flow.loadOrder(id)
+  if (ticket !== requestGeneration || !available.value || props.orderId !== id) return
+  pendingOrder = 0
+  if (!value) preparationError.value = readErrors.value[`order:${id}`] || '工单材料核对读取失败，请重新打开详情后重试。'
+  pending.value = false
+}
+// 工单首屏包括这四块材料摘要；同步挂载后登记屏障，摘要到齐才让父详情展开。
+useDialogPreparation(pending, preparationError)
+watch([() => props.orderId, available], () => void load(), { immediate: true })
+onBeforeUnmount(cancelRead)
+async function open(kind: MaterialFlowKind, id?: number, event?: Event): Promise<void> {
+  if (!available.value || pending.value || preparationError.value) return
+  if (id) captureDialogOrigin(`ProductionMaterialFlowView:${kind}:detail`, event)
   app.closeDocumentApproval()
   await router.push({ path: routeByKey(materialFlowRoutes[kind]).path, query: { work_order_id: props.orderId, ...(id ? { document_id: id } : {}) } })
 }
@@ -31,10 +56,10 @@ const columns = [{ key: 'material', title: '物料', width: '260' }, { key: 'req
 <template>
   <section v-if="available" class="work-order-material-flow" aria-label="工单发料、领料、换料、退料">
     <div class="flow-sections"><section v-for="section in sections" :key="section.kind"><header><h3>{{ section.title }}</h3><span class="pill">{{ section.items.length }} 单</span></header><p>{{ section.hint }}</p>
-      <div v-for="item in section.items" :key="item.id" class="flow-order-link"><AppButton variant="text" @click="open(section.kind, item.id)">{{ item.document_no }}</AppButton><small>{{ materialFlowStatusLabel(item.kind, item.status) }}</small></div>
-      <AppButton :disabled="app.connectionLost" @click="open(section.kind)">查看与办理{{ section.title.slice(2) }}</AppButton>
+      <div v-for="item in section.items" :key="item.id" class="flow-order-link"><AppButton variant="text" :disabled="pending || !!preparationError" @click="open(section.kind, item.id, $event)">{{ item.document_no }}</AppButton><small>{{ materialFlowStatusLabel(item.kind, item.status) }}</small></div>
+      <AppButton :disabled="app.connectionLost || pending || !!preparationError" @click="open(section.kind)">查看与办理{{ section.title.slice(2) }}</AppButton>
     </section></div>
-    <WorkspaceTable title="工单材料核对" :columns="columns" :data="summary?.lines ?? []" :loading="loading[`order:${orderId}`]" :error="error" :min-table-width="780">
+    <WorkspaceTable title="工单材料核对" :columns="columns" :data="summary?.lines ?? []" :loading="loading[`order:${orderId}`]" :error="preparationError" :min-table-width="780">
       <template #cell-material="{ row }">{{ row.sku }} · {{ row.material_name }}</template><template #cell-required="{ row }">{{ row.required_quantity }} {{ row.unit }}</template>
       <template #cell-signed="{ row }">{{ row.signed_quantity }}<small v-if="Number(row.historical_direct_quantity) > 0">含历史直接领料 {{ row.historical_direct_quantity }}（无签收记录）</small></template><template #cell-transit="{ row }">{{ row.in_transit_quantity ?? '0' }}</template><template #cell-returned="{ row }">{{ row.returned_quantity }} / {{ row.damaged_quantity }}</template>
       <template #cell-available="{ row }">{{ row.effective_quantity }} / {{ row.reserved_quantity }} / {{ row.available_quantity ?? '—' }}</template>

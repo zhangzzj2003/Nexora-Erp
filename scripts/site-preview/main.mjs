@@ -7,7 +7,7 @@ import { workspaceRouter } from '../../src/renderer/src/router/browser-router'
 import { installWorkspaceAccessGuard } from '../../src/renderer/src/router'
 import { workspaceRoutes, workspaceRouteGroups } from '../../src/renderer/src/router/workspace-routes'
 import { previewRoutes, previewResponse, supplyPreviewInbounds, materials, warehouses, journals, productionCostReport, productionCostSettlements, receipts, receivablesPayables } from './fixtures.mjs'
-import { dialogPreviewResponse, dialogPreviewPermissions, dialogPreviewInbounds } from './dialog-fixtures.mjs'
+import { dialogPreviewResponse, dialogPreviewPermissions, dialogPreviewInbounds, dialogPreviewWorkOrders } from './dialog-fixtures.mjs'
 import '../../src/renderer/src/style.css'
 import '../../src/renderer/src/light-theme.css'
 import '../../src/renderer/src/dark-theme.css'
@@ -20,7 +20,7 @@ const previewReadCounts = new Map()
 window.nexora = { platform: 'darwin', callApi: async (operation, payload) => {
   if (!dialogQa) return previewResponse(operation, payload)
   // 延迟和失败仅作用于此隔离示例桥，真实页面与 Pinia 仍走完整读取链路。
-  if (['documentApproval', 'materialSupply'].includes(operation)) {
+  if (['documentApproval', 'materialSupply', 'materialFlowDetail', 'workOrderMaterialFlow', 'materialFlowLots'].includes(operation)) {
     await new Promise(resolve => setTimeout(resolve, Math.min(10000, Math.max(0, Number(previewQuery.get('delay')) || 0))))
     const count = (previewReadCounts.get(operation) ?? 0) + 1
     previewReadCounts.set(operation, count)
@@ -36,6 +36,7 @@ store.$patch({
   user: { id: 3, username: '示例管理员', roles: ['admin'], permissions: dialogQa ? dialogPreviewPermissions : permissions, is_active: true },
   screen: 'app', server: { id: 'site-preview', name: '界面预览 · 示例数据', version: '0.1.0', fingerprint: 'sample-only' },
   version: '0.1.0', roles: [{ code: 'admin', label: '管理员' }], materials, warehouses,
+  workOrders: dialogQa ? dialogPreviewWorkOrders : [],
   otherInbounds: dialogQa ? dialogPreviewInbounds : supplyPreviewInbounds,
   suppliers: [{ id: 1, name: '示例电子供应商' }], supplierMaterials: materials.map(item => ({ material_id: item.id, supplier_id: 1 })),
   materialCategories: [

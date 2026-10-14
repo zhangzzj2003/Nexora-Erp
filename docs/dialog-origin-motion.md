@@ -80,6 +80,6 @@
 
 ### 可复现的隔离验收
 
-运行 `NEXORA_PREVIEW_PORT=8771 npm run docs:preview-ui` 后，打开 `http://127.0.0.1:8771/scripts/site-preview/index.html?qa=dialogs&delay=1800#/workspace/warehouse-inbounds`。此入口使用真实业务页面和 Pinia，但桥接仅返回虚构只读数据；不会连接正式服务，保存、审批、入库等写入明确拒绝。`delay` 模拟请求等待（最多 10 秒），`fail=documentApproval` 模拟首屏失败，`failAfter=2` 可让第二次读取失败以验证刷新保留正文，`theme=dark` 用于深色取景。两个示例单据分别覆盖草稿详情和已批准的批次登记入口。
+运行 `NEXORA_PREVIEW_PORT=8771 npm run docs:preview-ui` 后，打开 `http://127.0.0.1:8771/scripts/site-preview/index.html?qa=dialogs&delay=1800#/workspace/warehouse-inbounds`。此入口使用真实业务页面和 Pinia，但桥接仅返回虚构只读数据；不会连接正式服务，保存、审批、入库等写入明确拒绝。`delay` 模拟请求等待（最多 10 秒），`fail=documentApproval` 模拟首屏失败，`failAfter=2` 可让第二次读取失败以验证刷新保留正文，`theme=dark` 用于深色取景。其他入库的两个示例单据分别覆盖草稿详情和已批准的批次登记入口。访问 `#/workspace/production-dispatches` 可验收生产发料的详情、审批与工单摘要联合准备；`fail=workOrderMaterialFlow` 或 `fail=materialFlowLots` 分别模拟摘要与可用批次失败。
 
 纯逻辑和页面回归使用 `node --experimental-strip-types --test tests/*.test.mjs`。公共动画另有 `tests/dialog-motion-browser.mjs`，通过 `NEXORA_PLAYWRIGHT_MODULE` 指向已安装的 Playwright 入口运行；`NEXORA_DIALOG_ENGINE=electron` 使用本仓库 Electron 依赖和独立临时用户目录运行同一组件验收。自动化组件验收、浏览器业务页面验收、正式安装客户端及真实业务服务验收是不同范围，不能互相替代。

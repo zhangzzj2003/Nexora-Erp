@@ -23,11 +23,12 @@ import type { LotEditorPart } from '../../../utils/lot-allocation'
 import { documentLabel } from '../../../../../shared/document-numbering'
 import { materialFlowExecutionHint, materialFlowExecutionLabels } from '../../../utils/material-flow-progress'
 import { routeByKey } from '../../../router/workspace-routes'
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 
 // 仓库四页和工单内嵌区复用同一业务组件；所在页面不授予额外操作权限。
 const props = withDefaults(defineProps<{ kind: MaterialFlowKind; workOrderId?: number; embedded?: boolean }>(), { embedded: false })
 const app = usePiniaAppStore(), flow = useMaterialFlowStore(), route = useRoute(), router = useRouter()
-const { pages, orders, documents, loading, busy, error, available } = storeToRefs(flow)
+const { pages, orders, documents, loading, readErrors, readReady, busy, error, available } = storeToRefs(flow)
 const { workOrders, warehouses, materials, materialCategories, connectionLost } = storeToRefs(app)
 const query = ref(''), filters = ref({ status: '', warehouse: 0, person: 0, from: '', to: '' }), page = ref(1), pageSize = ref(20)
 const scopeOrder = computed(() => props.workOrderId || (Number(route.query.work_order_id) || undefined))
@@ -35,6 +36,9 @@ const pageKey = computed(() => flow.pageKey(props.kind, scopeOrder.value))
 const result = computed(() => pages.value[pageKey.value])
 const title = computed(() => materialFlowLabels[props.kind])
 const disabled = computed(() => busy.value || app.busy || connectionLost.value || !available.value)
+// 同一组件承载四个页面，来源按业务种类隔离，不借用其他页面的最后点击。
+const createOriginKey = computed(() => `ProductionMaterialFlowView:${props.kind}:create`)
+const detailOriginKey = computed(() => `ProductionMaterialFlowView:${props.kind}:detail`)
 const canCreate = computed(() => props.kind !== 'receipt' && app.can(`${materialFlowPermission[props.kind]}.create`))
 const summaries = computed(() => [
   { key: '', label: '全部', count: Object.values(result.value?.summary ?? {}).reduce((sum, value) => sum + value, 0), hint: '按当前搜索条件统计全部匹配单据' },
@@ -59,7 +63,7 @@ async function refresh(): Promise<void> {
 let timer: ReturnType<typeof setTimeout> | undefined
 watch([query, filters, scopeOrder, () => props.kind], () => { page.value = 1; clearTimeout(timer); timer = setTimeout(() => void refresh(), 180) }, { deep: true })
 watch(available, value => { if (value) void refresh() }, { immediate: true })
-onBeforeUnmount(() => clearTimeout(timer))
+
 function resetFilters(): void { query.value = ''; filters.value = { status: '', warehouse: 0, person: 0, from: '', to: '' } }
 function paginate(next: number, size: number): void { page.value = next; pageSize.value = size; void refresh() }
 const columns: readonly WorkspaceTableColumn[] = [
@@ -77,6 +81,10 @@ const draftColumns = computed<WorkspaceTableColumn[]>(() => [
   { key: 'actions', title: '操作', width: '75' }
 ])
 const createOpen = ref(false), editTarget = ref<{ id: number; version: number } | null>(null)
+const createLoading = ref(false), createError = ref('')
+let createGeneration = 0, createOrderId = 0
+const createDisabled = computed(() => disabled.value || createLoading.value || !!createError.value
+  || !!draft.value.work_order_id && !readReady.value[`order:${draft.value.work_order_id}`])
 const draft = computed(() => flow.draft(props.kind, scopeOrder.value))
 const order = computed(() => orders.value[draft.value.work_order_id])
 const editingReplacement = computed(() => !!editTarget.value && draft.value.rows.some(row => row.exchange_line_id))
@@ -121,39 +129,73 @@ function changeMaterial(row: FlowDraftRow): void {
   if (first) { row.source_key = sourceKey(first); row.quantity = first.available_quantity }
 }
 function addRow(): void { draft.value.rows.push({ material_id: 0, source_key: '', quantity: '1', disposal: 'physical', evidence: '' }) }
+function cancelCreateRead(): void {
+  createGeneration++
+  if (createOrderId) flow.cancelRead(`order:${createOrderId}`)
+  createOrderId = 0; createLoading.value = false
+}
+function closeCreate(show: boolean, force = false): void {
+  if (!force && (busy.value || app.busy)) return
+  createOpen.value = show
+  if (!show) cancelCreateRead()
+}
+async function prepareCreateOrder(id: number, resetRows: boolean): Promise<boolean> {
+  cancelCreateRead()
+  if (!id) { createError.value = ''; return true }
+  const ticket = createGeneration, input = draft.value
+  createOrderId = id; createLoading.value = true; createError.value = ''
+  const loaded = await flow.loadOrder(id)
+  if (ticket !== createGeneration || !createOpen.value || !available.value || draft.value !== input) return false
+  createOrderId = 0
+  if (!loaded) { createError.value = readErrors.value[`order:${id}`] || '工单材料资料读取失败，请重新打开后重试。'; createLoading.value = false; return false }
+  if (resetRows) {
+    const warehouse = (result.value?.work_orders ?? workOrders.value).find(item => item.id === id)?.warehouse_id
+    if (warehouse) input.warehouse_id = warehouse
+    input.rows = props.kind === 'dispatch' ? loaded.lines.filter(line => Number(line.dispatchable_quantity) > 0)
+      .map(line => ({ material_id: line.material_id, source_key: '', quantity: line.dispatchable_quantity, disposal: 'physical', evidence: '' }))
+      : [{ material_id: 0, source_key: '', quantity: '1', disposal: 'physical', evidence: '' }]
+  }
+  createLoading.value = false
+  return true
+}
 async function chooseOrder(id: number): Promise<void> {
   draft.value.work_order_id = id; draft.value.rows = []
-  if (!id) return
-  const loaded = await flow.loadOrder(id)
-  if (!loaded || draft.value.work_order_id !== id) return
-  const warehouse = (result.value?.work_orders ?? workOrders.value).find(item => item.id === id)?.warehouse_id
-  if (warehouse) draft.value.warehouse_id = warehouse
-  if (props.kind === 'dispatch') draft.value.rows = loaded.lines.filter(line => Number(line.dispatchable_quantity) > 0)
-    .map(line => ({ material_id: line.material_id, source_key: '', quantity: line.dispatchable_quantity, disposal: 'physical', evidence: '' }))
-  else addRow()
+  await prepareCreateOrder(id, true)
 }
-async function openCreate(): Promise<void> {
+async function openCreate(event?: Event): Promise<void> {
   if (!canCreate.value || disabled.value) return
-  editTarget.value = null; createOpen.value = true
+  if (event) captureDialogOrigin(createOriginKey.value, event)
+  editTarget.value = null; createError.value = ''; createOpen.value = true
   if (scopeOrder.value && (draft.value.work_order_id !== scopeOrder.value || !draft.value.rows.length)) await chooseOrder(scopeOrder.value)
-  else if (draft.value.work_order_id) {
-    if (!draft.value.rows.length) await chooseOrder(draft.value.work_order_id)
-    else await flow.loadOrder(draft.value.work_order_id)
-  }
+  else await prepareCreateOrder(draft.value.work_order_id, !draft.value.rows.length)
 }
-async function editDraft(): Promise<void> {
+async function editDraft(event?: Event): Promise<void> {
   const current = detail.value
-  if (!current || current.kind === 'receipt' || current.kind !== props.kind || current.status !== 'draft') return
-  await flow.loadOrder(current.work_order_id)
+  if (!current || detailDisabled.value || !canCreate.value || current.kind === 'receipt' || current.kind !== props.kind || current.status !== 'draft') return
+  if (event) captureDialogOrigin(createOriginKey.value, event)
+  // 先建立可取消的打开意图，完整额度到齐前不改写已有草稿，也不关闭来源详情。
+  cancelCreateRead()
+  const ticket = createGeneration
+  createOrderId = current.work_order_id; createLoading.value = true; createError.value = ''; createOpen.value = true
+  const loaded = await flow.loadOrder(current.work_order_id)
+  if (ticket !== createGeneration || !createOpen.value || !available.value) return
+  createOrderId = 0
+  if (!loaded) { createError.value = readErrors.value[`order:${current.work_order_id}`] || '工单材料资料读取失败，请重新打开后重试。'; createLoading.value = false; return }
   flow.drafts[props.kind] = { work_order_id: current.work_order_id, warehouse_id: current.warehouse_id,
     reference: current.reference, reason: current.reason, note: current.note, request_id: flowRequestId(),
     rows: current.lines.map(line => ({ material_id: line.material_id,
       source_key: line.source_receipt_line_id ? `receipt:${line.source_receipt_line_id}` : line.legacy_issue_line_id ? `legacy:${line.legacy_issue_line_id}` : '',
       quantity: line.quantity, disposal: line.disposal ?? 'physical', evidence: line.evidence ?? '', exchange_line_id: line.exchange_line_id ?? undefined })) }
-  editTarget.value = { id: current.id, version: current.version }; closeDetail(false); createOpen.value = true
+  editTarget.value = { id: current.id, version: current.version }; closeDetail(false); createLoading.value = false
+}
+function captureSavedDetailOrigin(event?: Event): void {
+  if (!event) return
+  // 原生 submitter 保留键盘提交与鼠标保存的真实入口，异步保存完成后不再读取事件对象。
+  captureDialogOrigin(detailOriginKey.value, (event as SubmitEvent).submitter ?? event.target as Element | null)
 }
 async function saveDraft(): Promise<void> {
-  if (props.kind === 'receipt') return
+  if (props.kind === 'receipt' || !createOpen.value || createDisabled.value || !canCreate.value) return
+  const ticket = createGeneration
   const input = draft.value
   const lines = input.rows.map(row => {
     const source = props.kind === 'dispatch' ? undefined : rowSource(row)
@@ -171,10 +213,16 @@ async function saveDraft(): Promise<void> {
   input.submitted_signature = signature
   const payload = { ...content, request_id: input.request_id }
   const saved = editTarget.value ? await flow.update({ ...payload, ...editTarget.value }) : await flow.create(payload)
-  if (saved) { createOpen.value = false; flow.drafts[props.kind] = newFlowDraft(scopeOrder.value); await refresh(); await openDetail(saved) }
+  if (saved && ticket === createGeneration && createOpen.value) {
+    closeCreate(false); flow.drafts[props.kind] = newFlowDraft(scopeOrder.value)
+    await openDetail(saved); await refresh()
+  }
 }
 
 const activeId = ref(0), activeKind = ref<MaterialFlowKind>(props.kind), detailOpen = ref(false)
+const detailLoading = ref(false), detailError = ref(''), operationLoading = ref(false), operationError = ref('')
+let detailGeneration = 0, detailOrderId = 0, operationGeneration = 0
+const detailKey = computed(() => `${activeKind.value}:${activeId.value}`)
 const detail = computed(() => documents.value[`${activeKind.value}:${activeId.value}`])
 function sourceLinks(item: MaterialFlowDocument) {
   const links = [item, ...item.lines].filter(source => source.source_document_kind && source.source_document_id)
@@ -190,15 +238,23 @@ const relatedDocuments = computed(() => {
 })
 const approvalType = computed(() => detail.value ? detail.value.kind === 'receipt' ? operation.value === 'reverse' ? 'MaterialReceipt' : null : materialFlowApprovalTypes[detail.value.kind] : null)
 const approvalReady = computed(() => !!detail.value && !!approvalType.value && app.documentApprovalTarget?.document_type === approvalType.value
-  && app.documentApprovalTarget.document_id === detail.value.id && app.documentApprovalRecord?.document_id === detail.value.id && !app.documentApprovalLoading && !app.documentApprovalError)
+  && app.documentApprovalTarget.document_id === detail.value.id && app.documentApprovalRecord?.document_type === approvalType.value
+  && app.documentApprovalRecord.document_id === detail.value.id && app.documentApprovalRecord.intent === (operation.value === 'reverse' ? 'reverse' : 'execute')
+  && app.documentApprovalTarget.intent === app.documentApprovalRecord.intent && !app.documentApprovalLoading && !app.documentApprovalError)
 const executionHint = computed(() => detail.value && app.documentApprovalRecord?.intent === 'execute' ? materialFlowExecutionHint(detail.value) : undefined)
-const approved = computed(() => detail.value?.kind === 'receipt' || approvalReady.value && app.documentApprovalRecord?.intent === 'execute' && ['approved', 'executed'].includes(app.documentApprovalRecord?.status ?? '') && app.documentApprovalRecord?.content_matches)
+const approved = computed(() => !detailDisabled.value && (detail.value?.kind === 'receipt' || approvalReady.value && app.documentApprovalRecord?.intent === 'execute' && ['approved', 'executed'].includes(app.documentApprovalRecord?.status ?? '') && app.documentApprovalRecord?.content_matches))
 const actionable = computed(() => !!detail.value && ['draft', 'partial'].includes(detail.value.status))
 const operation = ref<'execute' | 'handover' | 'close' | 'reverse' | ''>('')
 const operationReason = ref(''), requestId = ref(flowRequestId()), lots = ref<MaterialFlowLots>({ lines: [] })
 const operationVersion = ref(0)
 const quantities = ref<Record<number, string>>({}), allocations = ref<Record<number, LotEditorPart[]>>({})
 watch(() => JSON.stringify([quantities.value, allocations.value, operationReason.value]), () => { requestId.value = flowRequestId() }, { flush: 'sync' })
+// 正文可以保留旧画面，但授权只接受当前目标、当前代次和最新读取结果。
+const detailDisabled = computed(() => disabled.value || !detailOpen.value || detailLoading.value || operationLoading.value
+  || !!detailError.value || !!operationError.value || !detail.value || !readReady.value[detailKey.value]
+  || !readReady.value[`order:${detail.value.work_order_id}`] || !!approvalType.value && !approvalReady.value)
+const detailReady = computed(() => !detailLoading.value && !operationLoading.value && !app.documentApprovalLoading && !!detail.value)
+const detailLoadError = computed(() => detailError.value || operationError.value || (approvalType.value ? app.documentApprovalError : ''))
 const executionLabel = computed(() => ({ dispatch: '确认实际发出', receipt: '确认实际签收', exchange: '确认旧料交接', return: '确认退料入库' })[detail.value?.kind ?? props.kind])
 const executePermission = computed(() => detail.value?.kind === 'receipt' ? 'material_receipt.sign' : `${materialFlowPermission[detail.value?.kind ?? props.kind]}.post`)
 function lineProgress(line: MaterialFlowLine, kind: MaterialFlowKind, status?: string): string {
@@ -224,30 +280,78 @@ function unregisteredQuantity(line: MaterialFlowExecutionLine): string {
   const fraction = (unknown % 1000n).toString().padStart(3, '0').replace(/0+$/, '')
   return `${unknown / 1000n}${fraction ? `.${fraction}` : ''}`
 }
-async function openDetail(target: { id: number; kind: MaterialFlowKind }): Promise<void> {
-  operation.value = ''; requestId.value = flowRequestId(); activeId.value = target.id; activeKind.value = target.kind; detailOpen.value = true
-  const value = await flow.loadDocument(target)
-  if (!detailOpen.value || activeId.value !== target.id || activeKind.value !== target.kind) return
-  if (value && value.kind !== 'receipt') await app.openDocumentApproval({ document_type: materialFlowApprovalTypes[value.kind], document_id: value.id, intent: 'execute' })
-  else if (value) app.closeDocumentApproval()
-  if (value) await flow.loadOrder(value.work_order_id)
+function cancelDetailReads(): void {
+  detailGeneration++; operationGeneration++
+  if (activeId.value) flow.cancelDocument({ kind: activeKind.value, id: activeId.value })
+  if (detailOrderId) flow.cancelRead(`order:${detailOrderId}`)
+  detailOrderId = 0; detailLoading.value = false; operationLoading.value = false
 }
-function closeDetail(show: boolean): void { if (!busy.value && !app.busy) { detailOpen.value = show; if (!show) { operation.value = ''; app.closeDocumentApproval() } } }
+async function readDetail(target: { id: number; kind: MaterialFlowKind }, reloadApproval = true): Promise<void> {
+  const ticket = ++detailGeneration
+  detailLoading.value = true; detailError.value = ''; operationError.value = ''
+  const current = () => ticket === detailGeneration && detailOpen.value && available.value
+    && activeId.value === target.id && activeKind.value === target.kind
+  try {
+    const value = await flow.loadDocument(target)
+    if (!current()) return
+    if (!value) { detailError.value = readErrors.value[`${target.kind}:${target.id}`] || '单据读取失败，请重新打开后重试。'; return }
+    if (reloadApproval && value.kind !== 'receipt') {
+      const approved = await app.openDocumentApproval({ document_type: materialFlowApprovalTypes[value.kind], document_id: value.id, intent: operation.value === 'reverse' ? 'reverse' : 'execute' })
+      if (!current()) return
+      if (!approved) { detailError.value = app.documentApprovalError || '审批记录读取失败，请重新打开后重试。'; return }
+    } else if (reloadApproval && operation.value !== 'reverse') app.closeDocumentApproval()
+    detailOrderId = value.work_order_id
+    const order = await flow.loadOrder(value.work_order_id)
+    if (!current()) return
+    detailOrderId = 0
+    if (!order) detailError.value = readErrors.value[`order:${value.work_order_id}`] || '工单材料资料读取失败，请重新打开后重试。'
+  } finally { if (current()) detailLoading.value = false }
+}
+async function openDetail(target: { id: number; kind: MaterialFlowKind }, event?: Event): Promise<void> {
+  if (disabled.value) return
+  if (event) captureDialogOrigin(detailOriginKey.value, event)
+  // show 持续为 true 的换单也拥有独立代次，取消同一单后重开不能被上一轮响应解除等待。
+  cancelDetailReads(); app.closeDocumentApproval()
+  detailLoading.value = true; detailError.value = ''; operationError.value = ''; operation.value = ''; requestId.value = flowRequestId()
+  activeId.value = target.id; activeKind.value = target.kind; detailOpen.value = true
+  await readDetail(target)
+}
+function closeDetail(show: boolean, force = false): void {
+  if (!force && (busy.value || app.busy)) return
+  detailOpen.value = show
+  if (!show) { cancelDetailReads(); operation.value = ''; app.closeDocumentApproval() }
+}
 async function refreshDetail(): Promise<void> {
-  if (!detail.value) return
-  await flow.loadDocument(detail.value)
-  if (approvalType.value) await app.loadDocumentApproval()
+  if (!detailOpen.value || !detail.value || disabled.value) return
+  await readDetail({ id: activeId.value, kind: activeKind.value })
   await refresh()
 }
-watch(() => app.documentApprovalRecord?.version, () => { if (detailOpen.value && detail.value && approvalReady.value) void flow.loadDocument(detail.value) })
+watch(() => app.documentApprovalRecord?.version, () => {
+  // 审批动作后的业务正文刷新沿用首屏屏障；审批读取本身不会再触发一轮递归读取。
+  if (detailOpen.value && detail.value && approvalReady.value && !detailLoading.value && !operationLoading.value)
+    void readDetail({ id: activeId.value, kind: activeKind.value }, false)
+})
 async function prepare(action: typeof operation.value): Promise<void> {
-  if (!detail.value) return
-  operation.value = action; operationVersion.value = detail.value.version; operationReason.value = ''; requestId.value = flowRequestId(); quantities.value = {}; allocations.value = {}; lots.value = { lines: [] }
-  if (action === 'reverse') await app.openDocumentApproval({ document_type: detail.value.kind === 'receipt' ? 'MaterialReceipt' : materialFlowApprovalTypes[detail.value.kind], document_id: detail.value.id, intent: 'reverse' })
-  if (action === 'execute' || action === 'handover') {
-    for (const line of detail.value.lines) { quantities.value[line.id] = '0'; allocations.value[line.id] = [] }
-    lots.value = await flow.loadLots(detail.value) ?? { lines: [] }
-  }
+  const target = detail.value
+  if (!target || detailDisabled.value || !action) return
+  const ticket = ++operationGeneration
+  flow.cancelRead(`lots:${target.kind}:${target.id}`)
+  operationLoading.value = true; operationError.value = ''
+  operation.value = action; operationVersion.value = target.version; operationReason.value = ''; requestId.value = flowRequestId(); quantities.value = {}; allocations.value = {}; lots.value = { lines: [] }
+  const current = () => ticket === operationGeneration && detailOpen.value && detail.value?.id === target.id && detail.value.kind === target.kind && available.value
+  try {
+    if (action === 'reverse') {
+      const loaded = await app.openDocumentApproval({ document_type: target.kind === 'receipt' ? 'MaterialReceipt' : materialFlowApprovalTypes[target.kind], document_id: target.id, intent: 'reverse' })
+      if (current() && !loaded) operationError.value = app.documentApprovalError || '更正审批读取失败，请关闭后重试。'
+    }
+    if (action === 'execute' || action === 'handover') {
+      for (const line of target.lines) { quantities.value[line.id] = '0'; allocations.value[line.id] = [] }
+      const loaded = await flow.loadLots(target)
+      if (!current()) return
+      if (!loaded) operationError.value = readErrors.value[`lots:${target.kind}:${target.id}`] || '可用批次读取失败，请关闭后重试。'
+      else lots.value = loaded
+    }
+  } finally { if (current()) operationLoading.value = false }
 }
 const usesLots = computed(() => operation.value === 'execute' || operation.value === 'handover')
 function operationLimit(line: MaterialFlowLine): string {
@@ -257,39 +361,68 @@ function operationLimit(line: MaterialFlowLine): string {
 const hasExecutableLines = computed(() => detail.value?.lines.some(line => Number(operationLimit(line)) > 0))
 function addLot(line: MaterialFlowLine): void { allocations.value[line.id] ??= []; allocations.value[line.id].push({ lot_id: null, quantity: quantities.value[line.id] === '0' ? '' : quantities.value[line.id] }) }
 async function cancelOperation(): Promise<void> {
-  operation.value = ''
-  if (detail.value?.kind === 'receipt') app.closeDocumentApproval()
-  else if (detail.value) await app.openDocumentApproval({ document_type: materialFlowApprovalTypes[detail.value.kind], document_id: detail.value.id, intent: 'execute' })
+  if (busy.value || app.busy) return
+  const target = detail.value, ticket = ++operationGeneration
+  if (target) flow.cancelRead(`lots:${target.kind}:${target.id}`)
+  operation.value = ''; operationError.value = ''; operationLoading.value = !!target && target.kind !== 'receipt'
+  app.closeDocumentApproval()
+  if (!target || target.kind === 'receipt') return
+  const loaded = await app.openDocumentApproval({ document_type: materialFlowApprovalTypes[target.kind], document_id: target.id, intent: 'execute' })
+  if (ticket !== operationGeneration || !detailOpen.value || !available.value) return
+  if (!loaded) operationError.value = app.documentApprovalError || '审批记录读取失败，请关闭后重试。'
+  operationLoading.value = false
 }
 async function submitOperation(): Promise<void> {
   const current = detail.value
-  if (!current) return
+  if (!current || detailDisabled.value || !operation.value || operation.value === 'reverse' && (!approvalReady.value || app.documentApprovalRecord?.status !== 'approved')) return
+  const ticket = detailGeneration
   const input = { kind: current.kind, id: current.id, version: operationVersion.value || current.version, request_id: requestId.value, reason: operation.value === 'reverse' ? app.documentApprovalRecord?.reversal_reason || operationReason.value : operationReason.value }
   let result: MaterialFlowDocument | undefined
   if (operation.value === 'close') result = await flow.close(input)
   else if (operation.value === 'reverse') result = await flow.reverse(input)
   else result = await flow.execute({ ...input, lines: current.lines.filter(line => Number(quantities.value[line.id]) > 0).map(line => ({ line_id: line.id, quantity: quantities.value[line.id],
     ...(usesLots.value && allocations.value[line.id]?.length ? { lots: (allocations.value[line.id] ?? []).map(part => ({ lot_id: part.lot_id ?? 0, quantity: part.quantity })) } : {}) })) }, operation.value === 'handover')
-  if (result) { operation.value = ''; await refreshDetail() }
+  if (result && ticket === detailGeneration && detailOpen.value) { operation.value = ''; await refreshDetail() }
 }
-async function createReplacement(): Promise<void> {
-  if (!detail.value) return
+async function createReplacement(event?: Event): Promise<void> {
+  if (!detail.value || detailDisabled.value || !approved.value || !app.can('material_dispatch.create')) return
+  if (event) captureDialogOrigin(detailOriginKey.value, event)
+  const ticket = detailGeneration
   const result = await flow.replacement({ kind: 'exchange', id: detail.value.id, version: detail.value.version, request_id: requestId.value })
-  if (result) { requestId.value = flowRequestId(); await openDetail(result); await refresh() }
+  if (result && ticket === detailGeneration && detailOpen.value) { requestId.value = flowRequestId(); await openDetail(result); await refresh() }
 }
-async function openWorkOrder(item: MaterialFlowDocument): Promise<void> {
+async function openWorkOrder(item: MaterialFlowDocument, event?: Event): Promise<void> {
+  captureDialogOrigin('document-approval', event)
   closeDetail(false)
   await router.push({ path: routeByKey('workOrders').path, query: { document_id: item.work_order_id } })
 }
-async function openLinked(kind: MaterialFlowKind | 'legacy_issue', id: number): Promise<void> {
+function sessionKey(): string { return `${app.server?.id}:${app.server?.fingerprint}:${app.user?.id}:${[...(app.user?.roles ?? [])].sort().join('|')}:${[...(app.user?.permissions ?? [])].sort().join('|')}` }
+async function openLinked(kind: MaterialFlowKind | 'legacy_issue', id: number, event?: Event): Promise<void> {
   if (kind === 'legacy_issue') {
+    captureDialogOrigin('document-approval', event)
+    const session = sessionKey()
     closeDetail(false)
     await router.push({ path: routeByKey('materialIssues').path })
+    // 跨页面等待期间换号或断线，不能在新会话继续打开旧单据。
+    if (session !== sessionKey() || !available.value) return
     await app.openDocumentApproval({ document_type: 'MaterialIssue', document_id: id, intent: 'execute' }); return
   }
-  if (props.embedded) await openDetail({ kind, id })
-  else await router.push({ path: routeByKey(materialFlowRoutes[kind]).path, query: { document_id: id, work_order_id: scopeOrder.value } })
+  if (props.embedded || kind === props.kind) await openDetail({ kind, id }, event)
+  else {
+    captureDialogOrigin(`ProductionMaterialFlowView:${kind}:detail`, event)
+    closeDetail(false)
+    await router.push({ path: routeByKey(materialFlowRoutes[kind]).path, query: { document_id: id, work_order_id: scopeOrder.value } })
+  }
 }
+function invalidateDialogs(): void {
+  // 账号、服务器或权限失效强制清理；保存中的普通关闭保护不能保留旧身份数据。
+  closeCreate(false, true); closeDetail(false, true); editTarget.value = null; activeId.value = 0
+  createError.value = ''; detailError.value = ''; operationError.value = ''; lots.value = { lines: [] }
+}
+watch(sessionKey, invalidateDialogs, { flush: 'sync' })
+watch([() => props.kind, scopeOrder], invalidateDialogs, { flush: 'sync' })
+watch(available, value => { if (!value) invalidateDialogs() }, { flush: 'sync' })
+onBeforeUnmount(() => { clearTimeout(timer); invalidateDialogs() })
 watch(() => [route.query.document_id, props.kind], () => { if (!props.embedded && available.value && Number(route.query.document_id) > 0) void openDetail({ kind: props.kind, id: Number(route.query.document_id) }) }, { immediate: true })
 </script>
 
@@ -304,15 +437,15 @@ watch(() => [route.query.document_id, props.kind], () => { if (!props.embedded &
       <template #filters><WorkspaceSearchFilters v-model:query="query" v-model:filters="filters" :fields="filterFields" search-label="搜索单据" search-placeholder="单号、工单、产品或物料" :issue="dateIssue" @reset="resetFilters" /></template>
       <template #actions><AppButton :disabled="disabled" @click="refresh">刷新</AppButton><AppButton v-if="canCreate" variant="primary" :disabled="disabled" @click="openCreate">新建{{ title }}</AppButton></template>
       <template #cell-document="{ row }"><strong>{{ row.document_no }}</strong><small>{{ app.localTime(row.created_at) }}</small><span class="pill">{{ materialFlowStatusLabel(row.kind, row.status) }}</span></template>
-      <template #cell-order="{ row }"><AppButton v-if="app.can('production.view')" variant="text" @click="openWorkOrder(row)">{{ row.work_order_document_no }}</AppButton><strong v-else>{{ row.work_order_document_no }}</strong><small>{{ row.product_name }}</small></template>
-      <template #cell-source="{ row }"><AppButton v-for="source in sourceLinks(row)" :key="`${source.kind}:${source.id}`" variant="text" @click="openLinked(source.kind, source.id)">{{ source.label }}</AppButton><span v-if="!sourceLinks(row).length">{{ row.kind === 'dispatch' ? '工单正常需求' : '按明细来源' }}</span><small>{{ row.warehouse_name }} · {{ row.created_by_name }}</small></template>
+      <template #cell-order="{ row }"><AppButton v-if="app.can('production.view')" variant="text" @click="openWorkOrder(row, $event)">{{ row.work_order_document_no }}</AppButton><strong v-else>{{ row.work_order_document_no }}</strong><small>{{ row.product_name }}</small></template>
+      <template #cell-source="{ row }"><AppButton v-for="source in sourceLinks(row)" :key="`${source.kind}:${source.id}`" variant="text" @click="openLinked(source.kind, source.id, $event)">{{ source.label }}</AppButton><span v-if="!sourceLinks(row).length">{{ row.kind === 'dispatch' ? '工单正常需求' : '按明细来源' }}</span><small>{{ row.warehouse_name }} · {{ row.created_by_name }}</small></template>
       <template #cell-materials="{ row }"><span v-for="line in row.lines" :key="line.id" class="flow-material-line">{{ line.sku }} · {{ line.material_name }} × {{ line.quantity }} {{ line.unit }}</span></template>
       <template #cell-progress="{ row }"><span v-for="line in row.lines" :key="line.id" class="flow-material-line">{{ lineProgress(line, row.kind, row.status) }}</span></template>
-      <template #cell-actions="{ row }"><AppButton :disabled="disabled" @click="openDetail(row)">查看</AppButton></template>
+      <template #cell-actions="{ row }"><AppButton :disabled="disabled" @click="openDetail(row, $event)">查看</AppButton></template>
       <template #errorActions><AppButton @click="refresh">重试</AppButton></template>
     </WorkspaceTable>
 
-    <WorkspaceDocumentDialog v-model:show="createOpen" :title="`${editTarget ? '编辑' : '新建'}${title}`" :data="draft.rows" :columns="draftColumns" :show-add="!editingReplacement" :busy="busy || app.busy" :disabled="disabled" :submit-disabled="!draft.rows.length || !draft.work_order_id" @submit="saveDraft" @add-material="addRow">
+    <WorkspaceDocumentDialog :show="createOpen" :origin-key="createOriginKey" :ready="!createLoading" :load-error="createError" @update:show="closeCreate" @invalidated="invalidateDialogs" @submit.capture="captureSavedDetailOrigin" :title="`${editTarget ? '编辑' : '新建'}${title}`" :data="draft.rows" :columns="draftColumns" :show-add="!editingReplacement" :busy="busy || app.busy" :disabled="createDisabled" :submit-disabled="!draft.rows.length || !draft.work_order_id" @submit="saveDraft" @add-material="addRow">
       <template #basicInfo>
         <label>生产工单<WorkspaceSelect :model-value="draft.work_order_id" :options="[{ value: 0, label: '选择已下达工单', disabled: true }, ...createOrderOptions]" :disabled="!!scopeOrder || editingReplacement" required @update:model-value="chooseOrder" /></label>
         <label>仓库<WorkspaceSelect v-model="draft.warehouse_id" :options="(result?.warehouses ?? warehouses).map(item => ({ value: item.id, label: item.name }))" required /></label>
@@ -329,21 +462,21 @@ watch(() => [route.query.document_id, props.kind], () => { if (!props.embedded &
       <template #afterLines><p v-if="error" class="flow-error" role="alert">{{ error }}</p></template>
     </WorkspaceDocumentDialog>
 
-    <WorkspaceDocumentDialog :show="detailOpen" :title="`${detail ? materialFlowLabels[detail.kind] : title} · ${detail?.document_no ?? '读取中'}`" read-only :data="detail?.lines ?? []" :columns="lineColumns" :busy="busy || app.busy" @update:show="closeDetail">
+    <WorkspaceDocumentDialog :show="detailOpen" :origin-key="detailOriginKey" :ready="detailReady" :load-error="detailLoadError" :disabled="detailDisabled" @invalidated="invalidateDialogs" :title="`${detail ? materialFlowLabels[detail.kind] : title} · ${detail?.document_no ?? '读取中'}`" read-only :data="detail?.lines ?? []" :columns="lineColumns" :busy="busy || app.busy" @update:show="closeDetail">
       <template #beforeBasicInfo><DocumentApprovalPanel v-if="approvalType" part="progress" :execution-hint="executionHint" live-details /><p v-if="error" class="flow-error" role="alert">{{ error }}</p></template>
       <template #basicInfo><template v-if="detail">
-        <div class="document-detail-field"><span>生产工单</span><AppButton variant="text" @click="openWorkOrder(detail)">{{ detail.work_order_document_no }} · {{ detail.product_name }}</AppButton></div>
+        <div class="document-detail-field"><span>生产工单</span><AppButton variant="text" @click="openWorkOrder(detail, $event)">{{ detail.work_order_document_no }} · {{ detail.product_name }}</AppButton></div>
         <div class="document-detail-field"><span>仓库</span><strong>{{ detail.warehouse_name }}</strong></div>
         <div class="document-detail-field"><span>处理状态</span><strong>{{ materialFlowStatusLabel(detail.kind, detail.status) }}</strong></div>
         <div class="document-detail-field"><span>建单人员 / 时间</span><strong>{{ detail.created_by_name }} · {{ app.localTime(detail.created_at) }}</strong></div>
-        <div class="document-detail-field"><span>来源单据</span><AppButton v-if="detail.source_document_kind && detail.source_document_id" variant="text" @click="openLinked(detail.source_document_kind, detail.source_document_id)">{{ detail.source_document_no }}</AppButton><strong v-else>{{ detail.source_document_no || (detail.kind === 'dispatch' ? '工单正常需求' : '按明细来源') }}</strong></div>
+        <div class="document-detail-field"><span>来源单据</span><AppButton v-if="detail.source_document_kind && detail.source_document_id" variant="text" @click="openLinked(detail.source_document_kind, detail.source_document_id, $event)">{{ detail.source_document_no }}</AppButton><strong v-else>{{ detail.source_document_no || (detail.kind === 'dispatch' ? '工单正常需求' : '按明细来源') }}</strong></div>
         <div class="document-detail-field"><span>参考 / 原因</span><strong>{{ detail.reference || '—' }} · {{ detail.reason || '—' }}</strong></div>
       </template></template>
-      <template #cell-material="{ row }"><strong>{{ row.sku }} · {{ row.material_name }}</strong><AppButton v-if="row.source_document_kind && row.source_document_id" variant="text" @click="openLinked(row.source_document_kind, row.source_document_id)">{{ row.source_document_no }}</AppButton><small v-else-if="row.legacy_issue_line_id">原领料来源 #{{ row.legacy_issue_line_id }}</small><small v-else-if="row.source_receipt_line_id">已签收明细 #{{ row.source_receipt_line_id }}</small><small v-if="detail?.kind === 'exchange' && row.disposal">{{ row.disposal === 'loss' ? '无实物损耗' : '旧料隔离接收' }} {{ row.evidence }}</small></template>
+      <template #cell-material="{ row }"><strong>{{ row.sku }} · {{ row.material_name }}</strong><AppButton v-if="row.source_document_kind && row.source_document_id" variant="text" @click="openLinked(row.source_document_kind, row.source_document_id, $event)">{{ row.source_document_no }}</AppButton><small v-else-if="row.legacy_issue_line_id">原领料来源 #{{ row.legacy_issue_line_id }}</small><small v-else-if="row.source_receipt_line_id">已签收明细 #{{ row.source_receipt_line_id }}</small><small v-if="detail?.kind === 'exchange' && row.disposal">{{ row.disposal === 'loss' ? '无实物损耗' : '旧料隔离接收' }} {{ row.evidence }}</small></template>
       <template #cell-unit="{ row }">{{ row.unit }}</template><template #cell-quantity="{ row }">{{ row.quantity }}</template>
       <template #cell-progress="{ row }">{{ lineProgress(row, detail?.kind ?? kind, detail?.status) }}</template>
       <template #afterLines>
-        <section v-if="relatedDocuments.length" class="flow-history"><h3>关联单据</h3><div v-for="item in relatedDocuments" :key="`${item.kind}:${item.id}`"><AppButton variant="text" @click="openDetail(item)">{{ materialFlowLabels[item.kind] }} · {{ item.document_no }}</AppButton><small>{{ materialFlowStatusLabel(item.kind, item.status) }}</small></div></section>
+        <section v-if="relatedDocuments.length" class="flow-history"><h3>关联单据</h3><div v-for="item in relatedDocuments" :key="`${item.kind}:${item.id}`"><AppButton variant="text" @click="openDetail(item, $event)">{{ materialFlowLabels[item.kind] }} · {{ item.document_no }}</AppButton><small>{{ materialFlowStatusLabel(item.kind, item.status) }}</small></div></section>
         <section v-if="detail?.executions.length" class="flow-history"><h3>执行记录</h3><div v-for="execution in detail.executions" :key="execution.id">
           <strong>{{ materialFlowExecutionLabels[execution.action] ?? execution.action }} · {{ execution.created_by_name || execution.actor_name }}</strong><small>{{ app.localTime(execution.created_at) }} · {{ execution.reason }}</small>
           <span v-for="line in execution.lines" :key="line.id ?? line.line_id">
@@ -357,22 +490,22 @@ watch(() => [route.query.document_id, props.kind], () => { if (!props.embedded &
           <p class="muted">{{ operation === 'handover' ? '只登记已经实际回仓的未签收物料；不会把未收到的差额自动计入库存。' : operation === 'execute' && detail.kind === 'receipt' ? '按本次实际收到数量签收，余量继续保留待签；此操作不会再次扣减仓库库存。' : operation === 'close' ? '仅关闭尚未执行的余额，已发生的出入库和签收记录全部保留。' : '每次处理独立保存数量、人员、时间与批次，提交前请核对实际实物。' }}</p>
           <template v-if="operation === 'execute' || operation === 'handover'"><div v-for="line in detail.lines.filter(item => Number(operationLimit(item)) > 0)" :key="line.id" class="flow-execute-line">
             <label>{{ line.sku }} · {{ line.material_name }} · 本次{{ operation === 'handover' ? '交回' : '实际' }}数量（最多 {{ operationLimit(line) }} {{ line.unit }}）<AppInput v-model="quantities[line.id]" type="number" min="0" step="0.001" :max="operationLimit(line)" /></label>
-            <WorkspaceLotLineEditor v-if="usesLots && Number(quantities[line.id]) > 0" :lots="allocations[line.id] ?? []" :expected="quantities[line.id]" :sku="line.sku" :material-name="line.material_name" :unit="line.unit" selectable optional :show-source="false" :disabled="disabled" :options="(lots.lines.find(item => item.line_id === line.id)?.lots ?? []).map(lot => ({ value: lot.lot_id, label: `${lot.code} · 可用 ${lot.quantity}` }))" @add="addLot(line)" @remove="index => allocations[line.id].splice(index, 1)" />
+            <WorkspaceLotLineEditor v-if="usesLots && Number(quantities[line.id]) > 0" :lots="allocations[line.id] ?? []" :expected="quantities[line.id]" :sku="line.sku" :material-name="line.material_name" :unit="line.unit" selectable optional :show-source="false" :disabled="detailDisabled" :options="(lots.lines.find(item => item.line_id === line.id)?.lots ?? []).map(lot => ({ value: lot.lot_id, label: `${lot.code} · 可用 ${lot.quantity}` }))" @add="addLot(line)" @remove="index => allocations[line.id].splice(index, 1)" />
           </div></template>
           <p v-if="usesLots" class="muted">已知多批次的部分交接请选实际批次；未指定时由服务端核对能否沿用完整来源，数量不足或来源不明确时不会自动完成。</p>
           <label>{{ operation === 'execute' ? '本次说明（可选）' : '操作原因' }}<AppInput v-model="operationReason" maxlength="200" :required="operation !== 'execute'" /></label>
-          <div class="flow-actions"><AppButton :disabled="busy" @click="cancelOperation">收起</AppButton><AppButton variant="primary" :disabled="disabled || operation === 'reverse' && (!approvalReady || app.documentApprovalRecord?.intent !== 'reverse' || app.documentApprovalRecord?.status !== 'approved')" @click="submitOperation">提交本次处理</AppButton></div>
+          <div class="flow-actions"><AppButton :disabled="busy" @click="cancelOperation">收起</AppButton><AppButton variant="primary" :disabled="detailDisabled || operation === 'reverse' && (!approvalReady || app.documentApprovalRecord?.intent !== 'reverse' || app.documentApprovalRecord?.status !== 'approved')" @click="submitOperation">提交本次处理</AppButton></div>
         </section>
         <DocumentApprovalPanel v-if="approvalType" part="opinion" />
       </template>
       <template #footer><div class="flow-actions"><DocumentApprovalPanel v-if="approvalType" part="actions" />
-        <template v-if="detail && !operation"><AppButton :disabled="disabled" @click="refreshDetail">刷新</AppButton>
-          <AppButton v-if="detail.kind === kind && detail.kind !== 'receipt' && detail.status === 'draft' && canCreate && !['submitted', 'approved', 'executed'].includes(detail.approval?.status ?? '')" :disabled="disabled" @click="editDraft">编辑草稿</AppButton>
-          <AppButton v-if="actionable && hasExecutableLines && approved && app.can(executePermission)" variant="primary" :disabled="disabled" @click="prepare('execute')">{{ executionLabel }}</AppButton>
-          <AppButton v-if="detail.kind === 'exchange' && approved && app.can('material_dispatch.create')" :disabled="disabled" @click="createReplacement">生成补发单</AppButton>
-          <AppButton v-if="detail.kind === 'receipt' && actionable && app.can('material_receipt.handover_return')" :disabled="disabled" @click="prepare('handover')">未签收实物退回</AppButton>
-          <AppButton v-if="actionable && detail.kind !== 'receipt' && app.can(`${materialFlowPermission[detail.kind]}.close`)" :disabled="disabled" @click="prepare('close')">关闭余额</AppButton>
-          <AppButton v-if="['partial', 'completed', 'closed'].includes(detail.status) && app.can(`${materialFlowPermission[detail.kind]}.reverse`)" :disabled="disabled" @click="prepare('reverse')">审批更正</AppButton>
+        <template v-if="detail && !operation"><AppButton :disabled="detailDisabled" @click="refreshDetail">刷新</AppButton>
+          <AppButton v-if="detail.kind === kind && detail.kind !== 'receipt' && detail.status === 'draft' && canCreate && !['submitted', 'approved', 'executed'].includes(detail.approval?.status ?? '')" :disabled="detailDisabled" @click="editDraft">编辑草稿</AppButton>
+          <AppButton v-if="actionable && hasExecutableLines && approved && app.can(executePermission)" variant="primary" :disabled="detailDisabled" @click="prepare('execute')">{{ executionLabel }}</AppButton>
+          <AppButton v-if="detail.kind === 'exchange' && approved && app.can('material_dispatch.create')" :disabled="detailDisabled" @click="createReplacement">生成补发单</AppButton>
+          <AppButton v-if="detail.kind === 'receipt' && actionable && app.can('material_receipt.handover_return')" :disabled="detailDisabled" @click="prepare('handover')">未签收实物退回</AppButton>
+          <AppButton v-if="actionable && detail.kind !== 'receipt' && app.can(`${materialFlowPermission[detail.kind]}.close`)" :disabled="detailDisabled" @click="prepare('close')">关闭余额</AppButton>
+          <AppButton v-if="['partial', 'completed', 'closed'].includes(detail.status) && app.can(`${materialFlowPermission[detail.kind]}.reverse`)" :disabled="detailDisabled" @click="prepare('reverse')">审批更正</AppButton>
         </template><AppButton :disabled="busy" @click="closeDetail(false)">关闭</AppButton>
       </div></template>
     </WorkspaceDocumentDialog>
