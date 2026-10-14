@@ -5,7 +5,7 @@ export interface WorkspaceSummaryFilterOption<TKey extends string = string> {
   label: string
   count: number
   hint: string
-  tone?: 'pending' | 'success' | 'neutral' | 'reversed'
+  tone?: 'pending' | 'success' | 'neutral' | 'reversed' | 'danger'
 }
 </script>
 
@@ -51,6 +51,8 @@ function select(key: TKey): void {
 .summary-filter-label { color: var(--workspace-field-muted); font-size: 12px; font-weight: 500; }
 .summary-filter-count { color: var(--summary-tone); font-size: 27px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .summary-filter--pending { --summary-tone: #946000; }
+/* 缺货等需优先处理的状态使用危险色，仍保留文字与选中边框区分。 */
+.summary-filter--danger { --summary-tone: #bd414a; }
 .summary-filter--success { --summary-tone: #16734d; }
 .summary-filter--neutral { --summary-tone: #626d7e; }
 .summary-filter--reversed { --summary-tone: #7851ad; }
@@ -59,6 +61,7 @@ function select(key: TKey): void {
 .summary-filter:focus-visible { outline: 2px solid var(--workspace-field-accent); outline-offset: 2px; }
 .summary-filter-hint { margin: 8px 0 0; color: var(--workspace-field-muted); font-size: 11px; text-align: right; }
 :root[data-theme='dark'] .summary-filter--pending { --summary-tone: #efc16a; }
+:root[data-theme='dark'] .summary-filter--danger { --summary-tone: #ffaaa2; }
 :root[data-theme='dark'] .summary-filter--success { --summary-tone: #69d8aa; }
 :root[data-theme='dark'] .summary-filter--neutral { --summary-tone: #b1bccd; }
 :root[data-theme='dark'] .summary-filter--reversed { --summary-tone: #c2a4ef; }

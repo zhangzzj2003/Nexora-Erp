@@ -285,10 +285,11 @@ def overview(warehouse_id: int | None = Query(default=None, gt=0),
             actual = assigned.get(key, Decimal(0))
             if expected == actual:
                 continue
-            warehouse, material_id = key
+            # 差额行的物料编号不能覆盖请求范围；全部物料查询必须继续回传 None。
+            warehouse, difference_material_id = key
             differences.append({
                 'warehouse_id': warehouse, 'warehouse_name': warehouses[warehouse].name,
-                'material_id': material_id, 'sku': materials[material_id].sku,
+                'material_id': difference_material_id, 'sku': materials[difference_material_id].sku,
                 'stock_quantity': format(expected, 'f'), 'lot_quantity': format(actual, 'f'),
                 'difference': format(expected - actual, 'f')})
         return {'as_of': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),

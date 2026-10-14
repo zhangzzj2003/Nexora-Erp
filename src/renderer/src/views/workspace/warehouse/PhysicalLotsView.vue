@@ -10,17 +10,23 @@ import {usePiniaAppStore} from '../../../store/app-store'
 import {movementTypeLabel} from '../../../utils/formatters'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
+import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
-import {NDatePicker} from 'naive-ui'
+// 搜索和来源筛选仅控制展示，补证仍使用完整服务端快照。
+import WorkspaceSummaryFilters, {type WorkspaceSummaryFilterOption} from '../../../components/workspace/WorkspaceSummaryFilters.vue'
+import AppStatusTag from '../../../components/app/AppStatusTag.vue'
+import {useLocalPagination} from '../../../composables/use-local-pagination'
+import {filterLotRows,lotSummary,type LotFilter} from './warehouse-insights'
+import {NCollapse,NDatePicker} from 'naive-ui'
 import {datePickerString,vDateField} from '../../../utils/date-field'
 
 const store=usePiniaAppStore()
 const {lotOverview:overview,lotHistory:history,lotLoading:loading,lotError:failure,
   lotUnallocated:unallocated,lotWarehouseId:warehouse,lotMaterialId:material,
-  warehouses,materials,busy,connectionLost,user}=storeToRefs(store)
+  warehouses,materials,busy,connectionLost,user,server}=storeToRefs(store)
 const preparing=ref(false)
 const selectedLegacy=ref<PhysicalLotRow|null>(null)
 const evidenceQuantity=ref('')
@@ -60,6 +66,20 @@ const groupExpiresOn=ref('')
 const reversingGroupId=ref<number|null>(null)
 const groupReverseReason=ref('')
 const disabled=computed(()=>busy.value || loading.value || preparing.value || connectionLost.value)
+const query=ref(''),kind=ref<LotFilter>('all')
+const filtered=computed(()=>filterLotRows(overview.value?.rows??[],query.value,kind.value))
+const paginationKey=computed(()=>JSON.stringify([warehouse.value,material.value,query.value,kind.value]))
+const {rows,total,page,pageSize,changePage}=useLocalPagination(filtered,paginationKey)
+const summaryOptions=computed<WorkspaceSummaryFilterOption<LotFilter>[]>(()=>{
+  const summary=lotSummary(overview.value?.rows??[])
+  return [
+    {key:'all',label:'全部结存',count:summary.all,hint:'当前仓库与物料范围内的结存记录'},
+    {key:'identified',label:'已识别批次',count:summary.identified,hint:'已记录批号的结存，不表示全部历史流水均已追溯',tone:'success'},
+    {key:'legacy',label:'历史未识别',count:summary.legacy,hint:'没有真实批号的历史期初结存',tone:'pending'},
+  ]
+})
+const resetDisabled=computed(()=>!query.value && !warehouse.value && !material.value && kind.value==='all')
+function resetFilters():void {query.value='';warehouse.value=0;material.value=0;kind.value='all'}
 const lotColumns=[{key:'warehouse',title:'仓库',width:'17%'},{key:'material',title:'物料 / 单位',width:'25%'},
   {key:'lot',title:'实物批次与来源',width:'28%'},{key:'quantity',title:'批次现存量',width:'14%'},
   {key:'actions',title:'证据',width:'16%'}]
@@ -106,16 +126,16 @@ function groupOutboundOptions(inboundId:number):PhysicalLotUnallocatedMovement[]
     && row.material_id===groupAnchor.value.material_id
     && row.movement_id>inboundId && Number(row.unallocated_quantity)<0)??[]
 }
-function rowRecord(value:Record<string,unknown>):PhysicalLotRow|undefined {
+function rowRecord(value:Pick<PhysicalLotRow,'lot_id'|'warehouse_id'>):PhysicalLotRow|undefined {
   return overview.value?.rows.find(row=>row.lot_id===value.lot_id && row.warehouse_id===value.warehouse_id)
 }
-async function openHistory(value:Record<string,unknown>):Promise<void> {
+async function openHistory(value:Pick<PhysicalLotRow,'lot_id'|'warehouse_id'>):Promise<void> {
   const row=rowRecord(value)
   if(!row || disabled.value)return
   preparing.value=true
   try{await store.loadPhysicalLotHistory(row)}finally{preparing.value=false}
 }
-function selectLegacy(value:Record<string,unknown>):void {
+function selectLegacy(value:Pick<PhysicalLotRow,'lot_id'|'warehouse_id'>):void {
   const row=rowRecord(value)
   if(!row || row.source_kind!=='legacy' || Number(row.quantity)<=0 || disabled.value)return
   selectedLegacy.value=row; evidenceQuantity.value=''; evidenceText.value='';
@@ -283,7 +303,7 @@ function prepareLedger(warehouseId:number,materialId:number):void {
 watch([warehouse,material],()=>{selectedLegacy.value=null;selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null;
   reversingRecordId.value=null;reversingMovementEvidenceId.value=null;reversingPairId.value=null;
   reversingGroupId.value=null;pairReverseReason.value='';groupReverseReason.value='';savedLotCode.value='';refresh()})
-watch(()=>`${user.value?.id}:${user.value?.permissions.join('|')}:${connectionLost.value}`,()=>{
+watch(()=>`${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${user.value?.permissions.join('|')}:${connectionLost.value}`,()=>{
   selectedLegacy.value=null;selectedMovement.value=null;pairInbound.value=null;groupAnchor.value=null;
   reversingRecordId.value=null;reversingMovementEvidenceId.value=null;reversingPairId.value=null;
   reversingGroupId.value=null;pairReverseReason.value='';groupReverseReason.value='';savedLotCode.value=''
@@ -300,27 +320,44 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
   <section class="stack physical-lots-page">
     <p v-if="!store.can('inventory.view')" role="status">当前账号没有库存查看权限，请联系管理员核对授权。</p>
     <template v-else>
-      <p class="lot-note">实物批次用于核对已接入单据的实物流向。历史未识别期初没有真实批号；旧版未指定批次的单据会显示差额。现场补证和旧流水逐笔补证只调整批次归属，不改变正式库存或成本。批次余额与正式库存一致也不代表所有历史流水已追溯。</p>
+      <!-- 概览复用标题区；历史未识别与数量差额是两种不同的证据问题。 -->
+      <Teleport v-if="overview" defer to="#workspace-page-summary">
+        <WorkspaceSummaryFilters v-model="kind" :options="summaryOptions" label="实物批次概览" hint="当前仓库与物料范围 · 按结存记录统计" />
+      </Teleport>
       <p v-if="connectionLost" role="alert">服务端连接已中断，旧批次余额与来源证据已失效；恢复后请重新读取。</p>
-      <p v-if="failure" role="alert">{{ failure }} 请核对筛选范围后重试。</p>
+      <p v-if="failure && overview" class="lot-note" role="alert">{{ failure }} 请核对筛选范围后重试。</p>
       <p v-if="savedLotCode" role="status">已记录历史批次补证，新批次 {{ savedLotCode }}。</p>
-      <WorkspaceTable title="实物批次结存" :show-title="false" :columns="lotColumns" :data="overview?.rows??[]"
-        :loading="loading" :min-table-width="1000">
+      <WorkspaceTable title="实物批次结存" :show-title="false" :columns="lotColumns" :data="rows"
+        :loading="loading" :error="overview ? '' : failure" :pagination="{page,pageSize,total,disabled:loading}" @page-change="changePage" :min-table-width="1100">
         <template #filters>
+          <label class="lot-search">搜索批次<AppInput v-model="query" type="search" placeholder="批号、供应商批号、物料编码或名称" :disabled="disabled" /></label>
           <label>仓库<WorkspaceSelect v-model="warehouse" :disabled="disabled" :options="[{value:0,label:'全部仓库'},...warehouses.map(row=>({value:row.id,label:`${row.code} · ${row.name}`}))]" /></label>
           <label>物料<WorkspaceMaterialSelect :materials="materials" v-model="material" :disabled="disabled" :options="[{value:0,label:'全部物料'},...materials.map(row=>({value:row.id,label:`${row.sku} · ${row.name}`}))]" /></label>
-          <AppButton type="button" :disabled="disabled" @click="refresh">刷新批次</AppButton>
+          <AppButton :disabled="disabled || resetDisabled" @click="resetFilters">重置</AppButton>
         </template>
+        <template #actions><AppButton :disabled="disabled" :loading="loading" @click="refresh">刷新批次</AppButton></template>
         <template #beforeTable>
-          <p v-if="overview" role="status" class="lot-summary">读取时间：{{ store.localTime(overview.as_of) }}。{{ overview.fully_allocated ? '当前筛选范围无数量差额。' : `当前有 ${overview.differences.length} 个仓库与物料组合存在未分配差额。` }}</p>
+          <div v-if="overview" role="status" class="lot-summary">
+            <div class="lot-inline"><AppStatusTag :label="overview.fully_allocated ? '无数量差额' : `${overview.differences.length} 项未分配差额`" :tone="overview.fully_allocated ? 'neutral' : 'pending'" /><span>当前显示 {{ total }} 条结存</span></div>
+            <span class="lot-muted">更新于 {{ store.localTime(overview.as_of) }}</span>
+          </div>
         </template>
         <template #cell-warehouse="{row}"><strong>{{ row.warehouse_name }}</strong></template>
         <template #cell-material="{row}"><strong>{{ row.sku }}</strong><span class="lot-muted">{{ row.material_name }} · {{ row.unit }}</span></template>
-        <template #cell-lot="{row}"><strong>{{ row.lot_code }}</strong><span class="lot-muted">{{ physicalLotKindLabel(row.source_kind) }} · 供应商批号 {{ row.supplier_lot || '未提供' }}</span></template>
+        <template #cell-lot="{row}"><strong>{{ row.lot_code }}</strong><div class="lot-inline"><AppStatusTag :label="physicalLotKindLabel(row.source_kind)" :tone="row.source_kind==='legacy' ? 'pending' : 'info'" /></div><span class="lot-muted">供应商批号 {{ row.supplier_lot || '未提供' }}</span></template>
         <template #cell-quantity="{row}">{{ row.quantity }}</template>
-        <template #cell-actions="{row}"><AppButton type="button" :disabled="disabled" @click="openHistory(row)">批次流水</AppButton><AppButton v-if="store.can('physical_lot.reclassify') && row.source_kind==='legacy' && Number(row.quantity)>0" type="button" :disabled="disabled" @click="selectLegacy(row)">现场补证</AppButton></template>
-        <template #empty>{{ loading ? '正在读取批次…' : failure ? '读取失败，请刷新重试。' : connectionLost ? '连接中断，旧结果已失效。' : '当前范围没有批次结存；请核对筛选条件与正式库存差额。' }}</template>
+        <template #cell-actions="{row}"><div class="lot-evidence-actions"><AppButton type="button" :disabled="disabled" size="small" variant="text" @click="openHistory(row)">批次流水</AppButton><AppButton v-if="store.can('physical_lot.reclassify') && row.source_kind==='legacy' && Number(row.quantity)>0" type="button" :disabled="disabled" size="small" variant="text" @click="selectLegacy(row)">现场补证</AppButton></div></template>
+        <template #errorActions><AppButton :disabled="disabled" @click="refresh">重新读取批次</AppButton></template>
+        <template #empty>
+          <strong>{{ connectionLost ? '连接中断，旧结果已失效' : query || kind!=='all' ? '没有符合筛选条件的批次' : '当前范围没有批次结存' }}</strong>
+          <span>可调整筛选条件，或核对下方正式库存差额与待补证流水。</span>
+          <AppButton v-if="!resetDisabled && !connectionLost" :disabled="disabled" @click="resetFilters">重置筛选</AppButton>
+        </template>
       </WorkspaceTable>
+      <!-- 公共折叠项统一处理键盘与读屏语义，收起说明仍保留页面上下文。 -->
+      <NCollapse class="lot-help"><AppCollapseItem name="lot-help" title="批次与补证说明">
+        <p>实物批次用于核对已接入单据的实物流向。历史未识别期初没有真实批号；旧版未指定批次的单据会显示差额。现场补证和旧流水逐笔补证只调整批次归属，不改变正式库存或成本。批次余额与正式库存一致也不代表所有历史流水已追溯。</p>
+      </AppCollapseItem></NCollapse>
       <form v-if="selectedLegacy" class="stack lot-evidence" aria-label="历史批次现场补证" @submit.prevent="saveEvidence">
         <h3>{{ selectedLegacy.sku }} · {{ selectedLegacy.warehouse_name }} · 历史批次补证</h3>
         <p class="lot-note">当前未识别结存 {{ selectedLegacy.quantity }} {{ selectedLegacy.unit }}。请只录入已现场核对的数量和依据；系统会保留原历史期初及本次转归记录。</p>
@@ -332,21 +369,22 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
         <div class="lot-evidence-actions"><AppButton type="submit" :disabled="disabled">确认补证</AppButton><AppButton type="button" :disabled="disabled" @click="selectedLegacy=null">取消</AppButton></div>
       </form>
       <section v-if="overview?.differences.length" aria-label="批次未分配差额" class="stack">
-        <h3>未分配差额</h3>
-        <p class="lot-note">差额表示正式库存流水尚未分配到实物批次，不能当作可追踪库存。请先核对来源单据和历史期初。</p>
-        <WorkspaceTable title="未分配差额" :show-title="false" :columns="differenceColumns" :data="overview.differences" :min-table-width="850">
+        <WorkspaceTable title="未分配差额" description="正式库存尚未分配到实物批次，请先核对来源单据和历史期初。" :columns="differenceColumns" :data="overview.differences" :min-table-width="850">
           <template #cell-difference="{row}"><strong>{{ row.difference }}</strong></template>
         </WorkspaceTable>
       </section>
       <section v-if="unallocated" aria-label="待补证的旧客户端流水" class="stack">
-        <h3>待补证的旧客户端流水</h3>
-        <p class="lot-note">只列出升级检查点 #{{ unallocated.checkpoint_movement_id }} 之后尚未完整归属批次的流水。补证依据须来自实物或交接记录，不能仅凭单据推测批号。相抵的先入后出流水可成对或多笔成组归属同一批次，不改变正式库存或成本。</p>
-        <p v-if="unallocated.has_more" role="status">当前只显示最近 100 笔，请按仓库或物料缩小范围。</p>
-        <WorkspaceTable title="待补证流水" :show-title="false" :columns="unallocatedColumns"
+        <WorkspaceTable title="待补证的旧客户端流水" description="按实物标签或交接记录核对批次归属，不改变正式库存或成本。" :columns="unallocatedColumns"
           :data="unallocated.rows" :min-table-width="900">
+          <template #beforeTable>
+            <NCollapse class="lot-help"><AppCollapseItem name="evidence-help" :title="`补证范围与操作说明 · 检查点 #${unallocated.checkpoint_movement_id}`">
+              <p>只列出升级检查点 #{{ unallocated.checkpoint_movement_id }} 之后尚未完整归属批次的流水。补证依据须来自实物或交接记录，不能仅凭单据推测批号。相抵的先入后出流水可成对或多笔成组归属同一批次，不改变正式库存或成本。</p>
+            </AppCollapseItem></NCollapse>
+            <p v-if="unallocated.has_more" class="lot-note" role="status">当前只显示最近 100 笔，请按仓库或物料缩小范围。</p>
+          </template>
           <template #cell-created_at="{row}">{{ store.localTime(row.created_at) }}</template>
           <template #cell-source="{row}"><strong>{{ movementTypeLabel(row.source_type) }} {{ relatedDocumentLabel(row, 'source') }}</strong><span class="lot-muted">明细 #{{ row.source_line_id }} · 流水 #{{ row.movement_id }}</span></template>
-          <template #cell-action="{row}"><AppButton v-if="store.can('physical_lot.movement_evidence')" type="button" :disabled="disabled" @click="selectMovement(row)">逐笔补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectPair(row)">成对补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectGroup(row)">多笔成组</AppButton></template>
+          <template #cell-action="{row}"><div class="lot-evidence-actions"><AppButton v-if="store.can('physical_lot.movement_evidence')" type="button" :disabled="disabled" @click="selectMovement(row)">逐笔补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectPair(row)">成对补证</AppButton><AppButton v-if="store.can('physical_lot.movement_evidence') && Number(row.unallocated_quantity)>0" type="button" :disabled="disabled" @click="selectGroup(row)">多笔成组</AppButton></div></template>
           <template #empty>当前筛选范围没有可补证的未分配流水。</template>
         </WorkspaceTable>
       </section>
@@ -481,8 +519,16 @@ onUnmounted(()=>{store.clearPhysicalLotHistory();selectedLegacy.value=null;
 </template>
 
 <style scoped>
+/* 主列表保持紧凑，次级说明按需展开；全部颜色跟随工作台主题。 */
+.physical-lots-page{gap:20px}
+.lot-summary{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:0 0 14px}
+.lot-inline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0}
+.lot-help{font-size:13px;line-height:1.7;color:var(--workspace-field-muted)}.lot-help p{margin:10px 0 0}
+.lot-evidence-actions{flex-wrap:wrap}.lot-evidence{background:var(--workspace-field-background)}
+.lot-history{padding:24px;border:1px solid var(--workspace-field-border);border-radius:16px;background:var(--workspace-field-background)}
+
 .lot-note{padding:10px 14px;border-left:3px solid var(--workspace-field-accent);background:var(--workspace-field-disabled);line-height:1.6}
-.lot-muted{color:#50667d;font-size:13px;overflow-wrap:anywhere}.lot-summary{font-size:13px;line-height:1.6}
+.lot-muted{color:var(--workspace-field-muted);font-size:13px;overflow-wrap:anywhere}.lot-summary{font-size:13px;line-height:1.6}
 .lot-history h3,.lot-history h4{margin-bottom:0}.lot-history a{color:var(--workspace-field-accent);text-underline-offset:3px}
 .lot-evidence{padding:16px;border:1px solid var(--workspace-field-accent);border-radius:8px}.lot-evidence label{display:grid;gap:6px}.lot-evidence-actions{display:flex;gap:8px}
 .lot-group-line{display:grid;grid-template-columns:1fr 1fr minmax(150px,.65fr) auto;align-items:end;gap:8px}
