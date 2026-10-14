@@ -44,7 +44,8 @@ const summaries = computed(() => [
 const filterFields = computed<WorkspaceSearchFilterField[]>(() => [
   { key: 'status', kind: 'select', label: '状态', options: [{ value: '', label: '全部状态' }, ...(['draft', 'partial', 'completed', 'closed', 'reversed'] as const).map(value => ({ value, label: materialFlowStatusLabel(props.kind, value) }))] },
   { key: 'warehouse', kind: 'select', label: '仓库', options: [{ value: 0, label: '全部仓库' }, ...(result.value?.warehouses ?? warehouses.value).map(item => ({ value: item.id, label: item.name }))] },
-  { key: 'person', kind: 'select', label: '建单人员', options: [{ value: 0, label: '全部人员' }, ...(result.value?.actors ?? []).map(item => ({ value: item.id, label: item.name }))] },
+  // 人员查询同时包含建单和实际办理人员，标签与服务端筛选范围保持一致。
+  { key: 'person', kind: 'select', label: '相关人员', options: [{ value: 0, label: '全部人员' }, ...(result.value?.actors ?? []).map(item => ({ value: item.id, label: item.name }))] },
   { key: 'from', kind: 'date', label: '开始日期', maxKey: 'to' }, { key: 'to', kind: 'date', label: '结束日期', minKey: 'from' }
 ])
 const dateIssue = computed(() => filters.value.from && filters.value.to && filters.value.from > filters.value.to ? '开始日期不能晚于结束日期。' : '')
