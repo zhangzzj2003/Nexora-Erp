@@ -7,7 +7,6 @@ import { findDocumentApprovalItem } from "../../../utils/document-approval-item"
 import DocumentApprovalDialog from "../../../components/workspace/DocumentApprovalDialog.vue";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import {
-  documentSearch,
   documentLabel,
   relatedDocumentLabel,
 } from "../../../../../shared/document-numbering";
@@ -35,6 +34,18 @@ import { displayError } from "../../../utils/formatters.ts";
 import { receiptLotMilli } from "../../../../../shared/receipt-lot-api.ts";
 import { outboundAvailableMilli } from "../../../../../shared/outbound-lot-api.ts";
 import { physicalLotKindLabel } from "../../../../../shared/physical-lot-api.ts";
+// 列表沿用其他入库的公共概览、筛选、状态标签与分页布局。
+import WorkspaceSummaryFilters, { type WorkspaceSummaryFilterOption } from "../../../components/workspace/WorkspaceSummaryFilters.vue";
+import WorkspaceSearchFilters from "../../../components/workspace/WorkspaceSearchFilters.vue";
+import AppStatusTag from "../../../components/app/AppStatusTag.vue";
+import { useLocalPagination } from "../../../composables/use-local-pagination";
+import { shortLocalTime } from "../../../utils/formatters";
+import type { WorkspaceSearchFilterField } from "../../../utils/workspace-search-filters";
+import {
+  emptyOutboundFilters, filterOutbounds, outboundDateIssue, outboundOperatorOptions,
+  outboundWarehouseOptions, outboundSummary, outboundStatus, outboundStatusTone,
+  outboundMaterialTitle, outboundReasonNames as reasonName, type OutboundStatusFilter,
+} from "./warehouse-outbound-list";
 import type {
   OutboundLotLineInput,
   OutboundLotOptions,
@@ -55,7 +66,6 @@ const {
 } = storeToRefs(store);
 const {
   can,
-  localTime,
   createOtherOutbound,
   loadAvailableOutboundLots,
   postWarehouseOutbound,
@@ -86,31 +96,47 @@ const activeOutbound = computed(
     ) ?? null,
 );
 const query = ref("");
-const filtered = computed(() =>
-  warehouseOutbounds.value.filter((item) =>
-    [
-      documentSearch(item),
-      item.id,
-      item.reference,
-      item.warehouse_name,
-      item.note,
-      ...item.lines.map((line) => line.material_name),
-    ]
-      .join(" ")
-      .toLowerCase()
-      .includes(query.value.trim().toLowerCase()),
-  ),
-);
-const reasonName = {
-  scrap: "报废",
-  sample: "样品",
-  other: "其他",
-  purchase_return: "采购退货",
-};
+const statusFilter = ref<OutboundStatusFilter>("all");
+const listFilters = ref(emptyOutboundFilters());
+const dateIssue = computed(() => outboundDateIssue(listFilters.value));
+const filterFields = computed<WorkspaceSearchFilterField[]>(() => [
+  { kind: "select", key: "operatorId", label: "处理人", options: outboundOperatorOptions(warehouseOutbounds.value) },
+  { kind: "select", key: "warehouseId", label: "仓库", options: outboundWarehouseOptions(warehouseOutbounds.value, warehouses.value) },
+  { kind: "select", key: "source", label: "来源", options: [
+    { value: null, label: "全部来源" },
+    ...Object.entries(reasonName).map(([value, label]) => ({ value, label })),
+  ] },
+  { kind: "date", key: "fromDate", label: "开始日期", maxKey: "toDate" },
+  { kind: "date", key: "toDate", label: "结束日期", minKey: "fromDate" },
+]);
+const resetDisabled = computed(() => !query.value && statusFilter.value === "all"
+  && Object.values(listFilters.value).every(value => value === null || value === ""));
+function resetFilters(): void {
+  query.value = "";
+  statusFilter.value = "all";
+  listFilters.value = emptyOutboundFilters();
+}
+// 统计始终使用完整可见单据；已批准未出库仍归未处理，采购退货冲销单独计入冲销。
+const summary = computed(() => outboundSummary(warehouseOutbounds.value));
+const summaryOptions = computed<WorkspaceSummaryFilterOption<OutboundStatusFilter>[]>(() => [
+  { key: "all", label: "全部单据", count: summary.value.all, hint: "全部可见出库单据；点击清除状态筛选" },
+  { key: "pending", label: "未处理", count: summary.value.pending, hint: "尚未完成出库，包含待送审、审批中、已批准、已驳回和已撤回", tone: "pending" },
+  { key: "processed", label: "已处理", count: summary.value.processed, hint: "已确认出库且未冲销", tone: "success" },
+  { key: "cancelled", label: "已取消", count: summary.value.cancelled, hint: "已取消的出库单据", tone: "neutral" },
+  { key: "reversed", label: "已冲销", count: summary.value.reversed, hint: "已出库后完成冲销，含采购退货原单冲销", tone: "reversed" },
+]);
+const filtered = computed(() => filterOutbounds(warehouseOutbounds.value, query.value, listFilters.value, statusFilter.value));
+// 筛选与分页只影响当前列表，详情仍按编号从完整快照定位，创建草稿不参与筛选。
+const paginationFilter = computed(() => JSON.stringify([query.value, statusFilter.value, listFilters.value]));
+const { rows, total, page, pageSize, changePage } = useLocalPagination(filtered, paginationFilter);
 const columns: readonly WorkspaceTableColumn[] = [
-  { key: "document", title: "单据" },
-  { key: "source", title: "仓库与来源" },
-  { key: "lines", title: "物料明细" },
+  { key: "document", title: "单据号", width: "200" },
+  { key: "status", title: "状态", width: "120", align: "center" },
+  { key: "operator", title: "处理人", width: "100", align: "center" },
+  { key: "source", title: "仓库与来源", width: "180" },
+  { key: "lines", title: "物料明细", width: "310" },
+  // 时间固定在查看入口旁，横向查看长物料名称时仍能核对创建记录。
+  { key: "time", title: "时间", width: "120", fixed: "right", align: "center" },
   { key: "actions", title: "查看", width: "72", align: "center" },
 ];
 // 写入失败时保留表单，成功后才关闭弹窗。
@@ -260,12 +286,18 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ot
 
 <template>
   <section class="stack">
+    <!-- 统计复用工作台标题右侧位置，随当前路由页面一起卸载。 -->
+    <Teleport defer to="#workspace-page-summary">
+      <WorkspaceSummaryFilters v-model="statusFilter" :options="summaryOptions" />
+    </Teleport>
     <WorkspaceTable
       :show-title="false"
-      :data="filtered"
+      :data="rows"
+      :pagination="{ page, pageSize, total }"
+      @page-change="changePage"
       title="仓库出库"
       :columns="columns"
-      :min-table-width="900"
+      :min-table-width="1410"
     >
       <template #actions>
         <AppButton
@@ -278,9 +310,9 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ot
         >
       </template>
       <template #filters>
-        <label
-          >搜索出库单<AppInput v-model="query" placeholder="单号、仓库或物料"
-        /></label>
+        <WorkspaceSearchFilters v-model:query="query" v-model:filters="listFilters"
+          :fields="filterFields" search-label="搜索出库单" search-placeholder="单号、参考号、仓库或物料"
+          :issue="dateIssue" :reset-disabled="resetDisabled" @reset="resetFilters" />
       </template>
       <template #beforeTable>
         <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
@@ -406,59 +438,34 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ot
             })
           "
           >{{ documentLabel(item) }}</AppButton
-        ><small
-          >{{ localTime(item.created_at) }} · {{ item.created_by_name }}</small
-        ><small>{{
-          item.status === "draft"
-            ? {
-                submitted: "审批中",
-                approved: "已批准待出库",
-                rejected: "已驳回",
-                withdrawn: "已撤回",
-                draft: "待送审",
-                executed: "已执行",
-              }[item.approval?.status ?? "draft"]
-            : item.status === "cancelled"
-              ? "已取消"
-              : item.purchase_return_reversal_id
-                ? "采购退货已冲销"
-                : item.reversal_id
-                  ? "已冲销"
-                  : "已出库"
-        }}</small
-        ><small v-if="item.reversal_reason"
-          >冲销：{{ item.reversal_reason }}</small
-        ></template
-      >
-      <template #cell-source="{ row: item }"
-        >{{ item.warehouse_name }} · {{ reasonName[item.reason]
-        }}<small>{{ item.note }}</small
-        ><small v-if="item.reference">{{ item.reference }}</small
-        ><small v-if="item.purchase_return_id"
-          >采购退货单 {{ relatedDocumentLabel(item, "purchase_return") }}</small
-        ></template
-      >
-      <template #cell-lines="{ row: item }"
-        ><div v-for="line in item.lines" :key="line.id">
-          {{ line.material_name }} × {{ line.quantity }} {{ line.unit }}
-          <small
-            v-if="item.status === 'posted' && line.physical_lots?.length"
-            class="outbound-lot-proof"
-          >
-            实物批次：{{
-              line.physical_lots
-                ?.map(
-                  (lot) =>
-                    `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`,
-                )
-                .join("、")
-            }}
-          </small>
-          <small v-else-if="item.status === 'posted'" class="outbound-lot-proof"
-            >普通出库，未指定实物批次。</small
-          >
-        </div></template
-      >
+        ></template>
+      <!-- 状态、处理人与创建时间分列，不再挤在单号下面。 -->
+      <template #cell-status="{ row: item }">
+        <AppStatusTag :label="outboundStatus(item)" :tone="outboundStatusTone(item)"
+          :title="item.reversal_reason ? `冲销：${item.reversal_reason}` : undefined" />
+      </template>
+      <template #cell-operator="{ row: item }">{{ item.created_by_name }}</template>
+      <template #cell-time="{ row: item }">{{ shortLocalTime(item.created_at) }}</template>
+      <template #cell-source="{ row: item }">
+        {{ item.warehouse_name }} · {{ reasonName[item.reason] }}
+        <small class="outbound-note" :title="item.note">{{ item.note }}</small>
+        <small v-if="item.purchase_return_id">采购退货单 {{ relatedDocumentLabel(item, "purchase_return") }}</small>
+      </template>
+      <template #cell-lines="{ row: item }">
+        <!-- 与其他入库一致保留两行摘要，更多物料和批次在提示与详情中完整可查。 -->
+        <div class="outbound-material-summary">
+          <ul class="outbound-material-preview">
+            <li v-for="line in item.lines.slice(0, 2)" :key="line.id">
+              <span class="outbound-material-text" :title="outboundMaterialTitle(item, line)">
+                {{ line.material_name }} × {{ line.quantity }} {{ line.unit }}
+              </span>
+            </li>
+          </ul>
+          <span v-if="item.lines.length > 2" class="outbound-material-more"
+            :title="item.lines.slice(2).map(line => outboundMaterialTitle(item, line)).join('\n')"
+            :aria-label="`另有 ${item.lines.length - 2} 项物料`">+{{ item.lines.length - 2 }} 项</span>
+        </div>
+      </template>
       <template #cell-actions="{ row: item }"
         ><AppButton
           type="button"
@@ -477,7 +484,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ot
         ></template
       >
       <template #empty>{{
-        query ? "没有匹配的出库单。" : "暂无仓库出库单。"
+        !resetDisabled ? "没有匹配的出库单。" : "暂无仓库出库单。"
       }}</template>
     </WorkspaceTable>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
@@ -654,9 +661,13 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => ot
 </template>
 
 <style scoped>
-.outbound-lot-proof {
-  display: block;
-  color: var(--workspace-field-muted);
-  overflow-wrap: anywhere;
-}
+/* 与其他入库保持相同的两行摘要和余量标签；仅约束展示，不截断原始单据。 */
+.outbound-note { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outbound-material-summary { display: flex; align-items: center; gap: 20px; min-width: 0; }
+.outbound-material-preview { flex: 0 1 auto; min-width: 0; list-style: none; margin: 0; padding: 0; }
+.outbound-material-preview li { display: flex; align-items: baseline; min-width: 0; line-height: 1.7; }
+.outbound-material-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outbound-material-more { flex: none; padding: 0 6px; border-radius: 6px;
+  background: color-mix(in srgb, var(--workspace-field-muted) 12%, transparent);
+  color: var(--workspace-field-muted); white-space: nowrap; font-size: 12px; line-height: 20px; }
 </style>
