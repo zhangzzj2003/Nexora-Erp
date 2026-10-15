@@ -1,7 +1,11 @@
 <script setup lang="ts">
 // 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
-import AppModal from '../../../components/app/AppModal.vue'
+// 新建工单直接复用仓库管理的单据外壳与产品资料选择器。
+import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
+import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
+import type { MaterialChoice } from '../../../../../shared/material-api'
+import { receiptLotMilli } from '../../../../../shared/receipt-lot-api'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
 import { findDocumentApprovalItem } from "../../../utils/document-approval-item";
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
@@ -41,6 +45,7 @@ const {
   busy,
   connectionLost,
   boms,
+  materials,
   workOrders,
   warehouses,
   workOrderForm,
@@ -58,12 +63,59 @@ const createOpen = ref(false);
 async function submitCreate(): Promise<void> {
   // 回车提交与按钮执行使用相同的连接、权限约束。
   if (busy.value || connectionLost.value || !can('work_order.create')) return;
+  if (productIssue.value) { error.value = productIssue.value; return; }
   await submitCreateDialog(
     createWorkOrder,
     { busy, error, notice },
     createOpen,
   );
 }
+// 单张工单固定一个产品及一个 BOM 版本；产品与版本均从 Pinia 草稿反推，收起后不会丢失。
+const activeBoms = computed(() => boms.value.filter(item => item.status === 'active')
+  .sort((left, right) => right.version - left.version || right.id - left.id));
+const selectedBom = computed(() => boms.value.find(item => item.id === workOrderForm.value.bom_id));
+const productId = computed({
+  get: () => selectedBom.value?.product_material_id ?? 0,
+  set: (id: number) => {
+    if (busy.value || connectionLost.value || !can('work_order.create')) return;
+    // 同一产品保留已选版本；切换产品默认使用最新启用版本，不带入另一产品的 BOM。
+    if (selectedBom.value?.status === 'active' && selectedBom.value.product_material_id === id) return;
+    workOrderForm.value.bom_id = activeBoms.value.find(item => item.product_material_id === id)?.id ?? 0;
+  },
+});
+const productChoices = computed<MaterialChoice[]>(() => {
+  const seen = new Set<number>();
+  return activeBoms.value.flatMap(bom => {
+    if (seen.has(bom.product_material_id)) return [];
+    seen.add(bom.product_material_id);
+    // 生产权限可取得 BOM 简要产品信息；没有完整物料档案时仍能正常选择产品。
+    return [materials.value.find(item => item.id === bom.product_material_id) ?? {
+      id: bom.product_material_id, sku: bom.product_sku, name: bom.product_name, unit: bom.product_unit,
+    }];
+  });
+});
+const productBomOptions = computed(() => activeBoms.value
+  .filter(item => item.product_material_id === productId.value)
+  .map(item => ({ value: item.id, label: `V${item.version} · 基准 ${item.base_quantity} ${item.product_unit}` })));
+// 默认使用仓库选择器的资料摘要，常用桌面高度下可同时看到数量和保存按钮。
+const productCompact = ref(true);
+const productRows = computed(() => [{ form: workOrderForm.value, bom: selectedBom.value }]);
+const productColumns: readonly WorkspaceTableColumn[] = [
+  { key: 'sku', title: '产品编码', width: '170' },
+  { key: 'product', title: '生产产品 / 资料', width: '380' },
+  { key: 'bom', title: '启用的 BOM 版本', width: '230' },
+  { key: 'unit', title: '单位', width: '70', align: 'center' },
+  { key: 'quantity', title: '目标产量', width: '150' },
+];
+const productIssue = computed(() => {
+  if (!activeBoms.value.length) return '暂无已启用的 BOM，请先为生产产品启用 BOM。';
+  if (!selectedBom.value) return '请在下方表格选择生产产品及 BOM 版本。';
+  if (selectedBom.value.status !== 'active') return '所选 BOM 已停用，请重新选择启用版本。';
+  if (receiptLotMilli(workOrderForm.value.target_quantity) === null)
+    return '目标产量须大于零、最多三位小数且不超过一百万。';
+  if (!warehouses.value.some(item => item.id === workOrderForm.value.warehouse_id)) return '请选择有效的完工目标仓库。';
+  return '';
+});
 const { recordQuery, recordFilters, recordSummaries, recordFilterFields, filteredRecords, resetRecordFilters } = useProductionRecords(
   workOrders, [
     { key: 'draft', label: '待下达', statuses: ['draft'], tone: 'pending' },
@@ -193,87 +245,61 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
       </template>
     </DocumentApprovalDialog>
     <ProductionAssociationDialog origin-key="production-association" />
-    <AppModal :busy="busy" origin-key="ProductionWorkOrdersView:create" @invalidated="createOpen = false"
-      title="新建生产工单"
+    <!-- 与仓库单据共用基础信息、产品明细表、可滚动正文及固定操作页脚。 -->
+    <WorkspaceDocumentDialog
       v-if="can('work_order.create')"
+      origin-key="ProductionWorkOrdersView:create"
       v-model:show="createOpen"
-      preset="card"
-      :mask-closable="!busy"
-      :style="{
-        width: 'min(900px, calc(100vw - 32px))',
-        maxHeight: 'calc(100vh - 48px)',
-        overflowY: 'auto',
-      }"
+      title="新建生产工单"
+      :data="productRows"
+      :columns="productColumns"
+      lines-title="生产产品"
+      :show-add="false"
+      :min-table-width="1000"
+      :busy="busy"
+      :disabled="connectionLost"
+      :submit-disabled="!!productIssue"
+      submit-label="保存工单草稿"
+      hint="每张工单生产一种产品。保存时固定所选 BOM 的组件需求，完工入库前不改变库存。"
+      @invalidated="createOpen = false"
+      @submit="submitCreate"
     >
-      <!-- 状态保留在公共标题栏，正文不再重复显示标题。 -->
-      <template #header-extra><span class="pill">草稿</span></template>
-      <p class="muted">
-        选择已启用的 BOM
-        和目标产量。建单时会固定本次组件需求；仓库用于后续完工入库，目前不会改变库存。
-      </p>
-      <form @submit.prevent="submitCreate">
-        <div class="form-grid">
-          <label
-            >启用的 BOM<WorkspaceSelect
-              v-model="workOrderForm.bom_id"
-              required
-              :options="[
-                { label: '选择成品与版本', value: 0, disabled: true },
-                ...boms
-                  .filter((entry) => entry.status === 'active')
-                  .map((item) => ({
-                    label: (
-                      item.product_name +
-                      '（' +
-                      item.product_sku +
-                      '）· V' +
-                      item.version
-                    ).trim(),
-                    value: item.id,
-                  })),
-              ]" /></label
-          ><label
-            >完工目标仓库<WorkspaceSelect
-              v-model="workOrderForm.warehouse_id"
-              required
-              :options="[
-                ...warehouses.map((item) => ({
-                  label: item.name,
-                  value: item.id,
-                })),
-              ]" /></label
-          ><label
-            >目标产量<AppInput
-              v-model.trim="workOrderForm.target_quantity"
-              type="number"
-              min="0.001"
-              max="1000000"
-              step="0.001"
-              required /></label
-          ><label
-            >参考号（可选）<AppInput
-              v-model.trim="workOrderForm.reference"
-              maxlength="100" /></label
-          ><label
-            >备注（可选）<AppInput
-              v-model.trim="workOrderForm.note"
-              maxlength="200"
-          /></label>
-        </div>
-        <AppButton
-          type="submit"
-          :disabled="
-            busy ||
-            connectionLost ||
-            !boms.some((item) => item.status === 'active') ||
-            !warehouses.length
-          "
-          variant="primary"
-        >
-          保存工单草稿
-        </AppButton>
-      </form>
-    </AppModal>
+      <template #basicInfo>
+        <label>完工目标仓库<WorkspaceSelect
+          v-model="workOrderForm.warehouse_id" required :disabled="busy || connectionLost"
+          :options="warehouses.map(item => ({ label: item.name, value: item.id }))"
+        /></label>
+        <label>参考号（可选）<AppInput v-model.trim="workOrderForm.reference" maxlength="100" :disabled="busy || connectionLost" /></label>
+        <label>备注（可选）<AppInput v-model.trim="workOrderForm.note" maxlength="200" :disabled="busy || connectionLost" /></label>
+        <div class="document-detail-field"><span>状态</span><strong>草稿</strong></div>
+      </template>
+      <template #materialPicker>
+        <p v-if="productIssue" role="status" class="muted">{{ productIssue }}</p>
+      </template>
+      <template #cell-sku="{ row }"><strong>{{ row.bom?.product_sku ?? '待选择' }}</strong></template>
+      <template #cell-product>
+        <WorkspaceMaterialSelect
+          v-model="productId"
+          v-model:compact="productCompact"
+          :materials="productChoices"
+          :categories="store.materialCategories"
+          required
+          placeholder="搜索并选择生产产品"
+          aria-label="生产产品"
+          :disabled="busy || connectionLost"
+        />
+      </template>
+      <template #cell-bom="{ row }">
+        <WorkspaceSelect v-model="row.form.bom_id" :options="productBomOptions" required
+          placeholder="选择启用版本" aria-label="生产 BOM 版本" :disabled="busy || connectionLost || !productId" />
+      </template>
+      <template #cell-unit="{ row }">{{ row.bom?.product_unit ?? '—' }}</template>
+      <template #cell-quantity="{ row }">
+        <!-- 数量仍直接写入同一 Pinia 草稿，隐藏步进按钮并保留原精度和范围。 -->
+        <AppInput v-model.trim="row.form.target_quantity" type="number" hide-number-controls
+          min="0.001" max="1000000" step="0.001" required aria-label="目标产量" :disabled="busy || connectionLost" />
+      </template>
+    </WorkspaceDocumentDialog>
     <WorkspaceSummaryFilters v-model="recordFilters.status" :options="recordSummaries" hint="按搜索与仓库统计全部匹配单据 · 点击筛选状态" />
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable

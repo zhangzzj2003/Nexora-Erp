@@ -258,17 +258,18 @@ test("新增与详情只统一标题栏，基础信息、明细和原操作布�
   assert.match(source, /class="document-footer"/);
   assert.match(source, /readOnly \? '关闭' : '收起'/);
   const titles = [
-    ["production/ProductionWorkOrdersView.vue", "新建生产工单"],
-    ["production/ProductionCompletionsView.vue", "新建完工报工单"],
-    ["finance/PaymentRecordsView.vue", "登记收付款"],
-    ["finance/InventoryValuationView.vue", "登记库存核价"],
+    // 工单已接入仓库公共单据外壳，标题仍由外壳唯一提供。
+    ["production/ProductionWorkOrdersView.vue", "新建生产工单", "WorkspaceDocumentDialog"],
+    ["production/ProductionCompletionsView.vue", "新建完工报工单", "AppModal"],
+    ["finance/PaymentRecordsView.vue", "登记收付款", "AppModal"],
+    ["finance/InventoryValuationView.vue", "登记库存核价", "AppModal"],
   ];
-  for (const [file, title] of titles) {
+  for (const [file, title, component] of titles) {
     const text = await readFile(
       new URL("../src/renderer/src/views/workspace/" + file, import.meta.url),
       "utf8",
     );
-    assert.match(text, new RegExp(`<AppModal\\b[^>]*title="${title}"`));
+    assert.match(text, new RegExp(`<${component}\\b[^>]*title="${title}"`));
     assert.doesNotMatch(text, new RegExp(`<h[23]>${title}</h[23]>`));
   }
 });

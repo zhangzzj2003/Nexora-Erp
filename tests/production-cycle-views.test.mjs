@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { computed, createRenderer, h, nextTick, ref, ssrContextKey } from 'vue'
+import { computed, createRenderer, createSSRApp, h, nextTick, ref, ssrContextKey } from 'vue'
+import { renderToString } from '@vue/server-renderer'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createServer } from 'vite'
@@ -66,17 +67,27 @@ const order = (id = 1, status = 'in_progress') => ({ id, status, warehouse_id: 1
 // 路由 replace 经过异步守卫；等它完成当前事件循环，再检查一次性意图已被消费。
 const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)); await nextTick() }
 
-async function fixture(t, name, query = {}, permissions = ['production.view', 'production_completion.create']) {
+async function fixture(t, name, query = {}, permissions = ['production.view', 'production_completion.create'], renderDialog = false) {
   const server = await createServer({ configFile: false, plugins: [{ name: 'production-cycle-view', enforce: 'pre',
     resolveId(id, importer) {
       if (importer?.includes('/src/renderer/') && id.endsWith('/store/app-store')) return '\0cycle-store'
-      if (importer?.includes('/src/renderer/') && id.endsWith('.vue')) return '\0cycle-empty'
+      if (importer?.includes('/src/renderer/') && id.endsWith('.vue')) {
+        // 布局用例保留真实公共单据弹窗，只替换需要浏览器绘制的控件。
+        if (renderDialog && id.endsWith('/WorkspaceDocumentDialog.vue')) return
+        if (renderDialog && id.endsWith('/AppModal.vue')) return '\0cycle-modal'
+        if (renderDialog && id.endsWith('/WorkspaceTable.vue')) return '\0cycle-table'
+        if (renderDialog && id.endsWith('/AppButton.vue')) return '\0cycle-button'
+        return '\0cycle-empty'
+      }
     }, load(id) {
+      if (id === '\0cycle-modal') return `import {h} from 'vue';export default {props:['show','title'],setup:(p,{slots})=>()=>p.show?h('section',{class:'test-document'},[h('h2',p.title),slots.default?.()]):null}`
+      if (id === '\0cycle-table') return `import {h} from 'vue';export default {props:['data','columns'],setup:(p,{slots})=>()=>h('section',[slots.heading?.(),slots.actions?.(),slots.beforeTable?.(),...(p.data??[]).map(row=>h('article',p.columns.map(col=>h('div',{'data-column':col.key},[h('span',col.title),slots['cell-'+col.key]?.({row})]))))])}`
+      if (id === '\0cycle-button') return `import {h} from 'vue';export default {props:['type','disabled'],setup:(p,{slots})=>()=>h('button',{type:p.type,disabled:p.disabled},slots.default?.())}`
       if (id === '\0cycle-empty') return 'export default {render:()=>null}'
       if (id === '\0cycle-store') return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';
         import {createProductionActions} from '/src/renderer/src/store/modules/production-actions.ts';export const calls=[];
         export const usePiniaAppStore=defineStore('production-cycle-view',()=>{const s=createAppState();return {...s,
-          ...createProductionActions(s,async action=>{try{await action()}catch(e){s.error.value=e.message}},key=>calls.push(['navigate',key])),
+          ...createProductionActions(s,async (action,success)=>{s.error.value='';try{await action();s.notice.value=success??''}catch(e){s.error.value=e.message}},key=>calls.push(['navigate',key])),
           can:p=>s.user.value?.permissions.includes(p)??false,localTime:v=>v,
           openDocumentApproval:async target=>{s.documentApprovalTarget.value=target;return true},
           closeDocumentApproval(){s.documentApprovalTarget.value=null;calls.push(['close'])}}})`
@@ -101,7 +112,11 @@ async function fixture(t, name, query = {}, permissions = ['production.view', 'p
   app.provide(ssrContextKey, { modules: new Set() })
   app.mixin({ created() { if (this.$options.__name === Component.__name) state = this.$.setupState } })
   app.mount({}); t.after(() => app.unmount()); await settle()
-  return { store, state, calls, router }
+  return { store, state, calls, router, render: async () => {
+    const preview = createSSRApp(Component).use(pinia).use(router)
+    preview.mixin({ created() { if (this.$options.__name === Component.__name) this.$.setupState.createOpen = true } })
+    return renderToString(preview)
+  } }
 }
 
 test('工单创建完工关闭来源详情并携带建单意图；只读查看不触发建单', async t => {
@@ -173,4 +188,102 @@ test('仅查看来源记录后手动新建仍选该工单；重开保留草稿�
   assert.equal(f.state.createOpen, false)
   await f.router.replace({ query: { work_order_id: '2', create_from_order: '1' } }); await settle()
   assert.equal(f.state.createOpen, false)
+})
+
+// 两个产品、多版本及停用版本共存，验证产品选择不会混入另一产品的组件依据。
+const draftBom = (id, product, version, status = 'active') => ({ id, product_material_id: product,
+  product_sku: `FIN-${product}`, product_name: `产品${product}`, product_unit: '件', version, status,
+  base_quantity: '1', lines: [] })
+function populateWorkOrderDraft(f) {
+  f.store.boms = [draftBom(11, 10, 1), draftBom(12, 10, 2), draftBom(13, 10, 3, 'retired'),
+    draftBom(21, 20, 1), draftBom(31, 30, 1, 'draft')]
+  f.store.warehouses = [{ id: 1, name: '成品仓' }]
+}
+
+test('产品表从启用 BOM 去重列出产品，切换产品使用匹配版本并保留已有版本及 Pinia 草稿', async t => {
+  const f = await fixture(t, 'ProductionWorkOrdersView', {}, ['work_order.create'])
+  populateWorkOrderDraft(f)
+  assert.deepEqual(f.state.productChoices.map(p => p.id), [10, 20])
+  assert.match(f.state.productIssue, /选择生产产品/)
+  f.state.productId = 10
+  assert.equal(f.store.workOrderForm.bom_id, 12)
+  assert.deepEqual(f.state.productBomOptions.map(p => p.value), [12, 11])
+  f.store.workOrderForm.bom_id = 11
+  f.state.productId = 10
+  assert.equal(f.store.workOrderForm.bom_id, 11)
+  f.state.productRows[0].form.target_quantity = '12.345'
+  f.store.workOrderForm.reference = '保存失败后继续'
+  f.state.createOpen = false; f.state.createOpen = true
+  assert.equal(f.store.workOrderForm.target_quantity, '12.345')
+  f.state.productId = 20
+  assert.equal(f.store.workOrderForm.bom_id, 21)
+  assert.equal(f.state.productRows[0].bom.product_sku, 'FIN-20')
+  assert.equal(f.state.productIssue, '')
+  assert.equal(f.store.workOrderForm.reference, '保存失败后继续')
+  // 无物料查看权限时使用 BOM 简要档案，有档案时沿用仓库选择器的完整资料。
+  f.store.materials = [{ id: 20, sku: 'FIN-20', name: '产品20', unit: '件', brand: '示例品牌' }]
+  assert.equal(f.state.productChoices.find(p => p.id === 20).brand, '示例品牌')
+  f.store.connectionLost = true; f.state.productId = 10
+  assert.equal(f.store.workOrderForm.bom_id, 21)
+  f.store.connectionLost = false; f.store.user.permissions = []; f.state.productId = 10
+  assert.equal(f.store.workOrderForm.bom_id, 21)
+})
+
+test('工单产品表校验过期 BOM、产量、仓库和断线权限；保存失败保留，成功关闭并清空草稿', async t => {
+  const f = await fixture(t, 'ProductionWorkOrdersView', {}, ['work_order.create'])
+  populateWorkOrderDraft(f)
+  const previous = globalThis.window
+  let attempts = 0, fail = true, sent
+  globalThis.window = { nexora: { callApi: async (operation, input) => {
+    assert.equal(operation, 'createWorkOrder'); attempts++; sent = { ...input }
+    if (fail) throw Error('BOM 已被停用')
+  } } }
+  t.after(() => { globalThis.window = previous })
+  f.state.createOpen = true
+  await f.state.submitCreate()
+  f.store.workOrderForm.bom_id = 13; await f.state.submitCreate()
+  assert.match(f.store.error, /BOM 已停用/)
+  f.state.productId = 10
+  for (const quantity of ['', '0', '-1', '1.0001', '1000000.001', '1e2']) {
+    f.store.workOrderForm.target_quantity = quantity; await f.state.submitCreate()
+    assert.match(f.store.error, /目标产量/)
+  }
+  f.store.workOrderForm.target_quantity = '0.001'
+  f.store.workOrderForm.warehouse_id = 99; await f.state.submitCreate()
+  assert.match(f.store.error, /仓库/)
+  f.store.workOrderForm.warehouse_id = 1
+  f.store.connectionLost = true; await f.state.submitCreate()
+  f.store.connectionLost = false; f.store.user.permissions = []; await f.state.submitCreate()
+  f.store.user.permissions = ['work_order.create']; f.store.busy = true; await f.state.submitCreate()
+  assert.equal(attempts, 0)
+  f.store.busy = false; f.store.error = ''; await f.state.submitCreate()
+  assert.equal(attempts, 1)
+  assert.equal(f.state.createOpen, true)
+  assert.equal(f.store.workOrderForm.bom_id, 12)
+  assert.equal(f.store.workOrderForm.target_quantity, '0.001')
+  fail = false
+  await f.state.submitCreate()
+  assert.equal(f.state.createOpen, false)
+  assert.deepEqual(sent, { bom_id: 12, warehouse_id: 1, target_quantity: '0.001', reference: '', note: '' })
+  assert.equal(f.store.workOrderForm.bom_id, 0)
+  f.store.boms = []
+  assert.match(f.state.productIssue, /暂无已启用/)
+})
+
+test('新建工单实际复用仓库公共弹窗，基础信息在上、单产品表在下、保存位于固定页脚', async t => {
+  const f = await fixture(t, 'ProductionWorkOrdersView', {}, ['work_order.create'], true)
+  populateWorkOrderDraft(f); f.store.workOrderForm.bom_id = 12
+  const html = (await f.render()).replace(/<!--[\s\S]*?-->/g, '')
+  const dialog = html.slice(html.indexOf('class="test-document'))
+  for (const label of ['基础信息', '完工目标仓库', '生产产品', '产品编码', '生产产品 / 资料', '启用的 BOM 版本', '单位', '目标产量', '保存工单草稿'])
+    assert.ok(dialog.includes(label), label)
+  assert.ok(dialog.indexOf('基础信息') < dialog.indexOf('document-divider'))
+  assert.ok(dialog.indexOf('document-divider') < dialog.indexOf('生产产品'))
+  assert.match(dialog, /document-body/)
+  assert.match(dialog, /document-footer/)
+  assert.match(dialog, /FIN-10/)
+  assert.doesNotMatch(dialog, /＋ 添加物料/)
+  f.store.connectionLost = true
+  const offline = await f.render()
+  assert.match(offline, /<fieldset[^>]*disabled/)
 })

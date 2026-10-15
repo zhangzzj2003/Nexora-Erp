@@ -40,7 +40,7 @@
 | `finance/` | `SubledgerOpeningsView.vue` | 历史未结单据逐组合核对、独立审核启用、资金历史及 CSV |
 | `finance/` | `FinancialSourcesView.vue` | 查看应收应付的业务来源明细 |
 | `finance/` | `InventoryValuationView.vue` | 查看移动平均库存金额、待核价来源和核价修订历史 |
-| `production/` | `ProductionWorkOrdersView.vue` | 建立和下达生产工单，核对有效领用、待签与待发；按工单直接创建完工草稿或查看完工记录 |
+| `production/` | `ProductionWorkOrdersView.vue` | 复用仓库单据弹窗，在产品明细表选择产品、启用 BOM 版本及产量；建立和下达工单，核对有效领用、待签与待发；按工单直接创建完工草稿或查看完工记录 |
 | `production/` | `MaterialIssuesView.vue` | 处理生产领料，逐行选择来源仓批次确认并展示固定证据或旧确认差额 |
 | `production/` | `MaterialReturnsView.vue` | 处理生产退料，核对原领料批次或登记退料新批次并展示固定证据 |
 | `production/` | `ProductionCompletionsView.vue` | 报工、质检与合格成品实物批次入库；整批不合格不生成批次；从工单进入保留来源范围，详情可返回工单；两页共用 `use-production-records.ts` 及仓库概览和筛选组件 |

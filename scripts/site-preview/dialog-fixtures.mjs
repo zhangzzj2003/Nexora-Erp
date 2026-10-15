@@ -3,7 +3,7 @@ import { materials, warehouses, receipts, supplyPreviewInbounds, previewResponse
 // 弹窗验收只开放虚构数据的读取，保存/审批/入库等写入仍由默认分支明确拒绝。
 export const dialogPreviewInbounds = [supplyPreviewInbounds[0], { ...structuredClone(supplyPreviewInbounds[0]),
   id: 902, document_no: 'QTRK-DEMO-000902', note: '已批准批次验收示例', approval: {status: 'approved'} }]
-export const dialogPreviewPermissions = ['inventory.view', 'other_inbound.view', 'other_inbound.create', 'other_inbound.post', 'production.view', 'production_completion.create', 'material_flow.view', 'material_dispatch.create', 'material_dispatch.post']
+export const dialogPreviewPermissions = ['inventory.view', 'other_inbound.view', 'other_inbound.create', 'other_inbound.post', 'production.view', 'work_order.create', 'production_completion.create', 'material_flow.view', 'material_dispatch.create', 'material_dispatch.post']
 // 前置生产流程合并后，使用同一只读桥验证它的正文、审批和工单摘要准备链。
 // 示例补齐真实列表必需字段，可验证工单到完工建单的交互；写接口继续由预览桥拒绝。
 export const dialogPreviewWorkOrders = [{ id: 903, document_no: 'SCGD-DEMO-000903', product_name: '智能控制板',
@@ -14,6 +14,16 @@ export const dialogPreviewWorkOrders = [{ id: 903, document_no: 'SCGD-DEMO-00090
   lines: [{ id: 906, component_material_id: 1, sku: materials[0].sku, material_name: materials[0].name, unit: '个',
     required_quantity: '100', issued_quantity: '58', in_transit_quantity: '2', pending_dispatch_quantity: '40', remaining_quantity: '0', reserved_quantity: '0', damaged_quantity: '0' }],
   approval: { status: 'executed' } }]
+// 新建工单预览提供多产品、多版本；停用版本只供校验，不进入可选列表。
+export const dialogPreviewBoms = [[1, 5, 1, 'active'], [2, 5, 2, 'active'], [3, 5, 3, 'retired'], [4, 4, 1, 'active']]
+  .map(([id, productId, version, status]) => {
+    const product = materials.find(item => item.id === productId)
+    return { id, product_material_id: productId, product_sku: product.sku, product_name: product.name,
+      product_unit: product.unit, version, base_quantity: '1', status, note: '', lines: [],
+      created_by: 3, created_by_name: '示例计划员', created_at: '2026-10-14 02:00:00',
+      activated_by: 4, activated_at: '2026-10-14 03:00:00', retired_by: null, retired_at: null,
+      cancelled_by: null, cancelled_at: null }
+  })
 export const dialogPreviewCompletions = [{ id: 908, document_no: 'SCWG-DEMO-000908', work_order_id: 903,
   work_order_document_no: 'SCGD-DEMO-000903', product_material_id: 5, product_name: '智能控制板', product_sku: 'DEMO-PCB', product_unit: '块',
   warehouse_id: 1, warehouse_name: '电子原料仓', status: 'posted', reported_quantity: '40', accepted_quantity: '40', rejected_quantity: '0',
@@ -41,7 +51,7 @@ export function dialogPreviewResponse(operation, payload, store) {
   const reads = { me: store.user, documentNumbering: { configured: true }, permissions: [], menuIcons: [],
     materials, materialCategories: store.materialCategories, materialUnits: [{ id: 1, code: '个', name: '个' }],
     suppliers: store.suppliers, supplierMaterials: store.supplierMaterials, stock: [], receipts, warehouses,
-    workOrders: dialogPreviewWorkOrders, boms: [], materialIssues: [], materialReturns: [], productionCompletions: dialogPreviewCompletions, transfers: [], purchaseOrders: [], stocktakes: [], purchaseReturns: [], otherInbounds: dialogPreviewInbounds }
+    workOrders: dialogPreviewWorkOrders, boms: dialogPreviewBoms, materialIssues: [], materialReturns: [], productionCompletions: dialogPreviewCompletions, transfers: [], purchaseOrders: [], stocktakes: [], purchaseReturns: [], otherInbounds: dialogPreviewInbounds }
   if (Object.hasOwn(reads, operation)) return JSON.parse(JSON.stringify(reads[operation]))
   if (operation === 'materialFlowQuery') return { items: payload.kind === 'dispatch' ? [structuredClone(dispatch)] : payload.kind === 'receipt' ? [structuredClone(flowReceipt)] : [],
     total: ['dispatch', 'receipt'].includes(payload.kind) ? 1 : 0, page: 1, page_size: 20, summary: { partial: ['dispatch', 'receipt'].includes(payload.kind) ? 1 : 0 },

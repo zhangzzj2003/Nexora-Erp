@@ -7,7 +7,7 @@ import { workspaceRouter } from '../../src/renderer/src/router/browser-router'
 import { installWorkspaceAccessGuard } from '../../src/renderer/src/router'
 import { workspaceRoutes, workspaceRouteGroups } from '../../src/renderer/src/router/workspace-routes'
 import { previewRoutes, previewResponse, supplyPreviewInbounds, materials, warehouses, journals, productionCostReport, productionCostSettlements, receipts, receivablesPayables } from './fixtures.mjs'
-import { dialogPreviewResponse, dialogPreviewPermissions, dialogPreviewInbounds, dialogPreviewWorkOrders, dialogPreviewCompletions } from './dialog-fixtures.mjs'
+import { dialogPreviewResponse, dialogPreviewPermissions, dialogPreviewInbounds, dialogPreviewWorkOrders, dialogPreviewCompletions, dialogPreviewBoms } from './dialog-fixtures.mjs'
 import '../../src/renderer/src/style.css'
 import '../../src/renderer/src/light-theme.css'
 import '../../src/renderer/src/dark-theme.css'
@@ -36,6 +36,7 @@ store.$patch({
   user: { id: 3, username: '示例管理员', roles: ['admin'], permissions: dialogQa ? dialogPreviewPermissions : permissions, is_active: true },
   screen: 'app', server: { id: 'site-preview', name: '界面预览 · 示例数据', version: '0.1.0', fingerprint: 'sample-only' },
   version: '0.1.0', roles: [{ code: 'admin', label: '管理员' }], materials, warehouses,
+  boms: dialogQa ? dialogPreviewBoms : [],
   workOrders: dialogQa ? dialogPreviewWorkOrders : [],
   productionCompletions: dialogQa ? dialogPreviewCompletions : [],
   otherInbounds: dialogQa ? dialogPreviewInbounds : supplyPreviewInbounds,
