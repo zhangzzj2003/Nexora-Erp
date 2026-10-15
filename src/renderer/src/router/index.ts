@@ -56,6 +56,7 @@ const workspaceRouteComponents = {
   bankBalance: () => import('../views/workspace/finance/BankBalanceView.vue'),
   financeSources: () => import('../views/workspace/finance/FinancialSourcesView.vue'),
   inventoryValuation: () => import('../views/workspace/finance/InventoryValuationView.vue'),
+  products: () => import('../views/workspace/catalog/ProductsView.vue'),
   boms: () => import('../views/workspace/catalog/ProductionBomsView.vue'),
   workOrders: () => import('../views/workspace/production/ProductionWorkOrdersView.vue'),
   materialIssues: () => import('../views/workspace/production/MaterialIssuesView.vue'),

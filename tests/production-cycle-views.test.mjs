@@ -301,3 +301,21 @@ test('生产工单概览隐藏右侧说明，状态卡片及筛选统计保持�
   f.state.resetRecordFilters()
   assert.equal(f.state.filteredRecords.length, 2)
 })
+
+
+test('启用 BOM 地址预选工单草稿并消费一次意图，停用版本和撤权不能绕过', async t => {
+  const f = await fixture(t, 'ProductionWorkOrdersView', {create_from_bom:'12'}, ['work_order.create'])
+  populateWorkOrderDraft(f)
+  await settle()
+  assert.equal(f.state.createOpen,true)
+  assert.equal(f.store.workOrderForm.bom_id,12)
+  assert.deepEqual(f.router.currentRoute.value.query,{})
+  f.state.createOpen=false;f.store.workOrderForm.target_quantity='8'
+  f.store.boms=[...f.store.boms];await settle()
+  assert.equal(f.state.createOpen,false);assert.equal(f.store.workOrderForm.target_quantity,'8')
+  await f.router.replace({query:{create_from_bom:'13'}});await settle()
+  assert.equal(f.state.createOpen,false)
+  f.store.user.permissions=[]
+  await f.router.replace({query:{create_from_bom:'12'}});await settle()
+  assert.equal(f.state.createOpen,false)
+})

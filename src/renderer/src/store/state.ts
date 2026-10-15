@@ -1,3 +1,4 @@
+import { createProductState } from './product-state.ts'
 import { newPurchasePriceLine } from '../utils/purchase-pricing.ts'
 import type { PurchasePriceDraft } from '../utils/purchase-pricing.ts'
 import type {MaterialSupplyRow} from '../../../shared/material-supply-api'
@@ -126,6 +127,7 @@ import type { Screen } from './types'
 // 表单草稿与服务端快照按应用实例创建，切换页面时保留输入。
 export function createAppState() {
   // 服务端规则与会话一起刷新，切换实例时不能沿用旧服务的编号配置。
+  const productState = createProductState()
   const documentNumbering = ref<DocumentNumberingConfig | null>(null)
   // 模板和草稿属于当前账号、服务端实例；失败或切换页面保留同一实例的草稿。
   // 当前审批弹窗与意见草稿由 Pinia 保存；换账号/实例时统一失效。
@@ -455,6 +457,7 @@ export function createAppState() {
   const reversalReasons = ref<Record<number, string>>({})
   const bomForm = ref({
     product_material_id: 0,
+    source_bom_id: null as number | null,
     base_quantity: '1',
     note: '',
     lines: [{ component_material_id: 0, quantity: '1' }]
@@ -634,6 +637,7 @@ export function createAppState() {
     materialFieldDraft.value = {code: '', name: '', kind: 'text', unit: '', options: [], allow_custom: false, required: false, enabled: true, sort_order: 0, version: 0, reason: ''}
   }, {flush: 'sync'})
   return {
+    ...productState,
     documentNumbering,
     productionAssociationTarget, productionAssociationRecord, productionAssociationLoading, productionAssociationError,
     documentApprovalTarget, documentApprovalRecord, documentApprovalReasons, documentApprovalEvidence, documentApprovalLoading, documentApprovalError,

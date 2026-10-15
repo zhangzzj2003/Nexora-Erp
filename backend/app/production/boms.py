@@ -5,7 +5,7 @@ from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.orm import orm_session, add_model
@@ -29,6 +29,8 @@ class BomLineInput(BaseModel):
 
 
 class BomInput(BaseModel):
+    # 派生只保存固定来源，目标仍使用完整可编辑明细，不自动随来源升级。
+    source_bom_id: int | None = Field(default=None, ge=1, strict=True)
     product_material_id: int = Field(gt=0)
     base_quantity: Decimal = Decimal(1)
     note: str = Field(default="", max_length=200)
@@ -47,6 +49,7 @@ def bom_data(db: Session, bom_id: int) -> dict:
         db.execute(
             select(
                 Bom.id,
+                Bom.source_bom_id,
                 Bom.product_material_id,
                 Bom.version,
                 Bom.base_quantity,
@@ -93,7 +96,12 @@ def bom_data(db: Session, bom_id: int) -> dict:
         .mappings()
         .all()
     )
-    return {**dict(row), "lines": [dict(line) for line in lines]}
+    source = db.get(Bom, row['source_bom_id']) if row['source_bom_id'] else None
+    source_material = db.get(Material, source.product_material_id) if source else None
+    return {**dict(row), "lines": [dict(line) for line in lines], 'source_bom': {
+        'id': source.id, 'version': source.version, 'product_material_id': source.product_material_id,
+        'product_name': source_material.name, 'product_sku': source_material.sku,
+    } if source else None}
 
 
 def has_cycle_after_activation(db: Session, product_id: int, components: list[int]) -> bool:
@@ -119,10 +127,20 @@ def has_cycle_after_activation(db: Session, product_id: int, components: list[in
 
 
 @router.get("/boms")
-def list_boms(_: dict = Depends(require("production.view"))) -> list[dict]:
+def list_boms(product_material_id: int | None = Query(default=None, gt=0),
+              _: dict = Depends(require("production.view"))) -> list[dict]:
     with orm_session() as db:
-        ids = [row for row in db.scalars(select(Bom.id).select_from(Bom).order_by(Bom.id.desc()))]
+        statement = select(Bom.id).order_by(Bom.id.desc())
+        if product_material_id is not None:
+            statement = statement.where(Bom.product_material_id == product_material_id)
+        ids = list(db.scalars(statement))
         return [bom_data(db, bom_id) for bom_id in ids]
+
+
+@router.get('/boms/{bom_id}')
+def bom_detail(bom_id: int, _: dict = Depends(require('production.view'))) -> dict:
+    with orm_session() as db:
+        return bom_data(db, bom_id)
 
 
 @router.post("/boms", status_code=201)
@@ -136,6 +154,12 @@ def create_bom(payload: BomInput, user: dict = Depends(require("bom.create"))) -
         known = set(db.scalars(select(Material.id)))
         if payload.product_material_id not in known or not set(component_ids) <= known:
             raise HTTPException(422, "成品或组件物料不存在")
+        if payload.source_bom_id is not None:
+            source = db.get(Bom, payload.source_bom_id)
+            if source is None or source.status == 'cancelled':
+                raise HTTPException(422, '来源 BOM 不存在或已取消，不能派生新版本')
+        from app.catalog.product_rules import ensure_product
+        ensure_product(db, payload.product_material_id, user)
         # 版本号在写事务中分配，两个计划员并行建单也不会拿到同一版本。
         version = db.scalar(
             select(func.coalesce(func.max(Bom.version), 0) + 1)
@@ -146,6 +170,7 @@ def create_bom(payload: BomInput, user: dict = Depends(require("bom.create"))) -
             db,
             Bom(
                 product_material_id=payload.product_material_id,
+                source_bom_id=payload.source_bom_id,
                 version=version,
                 base_quantity=str(payload.base_quantity),
                 note=payload.note.strip(),

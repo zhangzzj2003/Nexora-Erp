@@ -1,3 +1,4 @@
+import { createProductActions } from './modules/product-actions'
 import {createMaterialSupplyActions} from './modules/material-supply-actions'
 import { createProductionAssociationActions } from './modules/production-association-actions'
 import type { DocumentNumberingInput } from '../../../shared/document-numbering'
@@ -296,6 +297,7 @@ function createAppStore() {
     }
   }
 
+  const productActions = createProductActions(state)
   const catalogActions = createCatalogActions(state, perform)
   const purchaseActions = createPurchaseActions(state, perform)
   const stockOverviewActions = createStockOverviewActions(state)
@@ -403,6 +405,7 @@ function createAppStore() {
     refreshWorkspacePage,
     ...connectionActions,
     ...catalogActions,
+    ...productActions,
     ...purchaseActions,
     ...warehouseActions,
     ...inventoryLedgerActions,

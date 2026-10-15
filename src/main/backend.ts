@@ -1,3 +1,4 @@
+import { productBody, productModelBody, productQueryBody, productBomBody, validateProductResult } from '../shared/product-api.ts'
 import { materialFlowRequest, validateMaterialFlowResult } from '../shared/material-flow-api.ts'
 import { materialSupplyBody, validateMaterialSupply } from '../shared/material-supply-api.ts'
 import { materialCategoryCode, materialCategoryRevision, materialCategoryBody, materialSpecFieldBody, validateMaterialCategoryResult } from '../shared/material-category-validation.ts'
@@ -1471,8 +1472,21 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       body: { reason: (payload as { reason: unknown }).reason }
     }
     // BOM 的生命周期操作只接受经校验的单据编号。
+    // 产品操作只映射固定路径，物料联合写入继续使用同一白名单边界。
+    case 'queryProducts': return {method: 'POST', path: '/api/v1/products/query', body: productQueryBody(payload)}
+    case 'productDetail': return {method: 'GET', path: `/api/v1/products/${positiveId(payload, 'id')}`}
+    case 'productChanges': return {method: 'GET', path: `/api/v1/products/${positiveId(payload, 'id')}/changes`}
+    case 'createProduct': return {method: 'POST', path: '/api/v1/products', body: productBody(payload, false)}
+    case 'updateProduct': return {method: 'PUT', path: `/api/v1/products/${positiveId(payload, 'id')}`, body: productBody(payload, true)}
+    case 'productModels': return {method: 'GET', path: '/api/v1/product-models'}
+    case 'productModelDetail': return {method: 'GET', path: `/api/v1/product-models/${positiveId(payload, 'id')}`}
+    case 'productModelChanges': return {method: 'GET', path: `/api/v1/product-models/${positiveId(payload, 'id')}/changes`}
+    case 'createProductModel': return {method: 'POST', path: '/api/v1/product-models', body: productModelBody(payload, false)}
+    case 'updateProductModel': return {method: 'PUT', path: `/api/v1/product-models/${positiveId(payload, 'id')}`, body: productModelBody(payload, true)}
+    case 'bomDetail': return {method: 'GET', path: `/api/v1/boms/${positiveId(payload, 'bomId')}`}
+    case 'productBoms': return {method: 'GET', path: `/api/v1/boms?product_material_id=${positiveId(payload, 'materialId')}`}
     case 'boms': return { method: 'GET', path: '/api/v1/boms' }
-    case 'createBom': return { method: 'POST', path: '/api/v1/boms', body: payload }
+    case 'createBom': return { method: 'POST', path: '/api/v1/boms', body: productBomBody(payload) }
     case 'activateBom': return { method: 'POST', path: `/api/v1/boms/${positiveId(payload, 'bomId')}/activate` }
     case 'retireBom': return { method: 'POST', path: `/api/v1/boms/${positiveId(payload, 'bomId')}/retire` }
     case 'cancelBom': return { method: 'POST', path: `/api/v1/boms/${positiveId(payload, 'bomId')}/cancel` }
@@ -1882,6 +1896,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   validateMaterialResult(action, data)
   validateMaterialChoiceResult(action, data)
   validateMaterialUnitResult(action, data)
+  validateProductResult(action, data)
   if (action === 'materialDetail' && (payload as ErpOperations['materialDetail']['input']).include_suppliers
     && !Array.isArray((data as Record<string, unknown>).supplier_ids)) {
     // 旧服务忽略查询标记时拒绝打开编辑器，避免把“未知绑定”误当作空绑定提交。

@@ -124,9 +124,13 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 第 85 版增加现有订单间贷方核销：`GET/POST /api/v1/finance/order-settlements` 查看、登记，`POST /{id}/reverse` 追加撤销；余额和权限规则见 [订单间贷方核销](../docs/order-settlements.md)。仅在同一客户或供应商的订单间转移分户贷方，不产生第二笔收付款。
 
+## 产品与机型管理
+
+`app/catalog/products.py` 提供产品分页、联合建档/编辑、机型及变更记录；`product_rules.py` 负责同事务纳入与身份审计。第 104 版数据库增加三张产品扩展表，并在不改写旧物料、BOM、库存及工单的前提下，将历史 BOM 产出物料去重纳入待分类产品。产品沿用物料编号；查看使用 `inventory.view`，维护使用 `catalog.manage`，BOM 仍独立使用 `production.view` 和 `bom.*`。联合编辑校验产品与物料两个版本，冲突整笔回滚。接口、迁移兼容和一期边界见 [产品管理与 BOM 派生](../docs/product-management.md)。
+
 ## 生产 BOM
 
-`POST /api/v1/boms` 创建成品物料的 BOM 草稿，记录基准产出数量、组件物料及基准用量；同一物料不能重复作为组件，也不能直接作为自身组件。服务端在写事务中按成品分配递增版本号。`GET /api/v1/boms` 返回含物料名称的全部历史版本；`POST /api/v1/boms/{id}/activate` 启用草稿，`/retire` 停用启用版本，`/cancel` 取消草稿。每个成品只允许一个启用版本，启用时检查其他启用 BOM 的组件链，阻止循环引用。停用和取消后的内容保留审计；修订需新建版本，不能改写历史。查看、创建、启用、停用和取消分别要求 `production.view`、`bom.create`、`bom.activate`、`bom.retire`、`bom.cancel`。管理员和生产计划员可管理，仓库员可查看。BOM 不影响库存。
+`POST /api/v1/boms` 创建成品物料的 BOM 草稿（可带固定 `source_bom_id` 派生来源）；`GET /api/v1/boms/{id}` 查看单版本，列表可按 `product_material_id` 筛选。创建 BOM 时自动纳入尚未登记的产出物料，记录基准产出数量、组件物料及基准用量；同一物料不能重复作为组件，也不能直接作为自身组件。服务端在写事务中按成品分配递增版本号。`GET /api/v1/boms` 返回含物料名称的全部历史版本；`POST /api/v1/boms/{id}/activate` 启用草稿，`/retire` 停用启用版本，`/cancel` 取消草稿。每个成品只允许一个启用版本，启用时检查其他启用 BOM 的组件链，阻止循环引用。停用和取消后的内容保留审计；修订需新建版本，不能改写历史。查看、创建、启用、停用和取消分别要求 `production.view`、`bom.create`、`bom.activate`、`bom.retire`、`bom.cancel`。管理员和生产计划员可管理，仓库员可查看。BOM 不影响库存。
 
 ## 生产工单
 
@@ -176,7 +180,7 @@ v103 新增独立主单、执行记录与逐出库成本来源，旧已确认领
 
 数据库第 39 版增加成本结算、分摊、来源依赖和独立冲销表。GET `/api/v1/production-costs/settlements` 查看历史；POST 同路径传入 `work_order_id`、`reference`、可选 `note`，仅可结算全部报工、无未处理草稿且净领料全部核价的工单。成本按合格入库数量累计比例分摊到各完工批次，以分为单位处理尾差；没有合格成品时拒绝结算。完工入库在库存计价中返回 `cost_source: production_settlement` 与 `settlement_id`，内部分摊金额不由四位展示单价倒算。POST `/{id}/reverse` 按原因冲销结算，原快照保留；有关联后续有效工单结算时拒绝冲销。结算冻结该工单费用、完工来源和有关核价依赖，先冲销后才能更正。结算、冲销分别要求 `production_cost.settle`、`production_cost.reopen`，默认授予管理员和财务员；查看沿用 `production_cost.view`。成本规则与边界见 [完工成本规则](../docs/production-cost-settlement.md)。
 
-现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 202 张静态模型表及第 101 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
+现有业务接口的数据读写均已使用 SQLAlchemy 2.0 声明式模型，包括账号权限、基础资料、采购、销售、仓库、库存计价、生产和成本结算、业务财务及报表；服务启动和备份身份核对也通过 ORM。本版使用 214 张静态模型表及第 104 版数据库，不通过运行时反射或 `create_all` 替换历史迁移。金额和数量继续用 Decimal 计算并以文本精确保存；一致读快照、写锁、提交、回滚和连接释放由统一会话处理。跨模块转单、数量额度、库存流水与审计在同一写事务中完成，异常后整体回滚，重复或超量操作仍返回冲突。备份身份检查独立只读打开指定文件并释放句柄；SQLite 结构迁移、连接设置、在线备份和完整性诊断保留必要的底层操作。转换范围及验证见 [ORM 迁移清单](../docs/backend-orm-migration.md)。供应商和仓库档案接口因版本审计新增字段，客户端与服务端需同时升级。
 
 历史原单与现有订单的双向核销使用 v97 ORM 模型，业务实现位于 `finance/subledger_order_settlements.py`、`subledger_order_balances.py` 和 `order_ledger_scope.py`。从实际已过账凭证及旧订单核销链核对完整科目/辅助，独立批准后执行，影响双边余额及后续收付款限额，追加反向恢复，依赖凭证先撤销核销才能冲销。专属查看权、固定接口、迁移和明确阻止条件见[历史与订单核销规则](../docs/subledger-order-settlements.md)。
 

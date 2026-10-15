@@ -161,6 +161,20 @@ async function openCompletions(create = false): Promise<void> {
   await router.push({ path: routeByKey('productionCompletions').path,
     query: { work_order_id: order.id, ...(create ? { create_from_order: order.id } : {}) } });
 }
+// 产品 BOM 详情使用一次性建单意图；仅有效启用版本和实时权限允许打开草稿。
+const consumedBom = ref(0);
+watch([() => route?.query.create_from_bom, () => busy.value, () => connectionLost.value,
+  () => store.user?.id, () => store.user?.permissions.join('|'), () => boms.value.find(item => item.id === Number(route?.query.create_from_bom))?.status], () => {
+  const id = Number(route?.query.create_from_bom);
+  if (!Number.isSafeInteger(id) || id <= 0 || consumedBom.value === id || busy.value || connectionLost.value || !can('work_order.create')) return;
+  const bom = boms.value.find(item => item.id === id && item.status === 'active');
+  if (!bom) return;
+  consumedBom.value = id;
+  workOrderForm.value.bom_id = id; workOrderForm.value.target_quantity = '1';
+  createOpen.value = true;
+  const {create_from_bom: _intent, ...query} = route.query;
+  void router.replace({query}).then(() => {consumedBom.value = 0});
+}, {immediate:true});
 // 仅监听稳定的字段值；审批刷新会替换账号和工单数组，不能因此反复重新打开详情。
 watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.value.length], () => {
   const id = Number(route?.query.document_id);

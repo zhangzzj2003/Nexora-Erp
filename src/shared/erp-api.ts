@@ -1,3 +1,4 @@
+import type { ProductProfile, ProductPage, ProductQuery, ProductInput, ProductUpdate, ProductModel, ProductModelInput, ProductChange } from './product-api'
 import type { MaterialFlowOperations } from './material-flow-api'
 import type { MaterialSupplyOperations } from './material-supply-api'
 import type { ProductionAssociationOperations } from './production-association-api'
@@ -859,6 +860,8 @@ export interface BomLine {
 }
 // 生产工单将固定引用一个 BOM 版本，停用后历史内容仍可查询。
 export interface Bom {
+  source_bom_id?: number | null
+  source_bom?: { id: number; product_material_id: number; product_name: string; product_sku: string; version: number } | null
   id: number
   product_material_id: number
   product_sku: string
@@ -1632,8 +1635,20 @@ export interface ErpOperations extends MaterialFlowOperations, MaterialSupplyOpe
   createOrderSettlement: { input: { kind: 'receivable' | 'payable'; from_order_id: number; to_order_id: number; amount: string; reference: string; reason: string }; output: OrderSettlementTransfer }
   changeOrderSettlementStatus: { input: { id: number; version: number; action: 'post' | 'cancel'; reason: string }; output: OrderSettlementTransfer }
   reverseOrderSettlement: { input: { transferId: number; reason: string }; output: OrderSettlementTransfer }
+  queryProducts: {input: ProductQuery; output: ProductPage}
+  productDetail: {input: {id: number}; output: ProductProfile}
+  productChanges: {input: {id: number}; output: ProductChange[]}
+  createProduct: {input: ProductInput; output: ProductProfile}
+  updateProduct: {input: ProductUpdate; output: ProductProfile}
+  productModels: {input: undefined; output: ProductModel[]}
+  productModelDetail: {input: {id: number}; output: ProductModel}
+  productModelChanges: {input: {id: number}; output: ProductChange[]}
+  createProductModel: {input: ProductModelInput; output: ProductModel}
+  updateProductModel: {input: ProductModelInput & {id: number; version: number; reason: string}; output: ProductModel}
+  bomDetail: {input: {bomId: number}; output: Bom}
+  productBoms: {input: {materialId: number}; output: Bom[]}
   boms: { input: undefined; output: Bom[] }
-  createBom: { input: { product_material_id: number; base_quantity: string; note: string; lines: { component_material_id: number; quantity: string }[] }; output: Bom }
+  createBom: { input: { source_bom_id?: number | null; product_material_id: number; base_quantity: string; note: string; lines: { component_material_id: number; quantity: string }[] }; output: Bom }
   activateBom: { input: { bomId: number }; output: Bom }
   retireBom: { input: { bomId: number }; output: Bom }
   cancelBom: { input: { bomId: number }; output: Bom }

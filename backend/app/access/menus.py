@@ -16,7 +16,7 @@ MENU_KEYS = {
     'group:sales',
     'group:system',
     'group:warehouse',
-    'route:boms',
+    'route:products', 'route:boms',
     'route:catalog',
     'route:customers',
     'route:customerRelations',

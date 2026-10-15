@@ -144,6 +144,8 @@ export const workspaceRouteGroups = [
         permission: 'inventory.view',
         icon: 'archive'
       },
+      // 产品与物料共用库存查看权限，维护和 BOM 仍分别检查原有写权限。
+      { key: 'products', path: '/workspace/products', label: '产品管理', permission: 'inventory.view', icon: 'stack' },
       // BOM 归入基础资料，旧地址和生产查看权限保留以兼容工单与已打开标签。
       {
         key: 'boms',

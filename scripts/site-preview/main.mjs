@@ -1,3 +1,4 @@
+import { productPreviewResponse, productPreviewOperations, productPreviewMaterials, productPreviewBoms } from './product-fixtures.mjs'
 import { createApp, nextTick } from 'vue'
 import { createPinia } from 'pinia'
 import App from '../../src/renderer/src/App.vue'
@@ -15,10 +16,12 @@ import '../../src/renderer/src/theme-transitions.css'
 
 // 独立浏览器会话模拟桌面桥接，只提供示例读取和窗口主题空操作，不包含网络访问。
 const previewQuery = new URLSearchParams(location.search)
-const dialogQa = previewQuery.get('qa') === 'dialogs'
+const productQa = previewQuery.get('qa') === 'products'
+const dialogQa = previewQuery.get('qa') === 'dialogs' || productQa
 const previewReadCounts = new Map()
 window.nexora = { platform: 'darwin', callApi: async (operation, payload) => {
   if (!dialogQa) return previewResponse(operation, payload)
+  if (productQa && productPreviewOperations.includes(operation)) return productPreviewResponse(operation,payload)
   // 延迟和失败仅作用于此隔离示例桥，真实页面与 Pinia 仍走完整读取链路。
   if (['documentApproval', 'materialSupply', 'materialFlowDetail', 'workOrderMaterialFlow', 'materialFlowLots'].includes(operation)) {
     await new Promise(resolve => setTimeout(resolve, Math.min(10000, Math.max(0, Number(previewQuery.get('delay')) || 0))))
@@ -33,10 +36,11 @@ const app = createApp(App).use(pinia)
 const store = usePiniaAppStore(pinia)
 const permissions = [...new Set(workspaceRoutes.map(route => route.permission).filter(Boolean)), 'catalog.manage', 'journal.create', 'journal.submit', 'journal.review', 'journal.post', 'business_journal.view', 'other_inbound.create', 'purchase_order.create', 'purchase_request.create', 'mrp.create']
 store.$patch({
-  user: { id: 3, username: '示例管理员', roles: ['admin'], permissions: dialogQa ? dialogPreviewPermissions : permissions, is_active: true },
+  user: { id: 3, username: '示例管理员', roles: ['admin'], permissions: productQa ? [...dialogPreviewPermissions,'catalog.manage','bom.create','bom.activate','bom.retire','bom.cancel'] : dialogQa ? dialogPreviewPermissions : permissions, is_active: true },
   screen: 'app', server: { id: 'site-preview', name: '界面预览 · 示例数据', version: '0.1.0', fingerprint: 'sample-only' },
-  version: '0.1.0', roles: [{ code: 'admin', label: '管理员' }], materials, warehouses,
-  boms: dialogQa ? dialogPreviewBoms : [],
+  version: '0.1.0', roles: [{ code: 'admin', label: '管理员' }], materials: productQa ? productPreviewMaterials : materials, warehouses,
+  materialUnits: productQa ? productPreviewResponse('materialUnits',undefined) : [],
+  boms: productQa ? productPreviewBoms : dialogQa ? dialogPreviewBoms : [],
   workOrders: dialogQa ? dialogPreviewWorkOrders : [],
   productionCompletions: dialogQa ? dialogPreviewCompletions : [],
   otherInbounds: dialogQa ? dialogPreviewInbounds : supplyPreviewInbounds,

@@ -156,10 +156,42 @@ def _migrate_material_flow(db: sqlite3.Connection) -> None:
                     SELECT code,? FROM roles WHERE code=?''',(code,role))
 
 
+def _migrate_products(db: sqlite3.Connection) -> None:
+    # 逐条执行以沿用外层迁移事务；不使用会隐式提交的 executescript。
+    statements = [
+        """CREATE TABLE IF NOT EXISTS product_models (
+            id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '', version INTEGER NOT NULL DEFAULT 1,
+            created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""",
+        """CREATE TABLE IF NOT EXISTS product_profiles (
+            id INTEGER PRIMARY KEY, material_id INTEGER NOT NULL UNIQUE REFERENCES materials(id),
+            kind TEXT NOT NULL DEFAULT 'unclassified' CHECK(kind IN ('finished','semi_finished','component','unclassified')),
+            model_id INTEGER REFERENCES product_models(id), configuration_name TEXT NOT NULL DEFAULT '',
+            version INTEGER NOT NULL DEFAULT 1, created_by INTEGER REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""",
+        """CREATE TABLE IF NOT EXISTS product_changes (
+            id INTEGER PRIMARY KEY, entity_kind TEXT NOT NULL, entity_id INTEGER NOT NULL,
+            before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+            changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""",
+        'CREATE INDEX IF NOT EXISTS ix_product_profiles_model ON product_profiles(model_id)',
+        'CREATE INDEX IF NOT EXISTS ix_product_changes_entity ON product_changes(entity_kind,entity_id,id)',
+    ]
+    for statement in statements:
+        db.execute(statement)
+    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if 'boms' in tables:
+        columns = {row[1] for row in db.execute('PRAGMA table_info(boms)')}
+        if 'source_bom_id' not in columns:
+            db.execute('ALTER TABLE boms ADD COLUMN source_bom_id INTEGER REFERENCES boms(id)')
+        # 迁移只纳入已存在的 BOM 产出物料，不猜测机型、类型或人工操作者。
+        db.execute("""INSERT OR IGNORE INTO product_profiles(material_id)
+            SELECT DISTINCT product_material_id FROM boms""")
+
+
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 103:
+        if version > 104:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -3191,3 +3223,9 @@ def migrate() -> None:
             # 只增加新事实表；历史直接领料不补造签收人或签收时间。
             _migrate_material_flow(db)
             db.execute('PRAGMA user_version = 103')
+
+
+        if version < 104:
+            # 仅扩展产品档案及派生来源；历史物料、库存、BOM 正文与工单均保持原样。
+            _migrate_products(db)
+            db.execute('PRAGMA user_version = 104')

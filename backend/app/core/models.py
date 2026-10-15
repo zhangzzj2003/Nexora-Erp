@@ -944,6 +944,8 @@ class ServerIdentity(Base):
 
 
 class Bom(Base):
+    # 派生版本固定来源编号，不会动态继承来源后续变化。
+    source_bom_id: Mapped[int | None] = mapped_column(ForeignKey('boms.id'))
     __tablename__ = 'boms'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     product_material_id: Mapped[int] = mapped_column(Integer, ForeignKey('materials.id'), nullable=False)
@@ -2776,3 +2778,40 @@ class MaterialFlowExecutionLot(Base):
     lot_id: Mapped[int] = mapped_column(ForeignKey('physical_lots.id'), nullable=False)
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
     __table_args__ = (UniqueConstraint('execution_line_id', 'lot_id'),)
+
+
+# 产品扩展沿用物料身份，库存与历史单据不增加另一套产品编号。
+class ProductModel(Base):
+    __tablename__ = 'product_models'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class ProductProfile(Base):
+    __tablename__ = 'product_profiles'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey('materials.id'), nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'unclassified'"))
+    model_id: Mapped[int | None] = mapped_column(ForeignKey('product_models.id'))
+    configuration_name: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    # 历史迁移不猜测是谁建立产品档案，新建操作才记录实际账号。
+    created_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class ProductChange(Base):
+    __tablename__ = 'product_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))

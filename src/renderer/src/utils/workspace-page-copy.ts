@@ -31,6 +31,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   materialIssues: '保留历史直接领料与原接口记录；新业务按工单发料，生产签收后才能用于完工。',
   materialReturns: '按原领料单退回物料，确认后更新库存与工单净领料数量。',
   productionCompletions: '记录报工、质检与合格品入库，保留取消及冲销记录。',
+  products: '统一管理产品、机型与具体配置，关联 BOM 版本并衔接生产工单。',
   boms: '维护成品配方与版本，同一成品只允许一个启用版本。',
   workOrders: '查看工单需料与报工进度，下达后围绕本工单办理发料、领料、换料、退料及完工。',
   purchase: '查看采购明细、审批与入库进度。批准后确认订单，再按采购流程收货入库。',

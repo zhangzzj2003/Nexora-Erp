@@ -64,11 +64,12 @@ test('BOM 共用弹窗编辑原草稿，删除后不串行，保存失败保留�
       if (id.endsWith('/WorkspaceDocumentDialog.vue')) return code.replace("'naive-ui'","'virtual:bom-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:bom-modal'")
     },
     resolveId(id,importer) {
+      if (id.endsWith('/ProductEditor.vue') || id.endsWith('/BomDetailDialog.vue')) return '\0bom-empty'
       if(id==='virtual:bom-modal')return '\0bom-modal'
       if(!importer?.includes('/src/renderer/'))return
       for(const [suffix,key] of [['/store/app-store','store'],['/WorkspaceTable.vue','table'],['/AppButton.vue','button'],['/AppInput.vue','input'],['/WorkspaceMaterialSelect.vue','select']])if(id.endsWith(suffix))return '\0bom-'+key
     },
-    load(id) {return {'\0bom-store':storeSource,'\0bom-modal':modalSource,'\0bom-table':tableSource,'\0bom-button':buttonSource,'\0bom-input':inputSource,'\0bom-select':selectSource}[id]}
+    load(id) {return {'\0bom-empty':'export default {render:()=>null}', '\0bom-store':storeSource,'\0bom-modal':modalSource,'\0bom-table':tableSource,'\0bom-button':buttonSource,'\0bom-input':inputSource,'\0bom-select':selectSource}[id]}
   },vue()],server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]},appType:'custom' })
   t.after(()=>server.close())
   const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/ProductionBomsView.vue')

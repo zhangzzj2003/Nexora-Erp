@@ -35,12 +35,14 @@ export function createProductionActions(
     await perform(async () => {
       await window.nexora!.callApi('createBom', {
         product_material_id: bomForm.value.product_material_id,
+        ...(bomForm.value.source_bom_id ? {source_bom_id: bomForm.value.source_bom_id} : {}),
         base_quantity: bomForm.value.base_quantity,
         note: bomForm.value.note,
         lines: bomForm.value.lines.map((line) => ({ ...line }))
       })
       bomForm.value = {
         product_material_id: 0,
+        source_bom_id: null,
         base_quantity: '1',
         note: '',
         lines: [{ component_material_id: 0, quantity: '1' }]

@@ -1,125 +1,29 @@
 <script setup lang="ts">
-// 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
-import { captureDialogOrigin } from '../../../utils/dialog-origin'
-// 复用公共物料资料的单行展开状态，新增或重选时收起其他行。
-import { useDocumentMaterialDetails } from '../../../composables/use-document-material-details'
-// 输入框统一外观，必填、长度与数字范围仍由真实输入元素校验。
-import AppInput from '../../../components/app/AppInput.vue'
-// 页面按钮统一复用 Naive UI 封装，显式区分表单提交与普通操作。
-import AppButton from '../../../components/app/AppButton.vue'
-// 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
-// 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
-import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
-import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
-import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
+// 列表和产品详情复用同一 BOM 编辑器、详情及原有版本操作。
 import { computed, ref } from 'vue'
-// 共用单据弹窗的基础信息、物料表格和固定操作区。
-import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
-import { bomDraftIssue, bomComponentOptions } from './bom-form'
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import AppInput from '../../../components/app/AppInput.vue'
+import AppButton from '../../../components/app/AppButton.vue'
+import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import BomEditor from './BomEditor.vue'
+import BomDetailDialog from './BomDetailDialog.vue'
+import { recordColumns, matchesRecordQuery } from '../../../utils/workspace-records'
 import { useAppStore } from '../../../store/app-store'
-import { submitCreateDialog } from '../../../utils/create-dialog'
-
-// 页面直接使用共享状态与操作，切换标签时不会丢失正在填写的草稿。
-const {
-  error,
-  notice,
-  connectionLost,
-  materialCategories,
-  busy,
-  materials,
-  boms,
-  bomForm,
-  can,
-  localTime,
-  createBom,
-  activateBom,
-  retireBom,
-  cancelBom
-} = useAppStore()
-
-// 保存失败时保留弹窗和草稿，方便直接修正后重试。
+const {busy, connectionLost, boms, can, localTime, activateBom, retireBom, cancelBom, prepareProductBom, openBomDetail} = useAppStore()
 const createOpen = ref(false)
-async function submitCreate(): Promise<void> {
-  // 断线、撤权或草稿无效时不触发请求，失败后仍留在原弹窗。
-  if (connectionLost.value || !can('bom.create') || bomIssue.value) return
-  await submitCreateDialog(createBom, { busy, error, notice }, createOpen)
-}
-// 只筛选当前列表快照，原有单据状态与跨页面草稿保持不变。
 const recordQuery = ref('')
-const filteredRecords = computed(() =>
-  boms.value.filter((item) =>
-    matchesRecordQuery(recordQuery.value, [
-      item.id,
-      item.product_name,
-      item.product_sku,
-      item.created_by_name,
-      ...item.lines.map((line) => line.material_name)
-    ])
-  )
-)
-// 行包装保留原 Pinia 对象；删行后重算索引，后续编辑不会错改其他组件。
-const componentRows = computed(() => bomForm.value.lines.map((line, index) => ({ line, index })))
-const componentColumns = [
-  { key: 'material', title: '组件物料 / 资料', width: '470' },
-  { key: 'unit', title: '单位', width: '80' },
-  { key: 'quantity', title: '基准用量', width: '150' },
-  { key: 'actions', title: '操作', width: '90' }
-]
-const bomIssue = computed(() => bomDraftIssue(bomForm.value, materials.value))
-function addComponent(): void {
-  // 与接口的一百行上限一致，并在事件入口重复核对交互状态。
-  if (busy.value || connectionLost.value || !can('bom.create') || bomForm.value.lines.length >= 100) return
-  bomForm.value.lines.push({ component_material_id: 0, quantity: '1' })
+const filteredRecords = computed(() => boms.value.filter(item => matchesRecordQuery(recordQuery.value,
+  [item.id, item.product_name, item.product_sku, item.created_by_name, ...item.lines.map(line => line.material_name)])))
+function copyBom(item: typeof boms.value[number]): void {
+  if (prepareProductBom(item.product_material_id, item)) createOpen.value = true
 }
-function removeComponent(index: number): void {
-  if (busy.value || connectionLost.value || !can('bom.create') || bomForm.value.lines.length <= 1) return
-  bomForm.value.lines.splice(index, 1)
-}
-// 资料展示绑定原草稿行引用，删除中间行不会展开到另一项物料。
-const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => bomForm.value.lines)
 </script>
 
 <template>
   <section class="stack">
     <!-- 业务草稿仍由 Pinia 保存，公共弹窗只负责布局和交互边界。 -->
-    <WorkspaceDocumentDialog origin-key="ProductionBomsView:form" @invalidated="createOpen = false"
-      v-if="can('bom.create')" v-model:show="createOpen" title="新建 BOM 版本"
-      :data="componentRows" :columns="componentColumns" :busy="busy" :disabled="connectionLost"
-      :submit-disabled="Boolean(bomIssue)" :add-disabled="bomForm.lines.length >= 100"
-      :hint="bomIssue || '旧版本会保留供追溯；同一成品一次只能启用一个版本。'"
-      @add-material="addComponent" @submit="submitCreate"
-    >
-      <template #basicInfo>
-        <label class="bom-basic-field">成品物料<WorkspaceMaterialSelect v-model="bomForm.product_material_id"
-          :materials="materials" :categories="materialCategories" :disabled="busy || connectionLost"
-          placeholder="选择成品" required /></label>
-        <label class="bom-basic-field">基准产出数量<AppInput v-model.trim="bomForm.base_quantity" :disabled="busy || connectionLost"
-          type="number" min="0.001" max="1000000" step="0.001" required /></label>
-        <label class="bom-basic-field">版本说明（可选）<AppInput v-model.trim="bomForm.note" :disabled="busy || connectionLost" maxlength="200" /></label>
-      </template>
-      <template #cell-material="{ row: { line, index } }">
-        <!-- 标题由表头统一展示，控件保留逐行无障碍名称。 -->
-        <WorkspaceMaterialSelect v-model="line.component_material_id" :materials="materials"
-          :aria-label="`第 ${index + 1} 行物料`"
-          :compact="activeLine !== line"
-          @update:compact="(value) => setCompact(line, value)"
-          @change="showLine(line)"
-          :categories="materialCategories" :options="bomComponentOptions(bomForm, materials, index)"
-          :disabled="busy || connectionLost" placeholder="选择组件" required />
-      </template>
-      <template #cell-unit="{ row: { line } }">
-        {{ materials.find(item => item.id === line.component_material_id)?.unit ?? '—' }}
-      </template>
-      <template #cell-quantity="{ row: { line } }">
-        <AppInput v-model.trim="line.quantity" :disabled="busy || connectionLost" aria-label="基准用量"
-          type="number" min="0.001" max="1000000" step="0.001" required />
-      </template>
-      <template #cell-actions="{ row: { index } }">
-        <!-- 移除使用公共按钮的完整点击区域，原有禁用与删行规则保持。 -->
-        <AppButton size="small" type="button" variant="secondary" :disabled="busy || connectionLost || bomForm.lines.length === 1"
-          @click="removeComponent(index)">移除</AppButton>
-      </template>
-    </WorkspaceDocumentDialog>
+    <BomEditor v-model:show="createOpen" />
+    <BomDetailDialog />
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"
@@ -172,6 +76,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => bo
         </span>
       </template>
       <template #cell-details="{ row: item }">
+        <AppButton v-if="item.source_bom" size="small" :disabled="busy || connectionLost" @click="openBomDetail(item.source_bom.id)">来源：{{ item.source_bom.product_name }} · V{{ item.source_bom.version }}</AppButton>
         <div class="workspace-record-lines">
           <span v-for="line in item.lines" :key="line.id">
             {{ line.material_name }} × {{ line.quantity }} {{ line.unit }}
@@ -180,11 +85,13 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => bo
       </template>
       <template #cell-actions="{ row: item }">
         <div class="form-actions">
+          <AppButton size="small" :disabled="busy || connectionLost" @click="openBomDetail(item.id)">详情</AppButton>
+          <AppButton v-if="item.status !== 'cancelled' && can('bom.create')" size="small" :disabled="busy || connectionLost" @click="copyBom(item)">复制派生</AppButton>
           <AppButton
             v-if="item.status === 'draft' && can('bom.activate')"
             type="button"
             :disabled="
-              busy ||
+              busy || connectionLost ||
               boms.some(
                 (other) =>
                   other.product_material_id === item.product_material_id &&
@@ -200,7 +107,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => bo
           <AppButton
             v-if="item.status === 'active' && can('bom.retire')"
             type="button"
-            :disabled="busy"
+            :disabled="busy || connectionLost"
             @click="retireBom(item.id)"
             variant="secondary"
             size="small"
@@ -210,7 +117,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => bo
           <AppButton
             v-if="item.status === 'draft' && can('bom.cancel')"
             type="button"
-            :disabled="busy"
+            :disabled="busy || connectionLost"
             @click="cancelBom(item.id)"
             variant="secondary"
             size="small"

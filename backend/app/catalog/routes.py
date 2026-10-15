@@ -175,57 +175,15 @@ def material_detail(material_id: int, include_suppliers: bool = False, _: dict =
 
 @router.post("/materials", status_code=201)
 def create_material(payload: MaterialInput, actor: dict = Depends(require("catalog.manage"))) -> dict:
-    if not payload.category_code and not payload.sku:
-        raise HTTPException(422, '请先选择物料子类，编码将在保存时自动生成')
-    if payload.category_code and payload.sku:
-        raise HTTPException(422, '分类物料的编码由系统自动生成，请勿手工填写')
     with orm_session(write=True) as db:
-        validate_selection(db, payload.category_code)
-        resolve_material_unit(db, payload.unit, payload.unit_id, actor)
-        sku = allocate_material_code(db, payload.category_code) if payload.category_code else payload.sku
-        if not payload.category_code:
-            reserve_legacy_code(db, sku)
-        material = Material(sku=sku, name=payload.name, unit=payload.unit,
-                            **{key: getattr(payload, key) for key in DETAIL_FIELDS}, version=1)
-        material.spec_values_json, material.extra_attributes_json, material.spec_template_version = '[]', '[]', 0
-        save_specifications(db, material, payload.spec_values, payload.spec_template_version,
-                            payload.extra_attributes, validate_required=True)
-        db.add(material)
-        flush_catalog(db, "物料编码已存在")
-        ids = save_material_suppliers(db, material, payload.suppliers, actor) if payload.suppliers is not None else None
-        record_material_change(db, material, 'create', None, actor, payload.reason or '新增物料', supplier_ids=ids)
-        return material_data(material)
+        return create_material_in_session(db, payload, actor)
 
 
 @router.put("/materials/{material_id}")
 def update_material(material_id: int, payload: MaterialInput,
                     actor: dict = Depends(require("catalog.manage"))) -> dict:
     with orm_session(write=True) as db:
-        material = db.get(Material, material_id)
-        if material is None:
-            raise HTTPException(404, "物料不存在")
-        if payload.version != material.version:
-            raise HTTPException(409, '物料资料已更新或未提供版本，请重新加载后编辑')
-        if payload.sku and payload.sku != material.sku:
-            raise HTTPException(409, '物料编码建立后不可修改')
-        new_category = payload.category_code if 'category_code' in payload.model_fields_set else material.category_code
-        validate_selection(db, new_category, material.category_code)
-        changed_category = new_category != material.category_code
-        resolve_material_unit(db, payload.unit, payload.unit_id, actor, material.unit)
-        before = material_data(material)
-        if payload.suppliers is not None:
-            before['supplier_ids'] = material_supplier_ids(db, material.id)
-        # 兼容仅改名称/单位的请求；未提交的详细字段保留，显式空字符串才清除。
-        material.name, material.unit = payload.name, payload.unit
-        for key in DETAIL_FIELDS:
-            if key in payload.model_fields_set:
-                setattr(material, key, getattr(payload, key))
-        save_specifications(db, material, payload.spec_values, payload.spec_template_version,
-                            payload.extra_attributes, validate_required=changed_category or payload.spec_values is not None)
-        material.version += 1
-        ids = save_material_suppliers(db, material, payload.suppliers, actor) if payload.suppliers is not None else None
-        record_material_change(db, material, 'update', before, actor, payload.reason or '修改物料资料', supplier_ids=ids)
-        return material_data(material)
+        return update_material_in_session(db, material_id, payload, actor)
 
 
 @router.delete("/materials/{material_id}", status_code=204)
@@ -317,3 +275,55 @@ def unbind_supplier_material(supplier_id: int, material_id: int,
         material.version += 1
         record_material_change(db, material, 'update', before, actor, '解除供应商绑定',
                                supplier_ids=[key for key in before['supplier_ids'] if key != supplier_id])
+
+
+def create_material_in_session(db: Session, payload: MaterialInput, actor: dict) -> dict:
+    """产品建档与物料写入共用一个事务，避免只保存一半资料。"""
+    if not payload.category_code and not payload.sku:
+        raise HTTPException(422, '请先选择物料子类，编码将在保存时自动生成')
+    if payload.category_code and payload.sku:
+        raise HTTPException(422, '分类物料的编码由系统自动生成，请勿手工填写')
+    validate_selection(db, payload.category_code)
+    resolve_material_unit(db, payload.unit, payload.unit_id, actor)
+    sku = allocate_material_code(db, payload.category_code) if payload.category_code else payload.sku
+    if not payload.category_code:
+        reserve_legacy_code(db, sku)
+    material = Material(sku=sku, name=payload.name, unit=payload.unit,
+                        **{key: getattr(payload, key) for key in DETAIL_FIELDS}, version=1)
+    material.spec_values_json, material.extra_attributes_json, material.spec_template_version = '[]', '[]', 0
+    save_specifications(db, material, payload.spec_values, payload.spec_template_version,
+                        payload.extra_attributes, validate_required=True)
+    db.add(material)
+    flush_catalog(db, "物料编码已存在")
+    ids = save_material_suppliers(db, material, payload.suppliers, actor) if payload.suppliers is not None else None
+    record_material_change(db, material, 'create', None, actor, payload.reason or '新增物料', supplier_ids=ids)
+    return material_data(material)
+
+
+def update_material_in_session(db: Session, material_id: int, payload: MaterialInput, actor: dict) -> dict:
+    """联合编辑同时校验物料版本，任何冲突由外层事务全部回滚。"""
+    material = db.get(Material, material_id)
+    if material is None:
+        raise HTTPException(404, "物料不存在")
+    if payload.version != material.version:
+        raise HTTPException(409, '物料资料已更新或未提供版本，请重新加载后编辑')
+    if payload.sku and payload.sku != material.sku:
+        raise HTTPException(409, '物料编码建立后不可修改')
+    new_category = payload.category_code if 'category_code' in payload.model_fields_set else material.category_code
+    validate_selection(db, new_category, material.category_code)
+    changed_category = new_category != material.category_code
+    resolve_material_unit(db, payload.unit, payload.unit_id, actor, material.unit)
+    before = material_data(material)
+    if payload.suppliers is not None:
+        before['supplier_ids'] = material_supplier_ids(db, material.id)
+    # 兼容仅改名称/单位的请求；未提交的详细字段保留，显式空字符串才清除。
+    material.name, material.unit = payload.name, payload.unit
+    for key in DETAIL_FIELDS:
+        if key in payload.model_fields_set:
+            setattr(material, key, getattr(payload, key))
+    save_specifications(db, material, payload.spec_values, payload.spec_template_version,
+                        payload.extra_attributes, validate_required=changed_category or payload.spec_values is not None)
+    material.version += 1
+    ids = save_material_suppliers(db, material, payload.suppliers, actor) if payload.suppliers is not None else None
+    record_material_change(db, material, 'update', before, actor, payload.reason or '修改物料资料', supplier_ids=ids)
+    return material_data(material)

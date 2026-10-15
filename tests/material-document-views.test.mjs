@@ -76,12 +76,14 @@ test('十四个物料单据页面共用表格弹窗，新增和删除直接修�
       }
     },
     resolveId(id,importer){
+      // 关联详情另有产品测试，此用例继续验证原有物料单据编辑。
+      if(id.endsWith('/BomDetailDialog.vue') || id.endsWith('/ProductEditor.vue'))return '\0material-product-empty'
       if(id==='virtual:material-document-modal')return '\0material-document-modal'
       if(!importer?.includes('/src/renderer/'))return
       for(const [suffix,key] of [['/store/app-store','store'],['/WorkspaceTable.vue','table'],['/AppButton.vue','button'],['/AppInput.vue','input'],['/WorkspaceSelect.vue','select'],['/WorkspaceMaterialSelect.vue','material-select']]) {
         if(id.endsWith(suffix))return '\0material-document-'+key
       }
-    },load(id){return {'\0material-document-store':storeSource,'\0material-document-modal':modalSource,'\0material-document-table':tableSource,
+    },load(id){return {'\0material-product-empty':'export default {render:()=>null}','\0material-document-store':storeSource,'\0material-document-modal':modalSource,'\0material-document-table':tableSource,
       '\0material-document-button':buttonSource,'\0material-document-input':inputSource,'\0material-document-select':selectSource,'\0material-document-material-select':materialSelectSource}[id]}
   },vue()],server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]},appType:'custom'})
   t.after(()=>server.close())
