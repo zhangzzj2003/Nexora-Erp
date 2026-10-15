@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { createRenderer, h, nextTick, ssrContextKey } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { createPinia } from 'pinia'
@@ -10,7 +11,8 @@ import vue from '@vitejs/plugin-vue'
 // 真实页面和 Pinia 参与更新；可控离场替身验证供应商列表消失时外壳不会抢先卸载。
 test('供应商消失先关闭绑定弹窗，保留离场外壳并拒绝旧绑定事件', async t => {
   // SSR 载入提供真实 setup；正常模板编译供内存渲染器检查跨更新的组件身份。
-  const filename = new URL('../src/renderer/src/views/workspace/catalog/SuppliersView.vue', import.meta.url).pathname
+  // URL 的 pathname 在 Windows 会保留盘符前的斜杠，必须按系统规则转换为真实文件路径。
+  const filename = fileURLToPath(new URL('../src/renderer/src/views/workspace/catalog/SuppliersView.vue', import.meta.url))
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
   const { bindings } = compileScript(descriptor, { id: 'supplier-binding-test' })
   const template = compileTemplate({ source: descriptor.template.content, filename, id: 'supplier-binding-test', compilerOptions: { bindingMetadata: bindings } })
