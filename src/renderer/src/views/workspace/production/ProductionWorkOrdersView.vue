@@ -172,7 +172,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
 </script>
 
 <template>
-  <section class="stack">
+  <section class="stack production-work-orders">
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog origin-key="document-approval">
       <WorkOrderMaterialFlowPanel v-if="detailItem && detailIntent === 'execute' && can('material_flow.view')" :order-id="detailItem.id" />
@@ -300,7 +300,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
           min="0.001" max="1000000" step="0.001" required aria-label="目标产量" :disabled="busy || connectionLost" />
       </template>
     </WorkspaceDocumentDialog>
-    <WorkspaceSummaryFilters v-model="recordFilters.status" :options="recordSummaries" hint="按搜索与仓库统计全部匹配单据 · 点击筛选状态" />
+    <WorkspaceSummaryFilters v-model="recordFilters.status" :options="recordSummaries" hint="" />
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"
@@ -430,3 +430,8 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
     </WorkspaceTable>
   </section>
 </template>
+
+<style scoped>
+/* 本页移除概览说明后收紧卡片与列表间距，其他业务页面继续使用公共间距。 */
+.production-work-orders { gap: 12px; }
+</style>

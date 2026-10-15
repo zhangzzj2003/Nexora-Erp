@@ -72,8 +72,8 @@ async function fixture(t, name, query = {}, permissions = ['production.view', 'p
     resolveId(id, importer) {
       if (importer?.includes('/src/renderer/') && id.endsWith('/store/app-store')) return '\0cycle-store'
       if (importer?.includes('/src/renderer/') && id.endsWith('.vue')) {
-        // 布局用例保留真实公共单据弹窗，只替换需要浏览器绘制的控件。
-        if (renderDialog && id.endsWith('/WorkspaceDocumentDialog.vue')) return
+        // 布局用例保留真实公共单据弹窗及概览，只替换需要浏览器绘制的控件。
+        if (renderDialog && (id.endsWith('/WorkspaceDocumentDialog.vue') || id.endsWith('/WorkspaceSummaryFilters.vue'))) return
         if (renderDialog && id.endsWith('/AppModal.vue')) return '\0cycle-modal'
         if (renderDialog && id.endsWith('/WorkspaceTable.vue')) return '\0cycle-table'
         if (renderDialog && id.endsWith('/AppButton.vue')) return '\0cycle-button'
@@ -286,4 +286,18 @@ test('新建工单实际复用仓库公共弹窗，基础信息在上、单产�
   f.store.connectionLost = true
   const offline = await f.render()
   assert.match(offline, /<fieldset[^>]*disabled/)
+})
+
+test('生产工单概览隐藏右侧说明，状态卡片及筛选统计保持可用', async t => {
+  const f = await fixture(t, 'ProductionWorkOrdersView', {}, ['work_order.create'], true)
+  const html = await f.render()
+  assert.match(html, /aria-label="单据概览与快速筛选"/)
+  assert.doesNotMatch(html, /summary-filter-hint|按搜索与仓库统计全部匹配单据/)
+  assert.match(html, /全部，2 条/)
+  assert.match(html, /待完工，2 条/)
+  f.state.recordFilters.status = 'completed'
+  assert.equal(f.state.filteredRecords.length, 0)
+  assert.equal(f.state.recordSummaries[0].count, 2)
+  f.state.resetRecordFilters()
+  assert.equal(f.state.filteredRecords.length, 2)
 })
