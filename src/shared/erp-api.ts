@@ -887,6 +887,8 @@ export interface WorkOrderLine {
   unit: string
   required_quantity: string
   in_transit_quantity?: string
+  // 待发为已有发料计划的未执行量；remaining_quantity 是尚未安排发料的正常需求。
+  pending_dispatch_quantity?: string
   reserved_quantity?: string
   damaged_quantity?: string
   issued_quantity: string

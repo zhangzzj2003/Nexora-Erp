@@ -258,6 +258,8 @@ PYTHONPATH=backend python3 -m pytest backend/tests -q
 
 另有跨模块测试把采购组件入库、跨仓调拨、生产领料与质检入库、成品销售出库、工单成本及应收应付结清串在同一测试数据库中；这验证接口和库存来源的一致性，不代替真实设备或现场业务数据验收。
 
+新收发流程的多仓闭环由 `test_warehouse_production_cycle.py` 验证，覆盖交接差额、换料补签、分批退料、完工入库和正式成本结算。工单明细增加只读 `pending_dispatch_quantity`，汇总新发料与旧领料草稿的待执行量；已有 `remaining_quantity` 继续表示尚未安排的正常需求，不改变原额度校验。无需结构迁移，数量口径与前端衔接见 [生产材料流程](../docs/production-material-flow.md#工单与完工衔接)。
+
 数据库第 32 版新增 `/api/v1/warehouse-outbounds`。其他出库草稿记录仓库、用途、原因及明细，`/post` 在仓库余额充足时原子扣减库存；其他用途出库和已提交采购退货可按实物批次逐行指定来源仓正余额，`/{id}/available-lots` 沿用 `other_outbound.post` 返回可选批次，冲销沿原分配回仓；`/cancel` 仅取消草稿，`/reverse` 追加冲销流水。重复操作返回 409，其他出库不产生采购应付。权限为 `other_outbound.view/create/post/cancel/reverse`。
 
 数据库第 33 版将采购退货提交与仓库出库确认分离。`POST /api/v1/purchase-returns/{id}/submit` 创建唯一待出库单并占用原入库可退量；仓库通过 `/api/v1/warehouse-outbounds/{id}/post` 在同一事务重查原入库可退量和原仓余额，可逐行指定批次并固定在退货流水上，确认一次才写一组退货流水、确认退货及应付冲减。取消待出库退货释放占用。旧客户端的退货 `/post` 在同一事务补建并确认关联出库单；迁移仅为历史已确认退货补单据，不重放流水。

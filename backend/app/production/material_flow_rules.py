@@ -150,7 +150,7 @@ def source_available(db, line: MaterialFlowLine, exclude_document=None) -> Decim
 
 
 def flow_quantities(db: Session, work_order_line_id: int) -> dict[str, Decimal]:
-    result = {key: ZERO for key in ('dispatched','signed','returned','damaged','reserved','in_transit','committed','effective')}
+    result = {key: ZERO for key in ('dispatched','signed','returned','damaged','reserved','in_transit','committed','effective','pending_dispatch')}
     for line in db.scalars(select(MaterialFlowLine).where(MaterialFlowLine.work_order_line_id == work_order_line_id)):
         header = document(db, line.document_type, line.document_id)
         if header.status == 'reversed':
@@ -158,6 +158,9 @@ def flow_quantities(db: Session, work_order_line_id: int) -> dict[str, Decimal]:
         actual = executed_quantity(db, line.id)
         if line.document_type == 'dispatch':
             result['dispatched'] += actual
+            # 未执行的发料计划单独展示；已关闭余额不再待发，换料补发仍须计入待办。
+            if header.status != 'closed':
+                result['pending_dispatch'] += max(ZERO, Decimal(line.quantity) - actual)
             if not line.exchange_line_id:
                 result['committed'] += actual if header.status == 'closed' else Decimal(line.quantity)
         elif line.document_type == 'receipt':

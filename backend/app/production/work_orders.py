@@ -202,12 +202,17 @@ def work_order_data(db: Session, order_id: int) -> dict:
         issued = issued_quantity(db, line["id"])
         from app.production.material_flow_rules import flow_quantities
         progress = flow_quantities(db, line["id"])
+        # 兼容旧入口尚未执行的领料草稿，与新发料计划一起核对真正的待发量。
+        legacy_pending = sum((Decimal(value) for value in db.scalars(select(MaterialIssueLine.quantity)
+            .join(MaterialIssue, MaterialIssue.id == MaterialIssueLine.material_issue_id)
+            .where(MaterialIssueLine.work_order_line_id == line["id"], MaterialIssue.status == 'draft'))), Decimal(0))
         details.append(
             {
                 **dict(line),
                 "issued_quantity": str(issued),
                 "remaining_quantity": str(max(Decimal(0), Decimal(line["required_quantity"]) - committed_quantity(db, line["id"])).quantize(Decimal('0.001'))),
                 "in_transit_quantity": str(progress["in_transit"]),
+                "pending_dispatch_quantity": str(progress["pending_dispatch"] + legacy_pending),
                 "reserved_quantity": str(progress["reserved"]),
                 "damaged_quantity": str(progress["damaged"]),
             }

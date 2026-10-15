@@ -18,10 +18,14 @@ import WorkspaceSelect from "../../../components/workspace/WorkspaceSelect.vue";
 import WorkspaceTable from "../../../components/workspace/WorkspaceTable.vue";
 import ProductionAssociationDialog from "../../../components/workspace/ProductionAssociationDialog.vue";
 import DocumentApprovalDialog from "../../../components/workspace/DocumentApprovalDialog.vue";
-import { matchesRecordQuery } from "../../../utils/workspace-records";
+// 生产列表沿用仓库管理的概览、搜索和仓库筛选，数量统计覆盖全部匹配记录。
+import WorkspaceSummaryFilters from '../../../components/workspace/WorkspaceSummaryFilters.vue';
+import WorkspaceSearchFilters from '../../../components/workspace/WorkspaceSearchFilters.vue';
+import { useProductionRecords } from '../../../composables/use-production-records';
 import type { WorkspaceTableColumn } from "../../../utils/table-columns";
 import { computed, ref, watch } from "vue";
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
+import { routeByKey } from '../../../router/workspace-routes';
 // 首屏物料区必须同步注册加载屏障，避免父弹窗展开后才插入正文。
 import WorkOrderMaterialFlowPanel from '../../../components/workspace/WorkOrderMaterialFlowPanel.vue';
 import { storeToRefs } from "pinia";
@@ -47,33 +51,28 @@ const {
   createWorkOrder,
   releaseWorkOrder,
   cancelWorkOrder,
-  selectCompletionOrder,
 } = store;
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
 const createOpen = ref(false);
 async function submitCreate(): Promise<void> {
+  // 回车提交与按钮执行使用相同的连接、权限约束。
+  if (busy.value || connectionLost.value || !can('work_order.create')) return;
   await submitCreateDialog(
     createWorkOrder,
     { busy, error, notice },
     createOpen,
   );
 }
-// 只筛选当前列表快照，原有单据状态与跨页面草稿保持不变。
-const recordQuery = ref("");
-const filteredRecords = computed(() =>
-  workOrders.value.filter((item) =>
-    matchesRecordQuery(recordQuery.value, [
-      documentSearch(item),
-      item.id,
-      item.product_name,
-      item.product_sku,
-      item.warehouse_name,
-      item.created_by_name,
-      item.reference,
-      ...item.lines.map((line) => line.material_name),
-    ]),
-  ),
+const { recordQuery, recordFilters, recordSummaries, recordFilterFields, filteredRecords, resetRecordFilters } = useProductionRecords(
+  workOrders, [
+    { key: 'draft', label: '待下达', statuses: ['draft'], tone: 'pending' },
+    { key: 'active', label: '待完工', statuses: ['released', 'in_progress'], tone: 'pending' },
+    { key: 'completed', label: '已完工', statuses: ['completed'], tone: 'success' },
+    { key: 'cancelled', label: '已取消', statuses: ['cancelled'], tone: 'neutral' },
+  ],
+  item => [documentSearch(item), item.id, item.product_name, item.product_sku, item.warehouse_name,
+    item.created_by_name, item.reference, ...item.lines.flatMap(line => [line.sku, line.material_name])],
 );
 // 详情弹窗由审批目标驱动；页脚业务按钮按当前单据与意图（执行/冲销）展示。
 const detailItem = computed(() =>
@@ -100,6 +99,16 @@ const approvalLabels = {
 };
 // 仓库单据返回工单时直接打开对应详情，避免再次搜索同一工单。
 const route = useRoute();
+const router = useRouter();
+// 完工建单携带明确的一次性意图，先关闭工单详情，避免新页面仍显示旧审批弹窗。
+async function openCompletions(create = false): Promise<void> {
+  const order = detailItem.value;
+  if (!order || busy.value || connectionLost.value || !can('production.view')) return;
+  if (create && (order.status !== 'in_progress' || Number(order.remaining_output_quantity) <= 0 || !can('production_completion.create'))) return;
+  store.closeDocumentApproval();
+  await router.push({ path: routeByKey('productionCompletions').path,
+    query: { work_order_id: order.id, ...(create ? { create_from_order: order.id } : {}) } });
+}
 // 仅监听稳定的字段值；审批刷新会替换账号和工单数组，不能因此反复重新打开详情。
 watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.value.length], () => {
   const id = Number(route?.query.document_id);
@@ -157,9 +166,11 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
             type="button"
             variant="secondary"
             :disabled="busy || connectionLost"
-            @click="selectCompletionOrder(detailItem.id)"
+            @click="openCompletions(true)"
             >创建完工单</AppButton
           >
+          <AppButton v-if="detailIntent === 'execute' && can('production.view')" tone="info"
+            :disabled="busy || connectionLost" @click="openCompletions()">查看完工记录</AppButton>
           <AppButton
             tone="warning"
             v-if="
@@ -253,6 +264,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
           type="submit"
           :disabled="
             busy ||
+            connectionLost ||
             !boms.some((item) => item.status === 'active') ||
             !warehouses.length
           "
@@ -262,6 +274,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
         </AppButton>
       </form>
     </AppModal>
+    <WorkspaceSummaryFilters v-model="recordFilters.status" :options="recordSummaries" hint="按搜索与仓库统计全部匹配单据 · 点击筛选状态" />
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"
@@ -274,7 +287,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
         <AppButton
           v-if="can('work_order.create')"
           type="button"
-          :disabled="busy"
+          :disabled="busy || connectionLost"
           @click.capture="captureDialogOrigin('ProductionWorkOrdersView:create', $event)" @click="createOpen = true"
           variant="primary"
         >
@@ -282,10 +295,8 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
         </AppButton>
       </template>
       <template #filters>
-        <label>
-          搜索生产工单
-          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
-        </label>
+        <WorkspaceSearchFilters v-model:query="recordQuery" v-model:filters="recordFilters" :fields="recordFilterFields"
+          search-label="搜索生产工单" search-placeholder="单号、工单、产品或物料" @reset="resetRecordFilters" />
       </template>
 
       <template #cell-document="{ row: item }">
@@ -350,9 +361,13 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
             {{ item.product_unit }}
           </span>
           <span v-for="line in item.lines" :key="line.id">
-            {{ line.material_name }} · 需求 {{ line.required_quantity }} · 已领
-            {{ line.issued_quantity }} · 剩余 {{ line.remaining_quantity }}
+            <!-- 这是累计材料口径，包含已经报工的耗用，不能标成尚未使用的剩余量。 -->
+            {{ line.material_name }} · 需求 {{ line.required_quantity }} · 有效领用
+            {{ line.issued_quantity }} · 已发未签 {{ line.in_transit_quantity ?? '0' }} · 待发 {{ line.pending_dispatch_quantity ?? '—' }} · 待安排 {{ line.remaining_quantity }}
             {{ line.unit }}
+            <small v-if="Number(line.reserved_quantity ?? 0) > 0 || Number(line.damaged_quantity ?? 0) > 0" class="muted">
+              待退换预留 {{ line.reserved_quantity ?? '0' }} · 已确认损坏 {{ line.damaged_quantity ?? '0' }} {{ line.unit }}
+            </small>
           </span>
         </div>
       </template>
@@ -376,12 +391,12 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
       </template>
       <template #empty>
         <strong>{{
-          recordQuery ? "没有匹配的记录" : "暂无生产工单记录"
+          (recordQuery || recordFilters.status || recordFilters.warehouse) ? "没有匹配的记录" : "暂无生产工单记录"
         }}</strong>
         <span>
           {{
-            recordQuery
-              ? "可调整单号、名称或物料关键词后重新搜索。"
+            (recordQuery || recordFilters.status || recordFilters.warehouse)
+              ? "可调整关键词、状态或仓库后重新搜索。"
               : "业务记录生成后，可在这里查看明细与处理状态。"
           }}
         </span>

@@ -243,14 +243,15 @@ export function createProductionActions(
     )
   }
 
-  function selectCompletionOrder(orderId: number): void {
+  function selectCompletionOrder(orderId: number, navigate = true): void {
     const order = workOrders.value.find((item) => item.id === orderId)
     completionForm.value = {
       work_order_id: orderId,
       reported_quantity: order?.remaining_output_quantity ?? '1',
       reference: ''
     }
-    navigateToRoute('productionCompletions')
+    // 页面内切换工单只更新草稿，保留从工单带来的列表范围与打开意图。
+    if (navigate) navigateToRoute('productionCompletions')
   }
 
   async function createProductionCompletion(): Promise<void> {

@@ -7,7 +7,7 @@ import { workspaceRouter } from '../../src/renderer/src/router/browser-router'
 import { installWorkspaceAccessGuard } from '../../src/renderer/src/router'
 import { workspaceRoutes, workspaceRouteGroups } from '../../src/renderer/src/router/workspace-routes'
 import { previewRoutes, previewResponse, supplyPreviewInbounds, materials, warehouses, journals, productionCostReport, productionCostSettlements, receipts, receivablesPayables } from './fixtures.mjs'
-import { dialogPreviewResponse, dialogPreviewPermissions, dialogPreviewInbounds, dialogPreviewWorkOrders } from './dialog-fixtures.mjs'
+import { dialogPreviewResponse, dialogPreviewPermissions, dialogPreviewInbounds, dialogPreviewWorkOrders, dialogPreviewCompletions } from './dialog-fixtures.mjs'
 import '../../src/renderer/src/style.css'
 import '../../src/renderer/src/light-theme.css'
 import '../../src/renderer/src/dark-theme.css'
@@ -37,6 +37,7 @@ store.$patch({
   screen: 'app', server: { id: 'site-preview', name: '界面预览 · 示例数据', version: '0.1.0', fingerprint: 'sample-only' },
   version: '0.1.0', roles: [{ code: 'admin', label: '管理员' }], materials, warehouses,
   workOrders: dialogQa ? dialogPreviewWorkOrders : [],
+  productionCompletions: dialogQa ? dialogPreviewCompletions : [],
   otherInbounds: dialogQa ? dialogPreviewInbounds : supplyPreviewInbounds,
   suppliers: [{ id: 1, name: '示例电子供应商' }], supplierMaterials: materials.map(item => ({ material_id: item.id, supplier_id: 1 })),
   materialCategories: [

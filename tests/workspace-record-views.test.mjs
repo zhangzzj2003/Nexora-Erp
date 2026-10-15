@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createSSRApp, h } from "vue";
+import { createPinia } from 'pinia';
+import { setup as setupSsrStyles } from '@css-render/vue3-ssr';
 import { renderToString } from "@vue/server-renderer";
 import { createServer } from "vite";
 import vue from "@vitejs/plugin-vue";
@@ -95,7 +97,10 @@ test("财务冲销、生产质检与账号操作在表格迁移后保留原权�
     const { default: View } = await server.ssrLoadModule(
       "/src/renderer/src/views/workspace/" + file,
     );
-    return renderToString(createSSRApp({ render: () => h(View) }));
+    // 真实仓库选择器依赖 Pinia；服务端渲染收集菜单样式，不能尝试访问浏览器 document。
+    const application = createSSRApp({ render: () => h(View) }).use(createPinia());
+    setupSsrStyles(application);
+    return renderToString(application);
   };
   // 每个财务页面只保留自己的列表，不再依赖旧 finance 标签键才能显示。
   state.activeTab.value = "financePayments";
@@ -129,6 +134,7 @@ test("财务冲销、生产质检与账号操作在表格迁移后保留原权�
   permissions.delete("finance.record");
   const buttons = (html) =>
     [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map((m) => ({
+      attributes: m[1],
       disabled: /(?:^|\s)disabled(?:\s|=|$)/.test(m[1]),
       label: m[2].replace(/<[^>]*>/g, "").trim(),
     }));
@@ -300,6 +306,10 @@ test("财务冲销、生产质检与账号操作在表格迁移后保留原权�
     [true, false],
   );
   state.busy.value = true;
-  assert.ok(buttons(await render(completions)).every((b) => b.disabled));
+  // 概览及重置只筛选已有快照，可以继续使用；忙碌时所有单据业务按钮仍须禁用。
+  const completionActions = buttons(await render(completions))
+    .filter(b => !b.attributes.includes('aria-pressed') && b.label !== '重置');
+  assert.ok(completionActions.length > 0);
+  assert.ok(completionActions.every((b) => b.disabled));
   assert.ok(buttons(await render(users)).every((b) => b.disabled));
 });
