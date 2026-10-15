@@ -58,10 +58,28 @@ test('快速反向只让最后一轮完成，取消的旧 finished 不能覆盖�
   const midway = { transform: 'scale(.6)', opacity: '.6', borderRadius: '16px' }
   const last = motion.play(element, midway, from, 280)
   assert.equal(await first, false)
-  assert.deepEqual(runs[1].frames[0], midway)
+  assert.deepEqual(runs[1].frames[0], { transform: midway.transform, opacity: midway.opacity })
   runs[1].finish()
   assert.equal(await last, true)
   assert.equal(element.style.transform, 'scale(.1)')
+})
+test('飞行只插值变换与透明度，完成和取消均释放临时合成提示', async () => {
+  // 防止圆角重新进入动画轨道，也不能让关闭过的窗口永久占用合成图层。
+  const motion = createDialogMotionController(), { element, runs } = animationElement()
+  element.style.willChange = 'contents'
+  const from = { transform: 'scale(.1)', opacity: '0', borderRadius: '4px' }
+  const to = { transform: 'none', opacity: '1', borderRadius: '20px' }
+  const opening = motion.play(element, from, to, 360)
+  assert.equal(element.style.borderRadius, '20px')
+  assert.equal(element.style.willChange, 'transform, opacity')
+  for (const frame of runs[0].frames) assert.deepEqual(Object.keys(frame).sort(), ['opacity', 'transform'])
+  runs[0].finish(); assert.equal(await opening, true)
+  assert.equal(element.style.willChange, 'contents')
+  const closing = motion.play(element, to, from, 280)
+  motion.cancel(); assert.equal(await closing, false)
+  assert.equal(element.style.willChange, 'contents')
+  assert.equal(await motion.play(element, from, to, 0), true)
+  assert.equal(element.style.willChange, 'contents')
 })
 test('无 WAAPI 的环境仍可正确结束显示，安全失效取消在途动画', async () => {
   const motion = createDialogMotionController(), frame = { transform: 'none', opacity: '1', borderRadius: '0' }

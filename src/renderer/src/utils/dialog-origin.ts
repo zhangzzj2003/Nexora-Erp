@@ -6,14 +6,18 @@ const originListeners = new Map<string, Set<(origin: DialogOrigin | null) => voi
 const originSnapshots = new WeakMap<Element, Set<Element>>()
 export function registerDialogOriginSnapshot(sources: readonly Element[], copies: readonly Element[]): () => void {
   // 父窗口忙碌时真实入口被隐藏，但只读快照中的对应入口仍可见；只接受一一对应的存活副本。
+  // 只登记已经捕获的真实入口，不能为长表格里的每个单元格分配一组映射。
+  const activeSources = new Set([...origins.values()].map(origin => origin.element))
+  const registered: Array<{ source: Element; copy: Element }> = []
   sources.forEach((source, index) => {
+    if (!activeSources.has(source) || !copies[index]) return
     const nodes = originSnapshots.get(source) ?? new Set<Element>()
-    if (copies[index]) nodes.add(copies[index])
+    nodes.add(copies[index]); registered.push({ source, copy: copies[index] })
     originSnapshots.set(source, nodes)
   })
-  return () => sources.forEach((source, index) => {
+  return () => registered.forEach(({ source, copy }) => {
     const nodes = originSnapshots.get(source)
-    nodes?.delete(copies[index]); if (!nodes?.size) originSnapshots.delete(source)
+    nodes?.delete(copy); if (!nodes?.size) originSnapshots.delete(source)
   })
 }
 function notifyOrigin(key: string, origin: DialogOrigin | null): void { for (const notify of originListeners.get(key) ?? []) notify(origin) }

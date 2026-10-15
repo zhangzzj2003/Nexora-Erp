@@ -25,7 +25,8 @@ export default defineComponent({
     const failure = computed(() => props.loadError || barrier.error.value)
     const motion = createDialogMotionController(), maskMotion = createDialogMotionController()
     let origin: DialogOrigin | null = null, bounds: DialogRect | null = null, exitFrame: DialogExitFrame | null = null
-    let generation = 0, disposed = false, nativeClosing = false, contentAnimations: Animation[] = []
+    let generation = 0, disposed = false, nativeClosing = false
+    let contentAnimations: Array<{ animation: Animation; element: HTMLElement; willChange: string }> = []
     let sourceBusy: string | null = null, sourceBusySet = false, refreshHeight = ''
     let refreshFrame: DialogExitFrame | null = null, saveFrame: DialogExitFrame | null = null
     let saveFrameBounds: DialogRect | null = null, releaseFrame = 0, retainedMotionFrame = 0
@@ -45,14 +46,20 @@ export default defineComponent({
       }
       sourceBusy = null; sourceBusySet = false
     }
-    function stopContent(): void { contentAnimations.forEach(animation => animation.cancel()); contentAnimations = [] }
+    function stopContent(): void {
+      contentAnimations.forEach(({ animation, element, willChange }) => { animation.cancel(); element.style.willChange = willChange })
+      contentAnimations = []
+    }
     function syncRetainedOpening(frame: DialogExitFrame): void {
       const live = element()
       if (!live) return
-      Object.assign(frame.element.style, readDialogFrame(live))
+      Object.assign(frame.element.style, readDialogFrame(live), { willChange: live.style.willChange })
       Array.from(live.children).forEach((child, index) => {
         const copied = frame.element.children[index]
-        if (child instanceof HTMLElement && copied instanceof HTMLElement) copied.style.opacity = getComputedStyle(child).opacity
+        if (child instanceof HTMLElement && copied instanceof HTMLElement) {
+          copied.style.opacity = getComputedStyle(child).opacity
+          copied.style.willChange = child.style.willChange
+        }
       })
     }
     function stopRetainedOpening(): void {
@@ -151,9 +158,13 @@ export default defineComponent({
       for (const [index, child] of Array.from(root.children).entries()) {
         if (!(child instanceof HTMLElement)) continue
         const current = getComputedStyle(child).opacity
-        contentAnimations.push(child.animate([{ opacity: opening ? initialOpacities?.[index] ?? 0 : current }, { opacity: opening ? 1 : 0 }], {
+        const willChange = child.style.willChange
+        // 正文淡入也需独立合成，否则透明度变化会重绘正在缩放的整张表格。
+        child.style.willChange = 'opacity'
+        const animation = child.animate([{ opacity: opening ? initialOpacities?.[index] ?? 0 : current }, { opacity: opening ? 1 : 0 }], {
           duration: reduce ? 60 : opening ? 200 : 120, delay: opening && !reduce && !initialOpacities ? 90 : 0, fill: 'both', easing: 'ease-out'
-        }))
+        })
+        contentAnimations.push({ animation, element: child, willChange })
       }
     }
     function focusDialog(root: HTMLElement): void {
@@ -234,7 +245,7 @@ export default defineComponent({
       animateContent(frame, false, reduce)
       const backdrop = mask()
       if (backdrop) void maskMotion.play(backdrop, readDialogFrame(backdrop), { transform: 'none', opacity: '0', borderRadius: '0' }, duration)
-      const to = dialogOriginFrame(bounds, source, origin?.borderRadius ?? from.borderRadius, reduce)
+      const to = dialogOriginFrame(bounds, source, from.borderRadius, reduce)
       if (!await motion.play(frame, from, to, duration) || disposed || ticket !== generation || props.show) return
       nativeClosing = true; renderedShow.value = false
       // 原生 CSS 过渡已关闭；保留 NModal 的一次更新完成焦点/滚动释放后再卸载内容。
@@ -367,6 +378,10 @@ export default defineComponent({
 <style>
 /* 只替换 AppModal 的动画；Naive UI 继续负责遮罩、键盘、焦点栈、层级和页面滚动锁。 */
 .app-modal { transform-origin: 0 0 !important; }
+/* 自动聚焦关闭按钮会启动主题背景过渡；飞行中固定其焦点配色，避免额外的逐帧绘制。 */
+.app-modal:is([data-dialog-phase='opening'], [data-dialog-phase='closing']) .n-card-header__close {
+  transition: none !important;
+}
 .app-modal.fade-in-scale-up-transition-enter-active,
 .app-modal.fade-in-scale-up-transition-leave-active { transition: none !important; }
 .app-modal.fade-in-scale-up-transition-enter-from,

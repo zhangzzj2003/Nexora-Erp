@@ -25,7 +25,7 @@
 </AppModal>
 ```
 
-公共壳以 Web Animations API 同步控制位置、缩放、圆角、透明度及遮罩，正文分层淡入。默认展开 360ms、关闭 280ms；关闭前重新测量入口，入口被删除、隐藏或移出视口时改用 140ms 淡出。系统开启减少动态效果时使用 80ms 短淡入淡出，不做位移缩放。动画中反向操作从当前画面接续，旧动画完成回调不能结束后一次动画。
+公共壳以 Web Animations API 同步控制位置、缩放、透明度及遮罩，正文分层淡入。圆角在起飞前固定为窗口外形，避免圆角插值连带长表格和阴影逐帧重绘；外壳与正文只在动画期间启用合成提示，完成或取消后释放。展开时关闭按钮直接呈现焦点配色，避免自动聚焦叠加背景颜色过渡。默认展开 360ms、关闭 280ms；关闭前重新测量入口，入口被删除、隐藏或移出视口时改用 140ms 淡出。系统开启减少动态效果时使用 80ms 短淡入淡出，不做位移缩放。动画中反向操作从当前画面接续，旧动画完成回调不能结束后一次动画。
 
 嵌套窗口各自登记来源；父窗口保留在底层，关闭子窗口后回到父窗口中的实际入口。来源在正常关闭后释放，同一 key 的新登记不会被旧窗口的离场清理删除。
 
@@ -83,3 +83,9 @@
 运行 `NEXORA_PREVIEW_PORT=8771 npm run docs:preview-ui` 后，打开 `http://127.0.0.1:8771/scripts/site-preview/index.html?qa=dialogs&delay=1800#/workspace/warehouse-inbounds`。此入口使用真实业务页面和 Pinia，但桥接仅返回虚构只读数据；不会连接正式服务，保存、审批、入库等写入明确拒绝。`delay` 模拟请求等待（最多 10 秒），`fail=documentApproval` 模拟首屏失败，`failAfter=2` 可让第二次读取失败以验证刷新保留正文，`theme=dark` 用于深色取景。其他入库的两个示例单据分别覆盖草稿详情和已批准的批次登记入口。访问 `#/workspace/production-dispatches` 可验收生产发料的详情、审批与工单摘要联合准备；`fail=workOrderMaterialFlow` 或 `fail=materialFlowLots` 分别模拟摘要与可用批次失败。
 
 纯逻辑和页面回归使用 `node --experimental-strip-types --test tests/*.test.mjs`。公共动画另有 `tests/dialog-motion-browser.mjs`，通过 `NEXORA_PLAYWRIGHT_MODULE` 指向已安装的 Playwright 入口运行；`NEXORA_DIALOG_ENGINE=electron` 使用本仓库 Electron 依赖和独立临时用户目录运行同一组件验收。自动化组件验收、浏览器业务页面验收、正式安装客户端及真实业务服务验收是不同范围，不能互相替代。
+
+### 动画性能取样
+
+`tests/dialog-motion-performance-browser.mjs` 使用真实公共壳、主题样式和 250 行 × 10 列表格，记录三轮展开/收回的 CDP Paint、Layout、主线程派发耗时和帧间隔。与组件行为验收一样，通过 `NEXORA_PLAYWRIGHT_MODULE` 指定已安装 Playwright，直接使用 Node 运行。默认 CPU 限速 4 倍，可用 `NEXORA_DIALOG_CPU_RATE` 调整；用 `NEXORA_DIALOG_BASELINE_REF=dad7862` 加载修复前动画实现，保持取样场景一致。`NEXORA_DIALOG_EVIDENCE_DIR` 保存 JSON 与首轮追踪，`NEXORA_DIALOG_PERF_LABEL` 区分前后结果。
+
+性能验收同时核对动画只包含 transform/opacity、动画结束释放合成提示、长表格滚动位置保留，以及离场副本不向普通单元格批量写入 tabindex。时延统计包含挂载/副本布局，`maxMotionFrameGap` 仅统计动画启动后的取样帧；主线程取样不能等同于显示器或 GPU 实际帧率，也不能代替正式安装客户端的主观验收。
