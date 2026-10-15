@@ -1,7 +1,7 @@
 import { watch } from 'vue'
 import type { AppState } from '../state'
 import type { Bom } from '../../../../shared/erp-api'
-import type { ProductInput } from '../../../../shared/product-api'
+import type { ProductInput, ProductProfile, ProductModel } from '../../../../shared/product-api'
 import { validateProductResult } from '../../../../shared/product-api.ts'
 import { materialDraft, materialInput } from '../../utils/material-form.ts'
 import { displayError } from '../../utils/formatters.ts'
@@ -26,7 +26,7 @@ export function createProductActions(state: AppState) {
   }
   watch(identity, () => {
     invalidateReads(); state.productEditorOpen.value = false; state.productReturnToBom.value = false
-    state.productForm.value = {id: 0, version: 0, mode: 'new', material_id: 0, kind: 'finished', model_id: null, configuration_name: '', reason: ''}
+    state.productForm.value = {id: 0, version: 0, mode: 'new', material_id: 0, kind: 'finished', model_id: null, configuration_name: '', can_sell: true, can_purchase: true, can_produce: true, reason: ''}
     state.productMaterialForm.value = materialDraft()
     state.bomForm.value = {product_material_id: 0, source_bom_id: null, base_quantity: '1', note: '', lines: [{component_material_id: 0, quantity: '1'}]}
     state.productModelForm.value = {id: 0, version: 0, code: '', name: '', notes: '', reason: ''}
@@ -72,7 +72,7 @@ export function createProductActions(state: AppState) {
     finally {if (ticket === detailTicket) state.productDetailLoading.value = false}
   }
   function closeProduct(): void {detailTicket++; state.productDetailId.value = 0; state.productDetailLoading.value = false}
-  async function startProduct(mode: 'new' | 'existing' | 'edit', id = 0, returnToBom = false): Promise<void> {
+  async function startProduct(mode: 'new' | 'existing' | 'edit', id = 0, returnToBom = false, parentModelId?: number | null): Promise<void> {
     if (!allowed('catalog.manage') || state.busy.value) return
     // 同一未完成草稿再次打开直接沿用；主动切换建档方式才更换草稿。
     const same = state.productForm.value.mode === mode && state.productForm.value.id === id
@@ -80,9 +80,11 @@ export function createProductActions(state: AppState) {
     try {
       const models = await window.nexora!.callApi('productModels', undefined)
       if (ticket !== editTicket || !allowed('catalog.manage')) return
+      validateProductResult('productModels', models)
+      if (parentModelId !== undefined && parentModelId !== null && !models.some(row=>row.id===parentModelId)) throw Error('所选产品系列已不存在，请刷新目录')
       state.productModels.value = models
       if (!same) {
-        state.productForm.value = {id: 0, version: 0, mode, material_id: 0, kind: 'finished', model_id: null, configuration_name: '', reason: ''}
+        state.productForm.value = {id: 0, version: 0, mode, material_id: 0, kind: 'finished', model_id: null, configuration_name: '', can_sell: true, can_purchase: true, can_produce: true, reason: ''}
         state.productMaterialForm.value = materialDraft()
       }
       if (mode === 'edit' && (!same || !state.productForm.value.version)) {
@@ -90,9 +92,12 @@ export function createProductActions(state: AppState) {
         if (ticket !== editTicket || !allowed('catalog.manage')) return
         if (row.id !== id) throw Error('服务端返回了另一产品的编辑资料')
         state.productForm.value = {id: row.id, version: row.version, mode, material_id: row.material_id,
-          kind: row.kind, model_id: row.model_id, configuration_name: row.configuration_name, reason: ''}
+          kind: row.kind, model_id: row.model_id, configuration_name: row.configuration_name, can_sell: row.can_sell ?? true,
+          can_purchase: row.can_purchase ?? true, can_produce: row.can_produce ?? true, reason: ''}
         state.productMaterialForm.value = materialDraft(row.material)
       }
+      // 左侧明确选择“新建子机型”时继承所在系列，其余字段仍保留未保存草稿。
+      if (mode !== 'edit' && parentModelId !== undefined) state.productForm.value.model_id = parentModelId
       state.productReturnToBom.value = returnToBom; state.productEditorOpen.value = true
     } catch (cause) {if (ticket === editTicket) state.error.value = displayError(cause)}
   }
@@ -111,10 +116,10 @@ export function createProductActions(state: AppState) {
     } catch (cause) {if (ownedWrite === ticket && epoch === editTicket && identity() === session) state.error.value = displayError(cause)}
     finally {if (ownedWrite === ticket) {ownedWrite = null; state.busy.value = false}}
   }
-  async function saveProduct(): Promise<void> {
-      await write(async () => {
+  async function saveProduct(): Promise<ProductProfile | undefined> {
+      return await write(async () => {
       const form = state.productForm.value
-      const fields = {kind: form.kind, model_id: form.model_id, configuration_name: form.configuration_name, reason: form.reason}
+      const fields = {can_sell: form.can_sell, can_purchase: form.can_purchase, can_produce: form.can_produce, kind: form.kind, model_id: form.model_id, configuration_name: form.configuration_name, reason: form.reason}
       const payload: ProductInput = form.mode === 'existing' ? {...fields, material_id: form.material_id}
         : {...fields, material: materialInput(state.productMaterialForm.value, form.mode === 'edit', state.materialUnits.value)}
       const result = form.mode === 'edit'
@@ -124,28 +129,33 @@ export function createProductActions(state: AppState) {
       return result
     }).then(async row => {
       if (!row) return
+      const session = identity()
       validateProductResult('productDetail', row)
       // 快捷创建只带回产出物料，已经填写的 BOM 基准数和组件逐行保留。
       if (state.productReturnToBom.value) state.bomForm.value.product_material_id = row.material_id
       state.materials.value = [...state.materials.value.filter(item => item.id !== row.material_id), row.material]
       state.productEditorOpen.value = false; state.productReturnToBom.value = false
-      state.productForm.value = {id: 0, version: 0, mode: 'new', material_id: 0, kind: 'finished', model_id: null, configuration_name: '', reason: ''}
+      state.productForm.value = {id: 0, version: 0, mode: 'new', material_id: 0, kind: 'finished', model_id: null, configuration_name: '', can_sell: true, can_purchase: true, can_produce: true, reason: ''}
       state.productMaterialForm.value = materialDraft(); state.notice.value = '产品档案已保存。'
       await queryProducts()
       if (state.productDetailId.value === row.id) await openProduct(row.id)
-    }).catch(cause => {state.error.value = displayError(cause)})
+      // 导航仅接收当前会话保存的记录，查询期间切换账号不能选中旧机型。
+      if (identity() === session && allowed('catalog.manage')) return row
+    }).catch(cause => {state.error.value = displayError(cause); return undefined})
   }
-  async function saveProductModel(): Promise<boolean> {
+  async function saveProductModel(): Promise<ProductModel | undefined> {
     const row = await write(async () => {
       const {id, ...payload} = state.productModelForm.value
       return id ? window.nexora!.callApi('updateProductModel', {...payload, id})
         : window.nexora!.callApi('createProductModel', payload)
     })
-    if (!row) return false
+    if (!row) return
+    const session = identity()
     validateProductResult('productModelDetail', row)
     state.productModelForm.value = {id: 0, version: 0, code: '', name: '', notes: '', reason: ''}
     state.productModelChanges.value = []
-    state.notice.value = '产品系列已保存。'; await queryProducts(); return true
+    state.notice.value = '产品系列已保存。'; await queryProducts()
+    if (identity() === session && allowed('catalog.manage')) return row
   }
   async function editProductModel(id: number): Promise<void> {
     if (!allowed('catalog.manage') || state.busy.value) return
@@ -162,7 +172,7 @@ export function createProductActions(state: AppState) {
     // 再次打开同一产品与同一来源时沿用未保存草稿；切换意图才复制新行。
     if (state.bomForm.value.product_material_id === materialId && (state.bomForm.value.source_bom_id ?? null) === (source?.id ?? null)) return true
     state.bomForm.value = source ? {product_material_id: materialId, base_quantity: source.base_quantity,
-      note: '', source_bom_id: source.id, lines: source.lines.map(line => ({component_material_id: line.component_material_id, quantity: line.quantity}))}
+      note: '', source_bom_id: source.id, lines: source.lines.map(line => ({component_material_id: line.component_material_id, quantity: line.quantity, component_bom_id: line.component_bom_id ?? null}))}
       : {product_material_id: materialId, base_quantity: '1', note: '', source_bom_id: null, lines: [{component_material_id: 0, quantity: '1'}]}
     return true
   }

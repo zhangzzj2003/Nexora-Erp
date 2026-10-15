@@ -188,10 +188,26 @@ def _migrate_products(db: sqlite3.Connection) -> None:
             SELECT DISTINCT product_material_id FROM boms""")
 
 
+def _migrate_product_boms(db: sqlite3.Connection) -> None:
+    # 增量迁移不改写旧配方、工单或库存；旧客户端的业务用途保持可用。
+    for table, fields in (
+        ('product_profiles', [('can_sell', 'BOOLEAN NOT NULL DEFAULT 1 CHECK(can_sell IN (0,1))'),
+                              ('can_purchase', 'BOOLEAN NOT NULL DEFAULT 1 CHECK(can_purchase IN (0,1))'),
+                              ('can_produce', 'BOOLEAN NOT NULL DEFAULT 1 CHECK(can_produce IN (0,1))')]),
+        ('bom_lines', [('component_bom_id', 'INTEGER REFERENCES boms(id)')]),
+    ):
+        columns = {row[1] for row in db.execute(f'PRAGMA table_info({table})')}
+        if not columns:
+            continue
+        for name, definition in fields:
+            if name not in columns:
+                db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
+
+
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 104:
+        if version > 105:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -3229,3 +3245,7 @@ def migrate() -> None:
             # 仅扩展产品档案及派生来源；历史物料、库存、BOM 正文与工单均保持原样。
             _migrate_products(db)
             db.execute('PRAGMA user_version = 104')
+
+        if version < 105:
+            _migrate_product_boms(db)
+            db.execute('PRAGMA user_version = 105')

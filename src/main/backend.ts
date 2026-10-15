@@ -1744,6 +1744,24 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   const publicAction = action === 'setupStatus' || action === 'bootstrap' || action === 'login'
   if (!publicAction && !sessionToken) throw new Error('请先登录')
   const activeToken = sessionToken
+  const body = request.body as Record<string, unknown> | undefined
+  const needsProductBomFeatures = ((action === 'createProduct' || action === 'updateProduct')
+    && ['can_sell','can_purchase','can_produce'].some(key => body?.[key] !== undefined))
+    || (action === 'createBom' && Array.isArray(body?.lines)
+      && body.lines.some(line => line && typeof line === 'object' && 'component_bom_id' in line && line.component_bom_id != null))
+  if (needsProductBomFeatures) {
+    // 老服务可能忽略未知字段；先确认协议，再写入，防止“成功”保存了错误配方或用途。
+    const revision = sessionRevision, target = selectedTarget
+    const featureResponse = await sendRequest('/api/v1/product-bom-features', 'GET',
+      {Authorization:`Bearer ${activeToken}`}, undefined, 10000, target)
+    const features: unknown = await featureResponse.json().catch(() => null)
+    if (revision !== sessionRevision || target !== selectedTarget) throw Error('服务端或账号已切换，请重新操作')
+    if (featureResponse.status === 401) {setSessionToken(null); throw Error('登录已失效，请重新登录')}
+    if (!featureResponse.ok || !features || typeof features !== 'object'
+      || !('independent_uses' in features) || features.independent_uses !== true
+      || !('component_bom_versions' in features) || features.component_bom_versions !== true)
+      throw Error('服务端尚不支持产品用途和下层 BOM 版本，请先升级 ERP 服务后再保存。')
+  }
   // 即使本地服务暂时不可达，退出时也立刻丢弃桌面进程持有的令牌。
   if (action === 'logout') setSessionToken(null)
   let response: Response

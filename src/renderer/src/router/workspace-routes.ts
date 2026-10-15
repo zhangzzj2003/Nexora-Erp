@@ -145,7 +145,7 @@ export const workspaceRouteGroups = [
         icon: 'archive'
       },
       // 产品与物料共用库存查看权限，维护和 BOM 仍分别检查原有写权限。
-      { key: 'products', path: '/workspace/products', label: '产品管理', permission: 'inventory.view', icon: 'stack' },
+      { key: 'products', path: '/workspace/products', label: '产品与 BOM', permission: 'inventory.view', icon: 'stack' },
       // BOM 归入基础资料，旧地址和生产查看权限保留以兼容工单与已打开标签。
       {
         key: 'boms',
@@ -490,7 +490,9 @@ export function visibleRouteGroups(permissions: readonly string[]) {
       key: group.key,
       label: group.label,
       icon: group.icon,
-      routes: group.routes.filter((route) => canVisitRoute(route, permissions))
+      // 完整资料权限使用统一入口；仅有生产查看权限的旧账号保留原 BOM 目录。
+      routes: group.routes.filter((route) => canVisitRoute(route, permissions)
+        && !(route.key === 'boms' && permissions.includes('inventory.view')))
     }))
     .filter((group) => group.routes.length > 0)
 }

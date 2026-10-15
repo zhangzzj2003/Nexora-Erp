@@ -40,3 +40,14 @@ def ensure_product(db: Session, material_id: int, actor: dict) -> ProductProfile
 def validate_model(db: Session, model_id: int | None) -> None:
     if model_id is not None and db.get(ProductModel, model_id) is None:
         raise HTTPException(422, '所选机型不存在，请重新选择')
+
+
+def require_product_use(db: Session, material_id: int, capability: str) -> None:
+    # 未纳入产品的历史物料沿用原流程；产品类型不能代替独立的业务用途开关。
+    labels = {'can_sell': '销售', 'can_purchase': '采购', 'can_produce': '生产'}
+    if capability not in labels:
+        raise ValueError('未知产品用途')
+    row = db.scalar(select(ProductProfile).where(ProductProfile.material_id == material_id))
+    if row is not None and not getattr(row, capability):
+        material = db.get(Material, material_id)
+        raise HTTPException(409, f'物料 {material.sku} 未允许{labels[capability]}，请先维护产品资料')

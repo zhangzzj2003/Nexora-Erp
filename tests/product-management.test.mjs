@@ -64,6 +64,36 @@ test('真实主进程产品路径固定，输入和服务端响应都验证', as
   output={id:1};await assert.rejects(callBackend('productDetail',{id:1}),/产品资料不完整/)
 })
 
+test('旧服务忽略新字段前阻止写入，能力核对期间切换会话也不能提交', async t => {
+  const calls=[]
+  let capable=false, switchSession=false
+  const previous=process.env.NEXORA_API_URL
+  process.env.NEXORA_API_URL='http://127.0.0.1:8123'
+  t.after(()=>{if(previous===undefined)delete process.env.NEXORA_API_URL;else process.env.NEXORA_API_URL=previous})
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    calls.push([url.pathname,options.method])
+    if(url.pathname.endsWith('/login'))return Response.json({token:'feature-token',user:{id:1}})
+    if(url.pathname.endsWith('/product-bom-features')) {
+      if(switchSession)await callBackend('logout',undefined)
+      return capable?Response.json({independent_uses:true,component_bom_versions:true}):Response.json({detail:'Not Found'},{status:404})
+    }
+    return Response.json(product())
+  })
+  await callBackend('login',{})
+  const input={kind:'semi_finished',model_id:null,configuration_name:'',material_id:11,can_sell:false}
+  await assert.rejects(callBackend('createProduct',input),/先升级 ERP 服务/)
+  assert.equal(calls.some(([path,method])=>path==='/api/v1/products'&&method==='POST'),false)
+  await assert.rejects(callBackend('createBom',{product_material_id:11,base_quantity:'1',note:'',
+    lines:[{component_material_id:22,quantity:'1',component_bom_id:7}]}),/先升级 ERP 服务/)
+  assert.equal(calls.some(([path,method])=>path==='/api/v1/boms'&&method==='POST'),false)
+  capable=true
+  await callBackend('createProduct',input)
+  assert.equal(calls.filter(([path,method])=>path==='/api/v1/products'&&method==='POST').length,1)
+  switchSession=true
+  await assert.rejects(callBackend('createProduct',input),/账号已切换/)
+  assert.equal(calls.filter(([path,method])=>path==='/api/v1/products'&&method==='POST').length,1)
+})
+
 test('分页拒绝迟到响应，同账号刷新保留结果，断线和换证书使读取失效', async t => {
   let read=0;const delayed=deferred()
   const f=fixture(t,async action=>action==='productModels'?[model]:++read===1?delayed.promise:page(2))
@@ -105,7 +135,7 @@ test('快捷建产品失败保留草稿，成功只带回 BOM 产出物料；写
   f.state.productReturnToBom.value=true;f.state.productEditorOpen.value=true
   await f.actions.saveProduct()
   assert.equal(f.state.productEditorOpen.value,true);assert.equal(f.state.productForm.value.configuration_name,'长续航')
-  fail=false;await f.actions.saveProduct()
+  fail=false;const saved=await f.actions.saveProduct();assert.equal(saved.id,1)
   assert.equal(f.state.bomForm.value.product_material_id,11)
   assert.equal(f.state.bomForm.value.lines[0],component)
   assert.equal(f.state.productEditorOpen.value,false)
@@ -131,4 +161,33 @@ test('派生草稿复制独立明细，拒绝取消来源、断线、忙碌和�
   f.state.connectionLost.value=true;assert.equal(f.actions.prepareProductBom(11,source),false)
   f.state.connectionLost.value=false;f.state.busy.value=true;assert.equal(f.actions.prepareProductBom(11,source),false)
   f.state.busy.value=false;f.state.user.value.permissions=['inventory.view'];assert.equal(f.actions.prepareProductBom(11,source),false)
+})
+
+// 新建成功返回真实身份供目录定位；失败保留草稿，不伪造成功节点。
+test('新建系列返回服务端身份，失败保留输入', async t => {
+  let fail=true
+  const f=fixture(t,async action=>action==='createProductModel'?(fail?Promise.reject(Error('编码重复')):model):action==='productModels'?[model]:page())
+  f.state.productModelForm.value={id:0,version:0,code:'A100',name:'控制系列',notes:'保留说明',reason:''}
+  assert.equal(await f.actions.saveProductModel(),undefined)
+  assert.equal(f.state.productModelForm.value.notes,'保留说明')
+  fail=false
+  const saved=await f.actions.saveProductModel()
+  assert.equal(saved.id,1);assert.equal(f.state.productModelForm.value.code,'')
+})
+
+// 联合保存已经成功但刷新还在途中时换实例，不能把旧身份作为“新子机型”发给页面。
+test('子机型保存后的刷新跨实例时不返回旧导航身份', async t => {
+  const reading=deferred(), reply=deferred()
+  const f=fixture(t,async action=>{
+    if(action==='createProduct')return product()
+    if(action==='productModels')return [model]
+    reading.resolve();return reply.promise
+  })
+  f.state.productForm.value={...f.state.productForm.value,mode:'existing',material_id:11}
+  const pending=f.actions.saveProduct()
+  await reading.promise
+  f.state.server.value={id:'other',fingerprint:'new'}
+  reply.resolve(page())
+  assert.equal(await pending,undefined)
+  assert.equal(f.state.productForm.value.material_id,0)
 })

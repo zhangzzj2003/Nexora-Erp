@@ -244,6 +244,7 @@ def list_work_orders(_: dict = Depends(require("production.view"))) -> list[dict
 
 
 def create_work_order_in_session(db: Session, payload: WorkOrderInput, user: dict) -> dict:
+    from app.production.bom_dependencies import require_bom_ready
     bom = (
         db.execute(
             select(Bom.status, Bom.base_quantity).select_from(Bom).where((Bom.id == payload.bom_id))
@@ -255,6 +256,10 @@ def create_work_order_in_session(db: Session, payload: WorkOrderInput, user: dic
         raise HTTPException(422, "BOM 不存在")
     if bom["status"] != "active":
         raise HTTPException(409, "只有启用中的 BOM 可用于新工单")
+    from app.catalog.product_rules import require_product_use
+    root_bom = db.get(Bom, payload.bom_id)
+    require_product_use(db, root_bom.product_material_id, 'can_produce')
+    require_bom_ready(db, payload.bom_id)
     require_warehouse(db, payload.warehouse_id)
     requirements = []
     for line in db.execute(

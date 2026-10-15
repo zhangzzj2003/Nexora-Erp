@@ -11,10 +11,11 @@ export const productKindLabels: Record<ProductKind, string> = {
 export interface ProductModel { id: number; code: string; name: string; notes: string; version: number; created_by: number; created_at: string }
 export interface ProductProfile {
   id: number; material_id: number; kind: ProductKind; model_id: number | null
+  can_sell?: boolean; can_purchase?: boolean; can_produce?: boolean
   configuration_name: string; version: number; created_by: number | null; created_at: string
   model_code: string; model_name: string; material: Material
 }
-export interface ProductFields { kind: ProductKind; model_id: number | null; configuration_name: string; reason?: string }
+export interface ProductFields { can_sell?: boolean; can_purchase?: boolean; can_produce?: boolean; kind: ProductKind; model_id: number | null; configuration_name: string; reason?: string }
 export type ProductInput = ProductFields & ({ material_id: number; material?: never } | { material: MaterialInput; material_id?: never })
 export type ProductUpdate = ProductFields & { id: number; version: number; reason: string; material?: MaterialInput }
 export interface ProductQuery { query: string; kind: ProductKind | null; model_id: number | null; page: number; page_size: number }
@@ -39,6 +40,13 @@ export function productBody(value: unknown, editing: boolean): Record<string, un
   if (!productKinds.includes(input.kind as ProductKind)) throw Error('产品类型无效')
   const body: Record<string, unknown> = {kind: input.kind, model_id: modelId(input.model_id),
     configuration_name: text(input.configuration_name, 120)}
+  // 用途逐项校验；旧客户端省略时交由服务端保留原值。
+  for (const field of ['can_sell', 'can_purchase', 'can_produce']) {
+    if (input[field] !== undefined) {
+      if (typeof input[field] !== 'boolean') throw Error('产品用途须为明确的开关值')
+      body[field] = input[field]
+    }
+  }
   if (editing) {
     if (!positive(input.version)) throw Error('请重新读取产品版本')
     body.version = input.version; body.reason = text(input.reason, 500, true)
@@ -80,7 +88,9 @@ export function productBomBody(value: unknown): Record<string, unknown> {
     if (!positive(row.component_material_id) || row.component_material_id === input.product_material_id || ids.has(row.component_material_id)
       || typeof row.quantity !== 'string' || receiptLotMilli(row.quantity) === null) throw Error('BOM 组件重复、自引用或用量无效')
     ids.add(row.component_material_id)
-    return {component_material_id: row.component_material_id, quantity: row.quantity}
+    if (row.component_bom_id !== undefined && row.component_bom_id !== null && !positive(row.component_bom_id)) throw Error('组件 BOM 版本编号无效')
+    return {component_material_id: row.component_material_id, quantity: row.quantity,
+      ...(row.component_bom_id === undefined ? {} : {component_bom_id: row.component_bom_id})}
   })
   if (input.source_bom_id !== undefined && input.source_bom_id !== null && !positive(input.source_bom_id)) throw Error('来源 BOM 编号无效')
   return {product_material_id: input.product_material_id, base_quantity: input.base_quantity,
@@ -94,7 +104,10 @@ function validateBom(value: unknown): void {
     || typeof row.base_quantity !== 'string' || receiptLotMilli(row.base_quantity) === null || !Array.isArray(row.lines)) throw Error('BOM 版本资料不完整')
   row.lines.forEach(raw => {const line = object(raw)
     if (!positive(line.id) || !positive(line.component_material_id) || typeof line.quantity !== 'string'
-      || receiptLotMilli(line.quantity) === null || !['sku','material_name','unit'].every(key => typeof line[key] === 'string')) throw Error('BOM 组件资料不完整')})
+      || receiptLotMilli(line.quantity) === null || !['sku','material_name','unit'].every(key => typeof line[key] === 'string')) throw Error('BOM 组件资料不完整')
+    if (line.component_bom_id !== undefined && line.component_bom_id !== null
+      && (!positive(line.component_bom_id) || !positive(line.component_bom_version)
+      || !['active','retired'].includes(String(line.component_bom_status)))) throw Error('组件配方版本资料无效')})
   if (row.source_bom_id !== undefined && row.source_bom_id !== null && !positive(row.source_bom_id)) throw Error('BOM 来源资料无效')
   if (row.source_bom !== undefined && row.source_bom !== null) {
     const source = object(row.source_bom)
@@ -107,6 +120,9 @@ function validateProfile(value: unknown): void {
   if (!positive(row.id) || !positive(row.material_id) || !positive(row.version)
     || !productKinds.includes(row.kind as ProductKind) || typeof row.configuration_name !== 'string'
     || typeof row.model_name !== 'string' || typeof row.model_code !== 'string' || typeof row.created_at !== 'string') throw Error('产品资料不完整，请升级服务端后重试')
+  for (const field of ['can_sell', 'can_purchase', 'can_produce']) {
+    if (row[field] !== undefined && typeof row[field] !== 'boolean') throw Error('产品用途资料无效')
+  }
   modelId(row.model_id)
   validateMaterialResult('materialDetail', row.material)
   if (object(row.material).id !== row.material_id) throw Error('产品与物料身份不一致')

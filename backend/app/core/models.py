@@ -2144,6 +2144,8 @@ class BomLine(Base):
     bom_id: Mapped[int] = mapped_column(Integer, ForeignKey("boms.id"), nullable=False)
     component_material_id: Mapped[int] = mapped_column(Integer, ForeignKey("materials.id"), nullable=False)
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    # 固定下层生产配方；为空时只要求组件物料，不限制其制造配方。
+    component_bom_id: Mapped[int | None] = mapped_column(ForeignKey('boms.id'), nullable=True)
 
 
 class StocktakeReversal(Base):
@@ -2797,6 +2799,10 @@ class ProductProfile(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     material_id: Mapped[int] = mapped_column(ForeignKey('materials.id'), nullable=False, unique=True)
     kind: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'unclassified'"))
+    # 业务用途相互独立，半成品同样可以销售；旧档案维持原有可用范围。
+    can_sell: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('1'))
+    can_purchase: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('1'))
+    can_produce: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('1'))
     model_id: Mapped[int | None] = mapped_column(ForeignKey('product_models.id'))
     configuration_name: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))

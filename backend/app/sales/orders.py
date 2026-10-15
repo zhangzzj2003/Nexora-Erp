@@ -1,5 +1,6 @@
 """客户、销售订单和出库单；订单完成量只由已确认出库计算。"""
 
+from app.catalog.product_rules import require_product_use
 from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
@@ -474,6 +475,8 @@ def create_sales_order_in_session(db: Session, payload: SalesOrderInput, user_id
             .first()
         ):
             raise HTTPException(422, "物料不存在")
+    for line in payload.lines:
+        require_product_use(db, line.material_id, 'can_sell')
     cursor = add_model(
         db,
         SalesOrder(

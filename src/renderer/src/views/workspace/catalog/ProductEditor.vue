@@ -7,13 +7,17 @@ import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMate
 import MaterialEditor from './MaterialEditor.vue'
 import ProductProfileFields from './ProductProfileFields.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
+import type { ProductProfile } from '../../../../../shared/product-api'
+withDefaults(defineProps<{entityLabel?: string}>(), {entityLabel:'产品'})
+const emit = defineEmits<{saved:[product:ProductProfile]}>()
 const store = usePiniaAppStore()
 const {productForm, productMaterialForm, productEditorOpen, productModels, busy, connectionLost,
   materialCategories, materials, materialUnits, suppliers} = storeToRefs(store)
 async function save(): Promise<void> {
   // 联合编辑只有一份修改原因，物料与产品审计同时保存。
   if (productForm.value.mode === 'edit') productForm.value.reason = productMaterialForm.value.reason
-  await store.saveProduct()
+  const product = await store.saveProduct()
+  if (product) emit('saved', product)
 }
 </script>
 <template>
@@ -29,11 +33,11 @@ async function save(): Promise<void> {
   </WorkspaceDocumentDialog>
   <AppModal v-else-if="store.can('catalog.manage')" :show="productEditorOpen"
     class="product-editor-dialog"
-    :title="productForm.mode === 'edit' ? '编辑产品' : '新增产品'" :busy="busy" preset="card"
+    :title="`${productForm.mode === 'edit' ? '编辑' : '新建'}${entityLabel}`" :busy="busy" preset="card"
     :style="{width: 'min(1120px, calc(100vw - 32px))', height: 'min(860px, calc(100vh - 48px))'}"
     :mask-closable="!busy" @update:show="productEditorOpen = $event" @invalidated="productEditorOpen = false">
     <!-- 参数与供应商、分类目录复用物料编辑器；保存由产品接口一次提交。 -->
-    <MaterialEditor entity-label="产品" compact :title="productForm.mode === 'edit' ? '编辑产品资料' : '建立产品档案'"
+    <MaterialEditor :entity-label="entityLabel" compact :title="`${entityLabel}资料`"
       :form="productMaterialForm" :categories="materialCategories" :units="materialUnits" :suppliers="suppliers"
       :editing="productForm.mode === 'edit'" :busy="busy" :disconnected="connectionLost"
       @save="save" @cancel="productEditorOpen = false">

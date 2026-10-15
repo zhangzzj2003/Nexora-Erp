@@ -31,6 +31,7 @@ async function fixture(t) {
  t.after(()=>server.close())
  const {usePiniaAppStore}=await server.ssrLoadModule('\0products-store')
  const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/ProductsView.vue')
+ const {default:LegacyBom}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/BomEditor.vue')
  const {paginations}=await server.ssrLoadModule('\0products-pagination')
  const {buttons}=await server.ssrLoadModule('\0products-button'), {tables}=await server.ssrLoadModule('\0products-table')
  const pinia=createPinia(), store=usePiniaAppStore(pinia)
@@ -56,34 +57,43 @@ async function fixture(t) {
  }
  await store.queryProducts()
  store.materials=[material,{...material,id:22,sku:'EL-IC-22',name:'主芯片',unit:'个'}]
- return {store,source,product,render,buttons,tables,paginations,router,calls,overrides,get setup(){return setup}}
+ const renderLegacyBom=async()=>{buttons.length=0;return renderToString(createSSRApp({render:()=>h(LegacyBom,{show:true})}).use(pinia).use(router))}
+ return {store,source,product,render,renderLegacyBom,buttons,tables,paginations,router,calls,overrides,get setup(){return setup}}
 }
 
 test('产品真实页面使用服务端分页和物料身份，查看权限不能显示维护入口',async t=>{
  const f=await fixture(t)
  const html=await f.render()
- assert.match(html,/EL-PC-11/);assert.match(html,/标准版/);assert.match(html,/新增产品/)
+ assert.match(html,/EL-PC-11/);assert.match(html,/标准版/);assert.match(html,/新建系列/);assert.match(html,/新建子机型/)
  assert.equal(f.paginations[0].total,43)
  assert.equal(f.store.productResult.items.length,1)
- assert.match(html,/产品系列/);assert.match(html,/选择产品查看 BOM/)
+ assert.match(html,/产品系列/);assert.match(html,/选择系列与子机型/)
+ const left=html.slice(html.indexOf('<aside'),html.indexOf('</aside>'))
+ assert.match(left,/新建系列/);assert.match(left,/新建子机型/);assert.match(left,/标准版/)
+ const right=html.slice(html.indexOf('class="product-main"'))
+ assert.doesNotMatch(right,/产品类型<select|class="product-options"/)
  f.store.user={...f.store.user,permissions:['inventory.view']}
  const readonly=await f.render()
- assert.doesNotMatch(readonly,/新增产品|纳入已有物料|管理产品系列/)
+ assert.doesNotMatch(readonly,/新建系列|新建子机型|纳入已有物料|系列管理/)
 })
 
 test('产品详情复用 BOM 编辑器派生，快捷建档保留组件，来源查看及启用版本创建工单',async t=>{
  const f=await fixture(t)
  await f.store.openProduct(1)
  let html=await f.render()
- assert.match(html,/关联 BOM/);assert.match(html,/复制派生/)
+ assert.match(html,/BOM 版本/);assert.match(html,/复制派生/)
  f.buttons.find(b=>b.label==='复制派生').attrs.onClick()
  assert.equal(f.store.bomForm.source_bom_id,7)
  assert.equal(f.store.bomForm.lines[0].quantity,'2')
- f.overrides.bomOpen=true
+ f.overrides.bomOpen=true;f.overrides.bomTargetId=11
  html=await f.render();assert.match(html,/派生来源 BOM #7/)
+ assert.doesNotMatch(html,/快捷新建产品/)
+ assert.match(html,/<select[^>]*disabled/)
+ // 独立 BOM 入口继续允许快捷新建，原有草稿不被工作区目标限制破坏。
+ html=await f.renderLegacyBom()
  await f.buttons.find(b=>b.label==='快捷新建产品').attrs.onClick()
  const component=f.store.bomForm.lines[0]
- html=await f.render();assert.match(html,/所属产品系列/)
+ html=await f.renderLegacyBom();assert.match(html,/所属产品系列/)
  assert.equal(f.store.bomForm.lines[0],component)
  f.store.productEditorOpen=false
  f.overrides.bomOpen=false
@@ -114,11 +124,46 @@ test('左侧系列限定服务端产品范围，右侧直接切换 BOM，重置�
  assert.equal(f.store.productQuery.query,'');assert.equal(f.store.productDetailId,0)
  const html=await f.render()
  assert.match(html,/B200 系列/);assert.match(html,/专业控制板/)
- assert.equal(f.tables.find(row=>row.title==='关联 BOM').data[0].id,9)
+ assert.equal(f.tables.find(row=>row.title==='BOM 版本').data[0].id,9)
  assert.equal(f.calls.some(([action,payload])=>action==='queryProducts'&&payload.model_id===2),true)
  assert.doesNotMatch(html,/复制派生/)
  f.setup.reset();assert.equal(f.store.productQuery.model_id,2)
  assert.equal(f.calls.at(-2)[0],'queryProducts');assert.equal(f.calls.at(-2)[1].page,1)
  f.setup.pageChange(2,20);assert.equal(f.store.productDetailId,0)
  f.store.connectionLost=true;f.setup.selectSeries(1);assert.equal(f.store.productQuery.model_id,2)
+})
+
+// 新建入口在目录内；子机型继承选中系列，重开保留输入，失效系列不能带入表单。
+test('左侧新建系列与子机型使用独立入口，并继承当前系列',async t=>{
+ const f=await fixture(t)
+ await f.render()
+ f.store.productModelForm={id:5,version:1,code:'OLD',name:'旧系列',notes:'',reason:''}
+ f.setup.newSeries()
+ assert.equal(f.setup.modelsOpen,true);assert.equal(f.setup.createSeriesOnly,true)
+ assert.equal(f.store.productModelForm.id,0);assert.equal(f.store.productModelForm.code,'')
+ f.store.productModelForm.code='NEW';f.setup.newSeries();assert.equal(f.store.productModelForm.code,'NEW')
+ f.store.productQuery.model_id=1
+ await f.setup.newModel()
+ assert.equal(f.store.productForm.model_id,1);assert.equal(f.store.productEditorOpen,true)
+ f.store.productMaterialForm.name='保留的机型名称'
+ await f.setup.newModel();assert.equal(f.store.productMaterialForm.name,'保留的机型名称')
+ f.store.productEditorOpen=false;f.store.productQuery.model_id=99
+ await f.setup.newModel();assert.equal(f.store.productEditorOpen,false)
+ assert.match(f.store.error,/产品系列已不存在/)
+})
+
+// 复用目录必须跨机型查询，并固定目标身份；编辑复制行不应更改来源。
+test('右侧可从其他机型复用 BOM 到当前机型，排除取消版本',async t=>{
+ const f=await fixture(t)
+ const other={...f.source,id:88,product_material_id:33,product_name:'来源专业版',lines:f.source.lines.map(row=>({...row,quantity:'9'}))}
+ f.store.boms=[other,{...f.source,id:99,status:'cancelled'}]
+ f.overrides.reuseOpen=true
+ const html=await f.render()
+ assert.match(html,/选择要复用的 BOM/);assert.match(html,/来源专业版/)
+ assert.equal(f.tables.find(row=>row.title==='可复用版本').data.length,1)
+ f.buttons.find(row=>row.label==='复用到当前机型').attrs.onClick()
+ assert.equal(f.store.bomForm.product_material_id,11)
+ assert.equal(f.store.bomForm.source_bom_id,88)
+ assert.equal(f.store.bomForm.lines[0].quantity,'9')
+ f.store.bomForm.lines[0].quantity='4';assert.equal(other.lines[0].quantity,'9')
 })

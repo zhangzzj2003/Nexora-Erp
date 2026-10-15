@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, or_, select
-from app.access.security import require
+from app.access.security import require, current_user
 from app.catalog.routes import MaterialInput, create_material_in_session, update_material_in_session, flush_catalog
 from app.catalog.product_rules import product_data, product_change, validate_model
 from app.core.models import Material, ProductProfile, ProductModel, ProductChange, User
@@ -19,12 +19,24 @@ class ProductFields(BaseModel):
     kind: ProductKind = 'unclassified'
     model_id: int | None = Field(default=None, ge=1, strict=True)
     configuration_name: str = Field(default='', max_length=120)
+    # 省略时创建保持旧行为，编辑时保留原值，避免旧客户端误开启已禁用用途。
+    can_sell: bool | None = Field(default=None, strict=True)
+    can_purchase: bool | None = Field(default=None, strict=True)
+    can_produce: bool | None = Field(default=None, strict=True)
     reason: str = Field(default='', max_length=500)
 
     @field_validator('configuration_name', 'reason')
     @classmethod
     def trim_text(cls, value):
         return value.strip()
+
+    @model_validator(mode='after')
+    def validate_uses(self):
+        # 只有省略字段才兼容旧客户端，显式 null 不能被误当成恢复或保留用途。
+        for name in ('can_sell', 'can_purchase', 'can_produce'):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError('产品用途须为明确的布尔值')
+        return self
 
 
 class ProductInput(ProductFields):
@@ -74,6 +86,12 @@ class ModelInput(BaseModel):
         if not self.code or not self.name:
             raise ValueError('机型编码与名称不能为空')
         return self
+
+
+@router.get('/product-bom-features')
+def product_bom_features(_: dict = Depends(current_user)) -> dict:
+    # 仅声明协议能力，供新客户端在写入前拒绝会忽略新字段的旧服务。
+    return {'independent_uses': True, 'component_bom_versions': True}
 
 
 def changes(db, kind, entity_id):
@@ -138,6 +156,8 @@ def create_product(payload: ProductInput, actor: dict = Depends(require('catalog
             raise HTTPException(422, '所选物料不存在')
         row = ProductProfile(material_id=material_id, kind=payload.kind, model_id=payload.model_id,
             configuration_name=payload.configuration_name, version=1, created_by=actor['id'])
+        for field in ('can_sell', 'can_purchase', 'can_produce'):
+            setattr(row, field, getattr(payload, field) if getattr(payload, field) is not None else True)
         db.add(row)
         flush_catalog(db, '该物料已纳入产品管理，请直接查看或编辑')
         product_change(db, 'product', row, None, actor, payload.reason or '新增产品档案')
@@ -157,6 +177,9 @@ def update_product(product_id: int, payload: ProductUpdate, actor: dict = Depend
         if payload.material is not None:
             update_material_in_session(db, row.material_id, payload.material, actor)
         row.kind, row.model_id = payload.kind, payload.model_id
+        for field in ('can_sell', 'can_purchase', 'can_produce'):
+            if getattr(payload, field) is not None:
+                setattr(row, field, getattr(payload, field))
         row.configuration_name, row.version = payload.configuration_name, row.version + 1
         db.flush()
         product_change(db, 'product', row, before, actor, payload.reason)

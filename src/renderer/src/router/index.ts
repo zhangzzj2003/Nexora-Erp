@@ -93,6 +93,9 @@ export function installWorkspaceAccessGuard(
     const permissions = getPermissions()
     // 登录前保留深链接，认证成功并取得权限后再核对；此时工作台尚不渲染。
     if (!requested || permissions === null) return true
+    // 旧标签和书签进入统一工作区，生产只读账号仍沿用原有授权页面。
+    if (requested.key === 'boms' && permissions.includes('inventory.view') && permissions.includes('production.view'))
+      return {path:'/workspace/products', query:to.query, replace:true}
     if (!canVisitRoute(requested, permissions))
       return { path: '/workspace/home', replace: true }
     return true

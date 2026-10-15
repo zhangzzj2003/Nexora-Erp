@@ -460,7 +460,7 @@ export function createAppState() {
     source_bom_id: null as number | null,
     base_quantity: '1',
     note: '',
-    lines: [{ component_material_id: 0, quantity: '1' }]
+    lines: [{ component_material_id: 0, quantity: '1' }] as {component_material_id: number; quantity: string; component_bom_id?: number | null}[]
   })
   const workOrderForm = ref({
     bom_id: 0,

@@ -174,7 +174,7 @@ test('收起的页面入口不可聚焦，动效遵循减少动态效果设置',
 
 test('基础资料包含独立单位管理，沿用查看权限与旧物料地址', () => {
   const group = visibleRouteGroups(['inventory.view']).find(group => group.key === 'catalog')
-  assert.deepEqual(group.routes.map(route => route.label), ['物料管理', '供应商管理', '物料分类与规格', '单位管理', '产品管理', '仓库管理'])
+  assert.deepEqual(group.routes.map(route => route.label), ['物料管理', '供应商管理', '物料分类与规格', '单位管理', '产品与 BOM', '仓库管理'])
   assert.equal(routeByKey('catalog').path, '/workspace/catalog')
   for (const key of ['products', 'catalog', 'suppliers', 'materialCategoryManagement', 'materialUnits', 'warehouses']) {
     assert.equal(canVisitRoute(routeByKey(key), []), false)
@@ -226,4 +226,16 @@ test('生产 BOM 属于基础资料，旧地址与生产权限保持兼容', asy
   await router.push('/workspace/boms')
   assert.equal(router.currentRoute.value.name, 'boms')
   assert.equal(routeGroupByKey('workOrders').key, 'production')
+})
+
+test('产品与 BOM 合并导航入口，旧地址按实际权限兼容并保留查询参数', async () => {
+  const permissions=['inventory.view','production.view']
+  const catalog=visibleRouteGroups(permissions).find(group=>group.key==='catalog')
+  assert.ok(catalog.routes.some(route=>route.key==='products'))
+  assert.ok(!catalog.routes.some(route=>route.key==='boms'))
+  const router=createWorkspaceRouter(createMemoryHistory(),Object.fromEntries(workspaceRoutes.map(route=>[route.key,{render:()=>null}])))
+  installWorkspaceAccessGuard(router,()=>permissions)
+  await router.push('/workspace/boms?product_id=9')
+  assert.equal(router.currentRoute.value.name,'products')
+  assert.equal(router.currentRoute.value.query.product_id,'9')
 })

@@ -8,7 +8,7 @@ import AppButton from '../../../components/app/AppButton.vue'
 const store = usePiniaAppStore(), router = useRouter()
 const {bomDetailRecord: record, bomDetailLoading, bomDetailError, busy, connectionLost} = storeToRefs(store)
 const show = computed(() => !!record.value || bomDetailLoading.value || !!bomDetailError.value)
-const columns = [{key:'sku',title:'组件编码',width:'200'}, {key:'name',title:'组件名称'}, {key:'quantity',title:'基准用量',width:'150'}, {key:'unit',title:'单位',width:'80'}]
+const columns = [{key:'sku',title:'组件编码',width:'200'}, {key:'name',title:'组件名称'}, {key:'quantity',title:'基准用量',width:'150'}, {key:'unit',title:'单位',width:'80'}, {key:'recipe',title:'下层生产配方',width:'170'}]
 async function createOrder(): Promise<void> {
   // 只传递一次性建单意图，实际保存和需求快照仍由原工单流程校验。
   if (!record.value || record.value.status !== 'active' || busy.value || connectionLost.value || !store.can('work_order.create')) return
@@ -31,6 +31,7 @@ async function createOrder(): Promise<void> {
     </template>
     <template #cell-sku="{row}">{{ row.sku }}</template><template #cell-name="{row}">{{ row.material_name }}</template>
     <template #cell-quantity="{row}">{{ row.quantity }}</template><template #cell-unit="{row}">{{ row.unit }}</template>
+    <template #cell-recipe="{row}"><AppButton v-if="row.component_bom_id" size="small" :disabled="busy || connectionLost" @click="store.openBomDetail(row.component_bom_id)">固定 V{{ row.component_bom_version }}</AppButton><span v-else>按物料领用</span></template>
     <template #footer><div class="form-actions">
       <AppButton v-if="record?.status === 'active' && store.can('work_order.create')" :disabled="busy || connectionLost" variant="primary" @click="createOrder">创建生产工单</AppButton>
       <AppButton :disabled="busy" @click="store.closeBomDetail">关闭</AppButton>

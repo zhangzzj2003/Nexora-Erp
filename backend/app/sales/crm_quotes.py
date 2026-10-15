@@ -1,5 +1,6 @@
 """报价冻结、独立审批及同事务转销售草稿，原报价保留。"""
 
+from app.catalog.product_rules import require_product_use
 from app.core.document_responses import NumberedRoute
 from decimal import Decimal
 
@@ -79,6 +80,7 @@ def write_quote(db, record, payload, user):
         material = db.get(Material,line.material_id)
         if material is None:
             raise HTTPException(422,'报价物料不存在')
+        require_product_use(db, line.material_id, 'can_sell')
         materials.append(material)
     if record.id is None:
         add_model(db,record)

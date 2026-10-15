@@ -14,7 +14,7 @@ export function createProductState() {
     productBomRecords: ref<Bom[]>([]), productChangeRecords: ref<ProductChange[]>([]),
     productEditorOpen: ref(false), productReturnToBom: ref(false),
     productForm: ref({id: 0, version: 0, mode: 'new' as 'new' | 'existing' | 'edit', material_id: 0,
-      kind: 'finished' as ProductKind, model_id: null as number | null, configuration_name: '', reason: ''}),
+      kind: 'finished' as ProductKind, model_id: null as number | null, configuration_name: '', can_sell: true, can_purchase: true, can_produce: true, reason: ''}),
     productMaterialForm: ref(materialDraft()),
     productModelForm: ref({id: 0, version: 0, code: '', name: '', notes: '', reason: ''}),
     productModelChanges: ref<ProductChange[]>([]),

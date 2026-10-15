@@ -850,7 +850,11 @@ export interface FinanceOverview {
   payments: PaymentRecord[]
   transfers: OrderSettlementTransfer[]
 }
+// 组件配方约束与复制来源相互独立，不改变组件的库存身份。
 export interface BomLine {
+  component_bom_id?: number | null
+  component_bom_version?: number | null
+  component_bom_status?: 'active' | 'retired' | null
   id: number
   component_material_id: number
   sku: string
@@ -1648,7 +1652,7 @@ export interface ErpOperations extends MaterialFlowOperations, MaterialSupplyOpe
   bomDetail: {input: {bomId: number}; output: Bom}
   productBoms: {input: {materialId: number}; output: Bom[]}
   boms: { input: undefined; output: Bom[] }
-  createBom: { input: { source_bom_id?: number | null; product_material_id: number; base_quantity: string; note: string; lines: { component_material_id: number; quantity: string }[] }; output: Bom }
+  createBom: { input: { source_bom_id?: number | null; product_material_id: number; base_quantity: string; note: string; lines: { component_material_id: number; quantity: string; component_bom_id?: number | null }[] }; output: Bom }
   activateBom: { input: { bomId: number }; output: Bom }
   retireBom: { input: { bomId: number }; output: Bom }
   cancelBom: { input: { bomId: number }; output: Bom }

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.models import (Bom, BomLine, Customer, Material, MrpConversion, MrpPolicy,
+from app.core.models import (Bom, BomLine, Customer, Material, ProductProfile, MrpConversion, MrpPolicy,
     PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, SalesOrder, SalesOrderLine,
     StockMovement, Supplier, WorkOrder, WorkOrderLine)
 from app.core.orm import model_data
@@ -47,10 +47,15 @@ def collect(db: Session, exclude_plan_id: int | None = None) -> dict:
     boms = []
     seen = set()
     for bom in db.scalars(select(Bom).where(Bom.status == 'active').order_by(Bom.id)):
+        from app.production.bom_dependencies import require_bom_ready
+        require_bom_ready(db, bom.id)
         if bom.product_material_id in seen:
             raise HTTPException(409, '同一产品存在多个启用 BOM，须先修正后计算')
         seen.add(bom.product_material_id)
-        lines = [model_data(row) for row in db.scalars(select(BomLine).where(BomLine.bom_id == bom.id).order_by(BomLine.id))]
+        # 未约束的历史配方保持原指纹；新版本约束才进入来源快照。
+        lines = [{key: value for key, value in model_data(row).items()
+                  if key != 'component_bom_id' or value is not None}
+                 for row in db.scalars(select(BomLine).where(BomLine.bom_id == bom.id).order_by(BomLine.id))]
         if not lines:
             raise HTTPException(409, '启用 BOM 没有组件')
         boms.append({**model_data(bom), 'lines': lines})
@@ -106,5 +111,12 @@ def collect(db: Session, exclude_plan_id: int | None = None) -> dict:
                         'status': order.status, 'material_id': line.component_material_id, 'quantity': quantity(needed)})
     if len(demands) > 2000 or len(supplies) > 2000 or len(reservations) > 5000:
         raise HTTPException(422, '未执行需求或供给超过当前计划容量，请先整理单据')
-    return {'materials': materials, 'policies': policies, 'boms': boms, 'movements': movements,
+    result = {'materials': materials, 'policies': policies, 'boms': boms, 'movements': movements,
         'demands': demands, 'supplies': supplies, 'reservations': reservations}
+    # 用途禁用会使未执行计划失效，迁移默认全开时不改变旧批准计划指纹。
+    restrictions = [{'material_id': row.material_id, 'can_purchase': row.can_purchase, 'can_produce': row.can_produce}
+        for row in db.scalars(select(ProductProfile).order_by(ProductProfile.id))
+        if not row.can_purchase or not row.can_produce]
+    if restrictions:
+        result['product_restrictions'] = restrictions
+    return result

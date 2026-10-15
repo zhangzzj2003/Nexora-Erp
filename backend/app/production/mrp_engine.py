@@ -19,6 +19,7 @@ def calculate(snapshot: dict, start_date: str, demand_dates: dict[str, str], sup
     materials = {row['id']: row for row in snapshot['materials']}
     policies = {row['material_id']: row for row in snapshot['policies']}
     boms = {row['product_material_id']: row for row in snapshot['boms']}
+    restrictions = {row['material_id']: row for row in snapshot.get('product_restrictions', [])}
     modes = {identifier: policies[identifier]['supply_mode'] for identifier in materials}
     modes = {identifier: ('make' if identifier in boms else 'buy') if mode == 'auto' else mode
              for identifier, mode in modes.items()}
@@ -85,6 +86,10 @@ def calculate(snapshot: dict, start_date: str, demand_dates: dict[str, str], sup
             planned = ZERO
             suggestion = None
             if net > 0:
+                # 计划建议与真实转单使用相同的用途约束，不能推荐无法执行的采购或生产。
+                capability = 'can_produce' if modes[identifier] == 'make' else 'can_purchase'
+                if not restrictions.get(identifier, {}).get(capability, True):
+                    raise HTTPException(409, f"物料 {materials[identifier]['sku']} 未允许{'生产' if capability == 'can_produce' else '采购'}，请调整产品用途或供给方式")
                 planned = max(net, Decimal(policy['minimum_quantity']))
                 multiple = Decimal(policy['multiple_quantity'])
                 if multiple > 0:

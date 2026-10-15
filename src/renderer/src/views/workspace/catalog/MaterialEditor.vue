@@ -45,7 +45,7 @@ function submit(): void {
     <slot name="beforeFields" />
     <p class="material-hint">{{ compact ? '填写基本信息后即可保存，带 * 的项目必填。' : `按规格建立${entityLabel ?? '物料'}档案，同一物料可绑定多家供应商。带 * 的项目必填。` }}</p>
     <fieldset :disabled="busy || disconnected" class="material-section">
-      <legend>{{ compact ? '产品基本信息' : '基本资料' }}</legend>
+      <legend>{{ compact ? `${entityLabel ?? '产品'}基本信息` : '基本资料' }}</legend>
       <div class="form-grid">
         <slot name="profileFields" />
         <label>物料大类 *<WorkspaceSelect v-model="form.group_code" :options="groups" required aria-label="物料大类" :disabled="busy || disconnected" @change="changeGroup" /></label>

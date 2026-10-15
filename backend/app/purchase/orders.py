@@ -1,5 +1,6 @@
 """采购订单及入库关联；订单数量只由已确认入库单消耗。"""
 
+from app.catalog.product_rules import require_product_use
 from app.core.document_responses import NumberedRoute
 from app.purchase.pricing import PurchasePricingInput, pricing_values, purchase_amount
 # 审批核对与原业务写入共用一个事务，旧客户端也不能跳过批准直接执行。
@@ -319,6 +320,8 @@ def create_purchase_order(
                 .first()
             ):
                 raise HTTPException(422, "物料不存在")
+        for line in payload.lines:
+            require_product_use(db, line.material_id, 'can_purchase')
         request_approval = None
         if payload.purchase_request_id is not None:
             request = (

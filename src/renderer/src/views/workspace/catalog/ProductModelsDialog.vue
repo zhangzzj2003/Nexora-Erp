@@ -4,8 +4,9 @@ import { usePiniaAppStore } from '../../../store/app-store'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
-defineProps<{show: boolean}>()
-const emit = defineEmits<{'update:show':[value:boolean]}>()
+import type { ProductModel } from '../../../../../shared/product-api'
+const props = defineProps<{show: boolean; createOnly?:boolean}>()
+const emit = defineEmits<{'update:show':[value:boolean]; saved:[model:ProductModel]}>()
 const store = usePiniaAppStore()
 const {productModels, productModelForm: form, productModelChanges, busy, connectionLost} = storeToRefs(store)
 const columns = [{key:'code',title:'产品系列编码',width:'180'},{key:'name',title:'产品系列名称'},{key:'notes',title:'说明'},{key:'actions',title:'操作',width:'90'}]
@@ -14,13 +15,20 @@ function clear(): void {
   if (busy.value) return
   form.value = {id:0,version:0,code:'',name:'',notes:'',reason:''}; productModelChanges.value = []
 }
+async function save(): Promise<void> {
+  // 新建成功后返回系列身份，左侧可立即定位新系列，再建立子机型。
+  const model = await store.saveProductModel()
+  if (!model) return
+  emit('saved',model)
+  if (props.createOnly) emit('update:show',false)
+}
 </script>
 <template>
-  <WorkspaceDocumentDialog :show="show" :title="form.id ? '编辑产品系列' : '产品系列管理'" :data="productModels" :columns="columns"
+  <WorkspaceDocumentDialog :show="show" :title="createOnly ? '新建产品系列' : form.id ? '编辑产品系列' : '产品系列管理'" :data="productModels" :columns="columns" :show-lines="!createOnly"
     :show-add="false" lines-title="产品系列目录" :busy="busy" :disabled="connectionLost || !store.can('catalog.manage')"
     :submit-disabled="!form.code.trim() || !form.name.trim() || (!!form.id && !form.reason.trim())"
     submit-label="保存产品系列" hint="产品系列只作归组，不记库存；修改不会覆盖产品编码与规格。"
-    @submit="store.saveProductModel" @update:show="emit('update:show',$event)" @invalidated="emit('update:show',false)">
+    @submit="save" @update:show="emit('update:show',$event)" @invalidated="emit('update:show',false)">
     <template #basicInfo>
       <label>产品系列编码<AppInput v-model.trim="form.code" required maxlength="40" /></label>
       <label>产品系列名称<AppInput v-model.trim="form.name" required maxlength="120" /></label>

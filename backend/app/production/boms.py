@@ -10,13 +10,16 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.orm import orm_session, add_model
 from app.core.models import Bom, BomLine, Material, User
+from app.catalog.product_rules import require_product_use
 from app.access.security import require
+from app.production.bom_dependencies import validate_component_bom, require_bom_ready
 
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
 class BomLineInput(BaseModel):
     component_material_id: int = Field(gt=0)
+    component_bom_id: int | None = Field(default=None, gt=0, strict=True)
     quantity: Decimal
 
     @field_validator("quantity")
@@ -87,6 +90,7 @@ def bom_data(db: Session, bom_id: int) -> dict:
                 Material.name.label("material_name"),
                 Material.unit,
                 BomLine.quantity,
+                BomLine.component_bom_id,
             )
             .select_from(BomLine)
             .join(Material, (Material.id == BomLine.component_material_id))
@@ -98,7 +102,13 @@ def bom_data(db: Session, bom_id: int) -> dict:
     )
     source = db.get(Bom, row['source_bom_id']) if row['source_bom_id'] else None
     source_material = db.get(Material, source.product_material_id) if source else None
-    return {**dict(row), "lines": [dict(line) for line in lines], 'source_bom': {
+    # 来源派生与下层配方使用不同字段；停用的历史版本仍能准确展示。
+    enriched = []
+    for line in lines:
+        child = db.get(Bom, line['component_bom_id']) if line['component_bom_id'] else None
+        enriched.append({**dict(line), 'component_bom_version': child.version if child else None,
+                         'component_bom_status': child.status if child else None})
+    return {**dict(row), "lines": enriched, 'source_bom': {
         'id': source.id, 'version': source.version, 'product_material_id': source.product_material_id,
         'product_name': source_material.name, 'product_sku': source_material.sku,
     } if source else None}
@@ -158,6 +168,8 @@ def create_bom(payload: BomInput, user: dict = Depends(require("bom.create"))) -
             source = db.get(Bom, payload.source_bom_id)
             if source is None or source.status == 'cancelled':
                 raise HTTPException(422, '来源 BOM 不存在或已取消，不能派生新版本')
+        for line in payload.lines:
+            validate_component_bom(db, line.component_material_id, line.component_bom_id)
         from app.catalog.product_rules import ensure_product
         ensure_product(db, payload.product_material_id, user)
         # 版本号在写事务中分配，两个计划员并行建单也不会拿到同一版本。
@@ -183,6 +195,7 @@ def create_bom(payload: BomInput, user: dict = Depends(require("bom.create"))) -
                     bom_id=cursor.id,
                     component_material_id=line.component_material_id,
                     quantity=str(line.quantity),
+                    component_bom_id=line.component_bom_id,
                 )
                 for line in payload.lines
             ]
@@ -202,6 +215,8 @@ def activate_bom(bom_id: int, user: dict = Depends(require("bom.activate"))) -> 
             raise HTTPException(404, "BOM 不存在")
         if bom["status"] != "draft":
             raise HTTPException(409, "只有 BOM 草稿可以启用")
+        require_product_use(db, bom['product_material_id'], 'can_produce')
+        require_bom_ready(db, bom_id, draft_root=True)
         if (
             db.execute(
                 select(literal(1))

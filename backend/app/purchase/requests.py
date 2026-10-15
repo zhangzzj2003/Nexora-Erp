@@ -1,5 +1,6 @@
 """采购申请审批与分批转单数量查询。"""
 
+from app.catalog.product_rules import require_product_use
 from app.core.document_responses import NumberedRoute
 from app.purchase.pricing import PurchasePricingInput, pricing_values
 # 本模块保留申请数量和转单规则，审批统一从带版本的公共入口完成。
@@ -141,6 +142,8 @@ def validate_lines(db: Session, payload: PurchaseRequestInput) -> None:
             .first()
         ):
             raise HTTPException(422, f"物料 #{line.material_id} 不存在")
+
+        require_product_use(db, line.material_id, 'can_purchase')
 
 
 @router.get("/purchase-requests")
