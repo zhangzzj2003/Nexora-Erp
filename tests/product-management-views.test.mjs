@@ -25,7 +25,7 @@ async function fixture(t) {
    if(id==='\0products-pagination')return `import {h} from 'vue';export const paginations=[];export default {props:['page','pageSize','total','disabled'],setup:(p,{attrs})=>()=>{paginations.push({...p,...attrs});return h('nav',{'data-product-pagination':p.total})}}`
    if(id==='\0products-button')return `import {h} from 'vue';export const buttons=[];const text=v=>(v??[]).map(n=>typeof n.children==='string'?n.children:Array.isArray(n.children)?text(n.children):'').join('');export default {props:['disabled','type'],setup:(p,{slots,attrs})=>()=>{const content=slots.default?.();buttons.push({label:text(content).trim(),props:p,attrs});return h('button',{...attrs,disabled:p.disabled,type:p.type},content)}}`
    if(id==='\0products-input')return `import {h} from 'vue';export default {props:['modelValue'],setup:(p,{attrs})=>()=>h('input',{...attrs,value:p.modelValue})}`
-   if(id==='\0products-select')return `import {h} from 'vue';export default {props:['modelValue','options','materials'],setup:(p,{attrs})=>()=>h('select',attrs,(p.options??p.materials??[]).map(o=>h('option',{value:o.value??o.id},o.label??o.name)))}`
+   if(id==='\0products-select')return `import {h} from 'vue';export const selects=[];export default {props:['modelValue','options','materials'],setup:(p,{attrs})=>()=>{selects.push({props:p,attrs});return h('select',attrs,(p.options??p.materials??[]).map(o=>h('option',{value:o.value??o.id},o.label??o.name)))}}`
    if(id==='\0products-material')return `import {h} from 'vue';export default {props:['form'],setup:(p,{slots})=>()=>h('form',[slots.beforeFields?.(),slots.profileFields?.(),h('input',{value:p.form.name})])}`
  }},vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'})
  t.after(()=>server.close())
@@ -33,6 +33,7 @@ async function fixture(t) {
  const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/ProductsView.vue')
  const {default:LegacyBom}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/BomEditor.vue')
  const {paginations}=await server.ssrLoadModule('\0products-pagination')
+ const {selects}=await server.ssrLoadModule('\0products-select')
  const {buttons}=await server.ssrLoadModule('\0products-button'), {tables}=await server.ssrLoadModule('\0products-table')
  const pinia=createPinia(), store=usePiniaAppStore(pinia)
  store.user={id:1,permissions:['inventory.view','catalog.manage','production.view','bom.create','bom.activate','work_order.create']}
@@ -49,16 +50,16 @@ async function fixture(t) {
  t.after(()=>{globalThis.window=previous})
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/workspace/products',component:View},{path:'/workspace/work-orders',component:{render:()=>null}}]})
  await router.push('/workspace/products');await router.isReady()
- let setup;const overrides={}
- const render=async()=>{buttons.length=0;tables.length=0;paginations.length=0
+ let setup;const overrides={}, beforeRender={}
+ const render=async()=>{buttons.length=0;tables.length=0;paginations.length=0;selects.length=0
    const app=createSSRApp(View).use(pinia).use(router)
-   app.mixin({async serverPrefetch(){if(this.$options.__name==='ProductsView'){await store.queryProducts();const id=store.productDetailId || store.productResult?.items[0]?.id;if(id)await store.openProduct(id)}},created(){if(this.$options.__name==='ProductsView'){setup=this.$.setupState;for(const[key,value]of Object.entries(overrides))setup[key]=value}}})
+   app.mixin({async serverPrefetch(){if(this.$options.__name==='ProductsView'){await store.queryProducts();const id=store.productDetailId || store.productResult?.items[0]?.id;if(id)await store.openProduct(id);beforeRender.apply?.(store)}},created(){if(this.$options.__name==='ProductsView'){setup=this.$.setupState;for(const[key,value]of Object.entries(overrides))setup[key]=value}}})
    return renderToString(app)
  }
  await store.queryProducts()
  store.materials=[material,{...material,id:22,sku:'EL-IC-22',name:'主芯片',unit:'个'}]
  const renderLegacyBom=async()=>{buttons.length=0;return renderToString(createSSRApp({render:()=>h(LegacyBom,{show:true})}).use(pinia).use(router))}
- return {store,source,product,render,renderLegacyBom,buttons,tables,paginations,router,calls,overrides,get setup(){return setup}}
+ return {store,source,product,render,renderLegacyBom,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,get setup(){return setup}}
 }
 
 test('产品真实页面使用服务端分页和物料身份，查看权限不能显示维护入口',async t=>{
@@ -81,7 +82,12 @@ test('产品详情复用 BOM 编辑器派生，快捷建档保留组件，来源
  const f=await fixture(t)
  await f.store.openProduct(1)
  let html=await f.render()
- assert.match(html,/BOM 版本/);assert.match(html,/复制派生/)
+ assert.match(html,/BOM 版本/);assert.doesNotMatch(html,/复制派生/)
+ const openVersions=f.buttons.find(b=>b.label==='版本管理 · 1').attrs.onClick
+ for(const handler of Array.isArray(openVersions)?openVersions:[openVersions])handler()
+ assert.equal(f.setup.versionsOpen,true)
+ f.overrides.versionsOpen=true
+ html=await f.render();assert.match(html,/复制派生/)
  f.buttons.find(b=>b.label==='复制派生').attrs.onClick()
  assert.equal(f.store.bomForm.source_bom_id,7)
  assert.equal(f.store.bomForm.lines[0].quantity,'2')
@@ -124,7 +130,7 @@ test('左侧系列限定服务端产品范围，右侧直接切换 BOM，重置�
  assert.equal(f.store.productQuery.query,'');assert.equal(f.store.productDetailId,0)
  const html=await f.render()
  assert.match(html,/B200 系列/);assert.match(html,/专业控制板/)
- assert.equal(f.tables.find(row=>row.title==='BOM 版本').data[0].id,9)
+ assert.equal(f.selects.find(row=>row.attrs['aria-label']==='选择 BOM 版本').props.modelValue,9)
  assert.equal(f.calls.some(([action,payload])=>action==='queryProducts'&&payload.model_id===2),true)
  assert.doesNotMatch(html,/复制派生/)
  f.setup.reset();assert.equal(f.store.productQuery.model_id,2)
@@ -166,4 +172,90 @@ test('右侧可从其他机型复用 BOM 到当前机型，排除取消版本',a
  assert.equal(f.store.bomForm.source_bom_id,88)
  assert.equal(f.store.bomForm.lines[0].quantity,'9')
  f.store.bomForm.lines[0].quantity='4';assert.equal(other.lines[0].quantity,'9')
+})
+
+// 使用真实页面的事件与组成行验证版本切换，避免只断言新增文案。
+test('紧凑版本栏默认选启用版本，历史选择切换组成并拒绝失效或禁用事件',async t=>{
+ const f=await fixture(t)
+ const previous=globalThis.window.nexora.callApi
+ const history={...f.source,id:8,version:2,status:'retired',lines:[{...f.source.lines[0],material_name:'旧版芯片',quantity:'5'}]}
+ globalThis.window.nexora.callApi=async(action,payload)=>action==='productBoms'?[history,f.source]:previous(action,payload)
+ let html=await f.render()
+ assert.doesNotMatch(html,/data-modal="BOM 版本管理"/)
+ assert.equal(f.tables.some(row=>row.title==='全部版本'),false)
+ assert.match(html,/data-table="组成明细 · V1"/)
+ const selector=f.selects.find(row=>row.attrs['aria-label']==='选择 BOM 版本')
+ assert.equal(selector.props.modelValue,7)
+ selector.attrs['onUpdate:modelValue'](8)
+ assert.equal(f.setup.selectedBom.id,8)
+ selector.attrs['onUpdate:modelValue'](999)
+ assert.equal(f.setup.selectedBom.id,8)
+ f.store.busy=true;selector.attrs['onUpdate:modelValue'](7)
+ assert.equal(f.setup.selectedBom.id,8)
+ f.store.busy=false;f.overrides.selectedBomId=8
+ html=await f.render()
+ assert.match(html,/旧版芯片/);assert.match(html,/data-table="组成明细 · V2"/)
+ f.overrides.versionsOpen=true
+ await f.render()
+ f.buttons.find(row=>row.label==='查看组成').attrs.onClick()
+ assert.equal(f.setup.selectedBom.id,7);assert.equal(f.setup.versionsOpen,false)
+})
+
+// 管理操作迁移位置后仍沿用权限、单一启用版本和断线保护。
+test('版本管理保留启停和取消权限，当前启用版本阻止重复启用，断线禁用写入',async t=>{
+ const f=await fixture(t)
+ const previous=globalThis.window.nexora.callApi
+ const draft={...f.source,id:8,version:2,status:'draft'}
+ globalThis.window.nexora.callApi=async(action,payload)=>action==='productBoms'?[f.source,draft]:previous(action,payload)
+ f.store.user.permissions.push('bom.retire','bom.cancel')
+ f.overrides.versionsOpen=true
+ await f.render()
+ assert.equal(f.buttons.find(row=>row.label==='启用').props.disabled,true)
+ assert.equal(f.buttons.find(row=>row.label==='停用').attrs.tone,'warning')
+ assert.equal(f.buttons.find(row=>row.label==='取消草稿').attrs.tone,'error')
+ await f.buttons.find(row=>row.label==='停用').attrs.onClick()
+ assert.equal(f.calls.some(([action,payload])=>action==='retireBom'&&payload.bomId===7),true)
+ f.store.connectionLost=true
+ await f.render()
+ for(const label of ['复制派生','停用','启用','取消草稿'])
+   assert.equal(f.buttons.filter(row=>row.label===label).every(row=>row.props.disabled),true)
+ f.store.connectionLost=false;f.store.user={...f.store.user,permissions:['inventory.view','production.view']}
+ const html=await f.render()
+ assert.doesNotMatch(html,/复制派生|取消草稿|>停用<|>启用<|新建版本|复用 BOM/)
+ assert.match(html,/当前组成/)
+})
+
+test('目录名称与配置去重，产品资料保留编辑入口，组成说明可按需展开',async t=>{
+ const f=await fixture(t)
+ let html=await f.render()
+ const left=html.slice(html.indexOf('<aside'),html.indexOf('</aside>'))
+ assert.equal((left.match(/标准版/g)??[]).length,1)
+ assert.match(left,/tree-kind/);assert.equal(f.buttons.some(row=>row.label==='领料与版本说明'),true)
+ assert.match(html,/基准产出/);assert.match(html,/1 项直接组件/)
+ assert.doesNotMatch(html,/未设置配置/)
+ f.overrides.detailsOpen=true
+ html=await f.render()
+ assert.match(html,/data-modal="产品资料"/);assert.match(html,/编辑子机型/)
+ // 独立配置仍展示，产品名称不再被配置名称替代。
+ f.product.configuration_name='长续航';html=await f.render()
+ const updatedLeft=html.slice(html.indexOf('<aside'),html.indexOf('</aside>'))
+ assert.equal((updatedLeft.match(/标准版/g)??[]).length,1);assert.match(updatedLeft,/长续航/)
+})
+
+// 原版本表格承担的读取状态不能在压缩布局后消失，也不能露出上一次组成。
+test('BOM 读取失败、加载与空状态都隐藏旧组成，失败可重试',async t=>{
+ const f=await fixture(t)
+ f.beforeRender.apply=store=>{store.productDetailError='版本读取失败'}
+ let html=await f.render()
+ assert.match(html,/role="alert"/);assert.match(html,/版本读取失败/)
+ assert.equal(f.tables.some(row=>row.title.startsWith('组成明细')),false)
+ const reads=f.calls.filter(([action])=>action==='productBoms').length
+ await f.buttons.find(row=>row.label==='重试').attrs.onClick()
+ assert.equal(f.calls.filter(([action])=>action==='productBoms').length,reads+1)
+ f.beforeRender.apply=store=>{store.productDetailLoading=true}
+ html=await f.render();assert.match(html,/正在读取 BOM/)
+ assert.equal(f.tables.some(row=>row.title.startsWith('组成明细')),false)
+ f.beforeRender.apply=store=>{store.productBomRecords=[]}
+ html=await f.render();assert.match(html,/尚未建立 BOM/)
+ assert.equal(f.tables.some(row=>row.title.startsWith('组成明细')),false)
 })

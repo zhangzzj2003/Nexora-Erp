@@ -50,14 +50,16 @@ const members = (id:number|null):ProductProfile[] => children.value.filter(row=>
           </AppButton>
           <ul v-if="members(model.id).length" class="tree-children">
             <li v-for="row in members(model.id)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="emit('select',row.id)">
-              <strong>{{ row.configuration_name || row.material.name }}</strong><small>{{ productKindLabels[row.kind] }} · {{ row.material.sku }}</small><span>{{ row.material.name }}</span>
+              <!-- 名称只显示一次；配置有实际差异时才补充，避免未配置产品出现重复行。 -->
+              <strong>{{ row.material.name }}</strong><small>{{ row.material.sku }}</small><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
             </AppButton></li>
           </ul>
           <p v-else-if="query.model_id===model.id && !loading && !error" class="tree-empty muted">此系列暂无匹配子机型</p>
         </li>
         <li v-if="members(null).length"><h4 class="tree-unassigned">未归组产品 / 半成品</h4><ul class="tree-children">
           <li v-for="row in members(null)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="emit('select',row.id)">
-            <strong>{{ row.configuration_name || row.material.name }}</strong><small>{{ productKindLabels[row.kind] }} · {{ row.material.sku }}</small><span>{{ row.material.name }}</span>
+            <!-- 名称只显示一次；配置有实际差异时才补充，避免未配置产品出现重复行。 -->
+              <strong>{{ row.material.name }}</strong><small>{{ row.material.sku }}</small><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
           </AppButton></li>
         </ul></li>
       </ul>
@@ -82,8 +84,12 @@ header h3 { margin:0; font-size:16px; } header p { margin:7px 0 0; font-size:12p
 .tree-roots>li { margin-top:8px; }
 .tree-all,.tree-series,.tree-model { width:100%; min-width:0; padding:10px 12px; border-radius:10px; text-align:left; white-space:normal; }
 .tree-series { display:flex; align-items:center; justify-content:start; gap:8px; }
-.series-label,.tree-model { display:grid; justify-items:start; gap:5px; }
-small,.tree-model>span { color:var(--workspace-field-muted); font-size:11px; overflow-wrap:anywhere; }
+.series-label { display:grid; justify-items:start; gap:5px; }
+/* 按钮内部承载文字网格，避免公共按钮的居中容器让不同长度的名称来回跳动。 */
+.tree-model :deep(.n-button__content) { display:grid; justify-items:start; gap:5px; width:100%; text-align:left; }
+.tree-product-meta { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+.tree-kind { padding:1px 5px; border-radius:4px; background:var(--app-accent-tint); color:var(--workspace-field-accent); }
+small,.tree-product-meta { color:var(--workspace-field-muted); font-size:11px; overflow-wrap:anywhere; }
 strong { font-size:13px; overflow-wrap:anywhere; }
 .tree-all { text-align:left; color:var(--workspace-field-muted); }
 .tree-series.is-current { background:var(--app-accent-tint); color:var(--workspace-field-accent); }

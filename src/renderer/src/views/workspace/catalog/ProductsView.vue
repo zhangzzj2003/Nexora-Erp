@@ -10,9 +10,11 @@ import type { ProductProfile, ProductModel } from '../../../../../shared/product
 import type { Bom } from '../../../../../shared/erp-api'
 import { materialChoiceFacts } from '../../../utils/material-selection'
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
-import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import AppButton from '../../../components/app/AppButton.vue'
+import AppStatusTag from '../../../components/app/AppStatusTag.vue'
+import type { AppStatusTone } from '../../../components/app/AppStatusTag.vue'
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import ProductEditor from './ProductEditor.vue'
 import ProductTreeSidebar from './ProductTreeSidebar.vue'
 import ProductBomReuseDialog from './ProductBomReuseDialog.vue'
@@ -27,16 +29,32 @@ const {productQuery: query, productResult: result, productModels: models, produc
   productBomRecords, productChangeRecords, productEditorOpen, bomDetailRecord, bomDetailLoading, bomDetailError,
   materialCategories, boms, productModelForm, productModelChanges, busy, connectionLost} = storeToRefs(store)
 const modelsOpen = ref(false), bomOpen = ref(false), detailsOpen = ref(false), reuseOpen = ref(false), createSeriesOnly = ref(false)
+const versionsOpen = ref(false)
 const pendingProductId = ref(0)
 const bomTargetId = ref(0)
 const selectedBomId = ref(0)
 // 默认看启用版本，手动选择历史版本后保持到切换产品为止。
 const selectedBom = computed(() => productBomRecords.value.find(row => row.id === selectedBomId.value)
   ?? productBomRecords.value.find(row => row.status === 'active') ?? productBomRecords.value[0])
-watch(productDetailId, () => {selectedBomId.value = 0})
+watch(productDetailId, () => {selectedBomId.value = 0; versionsOpen.value = false})
+const bomStatuses: Record<Bom['status'], {label:string; tone:AppStatusTone}> = {
+  draft:{label:'草稿',tone:'pending'}, active:{label:'已启用',tone:'success'},
+  retired:{label:'已停用',tone:'neutral'}, cancelled:{label:'已取消',tone:'danger'}
+}
+const versionOptions = computed(() => productBomRecords.value.map(row => ({value:row.id,
+  label:`V${row.version} · ${bomStatuses[row.status].label}`})))
+const productUnavailable = computed(() => busy.value || connectionLost.value || productDetailLoading.value || !!productDetailError.value)
+function selectVersion(id: number): void {
+  // 只接受当前产品已经加载的版本，禁用期间的迟到事件不能切换组成视图。
+  if (!productUnavailable.value && productBomRecords.value.some(row => row.id === id)) selectedBomId.value = id
+}
+function viewComposition(id: number): void {
+  if (productUnavailable.value) return
+  selectVersion(id); versionsOpen.value = false
+}
 const seriesName = computed(() => models.value.find(row => row.id === query.value.model_id)?.name ?? '全部系列')
 const bomColumns = [{key:'version',title:'BOM 版本',width:'110'}, {key:'status',title:'状态',width:'90'},
-  {key:'source',title:'派生来源'}, {key:'actions',title:'操作',width:'270'}]
+  {key:'source',title:'派生来源'}, {key:'actions',title:'操作',width:'390'}]
 const facts = computed(() => detail.value ? materialChoiceFacts(detail.value.material, materialCategories.value) : [])
 const technicalFacts = computed(() => detail.value ? materialChoiceFacts(detail.value.material, materialCategories.value, true) : [])
 const showDetail = computed(() => detailsOpen.value && !!productDetailId.value && !bomOpen.value && !productEditorOpen.value
@@ -60,7 +78,7 @@ watch([result, () => route.query.product_id], ([page, rawId]) => {
 }, {immediate:true})
 // 保存后的定位意图不能跨账号、实例或权限边界执行。
 watch(() => JSON.stringify([store.user?.id,store.server?.id,store.server?.fingerprint,store.user?.permissions.slice().sort()]), () => {
-  pendingProductId.value=0; reuseOpen.value=false; modelsOpen.value=false; bomOpen.value=false; bomTargetId.value=0
+  pendingProductId.value=0; reuseOpen.value=false; modelsOpen.value=false; bomOpen.value=false; bomTargetId.value=0; versionsOpen.value=false
 })
 onUnmounted(() => {store.closeProduct(); store.closeBomDetail()})
 function pageChange(page: number, size: number): void {
@@ -87,7 +105,7 @@ function selectProduct(id: number): Promise<void> {
 }
 function startBom(source?: Bom): void {
   if (detail.value && store.prepareProductBom(detail.value.material_id, source)) {
-    bomTargetId.value=detail.value.material_id; reuseOpen.value=false; bomOpen.value=true
+    bomTargetId.value=detail.value.material_id; reuseOpen.value=false; versionsOpen.value=false; bomOpen.value=true
   }
 }
 function newSeries(): void {
@@ -131,28 +149,35 @@ function sameModel(): void {
     <div class="product-main">
     <section v-if="productDetailId" class="product-bom-panel" aria-label="选中产品的 BOM">
       <header v-if="detail" class="product-bom-heading">
-        <div><span class="muted">{{ productKindLabels[detail.kind] }} · {{ detail.material.sku }} · {{ detail.configuration_name || '未设置配置' }}</span><h3>{{ detail.material.name }}</h3><p class="muted">{{ detail.material.spec_summary || detail.material.specification || '未填写规格' }}</p></div>
+        <div class="product-identity">
+          <div class="product-meta"><span class="product-kind">{{ productKindLabels[detail.kind] }}</span><span class="product-code">{{ detail.material.sku }}</span><span v-if="detail.configuration_name && detail.configuration_name !== detail.material.name">{{ detail.configuration_name }}</span></div>
+          <h3>{{ detail.material.name }}</h3>
+          <p v-if="detail.material.spec_summary || detail.material.specification" class="muted">{{ detail.material.spec_summary || detail.material.specification }}</p>
+        </div>
         <div class="product-toolbar">
-          <AppButton :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('product-detail',$event)" @click="detailsOpen = true">机型资料</AppButton>
-          <AppButton v-if="store.can('catalog.manage')" :disabled="busy || connectionLost" @click="store.startProduct('edit',detail.id)">编辑子机型</AppButton>
-          <AppButton v-if="store.can('bom.create') && store.can('production.view')" :disabled="busy || connectionLost" @click="reuseOpen = true">复用 BOM</AppButton>
-          <AppButton v-if="store.can('bom.create')" variant="primary" :disabled="busy || connectionLost" @click="startBom()">新建 BOM</AppButton>
+          <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-detail',$event)" @click="detailsOpen = true">产品资料</AppButton>
+          <AppButton v-if="store.can('bom.create') && store.can('production.view')" size="small" :disabled="productUnavailable" @click="reuseOpen = true">复用 BOM</AppButton>
+          <AppButton v-if="store.can('bom.create')" size="small" variant="primary" :disabled="productUnavailable" @click="startBom()">新建版本</AppButton>
         </div>
       </header>
-        <WorkspaceTable v-if="store.can('production.view')" title="BOM 版本" :loading="productDetailLoading" :error="productDetailError" :data="productBomRecords" :columns="bomColumns" :min-table-width="610">
-          <template #cell-version="{row}"><AppButton size="small" :aria-pressed="selectedBom?.id === row.id" :disabled="busy || connectionLost" @click="selectedBomId = row.id">#{{ row.id }} · V{{ row.version }}</AppButton></template>
-          <template #cell-status="{row}">{{ {draft:'草稿',active:'已启用',retired:'已停用',cancelled:'已取消'}[row.status] }}</template>
-          <template #cell-source="{row}"><AppButton v-if="row.source_bom" size="small" :disabled="busy || connectionLost" @click="store.openBomDetail(row.source_bom.id)">{{ row.source_bom.product_name }} · V{{ row.source_bom.version }}</AppButton><span v-else>独立创建</span></template>
-          <template #cell-actions="{row}"><div class="form-actions">
-            <AppButton size="small" :disabled="busy || connectionLost" @click="store.openBomDetail(row.id)">BOM 详情</AppButton>
-            <AppButton v-if="row.status !== 'cancelled' && store.can('bom.create')" size="small" :disabled="busy || connectionLost" @click="startBom(row)">复制派生</AppButton>
-            <AppButton v-if="row.status === 'draft' && store.can('bom.activate')" size="small" :disabled="busy || connectionLost || productBomRecords.some(item=>item.status==='active')" @click="store.activateBom(row.id).then(afterBomSaved)">启用</AppButton>
-            <AppButton v-if="row.status === 'active' && store.can('bom.retire')" size="small" :disabled="busy || connectionLost" @click="store.retireBom(row.id).then(afterBomSaved)">停用</AppButton>
-            <AppButton v-if="row.status === 'draft' && store.can('bom.cancel')" size="small" :disabled="busy || connectionLost" @click="store.cancelBom(row.id).then(afterBomSaved)">取消草稿</AppButton>
-          </div></template>
-          <template #empty>此子机型尚未建立 BOM，可新建或复用已有版本。</template>
-        </WorkspaceTable>
-        <ProductBomStructure v-if="store.can('production.view') && selectedBom && !productDetailLoading && !productDetailError" :bom="selectedBom" :catalog="boms" :disabled="busy || connectionLost" @open="store.openBomDetail" />
+      <!-- 当前组成是工作区主体，历史表格按需打开，避免每次查看都占用一张卡片。 -->
+      <template v-if="store.can('production.view')">
+        <div v-if="productDetailLoading" class="bom-workspace-state" role="status">正在读取 BOM…</div>
+        <div v-else-if="productDetailError" class="bom-workspace-state" role="alert"><p>{{ productDetailError }}</p><AppButton size="small" :disabled="busy || connectionLost" @click="afterBomSaved">重试</AppButton></div>
+        <template v-else-if="selectedBom">
+          <div class="bom-version-bar" aria-label="当前 BOM 版本">
+            <div class="bom-version-choice"><span class="bom-version-label">BOM 版本</span>
+              <WorkspaceSelect :model-value="selectedBom.id" :options="versionOptions" aria-label="选择 BOM 版本" size="small" :disabled="productUnavailable" @update:model-value="selectVersion" />
+              <AppStatusTag :label="bomStatuses[selectedBom.status].label" :tone="bomStatuses[selectedBom.status].tone" />
+            </div>
+            <div class="product-toolbar"><AppButton size="small" :disabled="productUnavailable" @click="store.openBomDetail(selectedBom.id)">版本详情</AppButton>
+              <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-bom-versions',$event)" @click="versionsOpen=true">版本管理 · {{ productBomRecords.length }}</AppButton></div>
+          </div>
+          <div v-if="selectedBom.source_bom" class="bom-source muted">复制来源：<AppButton variant="text" size="small" :disabled="productUnavailable" @click="store.openBomDetail(selectedBom.source_bom.id)">{{ selectedBom.source_bom.product_name }} · V{{ selectedBom.source_bom.version }}</AppButton></div>
+          <ProductBomStructure :bom="selectedBom" :catalog="boms" :disabled="productUnavailable" @open="store.openBomDetail" />
+        </template>
+        <div v-else class="bom-workspace-state"><h4>尚未建立 BOM</h4><p class="muted">{{ store.can('bom.create') ? '新建版本，或复用已有 BOM 开始配置组成。' : '此产品暂无可查看的 BOM 版本。' }}</p></div>
+      </template>
         <p v-if="!store.can('production.view')" class="muted">当前账号没有生产查看权限，关联 BOM 内容不加载。</p>
     </section>
     <section v-else class="bom-workspace-empty"><h3>BOM 工作区</h3><p class="muted">{{ productsLoading ? '正在读取子机型…' : productsError ? '左侧目录查询失败，请重试。' : `在左侧选择子机型，或在「${seriesName}」中新建子机型，再配置 BOM。` }}</p></section>
@@ -162,7 +187,24 @@ function sameModel(): void {
     <ProductBomReuseDialog :show="reuseOpen && store.can('bom.create') && store.can('production.view')" :sources="boms" :target-name="detail ? `${detail.material.name} · ${detail.configuration_name || detail.material.sku}` : ''" :busy="busy" :disconnected="connectionLost" @update:show="reuseOpen=$event" @choose="startBom" />
     <BomEditor v-model:show="bomOpen" :target-material-id="bomTargetId || undefined" @saved="afterBomSaved" />
     <BomDetailDialog />
-    <WorkspaceDocumentDialog origin-key="product-detail" :show="showDetail" read-only title="子机型资料" :data="[]" :columns="[]" :show-lines="false"
+    <WorkspaceDocumentDialog origin-key="product-bom-versions" :show="versionsOpen && store.can('production.view') && !bomDetailRecord && !bomDetailLoading && !bomDetailError"
+      read-only title="BOM 版本管理" lines-title="全部版本" :data="productBomRecords" :columns="bomColumns" :min-table-width="860"
+      :ready="!productDetailLoading" :load-error="productDetailError" :busy="busy" @update:show="versionsOpen=$event" @invalidated="versionsOpen=false">
+      <template #basicInfo><div v-if="detail" class="document-detail-field"><span>当前产品</span><strong>{{ detail.material.name }}</strong></div>
+        <div v-if="detail" class="document-detail-field"><span>产品编码</span><strong>{{ detail.material.sku }}</strong></div>
+        <div class="document-detail-field"><span>版本规则</span><strong>同一产品仅允许一个启用版本</strong></div></template>
+      <template #cell-version="{row}"><strong>V{{ row.version }}</strong><small class="muted"> · #{{ row.id }}</small></template>
+      <template #cell-status="{row}"><AppStatusTag :label="bomStatuses[row.status].label" :tone="bomStatuses[row.status].tone" /></template>
+      <template #cell-source="{row}"><AppButton v-if="row.source_bom" variant="text" size="small" :disabled="productUnavailable" @click="store.openBomDetail(row.source_bom.id)">{{ row.source_bom.product_name }} · V{{ row.source_bom.version }}</AppButton><span v-else class="muted">独立创建</span></template>
+      <template #cell-actions="{row}"><div class="form-actions">
+        <AppButton size="small" :disabled="productUnavailable" @click="viewComposition(row.id)">{{ selectedBom?.id === row.id ? '当前组成' : '查看组成' }}</AppButton>
+        <AppButton v-if="row.status !== 'cancelled' && store.can('bom.create')" size="small" :disabled="productUnavailable" @click="startBom(row)">复制派生</AppButton>
+        <AppButton v-if="row.status === 'draft' && store.can('bom.activate')" size="small" tone="success" :disabled="productUnavailable || productBomRecords.some(item=>item.status==='active')" @click="store.activateBom(row.id).then(afterBomSaved)">启用</AppButton>
+        <AppButton v-if="row.status === 'active' && store.can('bom.retire')" size="small" tone="warning" :disabled="productUnavailable" @click="store.retireBom(row.id).then(afterBomSaved)">停用</AppButton>
+        <AppButton v-if="row.status === 'draft' && store.can('bom.cancel')" size="small" tone="error" :disabled="productUnavailable" @click="store.cancelBom(row.id).then(afterBomSaved)">取消草稿</AppButton>
+      </div></template>
+    </WorkspaceDocumentDialog>
+    <WorkspaceDocumentDialog origin-key="product-detail" :show="showDetail" read-only title="产品资料" :data="[]" :columns="[]" :show-lines="false"
       :ready="!productDetailLoading" :load-error="productDetailError" :busy="busy" @update:show="detailsOpen = $event" @invalidated="detailsOpen = false">
       <template #basicInfo><template v-if="detail">
         <div class="document-detail-field"><span>产品编码</span><strong>{{ detail.material.sku }}</strong></div>
@@ -194,19 +236,33 @@ function sameModel(): void {
   </section>
 </template>
 <style scoped>
-/* 两列都属于产品管理展示区：左侧系列/机型目录，右侧完整 BOM 工作区。 */
-.product-workspace { display:grid; grid-template-columns:300px minmax(0,1fr); gap:20px; align-items:start; }
+/* 既有主题控制颜色；产品头、版本栏和组成共用一个容器，减少重复卡片留白。 */
+.product-workspace { display:grid; grid-template-columns:280px minmax(0,1fr); gap:16px; align-items:start; }
 .product-main { min-width:0; }
-.product-bom-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; padding:4px 2px 18px; }
-.product-bom-heading>div:first-child { display:grid; gap:7px; min-width:0; }
+.product-bom-panel { min-width:0; padding:20px; border:1px solid var(--workspace-field-border); border-radius:14px; background:var(--app-modal-background); }
+.product-bom-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; padding-bottom:18px; }
+.product-identity { display:grid; gap:8px; min-width:0; flex:1 1 260px; }
 .product-bom-heading h3,.product-bom-heading p { margin:0; overflow-wrap:anywhere; }
-.product-bom-heading span,.product-bom-heading p { font-size:13px; }
-.product-toolbar { display:flex; gap:10px; flex-wrap:wrap; }
-.product-bom-panel { min-width:0; display:grid; gap:16px; }
+.product-bom-heading h3 { font-size:20px; line-height:1.4; }
+.product-bom-heading p { font-size:13px; line-height:1.6; }
+.product-meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; color:var(--workspace-field-muted); }
+.product-kind { border-radius:5px; padding:3px 7px; color:var(--workspace-field-accent); background:var(--app-accent-tint); font-weight:600; }
+.product-code { font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.product-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.bom-version-bar { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding:14px 0; border-top:1px solid var(--workspace-field-border); border-bottom:1px solid var(--workspace-field-border); }
+.bom-version-choice { display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; }
+.bom-version-label { font-size:12px; color:var(--workspace-field-muted); }
+.bom-version-choice .workspace-select { width:170px; max-width:100%; }
+.bom-source { display:flex; align-items:center; flex-wrap:wrap; gap:4px; padding-top:14px; font-size:12px; }
+.bom-workspace-state { display:grid; justify-items:center; align-content:center; gap:12px; min-height:260px; text-align:center; }
+.bom-workspace-state h4,.bom-workspace-state p { margin:0; overflow-wrap:anywhere; }
+.bom-workspace-state[role='alert'] { color:var(--workspace-field-text); }
 .bom-workspace-empty { display:grid; align-content:center; justify-items:center; gap:12px; min-height:360px; padding:32px; text-align:center; border:1px solid var(--workspace-field-border); border-radius:14px; background:var(--app-modal-surface); }
 .bom-workspace-empty h3,.bom-workspace-empty p { margin:0; }
-@media(max-width:1100px) { .product-workspace { grid-template-columns:260px minmax(0,1fr); gap:14px; } }
-@media(max-width:760px) { .product-workspace { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:1100px) { .product-workspace { grid-template-columns:260px minmax(0,1fr); gap:14px; } .product-bom-panel { padding:16px; } }
+/* 桌面最小宽度仍保留两列，隐藏重复标签，为版本选择与状态留出同一行。 */
+@media(max-width:1000px) { .bom-version-label { display:none; } .bom-version-choice .workspace-select { width:140px; } }
+@media(max-width:760px) { .product-workspace { grid-template-columns:minmax(0,1fr); } .product-bom-heading h3 { font-size:18px; } }
 .product-section-actions { margin:20px 0; }
 .product-more { margin:16px 0; }
 .product-more dl { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:16px; }
