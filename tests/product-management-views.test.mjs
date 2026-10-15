@@ -12,7 +12,7 @@ async function fixture(t) {
  const server=await createServer({configFile:false,plugins:[{name:'product-views',enforce:'pre',resolveId(id,importer){
    if(!importer?.includes('/src/renderer/'))return
    if(id.endsWith('/store/app-store'))return '\0products-store'
-   for(const [name,key] of [['AppModal','modal'],['WorkspaceTable','table'],['AppButton','button'],['AppInput','input'],['WorkspaceMaterialSelect','select'],['WorkspaceSelect','select'],['MaterialEditor','material']])
+   for(const [name,key] of [['AppModal','modal'],['WorkspaceTable','table'],['WorkspacePagination','pagination'],['AppButton','button'],['AppInput','input'],['WorkspaceMaterialSelect','select'],['WorkspaceSelect','select'],['MaterialEditor','material']])
      if(id.endsWith('/'+name+'.vue'))return '\0products-'+key
  },load(id){
    if(id==='\0products-store')return `import {defineStore,storeToRefs} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';
@@ -22,14 +22,16 @@ async function fixture(t) {
      can:key=>s.user.value?.permissions.includes(key)??false,localTime:v=>v}});export const useAppStore=()=>{const store=usePiniaAppStore();return {...store,...storeToRefs(store)}}`
    if(id==='\0products-modal')return `import {h} from 'vue';export default {props:['show','title'],setup:(p,{slots})=>()=>p.show?h('section',{'data-modal':p.title},[h('h2',p.title),slots.default?.()]):null}`
    if(id==='\0products-table')return `import {h} from 'vue';export const tables=[];export default {props:['data','columns','title','pagination'],setup:(p,{slots})=>()=>{tables.push(p);return h('section',{'data-table':p.title},[slots.heading?.(),slots.actions?.(),slots.filters?.(),slots.beforeTable?.(),...(p.data??[]).map(row=>h('article',(p.columns??[]).map(c=>slots['cell-'+c.key]?.({row})))),!(p.data??[]).length?slots.empty?.():null])}}`
+   if(id==='\0products-pagination')return `import {h} from 'vue';export const paginations=[];export default {props:['page','pageSize','total','disabled'],setup:(p,{attrs})=>()=>{paginations.push({...p,...attrs});return h('nav',{'data-product-pagination':p.total})}}`
    if(id==='\0products-button')return `import {h} from 'vue';export const buttons=[];const text=v=>(v??[]).map(n=>typeof n.children==='string'?n.children:Array.isArray(n.children)?text(n.children):'').join('');export default {props:['disabled','type'],setup:(p,{slots,attrs})=>()=>{const content=slots.default?.();buttons.push({label:text(content).trim(),props:p,attrs});return h('button',{...attrs,disabled:p.disabled,type:p.type},content)}}`
    if(id==='\0products-input')return `import {h} from 'vue';export default {props:['modelValue'],setup:(p,{attrs})=>()=>h('input',{...attrs,value:p.modelValue})}`
    if(id==='\0products-select')return `import {h} from 'vue';export default {props:['modelValue','options','materials'],setup:(p,{attrs})=>()=>h('select',attrs,(p.options??p.materials??[]).map(o=>h('option',{value:o.value??o.id},o.label??o.name)))}`
-   if(id==='\0products-material')return `import {h} from 'vue';export default {props:['form'],setup:(p,{slots})=>()=>h('form',[slots.beforeFields?.(),h('input',{value:p.form.name})])}`
+   if(id==='\0products-material')return `import {h} from 'vue';export default {props:['form'],setup:(p,{slots})=>()=>h('form',[slots.beforeFields?.(),slots.profileFields?.(),h('input',{value:p.form.name})])}`
  }},vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'})
  t.after(()=>server.close())
  const {usePiniaAppStore}=await server.ssrLoadModule('\0products-store')
  const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/ProductsView.vue')
+ const {paginations}=await server.ssrLoadModule('\0products-pagination')
  const {buttons}=await server.ssrLoadModule('\0products-button'), {tables}=await server.ssrLoadModule('\0products-table')
  const pinia=createPinia(), store=usePiniaAppStore(pinia)
  store.user={id:1,permissions:['inventory.view','catalog.manage','production.view','bom.create','bom.activate','work_order.create']}
@@ -47,25 +49,26 @@ async function fixture(t) {
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/workspace/products',component:View},{path:'/workspace/work-orders',component:{render:()=>null}}]})
  await router.push('/workspace/products');await router.isReady()
  let setup;const overrides={}
- const render=async()=>{buttons.length=0;tables.length=0
+ const render=async()=>{buttons.length=0;tables.length=0;paginations.length=0
    const app=createSSRApp(View).use(pinia).use(router)
-   app.mixin({created(){if(this.$options.__name==='ProductsView'){setup=this.$.setupState;for(const[key,value]of Object.entries(overrides))setup[key]=value}}})
+   app.mixin({async serverPrefetch(){if(this.$options.__name==='ProductsView'){await store.queryProducts();const id=store.productDetailId || store.productResult?.items[0]?.id;if(id)await store.openProduct(id)}},created(){if(this.$options.__name==='ProductsView'){setup=this.$.setupState;for(const[key,value]of Object.entries(overrides))setup[key]=value}}})
    return renderToString(app)
  }
  await store.queryProducts()
  store.materials=[material,{...material,id:22,sku:'EL-IC-22',name:'主芯片',unit:'个'}]
- return {store,source,product,render,buttons,tables,router,calls,overrides,get setup(){return setup}}
+ return {store,source,product,render,buttons,tables,paginations,router,calls,overrides,get setup(){return setup}}
 }
 
 test('产品真实页面使用服务端分页和物料身份，查看权限不能显示维护入口',async t=>{
  const f=await fixture(t)
  const html=await f.render()
  assert.match(html,/EL-PC-11/);assert.match(html,/标准版/);assert.match(html,/新增产品/)
- assert.equal(f.tables.find(p=>p.title==='产品管理').pagination.total,43)
- assert.equal(f.tables.find(p=>p.title==='产品管理').data.length,1)
+ assert.equal(f.paginations[0].total,43)
+ assert.equal(f.store.productResult.items.length,1)
+ assert.match(html,/产品系列/);assert.match(html,/选择产品查看 BOM/)
  f.store.user={...f.store.user,permissions:['inventory.view']}
  const readonly=await f.render()
- assert.doesNotMatch(readonly,/新增产品|纳入已有物料|机型管理/)
+ assert.doesNotMatch(readonly,/新增产品|纳入已有物料|管理产品系列/)
 })
 
 test('产品详情复用 BOM 编辑器派生，快捷建档保留组件，来源查看及启用版本创建工单',async t=>{
@@ -80,7 +83,7 @@ test('产品详情复用 BOM 编辑器派生，快捷建档保留组件，来源
  html=await f.render();assert.match(html,/派生来源 BOM #7/)
  await f.buttons.find(b=>b.label==='快捷新建产品').attrs.onClick()
  const component=f.store.bomForm.lines[0]
- html=await f.render();assert.match(html,/产品归组/)
+ html=await f.render();assert.match(html,/所属产品系列/)
  assert.equal(f.store.bomForm.lines[0],component)
  f.store.productEditorOpen=false
  f.overrides.bomOpen=false
@@ -89,4 +92,33 @@ test('产品详情复用 BOM 编辑器派生，快捷建档保留组件，来源
  await f.buttons.find(b=>b.label==='创建生产工单').attrs.onClick()
  assert.equal(f.router.currentRoute.value.path,'/workspace/work-orders')
  assert.equal(f.router.currentRoute.value.query.create_from_bom,'7')
+})
+
+// 验证系列切换实际发送服务端范围，并让右侧展示新产品的 BOM；不能只变侧栏高亮。
+test('左侧系列限定服务端产品范围，右侧直接切换 BOM，重置保留当前系列',async t=>{
+ const f=await fixture(t)
+ const second={...f.product,id:2,material_id:33,model_id:2,model_name:'B200 系列',model_code:'B200',configuration_name:'专业版',material:{...f.product.material,id:33,sku:'EL-PC-33',name:'专业控制板'}}
+ const otherBom={...f.source,id:9,product_material_id:33,product_name:'专业控制板',status:'cancelled'}
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+   f.calls.push([action,payload])
+   if(action==='queryProducts')return {items:payload.model_id===2?[second]:[f.product],page:1,page_size:20,total:1}
+   if(action==='productModels')return [{id:1,code:'A100',name:'机型A',notes:'',version:1,created_by:1,created_at:'2026-10-15'},{id:2,code:'B200',name:'B200 系列',notes:'',version:1,created_by:1,created_at:'2026-10-15'}]
+   if(action==='productDetail')return payload.id===2?second:f.product
+   if(action==='productChanges')return []
+   if(action==='productBoms')return payload.materialId===33?[otherBom]:[f.source]
+ }
+ await f.render()
+ f.store.productQuery.query='旧条件';f.store.productQuery.page=3
+ f.setup.selectSeries(2)
+ assert.equal(f.store.productQuery.model_id,2);assert.equal(f.store.productQuery.page,1)
+ assert.equal(f.store.productQuery.query,'');assert.equal(f.store.productDetailId,0)
+ const html=await f.render()
+ assert.match(html,/B200 系列/);assert.match(html,/专业控制板/)
+ assert.equal(f.tables.find(row=>row.title==='关联 BOM').data[0].id,9)
+ assert.equal(f.calls.some(([action,payload])=>action==='queryProducts'&&payload.model_id===2),true)
+ assert.doesNotMatch(html,/复制派生/)
+ f.setup.reset();assert.equal(f.store.productQuery.model_id,2)
+ assert.equal(f.calls.at(-2)[0],'queryProducts');assert.equal(f.calls.at(-2)[1].page,1)
+ f.setup.pageChange(2,20);assert.equal(f.store.productDetailId,0)
+ f.store.connectionLost=true;f.setup.selectSeries(1);assert.equal(f.store.productQuery.model_id,2)
 })

@@ -28,21 +28,26 @@ async function save(): Promise<void> {
     </template>
   </WorkspaceDocumentDialog>
   <AppModal v-else-if="store.can('catalog.manage')" :show="productEditorOpen"
+    class="product-editor-dialog"
     :title="productForm.mode === 'edit' ? '编辑产品' : '新增产品'" :busy="busy" preset="card"
-    :style="{width: 'min(1280px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto'}"
+    :style="{width: 'min(1120px, calc(100vw - 32px))', height: 'min(860px, calc(100vh - 48px))'}"
     :mask-closable="!busy" @update:show="productEditorOpen = $event" @invalidated="productEditorOpen = false">
     <!-- 参数与供应商、分类目录复用物料编辑器；保存由产品接口一次提交。 -->
-    <MaterialEditor entity-label="产品" :title="productForm.mode === 'edit' ? '编辑产品资料' : '建立产品档案'"
+    <MaterialEditor entity-label="产品" compact :title="productForm.mode === 'edit' ? '编辑产品资料' : '建立产品档案'"
       :form="productMaterialForm" :categories="materialCategories" :units="materialUnits" :suppliers="suppliers"
       :editing="productForm.mode === 'edit'" :busy="busy" :disconnected="connectionLost"
       @save="save" @cancel="productEditorOpen = false">
-      <template #beforeFields><fieldset :disabled="busy || connectionLost" class="product-fields"><legend>产品归组</legend>
-        <div class="form-grid"><ProductProfileFields :form="productForm" :models="productModels" :disabled="busy || connectionLost" /></div>
-      </fieldset></template>
+      <template #profileFields><ProductProfileFields :form="productForm" :models="productModels" :disabled="busy || connectionLost" /></template>
     </MaterialEditor>
   </AppModal>
 </template>
-<style scoped>
-/* 沿用物料编辑器的分组边界和主题，不建立第二套产品参数样式。 */
-.product-fields { border: 1px solid var(--workspace-field-border); border-radius: 12px; padding: 16px; margin: 0 0 18px; }
+<style>
+/* 卡片标题与底部动作固定，仅字段区滚动；样式限定产品弹窗，不改变普通物料编辑器。 */
+.n-modal.n-card.product-editor-dialog { display:flex; flex-direction:column; overflow:hidden; }
+.n-modal.n-card.product-editor-dialog>.n-card-content { display:flex; min-height:0; padding:0; overflow:hidden; }
+.product-editor-dialog .material-editor { display:flex; flex-direction:column; flex:1; min-height:0; gap:0; }
+.product-editor-dialog .material-editor-body { overflow-y:auto; overscroll-behavior:contain; padding:20px 24px; }
+.product-editor-dialog .material-section { padding:16px; }
+.product-editor-dialog .material-editor>.form-actions { flex-shrink:0; justify-content:flex-end; gap:10px; margin:0 24px; padding:16px 0; border-top:1px solid var(--workspace-field-border); }
+@media(max-width:600px) { .product-editor-dialog .material-editor-body { padding:16px; } .product-editor-dialog .material-editor>.form-actions { margin:0 16px; } }
 </style>

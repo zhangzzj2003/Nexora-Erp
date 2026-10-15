@@ -10,10 +10,12 @@ import { materialUnitOptions } from './unit-options'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import type { MaterialCategory } from '../../../../../shared/material-api'
 import type { MaterialDraft } from './material-form'
+// 编辑器也会从产品与 BOM 页面独立加载，不能依赖先访问物料页才获得表单样式。
+import './catalog.css'
 
 // 编辑器只维护表单交互，保存、权限与刷新仍由页面和 Pinia 处理。
 const props = defineProps<{
-  title?: string; entityLabel?: string; units?: MaterialUnit[]; suppliers?: Supplier[]; form: MaterialDraft; categories: MaterialCategory[]; editing: boolean; busy: boolean; disconnected: boolean
+  title?: string; entityLabel?: string; compact?: boolean; units?: MaterialUnit[]; suppliers?: Supplier[]; form: MaterialDraft; categories: MaterialCategory[]; editing: boolean; busy: boolean; disconnected: boolean
 }>()
 const emit = defineEmits<{ save: []; cancel: [] }>()
 const groups = computed(() => props.categories.map(group => ({ value: group.code, label: group.enabled === false ? `${group.name}（已停用）` : group.name, disabled: group.enabled === false && group.code !== props.form.original_category.split('-')[0] })))
@@ -37,20 +39,22 @@ function submit(): void {
 
 <template>
   <form class="catalog-editor material-editor" @submit.prevent="submit">
-    <h3>{{ title ?? (editing ? '编辑物料' : '新增物料') }}</h3>
+    <div class="material-editor-body">
+    <h3 v-if="!compact">{{ title ?? (editing ? '编辑物料' : '新增物料') }}</h3>
     <!-- 产品编辑可插入归组字段，共用其余物料参数与保存校验。 -->
     <slot name="beforeFields" />
-    <p class="material-hint">按规格建立{{ entityLabel ?? '物料' }}档案，同一物料可绑定多家供应商。带 * 的项目必填。</p>
+    <p class="material-hint">{{ compact ? '填写基本信息后即可保存，带 * 的项目必填。' : `按规格建立${entityLabel ?? '物料'}档案，同一物料可绑定多家供应商。带 * 的项目必填。` }}</p>
     <fieldset :disabled="busy || disconnected" class="material-section">
-      <legend>基本资料</legend>
+      <legend>{{ compact ? '产品基本信息' : '基本资料' }}</legend>
       <div class="form-grid">
+        <slot name="profileFields" />
         <label>物料大类 *<WorkspaceSelect v-model="form.group_code" :options="groups" required aria-label="物料大类" :disabled="busy || disconnected" @change="changeGroup" /></label>
         <label>物料子类 {{ editing ? '' : '*' }}<WorkspaceSelect v-model="form.category_code" :options="children" :required="!editing" placeholder="请选择物料子类" aria-label="物料子类" :disabled="busy || disconnected" /></label>
         <!-- 编码与大类、子类放在同一行，分类和编码规则可在一起查看。 -->
         <label>{{ entityLabel ?? '物料' }}编码<AppInput :model-value="editing ? form.sku : form.category_code ? `${form.category_code}-######` : '选择子类后，保存时自动生成'" :aria-label="`${entityLabel ?? '物料'}编码`" readonly />
-          <span class="material-hint">{{ editing ? '编码固定；调整分类后保留原编码，保证历史单据追溯。' : '各子类独立使用六位流水号，由服务端统一分配，删除后不复用。' }}</span>
+          <span class="material-hint">{{ compact ? (editing ? '编码固定，分类调整不影响历史单据。' : '保存时自动分配，编码不重复使用。') : editing ? '编码固定；调整分类后保留原编码，保证历史单据追溯。' : '各子类独立使用六位流水号，由服务端统一分配，删除后不复用。' }}</span>
         </label>
-        <label>{{ entityLabel ?? '物料' }}名称 *<AppInput v-model.trim="form.name" required maxlength="120" placeholder="如：贴片电阻" /></label>
+        <label>{{ entityLabel ?? '物料' }}名称 *<AppInput v-model.trim="form.name" required maxlength="120" :placeholder="compact ? '如：智能控制板' : '如：贴片电阻'" /></label>
         <!-- 单位从独立目录选择，避免在物料弹窗临时输入造成同义单位分散。 -->
         <label>单位 *<WorkspaceSelect v-model="form.unit" :options="unitOptions" required aria-label="单位" placeholder="搜索并选择单位" :disabled="busy || disconnected" />
           <span class="material-hint">单位可在“基础资料 → 单位管理”中维护。</span>
@@ -87,6 +91,7 @@ function submit(): void {
         <label v-if="editing" class="material-wide">修改原因 *<AppInput v-model.trim="form.reason" required maxlength="500" placeholder="说明本次补充或调整的原因" /></label>
       </div>
     </fieldset>
+    </div>
     <div class="form-actions">
       <AppButton :disabled="busy || disconnected || (!editing && !form.category_code)" variant="primary" type="submit">{{ busy ? '保存中…' : '保存' }}</AppButton>
       <AppButton type="button" :disabled="busy" @click="emit('cancel')" variant="secondary">取消</AppButton>

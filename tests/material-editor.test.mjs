@@ -13,10 +13,10 @@ test('物料编辑器显示真实只读编码、必填项及分类参数，忙�
   t.after(()=>server.close())
   const {default:Editor}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/MaterialEditor.vue')
   const categories=[{code:'EL',name:'电子类',children:[{code:'EL-SR',name:'贴片电阻'}]},{code:'PL',name:'塑料类',children:[{code:'PL-HS',name:'塑料外壳'}]}]
-  async function render(form,extra={}) {
+  async function render(form,extra={},slots={}) {
     // 编辑器从单位目录生成选择框，不再允许自由输入单位名称。
     const units=[{id:1,name:'件',enabled:true,notes:'',version:1,created_at:'',material_count:0}]
-    const app=createSSRApp({render:()=>h(Editor,{form,categories,units,editing:false,busy:false,disconnected:false,...extra})}).use(createPinia())
+    const app=createSSRApp({render:()=>h(Editor,{form,categories,units,editing:false,busy:false,disconnected:false,...extra},slots)}).use(createPinia())
     setupSsrStyles(app)
     return renderToString(app)
   }
@@ -39,6 +39,14 @@ test('物料编辑器显示真实只读编码、必填项及分类参数，忙�
   assert.match(ready,/<label>物料编码/)
   assert.match(ready,/<legend>供应商绑定<\/legend>\s*<label>/)
   assert.match(ready,/<label class="material-wide">备注/)
+  // 产品模式使用同一套必填校验；归组插槽并入基本信息，不再重复弹窗内标题。
+  const compact=await render({...materialDraft(),category_code:'EL-SR'},{compact:true,entityLabel:'产品'},
+    {profileFields:()=>h('label','产品系列归组')})
+  assert.match(compact,/<legend>产品基本信息<\/legend>/)
+  assert.match(compact,/产品系列归组/)
+  assert.doesNotMatch(compact,/<h3>/)
+  assert.match(compact,/产品名称[\s\S]*?<input[^>]*required/)
+  assert.match(compact,/<\/fieldset>\s*<\/div>\s*<div class="form-actions">/)
   const plastic=await render({...materialDraft(),group_code:'PL',category_code:'PL-HS'})
   assert.match(plastic,/PL-HS-######/)
   assert.doesNotMatch(plastic,/电子参数（选填）/)

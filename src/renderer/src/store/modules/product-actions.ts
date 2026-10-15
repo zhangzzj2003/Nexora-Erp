@@ -145,7 +145,7 @@ export function createProductActions(state: AppState) {
     validateProductResult('productModelDetail', row)
     state.productModelForm.value = {id: 0, version: 0, code: '', name: '', notes: '', reason: ''}
     state.productModelChanges.value = []
-    state.notice.value = '机型资料已保存。'; await queryProducts(); return true
+    state.notice.value = '产品系列已保存。'; await queryProducts(); return true
   }
   async function editProductModel(id: number): Promise<void> {
     if (!allowed('catalog.manage') || state.busy.value) return
@@ -153,7 +153,7 @@ export function createProductActions(state: AppState) {
     try {
       const [row, changes] = await Promise.all([window.nexora!.callApi('productModelDetail', {id}), window.nexora!.callApi('productModelChanges', {id})])
       if (ticket !== editTicket || !allowed('catalog.manage')) return
-      if (row.id !== id) throw Error('服务端返回了另一机型的资料')
+      if (row.id !== id) throw Error('服务端返回了另一产品系列的资料')
       state.productModelForm.value = {...row, reason: ''}; state.productModelChanges.value = changes
     } catch (cause) {if (ticket === editTicket) state.error.value = displayError(cause)}
   }

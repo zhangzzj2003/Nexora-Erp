@@ -1,6 +1,8 @@
 .catalog-page .catalog-search { display: grid; gap: 8px; width: min(100%, 480px); }
 /* 编辑表单会传送到弹窗容器，样式不能依赖列表页祖先节点。 */
 .catalog-editor { display: grid; gap: 16px; }
+/* 正文单独成组，产品弹窗可只滚动字段并固定底部操作，普通物料表单保持原间距。 */
+.material-editor-body { display: grid; gap: 16px; min-width: 0; }
 .catalog-editor h3 { margin: 0; }
 .catalog-page .catalog-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .catalog-audit-item { display: grid; gap: 4px; padding: 12px 0; border-bottom: 1px solid var(--workspace-field-border); }
