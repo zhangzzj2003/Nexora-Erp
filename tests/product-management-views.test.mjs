@@ -13,10 +13,13 @@ async function click(button) {
  const handlers=button.attrs.onClick
  for(const handler of Array.isArray(handlers)?handlers:[handlers])await handler()
 }
+// 页面查询、详情和 BOM 分两段异步回填；等待稳定状态后再检查是否发生了额外读取。
+const settleProductView=async()=>{await new Promise(done=>setImmediate(done));await nextTick();await new Promise(done=>setImmediate(done));await nextTick()}
 
 // 保留产品页、共享 BOM 编辑器与详情真实组件，仅替换需要 DOM 的绘制控件。
 async function fixture(t) {
  const server=await createServer({configFile:false,plugins:[{name:'product-views',enforce:'pre',resolveId(id,importer){
+   if(id.startsWith('~icons/'))return '\0products-icon'
    if(!importer?.includes('/src/renderer/'))return
    if(id.endsWith('/store/app-store'))return '\0products-store'
    if(id==='test-products-dropdown')return '\0products-dropdown'
@@ -28,6 +31,8 @@ async function fixture(t) {
    if(id.endsWith('/ProductsView.vue'))return code.replace("import { NCollapse, NDropdown } from 'naive-ui'",
      "import { NCollapse } from 'naive-ui'\nimport NDropdown from 'test-products-dropdown'")
  },load(id){
+   // 图标仅替换绘制层，系列折叠、删除事件与可访问文案继续由真实组件提供。
+   if(id==='\0products-icon')return `import {h} from 'vue';export default {render:()=>h('svg',{'aria-hidden':'true'})}`
    if(id==='\0products-empty')return 'export default {render:()=>null}'
    if(id==='\0products-dropdown')return `import {h} from 'vue';export default {props:['options','disabled'],setup:(p,{slots})=>()=>h('div',{'data-lifecycle-menu':p.options.map(row=>row.key).join(',')},slots.default?.())}`
    if(id==='\0products-store')return `import {defineStore,storeToRefs} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';
@@ -81,7 +86,7 @@ async function fixture(t) {
  store.materials=[material,{...material,id:22,sku:'EL-IC-22',name:'主芯片',unit:'个'}]
  const renderLegacyBom=async()=>{buttons.length=0;return renderToString(createSSRApp({render:()=>h(LegacyBom,{show:true})}).use(pinia).use(router))}
  const renderWorkOrders=async()=>{buttons.length=0;selects.length=0;const app=createSSRApp(WorkOrders).use(pinia).use(router);app.mixin({created(){components[this.$options.__name]=this.$.setupState}});return renderToString(app)}
- const treeEvents=[],treeProps=reactive({models:store.productModels,rows:[product],page:{items:[product],page:1,page_size:20,total:43},
+ const treeEvents=[],treeProps=reactive({models:store.productModels,rows:[product],activeSeriesId:null,page:{items:[product],page:1,page_size:20,total:43},
   query:store.productQuery,selectedId:1,selected:product,loading:false,error:'',loadingMore:false,moreError:'',busy:false,disconnected:false,canManage:true})
  const renderTree=async(props={})=>{Object.assign(treeProps,props);buttons.length=0;paginations.length=0
   const app=createSSRApp({render:()=>h(Tree,{...treeProps,onLoadMore:()=>treeEvents.push('loadMore'),onRetry:()=>treeEvents.push('retry')})}).use(pinia)
@@ -184,6 +189,9 @@ test('目录触底阈值与同 tick 闩锁生效，加载、失败、忙碌和�
  scroll(64);scroll(0);tree.requestMore()
  assert.equal(f.treeEvents.length,1)
  await nextTick()
+ // 目录折叠会让浏览器把位置向上修正；即使仍接近底部，也不能据此追加。
+ scroll(30);scroll(30)
+ assert.equal(f.treeEvents.length,1)
  for(const field of ['loading','loadingMore','busy','disconnected']) {
   await f.renderTree({[field]:true});tree=f.components.ProductTreeSidebar
   scroll(0);tree.requestMore(true)
@@ -281,7 +289,7 @@ test('侧栏触底接通真实追加操作，保留产品选择与右侧 BOM',as
  assert.equal(f.calls.filter(([action,payload])=>action==='queryProducts' && payload.page===2).length,1)
 })
 
-test('关键词、系列和类型变化撤销旧范围选择，不能借详情保留逻辑选中旧产品',async t=>{
+test('关键词和类型筛选撤销旧范围选择，不能借详情保留逻辑选中旧产品',async t=>{
  const f=await fixture(t)
  const other={...f.product,id:2,material_id:33,model_id:2,model_code:'B200',model_name:'专业系列',kind:'semi_finished',
   material:{...f.product.material,id:33,sku:'EL-PC-33',name:'专业控制板'}}
@@ -303,9 +311,6 @@ test('关键词、系列和类型变化撤销旧范围选择，不能借详情�
  f.store.productQuery.query='专业';await settle()
  assert.equal(f.store.productDetailId,2);assert.equal(f.store.productBomRecords[0].id,9)
  f.store.productQuery.query='';await settle();await f.store.openProduct(1)
- f.store.productQuery.model_id=2;await settle()
- assert.equal(f.store.productDetailId,2)
- f.store.productQuery.model_id=null;await settle();await f.store.openProduct(1)
  f.store.productQuery.kind='semi_finished';await settle()
  assert.equal(f.store.productDetailId,2);assert.equal(f.store.productDetailRecord.kind,'semi_finished')
  assert.equal(f.store.productDirectoryRows.some(row=>row.id===1),false)
@@ -554,32 +559,169 @@ test('保存后刷新期间切换产品再返回，旧修订回执不能抢选�
  assert.equal(f.store.productDetailId,1);assert.equal(live.selectedBom.id,7)
 })
 
-// 验证系列切换实际发送服务端范围，并让右侧展示新产品的 BOM；不能只变侧栏高亮。
-test('左侧系列限定服务端产品范围，右侧直接切换 BOM，重置保留当前系列',async t=>{
+// 系列点击仅记录本地新建归属，不能把全目录改成系列筛选或抢走右侧手动选中的历史版本。
+test('点击系列保留全目录与未归组 PCB，右侧产品和历史 BOM 版本不切换',async t=>{
  const f=await fixture(t)
  const second={...f.product,id:2,material_id:33,model_id:2,model_name:'B200 系列',model_code:'B200',configuration_name:'专业版',material:{...f.product.material,id:33,sku:'EL-PC-33',name:'专业控制板'}}
- const otherBom={...f.source,id:9,product_material_id:33,product_name:'专业控制板',status:'cancelled'}
+ const pcb={...f.product,id:3,material_id:44,model_id:null,model_name:'',model_code:'',kind:'semi_finished',material:{...f.product.material,id:44,sku:'PCB-44',name:'未归组 PCB 板'}}
+ const historical={...f.source,id:8,version:2,status:'retired'}
  globalThis.window.nexora.callApi=async(action,payload)=>{
    f.calls.push([action,payload])
-   if(action==='queryProducts')return {items:payload.model_id===2?[second]:[f.product],page:1,page_size:20,total:1}
+   if(action==='queryProducts'){
+    const items=[f.product,second,pcb].filter(row=>payload.model_id===null || row.model_id===payload.model_id)
+    return {items,page:1,page_size:20,total:items.length}
+   }
    if(action==='productModels')return [{id:1,code:'A100',name:'机型A',notes:'',version:1,created_by:1,created_at:'2026-10-15'},{id:2,code:'B200',name:'B200 系列',notes:'',version:1,created_by:1,created_at:'2026-10-15'}]
-   if(action==='productDetail')return payload.id===2?second:f.product
+   if(action==='productDetail')return [f.product,second,pcb].find(row=>row.id===payload.id)
    if(action==='productChanges')return []
-   if(action==='productBoms')return payload.materialId===33?[otherBom]:[f.source]
+   if(action==='productBoms')return payload.materialId===11?[f.source,historical]:[]
  }
- await f.render()
- f.store.productQuery.query='旧条件';f.store.productQuery.page=3
- f.setup.selectSeries(2)
- assert.equal(f.store.productQuery.model_id,2);assert.equal(f.store.productQuery.page,1)
- assert.equal(f.store.productQuery.query,'');assert.equal(f.store.productDetailId,0)
- const html=await f.render()
- assert.match(html,/B200 系列/);assert.match(html,/专业控制板/)
- assert.equal(f.selects.find(row=>row.attrs['aria-label']==='选择 BOM 版本').props.modelValue,9)
- assert.equal(f.calls.some(([action,payload])=>action==='queryProducts'&&payload.model_id===2),true)
- assert.doesNotMatch(html,/复制派生/)
- f.setup.reset();assert.equal(f.store.productQuery.model_id,2)
- assert.equal(f.calls.at(-2)[0],'queryProducts');assert.equal(f.calls.at(-2)[1].page,1)
- f.store.connectionLost=true;f.setup.selectSeries(1);assert.equal(f.store.productQuery.model_id,2)
+ const live=await f.mountView();await settleProductView()
+ live.selectVersion(8)
+ const selected=f.store.productDetailRecord,boms=f.store.productBomRecords,rows=f.store.productDirectoryRows
+ const version=live.selectedBom,query=JSON.stringify(f.store.productQuery),count=f.calls.length
+ for(const id of [2,1,null]){
+  live.selectSeries(id);await settleProductView()
+  assert.equal(live.currentSeriesId,id)
+  assert.equal(JSON.stringify(f.store.productQuery),query)
+  assert.equal(f.store.productQuery.model_id,null)
+  assert.equal(f.store.productDirectoryRows,rows)
+  assert.ok(f.store.productDirectoryRows.some(row=>row.id===pcb.id && row.model_id===null))
+  assert.equal(f.store.productDetailId,1);assert.equal(f.store.productDetailRecord,selected)
+  assert.equal(f.store.productBomRecords,boms);assert.equal(live.selectedBom,version)
+  assert.equal(live.selectedBom.id,8)
+  assert.equal(f.calls.length,count,'系列操作不能重新查询目录、详情或 BOM')
+ }
+ live.selectSeries(2)
+ const html=await f.renderTree({models:f.store.productModels,rows,page:f.store.productResult,activeSeriesId:live.currentSeriesId,selectedId:1,selected})
+ assert.match(html,/B200 系列/);assert.match(html,/未归组产品 \/ 半成品/);assert.match(html,/PCB-44/)
+})
+
+test('入页清除遗留系列过滤但保留关键词类型，首次请求读取全目录',async t=>{
+ const f=await fixture(t)
+ f.store.productQuery={...f.store.productQuery,model_id:99,query:'标准',kind:'finished',page:3}
+ f.calls.length=0
+ await f.mountView();await settleProductView()
+ const reads=f.calls.filter(([action])=>action==='queryProducts').map(([,payload])=>payload)
+ assert.ok(reads.length>0)
+ assert.ok(reads.every(query=>query.model_id===null && query.page===1 && query.query==='标准' && query.kind==='finished'))
+ assert.equal(f.store.productQuery.model_id,null)
+ assert.equal(f.store.productDetailId,1)
+})
+
+// 保存回执可能不在第一页；完整目录和固定编号定位必须同时成立，不能用系列筛选让目标碰巧出现。
+test('保存子机型后全目录刷新不收窄，第一页之外的回执仍定位且未归组 PCB 保留',async t=>{
+ const f=await fixture(t)
+ const saved={...f.product,id:2,material_id:33,model_id:2,model_name:'B200 系列',model_code:'B200',material:{...f.product.material,id:33,sku:'EL-PC-33',name:'新保存的子机型'}}
+ const pcb={...f.product,id:3,material_id:44,model_id:null,model_name:'',model_code:'',kind:'semi_finished',material:{...f.product.material,id:44,sku:'PCB-44',name:'未归组 PCB'}}
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  f.calls.push([action,payload])
+  if(action==='queryProducts')return {items:[f.product,pcb],page:1,page_size:20,total:23}
+  if(action==='productModels')return [{id:1,code:'A100',name:'机型A',notes:'',version:1,created_by:1,created_at:'2026-10-15'},{id:2,code:'B200',name:'B200 系列',notes:'',version:1,created_by:1,created_at:'2026-10-15'}]
+  if(action==='createProduct')return saved
+  if(action==='productDetail')return payload.id===saved.id?saved:f.product
+  if(action==='productChanges')return []
+  if(action==='productBoms')return payload.materialId===11?[f.source]:[]
+ }
+ const live=await f.mountView();await settleProductView()
+ f.store.productForm={...f.store.productForm,mode:'existing',material_id:saved.material_id,model_id:saved.model_id}
+ f.calls.length=0
+ const receipt=await f.store.saveProduct()
+ assert.ok(receipt);assert.equal(receipt.id,saved.id)
+ live.productSaved(receipt);await settleProductView()
+ const reads=f.calls.filter(([action])=>action==='queryProducts').map(([,payload])=>payload)
+ assert.ok(reads.length>0);assert.ok(reads.every(query=>query.model_id===null && query.page===1))
+ assert.equal(f.store.productQuery.model_id,null)
+ assert.deepEqual(f.store.productDirectoryRows.map(row=>row.id),[1,3])
+ assert.equal(f.store.productDetailId,saved.id);assert.equal(f.store.productDetailRecord.id,saved.id)
+ assert.equal(live.currentSeriesId,saved.model_id)
+ const html=await f.renderTree({models:f.store.productModels,rows:f.store.productDirectoryRows,page:f.store.productResult,activeSeriesId:live.currentSeriesId,selectedId:saved.id,selected:f.store.productDetailRecord})
+ assert.match(html,/PCB-44/);assert.match(html,/新保存的子机型/)
+ assert.equal(f.components.ProductTreeSidebar.children.filter(row=>row.id===saved.id).length,1)
+})
+
+test('保存系列只更新本地新建归属，选择子机型时归属跟随实际记录',async t=>{
+ const f=await fixture(t),live=await f.mountView()
+ await settleProductView()
+ const selected=f.store.productDetailRecord,boms=f.store.productBomRecords,query=JSON.stringify(f.store.productQuery),count=f.calls.length
+ const model=f.store.productModels[0],reveal=live.seriesRevealKey
+ live.seriesSaved(model);await settleProductView()
+ assert.equal(live.currentSeriesId,model.id)
+ assert.ok(live.seriesRevealKey>reveal)
+ assert.equal(JSON.stringify(f.store.productQuery),query)
+ assert.equal(f.store.productDetailRecord,selected);assert.equal(f.store.productBomRecords,boms)
+ assert.equal(f.calls.length,count)
+ live.selectSeries(null)
+ assert.equal(live.currentSeriesId,null)
+ const sameModelReveal=live.seriesRevealKey
+ live.sameModel()
+ assert.equal(live.currentSeriesId,selected.model_id)
+ assert.ok(live.seriesRevealKey>sameModelReveal)
+ assert.equal(f.calls.length,count,'查看同系列只定位展开目录，不重新收窄查询')
+ live.selectSeries(null)
+ await live.selectProduct(selected.id)
+ assert.equal(live.currentSeriesId,selected.model_id)
+})
+
+// 请求发出时选的是产品，返回前用户已明确选择未归组；最后操作必须决定新建归属。
+test('产品详情在途时选择未归组，迟到详情不覆盖归属，再次明确选产品才恢复其系列',async t=>{
+ const f=await fixture(t)
+ const second={...f.product,id:2,material_id:33,model_id:2,model_name:'第二系列',model_code:'B200',material:{...f.product.material,id:33,sku:'MODEL-33',name:'第二系列产品'}}
+ const secondModel={id:2,code:'B200',name:'第二系列',notes:'',version:1,created_by:1,created_at:'2026-10-15'}
+ let resolve,secondReads=0
+ const pendingDetail=new Promise(done=>{resolve=done})
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='queryProducts')return {items:[f.product,second],page:1,page_size:20,total:2}
+  if(action==='productModels')return [...f.store.productModels.filter(model=>model.id!==2),secondModel]
+  if(action==='productDetail'&&payload.id===2)return ++secondReads===1?pendingDetail:second
+  if(action==='productBoms'&&payload.materialId===33)return []
+  return previous(action,payload)
+ }
+ const live=await f.mountView();await settleProductView()
+ const reading=live.selectProduct(2)
+ assert.equal(f.store.productDetailLoading,true)
+ assert.equal(live.currentSeriesId,2,'明确点击目录中的产品时先使用已知归属')
+ live.selectSeries(null)
+ assert.equal(live.currentSeriesId,null)
+ resolve(second);await reading;await settleProductView()
+ assert.equal(f.store.productDetailId,2);assert.equal(f.store.productDetailRecord.id,2)
+ assert.equal(live.currentSeriesId,null,'迟到详情不能推翻明确未归组意图')
+ await live.newModel()
+ assert.equal(f.store.productEditorOpen,true);assert.equal(f.store.productForm.model_id,null)
+ f.store.productEditorOpen=false
+ await live.selectProduct(2);await settleProductView()
+ assert.equal(live.currentSeriesId,2)
+ await live.newModel()
+ assert.equal(f.store.productForm.model_id,2,'用户再次选产品后允许重新跟随其系列')
+ assert.equal(f.store.productQuery.model_id,null)
+})
+
+test('初次目录在途时明确选择系列，自动选中详情不覆盖新建上下文',async t=>{
+ const f=await fixture(t)
+ const second={...f.product,id:2,material_id:33,model_id:2,model_name:'第二系列',model_code:'B200',material:{...f.product.material,id:33,sku:'MODEL-33',name:'首先加载的第二系列产品'}}
+ const firstModel=f.store.productModels[0],secondModel={...firstModel,id:2,code:'B200',name:'第二系列'}
+ let resolve
+ const pendingDirectory=new Promise(done=>{resolve=done})
+ const previous=globalThis.window.nexora.callApi
+ f.store.productResult=null;f.store.productDirectoryRows=[];f.store.productDetailRecord=null;f.store.productDetailId=0
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='queryProducts')return pendingDirectory
+  if(action==='productModels')return [firstModel,secondModel]
+  if(action==='productDetail'&&payload.id===2)return second
+  if(action==='productBoms'&&payload.materialId===33)return []
+  return previous(action,payload)
+ }
+ const live=await f.mountView()
+ assert.equal(f.store.productsLoading,true);assert.equal(f.store.productDetailId,0)
+ live.selectSeries(1)
+ assert.equal(live.currentSeriesId,1)
+ resolve({items:[second],page:1,page_size:20,total:1});await settleProductView()
+ assert.equal(f.store.productDetailId,2);assert.equal(f.store.productDetailRecord.model_id,2)
+ assert.equal(live.currentSeriesId,1,'首次自动展示详情不应抢走已选的新建系列')
+ await live.newModel()
+ assert.equal(f.store.productForm.model_id,1)
+ assert.equal(f.store.productQuery.model_id,null)
 })
 
 // 新建入口在目录内；子机型继承选中系列，重开保留输入，失效系列不能带入表单。
@@ -591,12 +733,17 @@ test('左侧新建系列与子机型使用独立入口，并继承当前系列',
  assert.equal(f.setup.modelsOpen,true);assert.equal(f.setup.createSeriesOnly,true)
  assert.equal(f.store.productModelForm.id,0);assert.equal(f.store.productModelForm.code,'')
  f.store.productModelForm.code='NEW';f.setup.newSeries();assert.equal(f.store.productModelForm.code,'NEW')
- f.store.productQuery.model_id=1
+ f.setup.selectSeries(1)
  await f.setup.newModel()
  assert.equal(f.store.productForm.model_id,1);assert.equal(f.store.productEditorOpen,true)
  f.store.productMaterialForm.name='保留的机型名称'
  await f.setup.newModel();assert.equal(f.store.productMaterialForm.name,'保留的机型名称')
- f.store.productEditorOpen=false;f.store.productQuery.model_id=99
+ // null 是用户明确选择未归组，不能使用 ?? 回退为右侧旧产品的所属系列。
+ f.store.productEditorOpen=false;f.setup.selectSeries(null)
+ assert.equal(f.store.productDetailRecord.model_id,1)
+ await f.setup.newModel();assert.equal(f.store.productForm.model_id,null)
+ assert.equal(f.store.productQuery.model_id,null)
+ f.store.productEditorOpen=false;f.setup.currentSeriesId=99
  await f.setup.newModel();assert.equal(f.store.productEditorOpen,false)
  assert.match(f.store.error,/产品系列已不存在/)
 })

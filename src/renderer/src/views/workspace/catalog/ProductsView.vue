@@ -31,6 +31,13 @@ const {productQuery: query, productResult: result, productDirectoryRows, product
   productDetailRecord: detail, productDetailId, productDetailLoading, productDetailError,
   productBomRecords, productChangeRecords, productEditorOpen, bomDetailRecord, bomDetailLoading, bomDetailError,
   materialCategories, boms, productModelForm, productModelChanges, busy, connectionLost} = storeToRefs(store)
+// 系列是目录中的归属与新建上下文，不再作为整棵树的查询条件。
+const currentSeriesId = ref<number|null>(query.value.model_id)
+const seriesRevealKey = ref(0)
+let contextProductId = 0
+let followsProductSelection = true
+// 兼容页面刷新前遗留的系列筛选，让未归组和其他系列都能继续浏览。
+if (query.value.model_id !== null) query.value = {...query.value,model_id:null,page:1}
 const modelsOpen = ref(false), bomOpen = ref(false), detailsOpen = ref(false), reuseOpen = ref(false), createSeriesOnly = ref(false)
 const versionsOpen = ref(false)
 const creationAllowsBlank = ref(true)
@@ -72,7 +79,16 @@ function viewComposition(id: number): void {
   if (productUnavailable.value) return
   selectVersion(id); versionsOpen.value = false
 }
-const seriesName = computed(() => models.value.find(row => row.id === query.value.model_id)?.name ?? '全部系列')
+const seriesName = computed(() => models.value.find(row => row.id === currentSeriesId.value)?.name ?? '未归组产品 / 半成品')
+watch(detail, row => {
+  // 真正切换产品才跟随归属；普通 BOM 刷新不能抢走用户刚选的新建系列。
+  if (followsProductSelection && row && row.id === productDetailId.value && row.id !== contextProductId) {
+    contextProductId=row.id; currentSeriesId.value=row.model_id
+  }
+})
+watch(models, rows => {
+  if (currentSeriesId.value !== null && !rows.some(row=>row.id===currentSeriesId.value)) currentSeriesId.value=null
+})
 const bomColumns = [{key:'version',title:'BOM 版本',width:'110'}, {key:'status',title:'状态',width:'90'},
   {key:'source',title:'派生来源'}, {key:'actions',title:'操作',width:'390'}]
 const facts = computed(() => detail.value ? materialChoiceFacts(detail.value.material, materialCategories.value) : [])
@@ -104,6 +120,7 @@ watch([result, () => route.query.product_id], ([page, rawId]) => {
 // 保存后的定位意图不能跨账号、实例或权限边界执行。
 watch(() => JSON.stringify([store.user?.id,store.server?.id,store.server?.fingerprint,store.user?.permissions.slice().sort()]), () => {
   viewSessionEpoch++
+  currentSeriesId.value=null; contextProductId=0; followsProductSelection=true; seriesRevealKey.value++
   pendingProductId.value=0; reuseOpen.value=false; modelsOpen.value=false; bomOpen.value=false; bomTargetId.value=0; revisingBomVersion.value=undefined; versionsOpen.value=false; modelToDelete.value=null; lifecycleTarget.value=null
 }, {flush:'sync'})
 onUnmounted(() => {store.closeProduct(); store.closeBomDetail()})
@@ -115,12 +132,17 @@ function reset(): void {
   if (unchanged) {store.closeProduct(); void store.queryProducts(1)}
 }
 function selectSeries(id: number | null): void {
-  if (busy.value || connectionLost.value || query.value.model_id === id) return
-  pendingProductId.value=0; detailsOpen.value = false; store.closeProduct()
-  query.value = {...query.value,model_id:id,query:'',kind:null,page:1}
+  if (busy.value || connectionLost.value || (id !== null && !models.value.some(row=>row.id===id))) return
+  // 折叠由侧栏维护；选择系列只决定下一次新建的归属，不清空右侧 BOM。
+  // 用户的明确归属意图优先于在途详情，迟到响应不能把“未归组”改回旧系列。
+  followsProductSelection=false; currentSeriesId.value=id
 }
 function selectProduct(id: number): Promise<void> {
   pendingProductId.value=0; detailsOpen.value = false
+  followsProductSelection=true
+  const row=productDirectoryRows.value.find(item=>item.id===id) ?? (detail.value?.id===id ? detail.value : undefined)
+  if (row) currentSeriesId.value=row.model_id
+  else contextProductId=0
   return store.openProduct(id)
 }
 function startBom(source?: Bom, revision=false): void {
@@ -165,15 +187,16 @@ function newSeries(): void {
   productModelChanges.value=[]; createSeriesOnly.value=true; modelsOpen.value=true
 }
 function newModel(mode:'new'|'existing'='new'): Promise<void> {
-  const parent=query.value.model_id ?? detail.value?.model_id ?? null
-  return store.startProduct(mode,0,false,parent)
+  // null 明确表示未归组，不能回退到右侧旧产品的系列。
+  return store.startProduct(mode,0,false,currentSeriesId.value)
 }
-function seriesSaved(model:ProductModel): void {selectSeries(model.id)}
+function seriesSaved(model:ProductModel): void {selectSeries(model.id); seriesRevealKey.value++}
 function productSaved(row:ProductProfile): void {
   // 新子机型可能位于另一页，先保存定位意图，再刷新左侧目录和右侧 BOM。
   pendingProductId.value=row.id
-  const unchanged=query.value.model_id===row.model_id && !query.value.query && query.value.kind===null
-  query.value={...query.value,model_id:row.model_id,query:'',kind:null,page:1}
+  followsProductSelection=false; currentSeriesId.value=row.model_id; seriesRevealKey.value++
+  const unchanged=query.value.model_id===null && !query.value.query && query.value.kind===null
+  query.value={...query.value,model_id:null,query:'',kind:null,page:1}
   if (unchanged) void store.queryProducts(1)
 }
 async function afterBomSaved(saved?: Bom): Promise<void> {
@@ -191,12 +214,13 @@ function changeSummary(value: ProductProfile): string {
 }
 function sameModel(): void {
   if (!detail.value?.model_id) return
-  detailsOpen.value = false; selectSeries(detail.value.model_id)
+  detailsOpen.value = false; selectSeries(detail.value.model_id); seriesRevealKey.value++
 }
 </script>
 <template>
   <section class="product-workspace">
     <ProductTreeSidebar :models="models" :page="result" :rows="productDirectoryRows" :query="query" :selected-id="productDetailId" :selected="detail"
+      :active-series-id="currentSeriesId" :reveal-series-key="seriesRevealKey"
       :loading="productsLoading" :error="productsError" :busy="busy" :disconnected="connectionLost" :can-manage="store.can('catalog.manage')"
       :loading-more="productsLoadingMore" :more-error="productsMoreError"
       @series="selectSeries" @select="selectProduct" @new-series="newSeries" @new-model="newModel()" @include="newModel('existing')"

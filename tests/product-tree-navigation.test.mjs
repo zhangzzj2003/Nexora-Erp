@@ -1,0 +1,184 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { test } from 'node:test'
+import { createRenderer, h, markRaw, nextTick, reactive } from 'vue'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import { createServer, normalizePath } from 'vite'
+
+const settle=async()=>{await nextTick();await new Promise(done=>setImmediate(done));await nextTick()}
+const models=[1,2].map(id=>({id,code:`SERIES-${id}`,name:`系列${id}`,child_count:1}))
+const product=(id,modelId,name)=>({id,model_id:modelId,kind:modelId===null?'semi_finished':'finished',
+  configuration_name:'',material_id:100+id,material:{id:100+id,name,sku:`SKU-${id}`}})
+const rows=[product(1,1,'A 系列整机'),product(2,2,'B 系列整机'),product(3,null,'PCB 半成品')]
+
+// 保留真实树模板及响应式状态，只替换控件绘制；原生按钮和导航节点支持持续点击、滚动及追加。
+async function fixture(t,extra={}) {
+  const filename=resolve('src/renderer/src/views/workspace/catalog/ProductTreeSidebar.vue')
+  const content=compileScript(parse(readFileSync(filename,'utf8'),{filename}).descriptor,{id:'product-tree-navigation',inlineTemplate:true}).content
+  const moduleId=normalizePath(filename)+'.client.ts'
+  const server=await createServer({configFile:false,plugins:[{name:'product-tree-navigation',enforce:'pre',resolveId(id){
+    if(id===moduleId)return id
+    if(id.startsWith('~icons/'))return '\0tree-navigation-icon'
+    for(const [name,key] of [['AppButton','button'],['AppInput','input'],['WorkspaceSelect','select']])
+      if(id.endsWith('/'+name+'.vue'))return '\0tree-navigation-'+key
+  },load(id){
+    if(id===moduleId)return content
+    // 不在行为测试里复制图标实现，仍保留真实按钮的可访问名称及事件边界。
+    if(id==='\0tree-navigation-icon')return `import {h} from 'vue';export default {render:()=>h('svg',{'aria-hidden':'true'})}`
+    if(id==='\0tree-navigation-button')return `import {h} from 'vue';export default {props:['disabled','type'],setup:(p,{attrs,slots})=>()=>h('button',{...attrs,disabled:p.disabled,type:p.type},slots.default?.())}`
+    if(id==='\0tree-navigation-input')return `import {h} from 'vue';export default {props:['modelValue','disabled'],setup:(p,{attrs})=>()=>h('input',{...attrs,value:p.modelValue,disabled:p.disabled})}`
+    if(id==='\0tree-navigation-select')return `import {h} from 'vue';export default {props:['modelValue','options','disabled'],setup:(p,{attrs})=>()=>h('select',{...attrs,disabled:p.disabled},p.options.map(row=>h('option',{value:row.value},row.label)))}`
+  }}],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'})
+  t.after(()=>server.close())
+  const {default:Tree}=await server.ssrLoadModule(moduleId)
+  const previous=globalThis.ResizeObserver,observers=[]
+  globalThis.ResizeObserver=class {
+    constructor(callback){this.callback=callback;this.targets=[];this.disconnected=false;observers.push(this)}
+    observe(target){this.targets.push(target)}
+    disconnect(){this.disconnected=true;this.targets=[]}
+    resize(){this.callback([],this)}
+  }
+  t.after(()=>{if(previous===undefined)delete globalThis.ResizeObserver;else globalThis.ResizeObserver=previous})
+  const all=node=>[node,...node.children.flatMap(all)]
+  const element=tag=>markRaw({tag,children:[],props:{},text:'',parent:null,scrollTop:0,clientHeight:400,scrollHeight:1000})
+  const root=element('root')
+  const renderer=createRenderer({createElement:element,createText:text=>({...element('#text'),text}),createComment:()=>element('#comment'),
+    insert(node,parent,anchor){
+      if(node.parent)node.parent.children.splice(node.parent.children.indexOf(node),1)
+      const index=anchor?parent.children.indexOf(anchor):-1
+      parent.children.splice(index<0?parent.children.length:index,0,node);node.parent=parent
+    },remove(node){if(node.parent)node.parent.children.splice(node.parent.children.indexOf(node),1);node.parent=null},
+    setText(node,text){node.text=text},setElementText(node,text){node.text=text;node.children=[]},
+    patchProp(node,key,old,value){node.props[key]=value},parentNode:node=>node.parent,
+    nextSibling:node=>node.parent?.children[node.parent.children.indexOf(node)+1]??null})
+  const props=reactive({models:structuredClone(models),rows:structuredClone(rows),page:{items:structuredClone(rows),page:1,page_size:20,total:60},
+    query:{query:'',kind:null,model_id:null,page:1,page_size:20},activeSeriesId:2,revealSeriesKey:0,
+    selectedId:2,selected:structuredClone(rows[1]),loading:false,error:'',loadingMore:false,moreError:'',busy:false,disconnected:false,canManage:true,...extra})
+  const events=[]
+  const app=renderer.createApp({render:()=>h(Tree,{...props,
+    onSeries:id=>{events.push(['series',id]);props.activeSeriesId=id},
+    onSelect:id=>{events.push(['select',id]);props.selectedId=id;props.selected=props.rows.find(row=>row.id===id)??null},
+    onLoadMore:()=>events.push(['more']),onNewModel:()=>events.push(['newModel']),onNewSeries:()=>events.push(['newSeries']),
+    onDelete:model=>events.push(['delete',model.id]),onReset:()=>events.push(['reset']),onRetry:()=>events.push(['retry'])})})
+  app.mount(root);t.after(()=>app.unmount());await settle()
+  const text=node=>[node.text,...node.children.map(text)].join('')
+  const nodes=()=>all(root)
+  const button=label=>nodes().find(node=>node.tag==='button'&&(text(node).includes(label)||String(node.props['aria-label']??'').includes(label)))
+  const click=node=>{assert.ok(node,'目标按钮必须实际挂载');for(const handler of [node.props.onClick].flat())handler()}
+  const nav=()=>nodes().find(node=>node.tag==='nav')
+  const scroll=top=>{const node=nav();node.scrollTop=top;node.props.onScrollPassive({currentTarget:node})}
+  return {props,events,observers,nodes,button,click,nav,scroll,nodeText:text,text:()=>text(root)}
+}
+
+test('点击 A 只收起当前系列，B 和未归组 PCB 保持真实节点，展开全部不改变新建归属',async t=>{
+  const f=await fixture(t,{models:[{...models[0],child_count:37},models[1]]}),query=JSON.stringify(f.props.query)
+  assert.ok(f.button('A 系列整机'));assert.ok(f.button('B 系列整机'));assert.ok(f.button('PCB 半成品'))
+  assert.match(f.nodeText(f.button('系列1')),/37/,'系列计数来自完整档案，不使用当前已加载的一个节点替代')
+  assert.ok(f.nodes().some(node=>node.props['aria-label']==='37 个子机型'))
+  const remove=f.button('删除产品系列 系列1')
+  assert.ok(remove,'图标按钮仍提供明确的可访问名称')
+  assert.equal(remove.props['aria-label'],'删除产品系列 系列1')
+  assert.match(remove.props.title,/删除/)
+  assert.equal(f.nodeText(remove),'','图标删除入口使用可访问名，避免重新混入占位文字')
+  assert.equal(remove.props.tone,'error');assert.equal(remove.props.variant,'plain')
+  f.click(remove);await settle()
+  assert.deepEqual(f.events,[['delete',1]])
+  assert.equal(f.button('系列1').props['aria-expanded'],true,'删除入口不能同时折叠所属系列')
+  assert.ok(f.button('A 系列整机'))
+  f.events.length=0
+  f.click(f.button('系列1'));await settle()
+  assert.equal(f.button('系列1').props['aria-expanded'],false)
+  assert.equal(f.button('A 系列整机'),undefined)
+  assert.ok(f.button('B 系列整机'));assert.ok(f.button('PCB 半成品'))
+  assert.equal(f.button('系列2').props['aria-expanded'],true)
+  assert.equal(f.props.selectedId,2)
+  assert.equal(JSON.stringify(f.props.query),query)
+  assert.deepEqual(f.events,[['series',1]])
+  assert.equal(f.button('展开全部').props['aria-expanded'],false)
+  f.click(f.button('展开全部'));await settle()
+  assert.equal(f.button('系列1').props['aria-expanded'],true)
+  assert.ok(f.button('A 系列整机'));assert.ok(f.button('PCB 半成品'))
+  assert.equal(f.props.activeSeriesId,1)
+  assert.deepEqual(f.events,[['series',1]],'展开全部不能派发未归组归属或查询意图')
+  assert.equal(f.button('展开全部').props['aria-expanded'],true)
+  assert.equal(f.button('展开全部').props['aria-pressed'],undefined)
+})
+
+test('翻页追加不推翻手动折叠，选中不同机型或显式定位才展开祖先',async t=>{
+  const f=await fixture(t)
+  f.click(f.button('系列1'));await settle()
+  const fresh=product(4,1,'A 新追加机型')
+  f.props.rows=[...f.props.rows,fresh];f.props.page={items:[fresh],page:2,page_size:20,total:60};await settle()
+  assert.equal(f.button('系列1').props['aria-expanded'],false)
+  assert.equal(f.button('A 新追加机型'),undefined)
+  assert.ok(f.button('PCB 半成品'))
+  f.props.selectedId=4;f.props.selected=fresh;await settle()
+  assert.equal(f.button('系列1').props['aria-expanded'],true)
+  assert.ok(f.button('A 新追加机型'))
+  assert.equal(f.button('A 新追加机型').props['aria-pressed'],true)
+  f.click(f.button('系列1'));await settle()
+  assert.equal(f.button('A 新追加机型'),undefined)
+  // 同 ID 的详情重读会短暂变空；这不是用户选择新机型，不能把手动收起的祖先又打开。
+  f.props.selected=null;await settle()
+  f.props.selected={...fresh};await settle()
+  assert.equal(f.button('系列1').props['aria-expanded'],false)
+  assert.equal(f.button('A 新追加机型'),undefined)
+  f.props.revealSeriesKey++;await settle()
+  assert.equal(f.button('系列1').props['aria-expanded'],true)
+  assert.ok(f.button('A 新追加机型'))
+  f.click(f.button('系列2'));await settle()
+  const moved={...fresh,model_id:2}
+  f.props.rows=f.props.rows.map(row=>row.id===moved.id?moved:row);f.props.selected=moved;await settle()
+  assert.equal(f.button('系列2').props['aria-expanded'],true,'同一产品真实改归属后应展开新祖先')
+  assert.ok(f.button('A 新追加机型'))
+})
+
+test('收起压低目录高度不自动追页，上移夹紧不算下滚，用户下滚和加载按钮仍可继续',async t=>{
+  const f=await fixture(t)
+  f.scroll(300)
+  f.click(f.button('系列1'));await settle()
+  f.nav().scrollHeight=450
+  f.scroll(50)
+  f.observers[0].resize();await settle()
+  assert.equal(f.events.filter(([event])=>event==='more').length,0)
+  const fresh=product(4,1,'折叠下的新机型')
+  f.props.rows=[...f.props.rows,fresh];f.props.page={items:[fresh],page:2,page_size:20,total:60};await settle()
+  assert.equal(f.events.filter(([event])=>event==='more').length,0)
+  f.nav().scrollHeight=460;f.scroll(60);await settle()
+  assert.equal(f.events.filter(([event])=>event==='more').length,1)
+  f.scroll(60);await settle()
+  assert.equal(f.events.filter(([event])=>event==='more').length,1,'相同位置的滚动事件不能重复追加')
+  f.click(f.button('加载更多'));await settle()
+  assert.equal(f.events.filter(([event])=>event==='more').length,2)
+})
+
+test('没有未归组机型时根节点仍常驻，区分未加载和真正无匹配',async t=>{
+  const assigned=structuredClone(rows.slice(0,2)),f=await fixture(t,{rows:assigned,page:{items:assigned,page:1,page_size:20,total:60}})
+  assert.ok(f.button('未归组产品 / 半成品'))
+  assert.match(f.text(),/子机型尚未加载，可继续加载目录/)
+  f.props.page={items:assigned,page:1,page_size:20,total:2};await settle()
+  assert.ok(f.button('未归组产品 / 半成品'))
+  assert.match(f.text(),/暂无匹配的未归组子机型/)
+  f.click(f.button('未归组产品 / 半成品'));await settle()
+  assert.equal(f.button('未归组产品 / 半成品').props['aria-expanded'],false)
+})
+
+test('忙碌与断线阻断旧按钮事件，查看账号可展开但不能借旧维护按钮写入',async t=>{
+  const f=await fixture(t),series=f.button('系列1'),child=f.button('A 系列整机'),create=f.button('新建子机型'),remove=f.button('删除'),more=f.button('加载更多')
+  for(const field of ['busy','disconnected']){
+    f.props[field]=true;await settle()
+    assert.equal(f.button('系列1').props.disabled,true)
+    for(const node of [series,child,create,remove,more])f.click(node)
+    await settle()
+    assert.deepEqual(f.events,[])
+    assert.equal(f.button('系列1').props['aria-expanded'],true)
+    f.props[field]=false;await settle()
+  }
+  f.props.canManage=false;await settle()
+  assert.equal(f.button('新建子机型'),undefined);assert.equal(f.button('删除'),undefined)
+  f.click(create);f.click(remove);assert.deepEqual(f.events,[])
+  f.click(f.button('系列1'));await settle()
+  assert.equal(f.button('系列1').props['aria-expanded'],false)
+  assert.deepEqual(f.events,[['series',1]])
+})

@@ -4,9 +4,13 @@ import { captureDialogOrigin } from '../../../utils/dialog-origin'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+import IconArrowDownSLine from '~icons/ri/arrow-down-s-line'
+import IconFolder3Line from '~icons/ri/folder-3-line'
+import IconDeleteBin6Line from '~icons/ri/delete-bin-6-line'
 import { productKinds, productKindLabels } from '../../../../../shared/product-api'
 import type { ProductModel, ProductProfile, ProductPage, ProductQuery } from '../../../../../shared/product-api'
 const props = defineProps<{models:ProductModel[]; page:ProductPage|null; rows:ProductProfile[]; query:ProductQuery;
+  activeSeriesId:number|null; revealSeriesKey?:number;
   selectedId:number; selected:ProductProfile|null; loading:boolean; error:string; loadingMore:boolean; moreError:string;
   busy:boolean; disconnected:boolean; canManage:boolean}>()
 const emit = defineEmits<{
@@ -16,7 +20,45 @@ const emit = defineEmits<{
 const filterOpen=ref(false)
 const scrollEl=ref<HTMLElement|null>(null)
 const hasMore=computed(() => !!props.page && props.page.page * props.page.page_size < props.page.total)
+// null 代表常驻的未归组节点；折叠只改变本地视图，不参与服务端查询。
+const collapsedSeriesIds=ref(new Set<number|null>())
+const isExpanded=(id:number|null):boolean => !collapsedSeriesIds.value.has(id)
+const canInteract=():boolean => !props.busy && !props.disconnected
+function interact(action:()=>void):void {if (canInteract()) action()}
+function revealSeries(id:number|null):void {
+  const next=new Set(collapsedSeriesIds.value)
+  if (next.delete(id)) collapsedSeriesIds.value=next
+}
+function toggleSeries(id:number|null):void {
+  if (!canInteract() || (id!==null && !props.models.some(model=>model.id===id))) return
+  const next=new Set(collapsedSeriesIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  collapsedSeriesIds.value=next
+  emit('series',id)
+}
+function showAll():void {
+  if (!canInteract()) return
+  collapsedSeriesIds.value=new Set()
+}
+function selectProduct(id:number):void {
+  if (canInteract() && children.value.some(row=>row.id===id)) emit('select',id)
+}
+function maintain(action:'newSeries'|'newModel'|'manage'|'include'):void {
+  if (!canInteract() || !props.canManage) return
+  if (action==='newSeries') emit('newSeries')
+  else if (action==='newModel') emit('newModel')
+  else if (action==='manage') emit('manage')
+  else emit('include')
+}
+function requestDelete(model:ProductModel):void {
+  if (canInteract() && props.canManage && props.models.some(row=>row.id===model.id)) emit('delete',model)
+}
+function captureDeleteOrigin(event:Event):void {
+  if (canInteract() && props.canManage) captureDialogOrigin('product-model-delete',event)
+}
 let requestingMore=false
+let lastScrollTop=0
 let sizeObserver:ResizeObserver|undefined
 // 连续滚动事件可能先于父组件传回 loadingMore；同一帧只发出一次加载意图。
 function requestMore(retry=false): void {
@@ -28,15 +70,21 @@ function requestMore(retry=false): void {
 }
 function onScroll(event:Event): void {
   const target=event.currentTarget as HTMLElement|null
-  if (target && target.scrollHeight-target.scrollTop-target.clientHeight<=64) requestMore()
+  if (!target) return
+  // 收起节点会让浏览器向上修正滚动位置，不能把这种变化当成再次触底。
+  const movingDown=target.scrollTop>lastScrollTop
+  lastScrollTop=target.scrollTop
+  if (movingDown && target.scrollHeight-target.scrollTop-target.clientHeight<=64) requestMore()
 }
 function checkMore(): void {
   const target=scrollEl.value
-  if (target && target.scrollHeight-target.scrollTop-target.clientHeight<=64) requestMore()
+  // 隐藏行不能撑高目录；此时自动补屏会连续翻完所有页，改由真实下滚或显式按钮继续。
+  if (target && !hasHiddenChildren.value && target.scrollHeight-target.scrollTop-target.clientHeight<=64) requestMore()
 }
 // 筛选才回到目录顶部，追加数据保留滚动位置；内容不足一屏时按页补满。
-watch(() => JSON.stringify([props.query.query,props.query.kind,props.query.model_id]), () => {
+watch(() => JSON.stringify([props.query.query,props.query.kind]), () => {
   if (scrollEl.value) scrollEl.value.scrollTop=0
+  lastScrollTop=0
 }, {flush:'post'})
 watch([() => props.page,() => props.loading,() => props.loadingMore,() => props.rows.length],checkMore,{flush:'post'})
 onMounted(() => {
@@ -51,66 +99,98 @@ const children = computed(() => {
   if (props.loading || !props.page) return []
   const rows = [...props.rows]
   // 刚保存或由固定编号定位的机型可能在另一页，保留一个明确的当前节点供操作。
-  if (props.selected && props.selectedId === props.selected.id && !rows.some(row=>row.id===props.selectedId)
-    && (props.query.model_id === null || props.selected.model_id === props.query.model_id)) rows.unshift(props.selected)
+  if (props.selected && props.selectedId === props.selected.id && !rows.some(row=>row.id===props.selectedId)) rows.unshift(props.selected)
   return rows
 })
 const members = (id:number|null):ProductProfile[] => children.value.filter(row=>row.model_id===id)
+const hasHiddenChildren=computed(() => children.value.some(row=>collapsedSeriesIds.value.has(row.model_id)))
+let trackedSelectedId=0
+let revealedSelectionKey=''
+// 只对新的产品身份或实际归属变化展开；同一详情清空后重读不能推翻用户手动收起。
+watch(() => [props.selectedId,props.selected?.id,props.selected?.model_id], () => {
+  const selectionChanged=trackedSelectedId!==props.selectedId
+  trackedSelectedId=props.selectedId
+  if (selectionChanged || !props.selectedId) revealedSelectionKey=''
+  if (!props.selectedId) return
+  // 新选择可先按已加载目录定位；同编号详情暂时为空时等待原身份返回，不重复展开。
+  const row=props.selected?.id===props.selectedId ? props.selected
+    : selectionChanged ? props.rows.find(item=>item.id===props.selectedId) : undefined
+  if (!row) return
+  const key=JSON.stringify([row.id,row.model_id])
+  if (revealedSelectionKey===key) return
+  revealedSelectionKey=key
+  revealSeries(row.model_id)
+}, {immediate:true})
+// 新建系列和“所在系列”属于显式定位；当前归属变化本身不强制展开，避免点击收起后立即反弹。
+watch(() => props.revealSeriesKey, () => revealSeries(props.activeSeriesId))
+// 已删除的系列不保留折叠身份，未归组节点则始终作为独立根节点存在。
+watch(() => props.models.map(model=>model.id).join(','), () => {
+  const live=new Set(props.models.map(model=>model.id))
+  const next=new Set([...collapsedSeriesIds.value].filter(id=>id===null || live.has(id)))
+  if (next.size!==collapsedSeriesIds.value.size) collapsedSeriesIds.value=next
+})
 </script>
 <template>
   <aside class="product-tree" aria-label="产品系列与子机型">
     <header><h3>产品列表</h3><span v-if="page" class="tree-count">{{ page.total }} 个子机型</span></header>
     <div class="tree-search">
       <div class="tree-search-row"><AppInput v-model.trim="query.query" size="small" aria-label="搜索子机型" maxlength="120" placeholder="名称、编码或配置" :disabled="busy || disconnected" />
-        <AppButton size="small" :aria-expanded="filterOpen || !!query.kind" :disabled="busy || disconnected" @click="filterOpen=!filterOpen">筛选</AppButton></div>
+        <AppButton size="small" :aria-expanded="filterOpen || !!query.kind" :disabled="busy || disconnected" @click="interact(()=>filterOpen=!filterOpen)">筛选</AppButton></div>
       <div v-if="filterOpen || query.kind" class="tree-filter"><WorkspaceSelect v-model="query.kind" size="small" aria-label="子机型类型" :options="[{value:null,label:'全部类型'},...productKinds.map(value=>({value,label:productKindLabels[value]}))]" :disabled="busy || disconnected" />
-        <AppButton size="small" :disabled="busy || disconnected" @click="emit('reset')">重置</AppButton></div>
+        <AppButton size="small" :disabled="busy || disconnected" @click="interact(()=>emit('reset'))">重置</AppButton></div>
     </div>
     <div v-if="canManage" class="tree-create">
-      <AppButton size="small" :disabled="busy || disconnected" @click="emit('newSeries')">新建系列</AppButton>
-      <AppButton size="small" variant="primary" :disabled="busy || disconnected" @click="emit('newModel')">新建子机型</AppButton>
+      <AppButton size="small" :disabled="busy || disconnected" @click="maintain('newSeries')">新建系列</AppButton>
+      <AppButton size="small" variant="primary" :disabled="busy || disconnected" @click="maintain('newModel')">新建子机型</AppButton>
     </div>
     <nav ref="scrollEl" class="tree-scroll" aria-label="选择系列与子机型" tabindex="0" :aria-busy="loading || loadingMore" @scroll.passive="onScroll">
-      <AppButton variant="plain" class="tree-all" :aria-pressed="query.model_id===null" :disabled="busy || disconnected" @click="emit('series',null)">全部系列</AppButton>
+      <AppButton variant="plain" class="tree-all" :aria-expanded="collapsedSeriesIds.size===0" :disabled="busy || disconnected" @click="showAll">展开全部</AppButton>
       <p v-if="loading" role="status" class="muted">正在读取子机型…</p>
-      <div v-else-if="error" role="alert"><p>{{ error }}</p><AppButton :disabled="disconnected" @click="emit('retry')">重试</AppButton></div>
+      <div v-else-if="error" role="alert"><p>{{ error }}</p><AppButton :disabled="busy || disconnected" @click="interact(()=>emit('retry'))">重试</AppButton></div>
       <ul v-if="!loading && !error" class="tree-roots">
         <li v-for="model in models" :key="model.id">
-          <div class="tree-series-row"><AppButton variant="plain" class="tree-series" :class="{'is-current':query.model_id===model.id}" :aria-expanded="query.model_id===model.id || members(model.id).length>0" :disabled="busy || disconnected" @click="emit('series',model.id)">
-            <span aria-hidden="true">{{ query.model_id===model.id || members(model.id).length ? '▾' : '▸' }}</span>
-            <span class="series-label"><strong>{{ model.name }}</strong><small>{{ model.code }}<template v-if="model.child_count !== undefined"> · {{ model.child_count }} 个子机型</template></small></span>
+          <div class="tree-series-row" :class="{'is-current':activeSeriesId===model.id}"><AppButton variant="plain" class="tree-series" :aria-expanded="isExpanded(model.id)" :disabled="busy || disconnected" @click="toggleSeries(model.id)">
+            <IconArrowDownSLine class="series-chevron" :class="{'is-collapsed':!isExpanded(model.id)}" aria-hidden="true" focusable="false" />
+            <IconFolder3Line class="series-folder" aria-hidden="true" focusable="false" />
+            <span class="series-label"><strong :title="model.name">{{ model.name }}</strong><small :title="model.code">{{ model.code }}</small></span>
+            <span v-if="model.child_count !== undefined" class="series-count" :aria-label="`${model.child_count} 个子机型`">{{ model.child_count }}</span>
           </AppButton>
-            <!-- plain 保留语义红色，避免旧全局 text 样式把危险操作染成主题强调色。 -->
-            <AppButton v-if="canManage" variant="plain" tone="error" size="small" :aria-label="`删除产品系列 ${model.name}`" :disabled="busy || disconnected"
-              @click.capture="captureDialogOrigin('product-model-delete',$event)" @click="emit('delete',model)">删除</AppButton>
+            <!-- 图标入口保留独立确认与语义危险色，避免整行常驻红字抢走目录层级。 -->
+            <AppButton v-if="canManage" class="tree-series-delete" variant="plain" tone="error" size="small" :title="`删除产品系列 ${model.name}`" :aria-label="`删除产品系列 ${model.name}`" :disabled="busy || disconnected"
+              @click.capture="captureDeleteOrigin" @click="requestDelete(model)"><IconDeleteBin6Line class="series-delete-icon" aria-hidden="true" focusable="false" /></AppButton>
           </div>
-          <ul v-if="members(model.id).length" class="tree-children">
-            <li v-for="row in members(model.id)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="emit('select',row.id)">
+          <ul v-if="isExpanded(model.id) && members(model.id).length" class="tree-children">
+            <li v-for="row in members(model.id)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="selectProduct(row.id)">
               <!-- 名称只显示一次；配置有实际差异时才补充，避免未配置产品出现重复行。 -->
               <strong>{{ row.material.name }}</strong><small>{{ row.material.sku }}</small><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.can_produce===false">已停用</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
             </AppButton></li>
           </ul>
-          <p v-else-if="query.model_id===model.id && !loading && !error" class="tree-empty muted">此系列暂无匹配子机型</p>
+          <p v-else-if="isExpanded(model.id)" class="tree-empty muted">{{ hasMore ? '子机型尚未加载，可继续加载目录' : '此系列暂无匹配子机型' }}</p>
         </li>
-        <li v-if="members(null).length"><h4 class="tree-unassigned">未归组产品 / 半成品</h4><ul class="tree-children">
-          <li v-for="row in members(null)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="emit('select',row.id)">
+        <!-- 未归组始终占有一个根节点，不再依赖当前页是否恰好包含 PCB 等旧产品。 -->
+        <li><div class="tree-series-row tree-unassigned" :class="{'is-current':activeSeriesId===null}"><AppButton variant="plain" class="tree-series" :aria-expanded="isExpanded(null)" :disabled="busy || disconnected" @click="toggleSeries(null)">
+          <IconArrowDownSLine class="series-chevron" :class="{'is-collapsed':!isExpanded(null)}" aria-hidden="true" focusable="false" />
+          <IconFolder3Line class="series-folder" aria-hidden="true" focusable="false" />
+          <span class="series-label"><strong title="未归组产品 / 半成品">未归组产品 / 半成品</strong><small>未分配产品系列</small></span>
+        </AppButton></div><ul v-if="isExpanded(null) && members(null).length" class="tree-children">
+          <li v-for="row in members(null)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="selectProduct(row.id)">
             <!-- 名称只显示一次；配置有实际差异时才补充，避免未配置产品出现重复行。 -->
               <strong>{{ row.material.name }}</strong><small>{{ row.material.sku }}</small><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.can_produce===false">已停用</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
           </AppButton></li>
-        </ul></li>
+        </ul><p v-else-if="isExpanded(null)" class="tree-empty muted">{{ hasMore ? '子机型尚未加载，可继续加载目录' : '暂无匹配的未归组子机型' }}</p></li>
       </ul>
-      <p v-if="!loading && !error && !children.length && query.model_id===null" class="tree-empty muted">{{ canManage ? '暂无子机型，可先新建系列，再建立子机型。' : '暂无匹配子机型，请调整搜索条件。' }}</p>
+      <p v-if="!loading && !error && !children.length && !hasMore" class="tree-empty muted">{{ canManage ? '暂无子机型，可先新建系列，再建立子机型。' : '暂无匹配子机型，请调整搜索条件。' }}</p>
       <!-- 失败暂停自动请求，保留已加载节点并提供明确重试，避免触底后无限重发。 -->
       <div v-if="!loading && !error && page" class="tree-load-state">
         <p v-if="loadingMore" role="status">正在加载更多…</p>
-        <template v-else-if="moreError"><p role="alert">{{ moreError }}</p><div class="tree-reload-actions"><AppButton size="small" :disabled="busy || disconnected" @click="requestMore(true)">重试加载</AppButton><AppButton size="small" variant="plain" :disabled="busy || disconnected" @click="emit('retry')">刷新目录</AppButton></div></template>
+        <template v-else-if="moreError"><p role="alert">{{ moreError }}</p><div class="tree-reload-actions"><AppButton size="small" :disabled="busy || disconnected" @click="requestMore(true)">重试加载</AppButton><AppButton size="small" variant="plain" :disabled="busy || disconnected" @click="interact(()=>emit('retry'))">刷新目录</AppButton></div></template>
         <AppButton v-else-if="hasMore" size="small" variant="plain" :disabled="busy || disconnected" @click="requestMore(true)">加载更多</AppButton>
         <p v-else-if="rows.length >= page.total && rows.length">已显示全部 {{ rows.length }} 个子机型</p>
-        <template v-else-if="rows.length"><p>已加载 {{ rows.length }} 个子机型，目录有更新</p><AppButton size="small" variant="plain" :disabled="busy || disconnected" @click="emit('retry')">刷新目录</AppButton></template>
+        <template v-else-if="rows.length"><p>已加载 {{ rows.length }} 个子机型，目录有更新</p><AppButton size="small" variant="plain" :disabled="busy || disconnected" @click="interact(()=>emit('retry'))">刷新目录</AppButton></template>
       </div>
     </nav>
     <footer v-if="canManage">
-      <div class="tree-maintenance"><AppButton size="small" :disabled="busy || disconnected" @click="emit('manage')">系列管理</AppButton><AppButton size="small" :disabled="busy || disconnected" @click="emit('include')">纳入已有物料</AppButton></div>
+      <div class="tree-maintenance"><AppButton size="small" :disabled="busy || disconnected" @click="maintain('manage')">系列管理</AppButton><AppButton size="small" :disabled="busy || disconnected" @click="maintain('include')">纳入已有物料</AppButton></div>
     </footer>
   </aside>
 </template>
@@ -132,10 +212,21 @@ header h3 { margin:0; font-size:14px; }
 .tree-roots,.tree-children { list-style:none; padding:0; margin:0; }
 .tree-roots>li { margin-top:8px; }
 .tree-all,.tree-series,.tree-model { width:100%; min-width:0; padding:8px 10px; border-radius:8px; text-align:left; white-space:normal; }
-.tree-series-row { display:flex; align-items:center; gap:4px; }
-.tree-series-row .tree-series { flex:1; width:auto; }
-.tree-series { display:flex; align-items:center; justify-content:start; gap:8px; }
-.series-label { display:grid; justify-items:start; gap:5px; }
+/* 系列名、编码和数量各有固定位置，图标操作留在独立网格列，不挤压名称。 */
+.tree-series-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:4px; padding:2px; border:1px solid transparent; border-radius:10px; }
+.tree-series { display:grid; grid-template-columns:12px 16px minmax(0,1fr) auto; align-items:center; justify-content:initial; gap:8px; min-height:44px; padding:6px; }
+.series-label { display:grid; justify-items:start; gap:2px; min-width:0; }
+.series-label strong,.series-label small { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.series-label strong { font-size:13px; line-height:18px; }
+.series-label small { font-size:11px; line-height:15px; }
+.series-chevron { width:12px; height:12px; color:var(--workspace-field-muted); transition:transform 160ms ease; }
+.series-chevron.is-collapsed { transform:rotate(-90deg); }
+.series-folder { width:16px; height:16px; color:var(--workspace-field-muted); }
+.series-count { display:inline-grid; place-items:center; min-width:20px; height:20px; padding:0 6px; border-radius:999px; background:var(--app-accent-tint); color:var(--workspace-field-muted); font-size:11px; font-variant-numeric:tabular-nums; box-sizing:border-box; }
+/* 只压低 SVG 的静态颜色，按钮本身沿用 error 主题；悬停和键盘聚焦时恢复其语义色。 */
+.tree-series-delete { display:grid; place-items:center; width:32px; min-width:32px; height:32px; padding:0; border-radius:8px; }
+.series-delete-icon { width:16px; height:16px; color:var(--workspace-field-muted); }
+.tree-series-delete:hover .series-delete-icon,.tree-series-delete:focus-visible .series-delete-icon { color:inherit; }
 /* 按钮内部承载文字网格，避免公共按钮的居中容器让不同长度的名称来回跳动。 */
 .tree-model :deep(.n-button__content) { display:grid; justify-items:start; gap:4px; width:100%; text-align:left; }
 .tree-product-meta { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
@@ -143,16 +234,19 @@ header h3 { margin:0; font-size:14px; }
 small,.tree-product-meta { color:var(--workspace-field-muted); font-size:11px; overflow-wrap:anywhere; }
 strong { font-size:13px; overflow-wrap:anywhere; }
 .tree-all { display:flex; justify-content:flex-start; text-align:left; color:var(--workspace-field-muted); }
-.tree-series.is-current { background:var(--app-accent-tint); color:var(--workspace-field-accent); }
+.tree-series-row.is-current { background:var(--app-accent-tint); color:var(--workspace-field-accent); }
+.tree-series-row.is-current .series-folder,.tree-series-row.is-current .series-chevron { color:inherit; }
+.tree-series-row.is-current .series-count { background:var(--app-modal-surface); color:var(--workspace-field-accent); }
 .tree-children { margin:4px 0 8px 15px; padding-left:10px; border-left:1px solid var(--workspace-field-border); }
 .tree-model { margin-bottom:4px; border:1px solid transparent; }
 .tree-model.is-active { border-color:var(--workspace-field-accent); background:var(--app-accent-tint); color:var(--workspace-field-accent); }
 .tree-empty { margin:10px 12px; font-size:12px; line-height:1.7; }
-.tree-unassigned { margin:14px 12px 8px; font-size:13px; color:var(--workspace-field-muted); }
+.tree-unassigned { margin-top:6px; }
 footer { padding-top:10px; border-top:1px solid var(--workspace-field-border); }
 .tree-maintenance { justify-content:space-between; }
 .tree-load-state { display:grid; justify-items:center; gap:6px; padding:10px 4px; color:var(--workspace-field-muted); font-size:11px; text-align:center; }
 .tree-load-state p { margin:0; line-height:1.6; }
 .tree-reload-actions { display:flex; align-items:center; gap:10px; }
 @media(max-width:760px) { .product-tree { height:min(440px,65vh); min-height:280px; } }
+@media(prefers-reduced-motion:reduce) { .series-chevron { transition:none; } }
 </style>
