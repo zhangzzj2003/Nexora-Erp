@@ -32,9 +32,11 @@ async function fixture(t) {
  const server=await createServer({configFile:false,plugins:[{name:'product-views',enforce:'pre',resolveId(id,importer){
    if(liveSources.has(id))return id
    if(id==='virtual:products-live-collapse')return '\0products-live-collapse'
+   if(id==='virtual:products-store')return '\0products-store'
    if(importer?.endsWith('.vue.client.ts')){
     if(id.endsWith('/WorkspaceDocumentDialog.vue'))return liveModules[1][0]
     if(id.endsWith('/ProductBomStructure.vue'))return liveModules[2][0]
+    if(id.endsWith('/InventoryDetailDialogs.vue'))return '\0products-inventory-details'
     if(id.endsWith('/ProductTreeSidebar.vue'))return '\0products-live-tree'
     if(id.endsWith('/AppCollapseItem.vue'))return '\0products-live-collapse-item'
     if(id.endsWith('/AppStatusTag.vue'))return '\0products-live-status'
@@ -43,6 +45,7 @@ async function fixture(t) {
    if(id.startsWith('~icons/'))return '\0products-icon'
    if(!importer?.includes('/src/renderer/'))return
    if(id.endsWith('/store/app-store'))return '\0products-store'
+   if(id.endsWith('/InventoryDetailDialogs.vue'))return '\0products-inventory-details'
    if(id==='test-products-dropdown')return '\0products-dropdown'
    if(['ProductionAssociationDialog','DocumentApprovalDialog','WorkOrderMaterialFlowPanel'].some(name=>id.endsWith('/'+name+'.vue')))return '\0products-empty'
    for(const [name,key] of [['AppModal','modal'],['WorkspaceTable','table'],['WorkspacePagination','pagination'],['AppButton','button'],['AppInput','input'],['WorkspaceMaterialSelect','select'],['WorkspaceSelect','select'],['MaterialEditor','material']])
@@ -64,11 +67,14 @@ async function fixture(t) {
    if(id==='\0products-dropdown')return `import {h} from 'vue';export default {props:['options','disabled'],setup:(p,{slots})=>()=>h('div',{'data-lifecycle-menu':p.options.map(row=>row.key).join(',')},slots.default?.())}`
    if(id==='\0products-store')return `import {defineStore,storeToRefs} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';
     import {createProductActions} from '/src/renderer/src/store/modules/product-actions.ts';import {createProductionActions} from '/src/renderer/src/store/modules/production-actions.ts';
-    export const usePiniaAppStore=defineStore('product-view',()=>{const s=createAppState();return {...s,...createProductActions(s),
+    import {createInventoryLedgerDetailActions} from '/src/renderer/src/store/modules/inventory-ledger-detail-actions.ts';
+    export const usePiniaAppStore=defineStore('product-view',()=>{const s=createAppState();return {...s,...createProductActions(s),...createInventoryLedgerDetailActions(s),
      ...createProductionActions(s,async(action,success)=>{s.error.value='';try{await action();s.notice.value=success}catch(e){s.error.value=e.message}},()=>{}),
      can:key=>s.user.value?.permissions.includes(key)??false,localTime:v=>v}});export const useAppStore=()=>{const store=usePiniaAppStore();return {...store,...storeToRefs(store)}}`
+   // 共享详情的内部绘制已有独立用例；本页保留单一挂载点与真实库存读取 actions，避免把请求伪造为成功。
+   if(id==='\0products-inventory-details')return `import {h} from 'vue';import {usePiniaAppStore} from 'virtual:products-store';export default {setup(){const store=usePiniaAppStore();return()=>h('aside',{'data-shared-inventory-details':true},store.ledgerMaterialTarget?h('section',{'data-inventory-material':store.ledgerMaterialTarget.material_id},[store.ledgerMaterialTarget.sku,store.ledgerMaterialDetail?.name]):null)}}`
    if(id==='\0products-modal')return `import {h} from 'vue';export default {props:['show','title'],setup:(p,{slots})=>()=>p.show?h('section',{'data-modal':p.title},[h('h2',p.title),slots.default?.()]):null}`
-   if(id==='\0products-table')return `import {h} from 'vue';export const tables=[];export default {props:['data','columns','title','pagination'],setup:(p,{slots})=>()=>{tables.push(p);return h('section',{'data-table':p.title},[slots.heading?.(),slots.actions?.(),slots.filters?.(),slots.beforeTable?.(),...(p.data??[]).map(row=>h('article',(p.columns??[]).map(c=>slots['cell-'+c.key]?.({row})))),!(p.data??[]).length?slots.empty?.():null])}}`
+   if(id==='\0products-table')return `import {h} from 'vue';export const tables=[];export default {props:['data','columns','title','pagination'],setup:(p,{slots})=>()=>{tables.push(p);return h('section',{'data-table':p.title},[slots.heading?.(),slots.actions?.(),slots.filters?.(),slots.beforeTable?.(),...(p.data??[]).map(row=>h('article',(p.columns??[]).map(c=>h('div',{'data-column':c.key,'data-column-title':c.title},slots['cell-'+c.key]?.({row}))))),!(p.data??[]).length?slots.empty?.():null])}}`
    if(id==='\0products-pagination')return `import {h} from 'vue';export const paginations=[];export default {props:['page','pageSize','total','disabled'],setup:(p,{attrs})=>()=>{paginations.push({...p,...attrs});return h('nav',{'data-product-pagination':p.total})}}`
    if(id==='\0products-button')return `import {h} from 'vue';export const buttons=[];const text=v=>(v??[]).map(n=>typeof n.children==='string'?n.children:Array.isArray(n.children)?text(n.children):'').join('');export default {props:['disabled','type'],setup:(p,{slots,attrs})=>()=>{const content=slots.default?.();buttons.push({label:text(content).trim(),props:p,attrs});return h('button',{...attrs,disabled:p.disabled,type:p.type},content)}}`
    if(id==='\0products-input')return `import {h} from 'vue';export default {props:['modelValue'],setup:(p,{attrs})=>()=>h('input',{...attrs,value:p.modelValue})}`
@@ -95,7 +101,9 @@ async function fixture(t) {
  const calls=[],previous=globalThis.window
  globalThis.window={nexora:{callApi:async(action,payload)=>{calls.push([action,payload]);return action==='queryProducts'?{items:[product],page:1,page_size:20,total:43}:
    action==='productModels'?[{id:1,code:'A100',name:'机型A',notes:'',version:1,created_by:1,created_at:'2026-10-15'}]:
-   action==='productChanges'?[]:action==='productDetail'?product:action==='productBoms'?[source]:action==='bomDetail'?source:undefined}}}
+   action==='productChanges'?[]:action==='productDetail'?product:action==='productBoms'?[source]:action==='bomDetail'?source:
+   action==='materialDetail'?{...material,id:payload.id,sku:'EL-IC-22',name:'主芯片'}:
+   action==='inventoryLedger'?{groups:[],rows:[],total:0,page:payload.page,page_size:payload.page_size}:undefined}}}
  t.after(()=>{globalThis.window=previous})
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/workspace/products',component:View},{path:'/workspace/work-orders',component:{render:()=>null}}]})
  await router.push('/workspace/products');await router.isReady()
@@ -144,7 +152,10 @@ async function fixture(t) {
    patchProp(node,key,old,value){node.props[key]=value},parentNode:node=>node.parent,
    nextSibling:node=>node.parent?.children[node.parent.children.indexOf(node)+1]??null})
   const app=renderer.createApp({render:()=>h(LiveView)}).use(pinia).use(router)
-  app.mount(root);t.after(()=>app.unmount());await settleProductView()
+  // 支持主动卸载，验证物料详情的在途请求会随页面销毁撤销，清理钩子只执行一次。
+  let unmounted=false
+  const unmount=()=>{if(!unmounted){unmounted=true;app.unmount()}}
+  app.mount(root);t.after(unmount);await settleProductView()
   const text=node=>[node.text,...node.children.map(text)].join('')
   const descendants=node=>[node,...node.children.flatMap(descendants)]
   const nodes=()=>descendants(root)
@@ -152,7 +163,7 @@ async function fixture(t) {
   const press=node=>{assert.ok(node,'目标操作必须真实渲染');for(const handler of [node.props.onClick].flat())handler()}
   const modal=()=>nodes().find(node=>node.props['data-modal']==='产品资料')
   const bomVisible=()=>nodes().some(node=>node.props['data-table']==='组成明细 · V1')
-  return {nodes,button,press,modal,bomVisible,nodeText:text,text:()=>text(root)}
+  return {nodes,button,press,modal,bomVisible,nodeText:text,text:()=>text(root),unmount}
  }
  const renderBom=async(props)=>{
   // 单独绘制共享编辑器，可确认行内表单没有意外套回弹窗，也保留真实物料控件事件。
@@ -1339,4 +1350,118 @@ test('工单产品选项排除停用子机型，旧建单链接及已填草稿�
  await view.submitCreate()
  assert.match(f.store.error,/子机型已停用或删除/)
  assert.equal(f.calls.some(([action])=>action==='createWorkOrder'),false)
+})
+
+// 保留真实 ProductsView、组成组件和库存读取链路，只替换物料详情内部的绘制，验证入口身份及查询范围。
+test('组成编号独立于名称列，点击真实编号才读取共享物料详情且清空旧库存筛选',async t=>{
+ const f=await fixture(t)
+ f.store.ledgerQuery={warehouse_id:9,material_id:88,from_date:'2026-09-01',to_date:'2026-09-30',source_type:'other_inbound',page:4,page_size:10}
+ const originalQuery=JSON.stringify(f.store.ledgerQuery),entries=[]
+ const open=f.store.openLedgerMaterial
+ f.store.openLedgerMaterial=(...args)=>{entries.push(args);return open(...args)}
+ const live=await f.mountRenderedView()
+ assert.equal(live.nodes().filter(node=>node.props['data-shared-inventory-details']).length,1)
+ assert.equal(f.calls.some(([action])=>['materialDetail','inventoryLedger','queryStock'].includes(action)),false,'目录和 BOM 首屏不能预读物料详情')
+ const component=live.nodes().find(node=>node.props['data-column']==='component')
+ const sku=live.nodes().find(node=>node.props['data-column']==='sku')
+ assert.ok(component);assert.ok(sku);assert.notEqual(component,sku)
+ assert.match(live.nodeText(component),/主芯片/);assert.doesNotMatch(live.nodeText(component),/EL-IC-22/)
+ assert.equal(sku.props['data-column-title'],'物料编号')
+ const entry=live.button('EL-IC-22',sku)
+ assert.equal(entry.props['aria-label'],'查看物料 EL-IC-22 的详情')
+ live.press(entry);await settleProductView()
+ assert.deepEqual(entries,[[{material_id:22,sku:'EL-IC-22',material_name:'主芯片'},
+  {warehouse_id:null,from_date:null,to_date:null,source_type:null}]])
+ assert.deepEqual(f.calls.filter(([action])=>['materialDetail','inventoryLedger'].includes(action)),[
+  ['materialDetail',{id:22}],
+  ['inventoryLedger',{warehouse_id:null,from_date:null,to_date:null,source_type:null,material_id:22,page:1,page_size:20}]
+ ])
+ assert.deepEqual(f.store.ledgerMaterialTarget,{material_id:22,sku:'EL-IC-22',material_name:'主芯片'})
+ assert.equal(f.store.ledgerMaterialDetail.id,22)
+ assert.equal(f.store.ledgerMaterialError,'');assert.equal(f.store.ledgerMaterialRowsError,'')
+ assert.equal(f.store.stockMaterialMode,false)
+ assert.equal(JSON.stringify(f.store.ledgerQuery),originalQuery,'BOM 入口不能修改库存台账原查询范围及页码')
+ assert.equal(live.nodes().filter(node=>node.props['data-inventory-material']===22).length,1)
+ assert.equal(f.calls.some(([action])=>action==='productChanges'),false,'打开物料不等于打开产品审计资料')
+})
+
+// 先保留未完成的真实库存请求，再切版本、切产品和销毁页面，保证旧响应不能重开物料窗口。
+test('组成物料详情随版本产品及卸载关闭，旧编号事件和在途回执不能重开',async t=>{
+ const f=await fixture(t),pending=[]
+ const history={...f.source,id:8,version:2,status:'retired',lines:[{...f.source.lines[0],component_material_id:44,sku:'HISTORY-44',material_name:'历史组件'}]}
+ const second={...f.product,id:2,material_id:33,material:{...f.product.material,id:33,sku:'P-33',name:'第二款产品'}}
+ const secondBom={...f.source,id:9,product_material_id:33,product_sku:'P-33',product_name:'第二款产品'}
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='queryProducts')return {items:[f.product,second],page:1,page_size:20,total:2}
+  if(action==='productDetail'&&payload.id===2)return second
+  if(action==='productBoms')return payload.materialId===11?[f.source,history]:[secondBom]
+  if(['materialDetail','inventoryLedger'].includes(action))return new Promise(resolve=>{pending.push({action,payload,resolve})})
+  return previous(action,payload)
+ }
+ const complete=async()=>{
+  for(const job of pending.splice(0))job.resolve(job.action==='materialDetail'?{id:job.payload.id,name:'请求返回的组件'}:
+   {groups:[],rows:[],total:0,page:job.payload.page,page_size:job.payload.page_size})
+  await settleProductView()
+ }
+ const live=await f.mountRenderedView(),first=live.button('EL-IC-22')
+ const lateFirst=[first.props.onClick].flat()
+ live.press(first);await settleProductView()
+ assert.equal(f.store.ledgerMaterialTarget.material_id,22);assert.equal(pending.length,2)
+ const select=live.nodes().find(node=>node.tag==='select'&&node.props['aria-label']==='选择 BOM 版本')
+ for(const handler of [select.props['onUpdate:modelValue']].flat())handler(8)
+ await settleProductView()
+ assert.equal(f.store.ledgerMaterialTarget,null);assert.equal(f.store.ledgerMaterialQuery,null)
+ assert.equal(f.store.ledgerMaterialLoading,false);assert.equal(f.store.ledgerMaterialRowsLoading,false)
+ for(const handler of lateFirst)handler()
+ assert.equal(pending.length,2,'旧版本编号的迟到点击不能创建新请求')
+ await complete()
+ assert.equal(f.store.ledgerMaterialTarget,null);assert.equal(f.store.ledgerMaterialDetail,null)
+ live.press(live.button('HISTORY-44'));await settleProductView();await complete()
+ assert.equal(f.store.ledgerMaterialTarget.material_id,44);assert.equal(f.store.ledgerMaterialDetail.id,44)
+ live.press(live.button('选择产品 第二款产品'));await settleProductView()
+ assert.equal(f.store.productDetailId,2);assert.equal(f.store.ledgerMaterialTarget,null)
+ assert.equal(f.store.ledgerMaterialDetail,null);assert.equal(f.store.ledgerMaterialQuery,null)
+ live.press(live.button('EL-IC-22'));await settleProductView()
+ assert.equal(f.store.ledgerMaterialTarget.material_id,22);assert.equal(pending.length,2)
+ live.unmount()
+ assert.equal(f.store.ledgerMaterialTarget,null);assert.equal(f.store.ledgerMaterialQuery,null)
+ await complete()
+ assert.equal(f.store.ledgerMaterialTarget,null);assert.equal(f.store.ledgerMaterialDetail,null)
+ assert.equal(f.store.ledgerMaterialLoading,false);assert.equal(f.store.ledgerMaterialRowsLoading,false)
+})
+
+// 禁用不仅体现在按钮属性，已经派发或保留下来的编号事件也必须被当前状态拒绝。
+test('组成编号在忙碌与断线时禁用且拒绝迟到点击',async t=>{
+ const f=await fixture(t),entries=[]
+ const open=f.store.openLedgerMaterial
+ f.store.openLedgerMaterial=(...args)=>{entries.push(args);return open(...args)}
+ const live=await f.mountRenderedView(),entry=live.button('EL-IC-22'),lateClick=[entry.props.onClick].flat()
+ f.store.busy=true;await settleProductView()
+ assert.equal(live.button('EL-IC-22').props.disabled,true)
+ for(const handler of lateClick)handler()
+ assert.deepEqual(entries,[])
+ assert.equal(f.calls.some(([action])=>action==='materialDetail'),false)
+ f.store.busy=false;await settleProductView()
+ assert.equal(live.button('EL-IC-22').props.disabled,false)
+ f.store.connectionLost=true;await settleProductView()
+ const disconnectedEntry=live.button('EL-IC-22')
+ if(disconnectedEntry)assert.equal(disconnectedEntry.props.disabled,true)
+ for(const handler of lateClick)handler()
+ assert.deepEqual(entries,[]);assert.equal(f.store.ledgerMaterialTarget,null)
+ assert.equal(f.calls.some(([action])=>['materialDetail','inventoryLedger'].includes(action)),false)
+})
+
+test('组成物料入口在权限失效后拒绝旧事件，不能借已缓存 BOM 请求库存详情',async t=>{
+ const f=await fixture(t),entries=[]
+ const open=f.store.openLedgerMaterial
+ f.store.openLedgerMaterial=(...args)=>{entries.push(args);return open(...args)}
+ const live=await f.mountRenderedView(),entry=live.button('EL-IC-22'),lateClick=[entry.props.onClick].flat()
+ // 读取权限变化会同步清理产品上下文；旧 DOM 保存的事件仍不应越过页面的权限边界。
+ f.store.user={...f.store.user,permissions:f.store.user.permissions.filter(key=>key!=='inventory.view')}
+ for(const handler of lateClick)handler()
+ await settleProductView()
+ assert.deepEqual(entries,[])
+ assert.equal(f.store.ledgerMaterialTarget,null)
+ assert.equal(f.calls.some(([action])=>['materialDetail','inventoryLedger'].includes(action)),false)
 })

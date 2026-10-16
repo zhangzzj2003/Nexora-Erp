@@ -17,9 +17,12 @@ test('多层组成按基准数量换算，展开不替换第一层领用物料',
   assert.equal(collapsed.length,2)
   assert.equal(collapsed[0].childBom.id,2)
   assert.equal(collapsed[0].fixed,true)
+  // 详情定位使用真实物料身份，不得把下层配方编号当成物料编号。
+  assert.deepEqual(collapsed.map(row=>row.materialId),[20,40])
   const expanded = bomStructureRows(root,[root,board],new Set(['1/11']))
   assert.deepEqual(expanded.map(row=>[row.sku,row.quantity,row.depth]),[
     ['M20','2.000',0],['M30','3.000',1],['M40','4.000',0]])
+  assert.deepEqual(expanded.map(row=>row.materialId),[20,30,40])
   assert.equal(root.lines.length,2)
   assert.equal(root.lines[0].component_material_id,20)
 })

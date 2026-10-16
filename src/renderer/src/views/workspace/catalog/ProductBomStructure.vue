@@ -9,8 +9,10 @@ import IconArrowRightSLine from '~icons/ri/arrow-right-s-line'
 import IconPushpinLine from '~icons/ri/pushpin-line'
 import IconGitBranchLine from '~icons/ri/git-branch-line'
 import { bomStructureRows } from './bom-structure'
+import type { BomStructureRow } from './bom-structure'
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 const props = defineProps<{bom:Bom; catalog:Bom[]; disabled:boolean}>()
-const emit = defineEmits<{open:[id:number]}>()
+const emit = defineEmits<{open:[id:number]; material:[row:BomStructureRow]}>()
 const expanded = ref(new Set<string>())
 // 切换产品或版本重新收起；相同组件在不同分支独立展开。
 watch(() => props.bom.id, () => {expanded.value = new Set()})
@@ -20,21 +22,31 @@ function toggle(key:string): void {
   if (next.has(key)) next.delete(key); else next.add(key)
   expanded.value = next
 }
-const columns = [{key:'component',title:'组件 / 多层组成'}, {key:'quantity',title:'用量',width:'120'},
-  {key:'unit',title:'单位',width:'70'}, {key:'recipe',title:'下层生产配方',width:'240'}]
+function openMaterial(row:BomStructureRow, event:MouseEvent): void {
+  // 仅接受当前可见组成，切换版本或收起分支后的旧入口不能打开上一份物料。
+  if (props.disabled || !rows.value.some(current => current.key === row.key && current.materialId === row.materialId
+    && current.sku === row.sku && current.name === row.name)) return
+  captureDialogOrigin('inventory-material', event)
+  emit('material', row)
+}
+// 名称列保留树形缩进与长物料名称的空间，数量、单位和配方列采用紧凑的最小宽度。
+const columns = [{key:'component',title:'组件 / 多层组成',width:'280'}, {key:'sku',title:'物料编号',width:'165'}, {key:'quantity',title:'用量',width:'90'},
+  {key:'unit',title:'单位',width:'60'}, {key:'recipe',title:'下层生产配方',width:'200'}]
 </script>
 <template>
   <section class="bom-composition" aria-label="BOM 组成明细">
     <header class="structure-heading"><div><h4>组成明细</h4><span class="structure-basis">基准产出 <strong>{{ bom.base_quantity }} {{ bom.product_unit }}</strong><span class="structure-count">{{ bom.lines.length }} 项直接组件</span></span></div>
       <NCollapse class="structure-help"><AppCollapseItem name="production-notes" title="领料与版本说明"><p>生产领用第一层物料；展开下层仅查看其组成，不重复扣料。同一编码库存按可互换管理。固定版本约束配方，不区分实物库存版本。</p></AppCollapseItem></NCollapse>
     </header>
-    <WorkspaceTable class="structure-table" :title="`组成明细 · V${bom.version}`" :show-title="false" :data="rows" :columns="columns" :min-table-width="680">
+    <WorkspaceTable class="structure-table" :title="`组成明细 · V${bom.version}`" :show-title="false" :data="rows" :columns="columns" :min-table-width="860">
     <template #cell-component="{row}"><div class="structure-component" :class="{'is-assembly':!!row.childBom,'is-nested':row.depth>0}" :style="{'--structure-indent':`${row.depth * 22}px`}">
       <!-- 展开箭头与普通物料占用相同宽度，名称保持对齐；实际展开仍沿用每条分支的独立键。 -->
       <AppButton v-if="row.childBom && row.issue !== '存在循环引用' && row.depth < 20" variant="plain" class="structure-toggle" size="small" :aria-expanded="row.expanded" :aria-label="`${row.expanded ? '收起' : '展开'}${row.name}的组成`" :title="`${row.expanded ? '收起' : '展开'}下层组成`" :disabled="disabled" @click="toggle(row.key)"><IconArrowRightSLine class="structure-chevron" :class="{'is-expanded':row.expanded}" aria-hidden="true" focusable="false" /></AppButton>
       <span v-else class="structure-leaf" aria-hidden="true"><span /></span>
-      <div class="structure-material"><strong>{{ row.name }}</strong><small>{{ row.sku }}</small><p v-if="row.issue" role="status">{{ row.issue }}</p></div>
+      <div class="structure-material"><strong>{{ row.name }}</strong><p v-if="row.issue" role="status">{{ row.issue }}</p></div>
     </div></template>
+    <!-- 编号与名称分列；物料详情与右侧配方详情使用各自的入口，不触发树形展开。 -->
+    <template #cell-sku="{row}"><AppButton variant="text" class="structure-sku" size="small" :disabled="disabled" :aria-label="`查看物料 ${row.sku} 的详情`" @click="openMaterial(row,$event)">{{ row.sku }}</AppButton></template>
     <template #cell-quantity="{row}"><span class="structure-quantity">{{ row.quantity }}</span></template><template #cell-unit="{row}">{{ row.unit }}</template>
     <template #cell-recipe="{row}">
       <!-- 固定配方与当前参考保留完整语义和原详情入口，仅通过轻量样式区分绑定方式。 -->
@@ -63,7 +75,7 @@ const columns = [{key:'component',title:'组件 / 多层组成'}, {key:'quantity
 .structure-material { min-width:0; }
 .structure-material strong { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
 .is-assembly>.structure-material>strong { color:var(--workspace-field-accent); }
-.structure-material small { display:block; color:var(--workspace-field-muted); margin-top:4px; font-size:11px; overflow-wrap:anywhere; }
+.structure-sku { font-size:12px; font-weight:500; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; text-align:left; }
 .structure-material p { margin:5px 0 0; color:var(--structure-warning-color); font-size:12px; }
 .structure-toggle { display:inline-grid; place-items:center; width:26px; height:26px; padding:0; border-radius:6px; background:var(--app-accent-tint); color:var(--workspace-field-accent); }
 .structure-toggle:hover:not(:disabled) { background:var(--app-accent-active-tint); }

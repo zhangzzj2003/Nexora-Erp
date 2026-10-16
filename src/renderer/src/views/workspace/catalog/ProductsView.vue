@@ -11,6 +11,7 @@ import type { Bom } from '../../../../../shared/erp-api'
 import { materialChoiceFacts } from '../../../utils/material-selection'
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
+import InventoryDetailDialogs from '../../../components/workspace/InventoryDetailDialogs.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import type { AppStatusTone } from '../../../components/app/AppStatusTag.vue'
@@ -24,6 +25,7 @@ import ProductLifecycleDialog from './ProductLifecycleDialog.vue'
 import BomEditor from './BomEditor.vue'
 import BomDetailDialog from './BomDetailDialog.vue'
 import ProductBomStructure from './ProductBomStructure.vue'
+import type { BomStructureRow } from './bom-structure'
 // 页面只组织展示，分页、草稿、版本写入和会话边界统一放在 Pinia。
 const store = usePiniaAppStore(), route = useRoute()
 const {productQuery: query, productResult: result, productDirectoryRows, productModels: models, productsLoading, productsError,
@@ -71,6 +73,15 @@ const bomStatuses: Record<Bom['status'], {label:string; tone:AppStatusTone}> = {
 const versionOptions = computed(() => productBomRecords.value.map(row => ({value:row.id,
   label:`V${row.version} · ${bomStatuses[row.status].label}`})))
 const productUnavailable = computed(() => busy.value || connectionLost.value || productDetailLoading.value || !!productDetailError.value)
+// 详情读取属于当前组成；切换产品或版本时撤销旧请求，防止迟到响应重新弹出。
+watch([productDetailId, () => selectedBom.value?.id], () => store.closeLedgerMaterial(), {flush:'sync'})
+function openCompositionMaterial(row:BomStructureRow): void {
+  if (productUnavailable.value || !store.can('inventory.view') || !selectedBom.value
+    || !row.key.startsWith(`${selectedBom.value.id}/`)) return
+  // 从 BOM 查看完整物料记录，不继承用户在库存台账页面遗留的仓库、日期或来源筛选。
+  void store.openLedgerMaterial({material_id:row.materialId,sku:row.sku,material_name:row.name},
+    {warehouse_id:null,from_date:null,to_date:null,source_type:null})
+}
 function selectVersion(id: number): void {
   // 只接受当前产品已经加载的版本，禁用期间的迟到事件不能切换组成视图。
   if (!productUnavailable.value && productBomRecords.value.some(row => row.id === id)) selectedBomId.value = id
@@ -127,7 +138,7 @@ watch(() => JSON.stringify([store.user?.id,store.server?.id,store.server?.finger
   currentSeriesId.value=null; contextProductId=0; followsProductSelection=true; seriesRevealKey.value++
   pendingProductId.value=0; reuseOpen.value=false; modelsOpen.value=false; bomOpen.value=false; bomTargetId.value=0; revisingBomVersion.value=undefined; versionsOpen.value=false; modelToDelete.value=null; lifecycleTarget.value=null
 }, {flush:'sync'})
-onUnmounted(() => {store.closeProduct(); store.closeBomDetail()})
+onUnmounted(() => {store.closeLedgerMaterial(); store.closeProduct(); store.closeBomDetail()})
 function reset(): void {
   if (busy.value || connectionLost.value) return
   const unchanged = !query.value.query && query.value.kind === null
@@ -261,7 +272,7 @@ function sameModel(): void {
               <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-bom-versions',$event)" @click="versionsOpen=true">版本管理 · {{ productBomRecords.length }}</AppButton></div>
           </div>
           <div v-if="selectedBom.source_bom" class="bom-source muted">复制来源：<AppButton variant="text" size="small" :disabled="productUnavailable" @click="store.openBomDetail(selectedBom.source_bom.id)">{{ selectedBom.source_bom.product_name }} · V{{ selectedBom.source_bom.version }}</AppButton></div>
-          <ProductBomStructure :bom="selectedBom" :catalog="boms" :disabled="productUnavailable" @open="store.openBomDetail" />
+          <ProductBomStructure :bom="selectedBom" :catalog="boms" :disabled="productUnavailable" @open="store.openBomDetail" @material="openCompositionMaterial" />
         </template>
         <!-- 首次配方直接编辑，物料选择、数量校验和保存仍与升版弹窗共用。 -->
         <BomEditor v-else-if="detail && store.can('bom.create')" :key="detail.material_id" inline :show="true"
@@ -329,6 +340,7 @@ function sameModel(): void {
         </section>
       </template></template>
     </WorkspaceDocumentDialog>
+    <InventoryDetailDialogs />
   </section>
 </template>
 <style scoped>

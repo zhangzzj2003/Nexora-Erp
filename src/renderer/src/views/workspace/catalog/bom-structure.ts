@@ -2,7 +2,7 @@ import type { Bom } from '../../../../../shared/erp-api'
 import { receiptLotMilli } from '../../../../../shared/receipt-lot-api.ts'
 
 export interface BomStructureRow {
-  key: string; depth: number; sku: string; name: string; unit: string; quantity: string
+  key: string; depth: number; materialId: number; sku: string; name: string; unit: string; quantity: string
   childBom: Bom | null; fixed: boolean; expanded: boolean; issue: string
 }
 
@@ -29,7 +29,8 @@ export function bomStructureRows(root: Bom, catalog: readonly Bom[], expanded: R
       // 千分位整数和分数累计，避免多层换算经过浮点数后出现数量漂移。
       const milli = amount === null ? null : (amount * numerator + denominator - 1n) / denominator
       const quantity = milli === null ? '—' : `${milli / 1000n}.${String(milli % 1000n).padStart(3, '0')}`
-      result.push({key, depth, sku:line.sku, name:line.material_name, unit:line.unit, quantity,
+      // 明细行号与物料身份不同，详情入口始终保留当前层组件的真实物料 ID。
+      result.push({key, depth, materialId:line.component_material_id, sku:line.sku, name:line.material_name, unit:line.unit, quantity,
         childBom:valid ? child! : null, fixed, expanded:expanded.has(key), issue})
       if (valid && child && amount !== null && childBase !== null && !cycle && depth < 20 && expanded.has(key)) {
         visit(child, key, depth + 1, numerator * amount, denominator * childBase,
