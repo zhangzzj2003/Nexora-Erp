@@ -2,12 +2,35 @@
 import type { MenuIconKey } from '../../../shared/menu-icons'
 type RouteIcon = MenuIconKey
 
+// 分段只组织侧栏展示，不创建新路由或权限，也不改变菜单图标的配置键。
+export const workspaceMenuSections = [
+  { key: 'materials', label: '物料类' },
+  { key: 'partners', label: '往来类' },
+  { key: 'products', label: '产品类' },
+  { key: 'orders', label: '订单类' },
+  { key: 'business', label: '业务类' },
+  { key: 'plans', label: '计划类' },
+  { key: 'inbound', label: '入库类' },
+  { key: 'outbound', label: '出库类' },
+  { key: 'production', label: '生产类' },
+  { key: 'quality', label: '质量类' },
+  { key: 'accounting', label: '核算类' },
+  { key: 'funds', label: '资金类' },
+  { key: 'returns', label: '退货类' },
+  { key: 'afterSales', label: '售后类' },
+  { key: 'reports', label: '报表类' },
+  { key: 'permissions', label: '权限类' },
+  { key: 'tools', label: '功能类' }
+] as const
+type WorkspaceMenuSectionKey = (typeof workspaceMenuSections)[number]['key']
+
 interface RouteEntry {
   key: string
   path: string
   label: string
   permission: string | null
   icon: RouteIcon
+  section?: WorkspaceMenuSectionKey
 }
 
 interface RouteGroup {
@@ -41,6 +64,7 @@ export const workspaceRouteGroups = [
         key: 'otherInbounds',
         path: '/workspace/warehouse-inbounds',
         label: '其他入库',
+        section: 'inbound',
         permission: 'other_inbound.view',
         icon: 'archive'
       },
@@ -48,17 +72,19 @@ export const workspaceRouteGroups = [
         key: 'warehouseOutbounds',
         path: '/workspace/warehouse-outbounds',
         label: '仓库出库',
+        section: 'outbound',
         permission: 'other_outbound.view',
         icon: 'archive'
       },
-      { key: 'productionDispatches', path: '/workspace/production-dispatches', label: '生产发料', permission: 'material_flow.view', icon: 'archive' },
-      { key: 'productionReceipts', path: '/workspace/production-receipts', label: '生产领料', permission: 'material_flow.view', icon: 'archive' },
-      { key: 'productionExchanges', path: '/workspace/production-exchanges', label: '生产换料', permission: 'material_flow.view', icon: 'archive' },
-      { key: 'productionReturns', path: '/workspace/production-returns', label: '生产退料', permission: 'material_flow.view', icon: 'archive' },
+      { key: 'productionDispatches', path: '/workspace/production-dispatches', label: '生产发料', section: 'production', permission: 'material_flow.view', icon: 'archive' },
+      { key: 'productionReceipts', path: '/workspace/production-receipts', label: '生产领料', section: 'production', permission: 'material_flow.view', icon: 'archive' },
+      { key: 'productionExchanges', path: '/workspace/production-exchanges', label: '生产换料', section: 'production', permission: 'material_flow.view', icon: 'archive' },
+      { key: 'productionReturns', path: '/workspace/production-returns', label: '生产退料', section: 'production', permission: 'material_flow.view', icon: 'archive' },
       {
         key: 'stock',
         path: '/workspace/stock',
         label: '库存总览',
+        section: 'reports',
         permission: 'inventory.view',
         icon: 'stack'
       },
@@ -66,6 +92,7 @@ export const workspaceRouteGroups = [
         key: 'inventoryWarnings',
         path: '/workspace/inventory-warnings',
         label: '库存预警',
+        section: 'reports',
         permission: 'inventory.view',
         icon: 'stack'
       },
@@ -73,6 +100,7 @@ export const workspaceRouteGroups = [
         key: 'physicalLots',
         path: '/workspace/physical-lots',
         label: '实物批次',
+        section: 'reports',
         permission: 'inventory.view',
         icon: 'history'
       },
@@ -80,6 +108,7 @@ export const workspaceRouteGroups = [
         key: 'inventoryLedger',
         path: '/workspace/inventory-ledger',
         label: '库存台账',
+        section: 'reports',
         permission: 'inventory.view',
         icon: 'history'
       },
@@ -87,6 +116,7 @@ export const workspaceRouteGroups = [
         key: 'transfers',
         path: '/workspace/transfers',
         label: '仓库调拨',
+        section: 'tools',
         permission: 'inventory.view',
         icon: 'stack'
       },
@@ -94,6 +124,7 @@ export const workspaceRouteGroups = [
         key: 'stockAdjustments',
         path: '/workspace/stock-adjustments',
         label: '库存调整',
+        section: 'tools',
         permission: 'adjustment.view',
         icon: 'file'
       },
@@ -101,6 +132,7 @@ export const workspaceRouteGroups = [
         key: 'inventoryReports',
         path: '/workspace/inventory-reports',
         label: '库存报表',
+        section: 'reports',
         permission: 'inventory_report.view',
         icon: 'file'
       },
@@ -108,6 +140,7 @@ export const workspaceRouteGroups = [
         key: 'stocktakes',
         path: '/workspace/stocktakes',
         label: '库存盘点',
+        section: 'tools',
         permission: 'inventory.view',
         icon: 'file'
       }
@@ -121,36 +154,36 @@ export const workspaceRouteGroups = [
       {
         key: 'catalog',
         path: '/workspace/catalog',
-        label: '物料管理',
+        label: '物料管理', section: 'materials',
         permission: 'inventory.view',
         icon: 'archive'
       },
       {
         key: 'suppliers',
         path: '/workspace/suppliers',
-        label: '供应商管理',
+        label: '供应商管理', section: 'partners',
         permission: 'inventory.view',
         icon: 'archive'
       },
       // 单位目录与物料共用查看权限，新增和编辑仍单独检查资料管理权限。
       {
         key: 'materialCategoryManagement', path: '/workspace/material-categories',
-        label: '物料分类与规格', permission: 'inventory.view', icon: 'catalog'
+        label: '物料分类与规格', section: 'materials', permission: 'inventory.view', icon: 'catalog'
       },
       {
         key: 'materialUnits',
         path: '/workspace/material-units',
-        label: '单位管理',
+        label: '单位管理', section: 'materials',
         permission: 'inventory.view',
         icon: 'archive'
       },
       // 产品与物料共用库存查看权限，维护和 BOM 仍分别检查原有写权限。
-      { key: 'products', path: '/workspace/products', label: '产品与 BOM', permission: 'inventory.view', icon: 'stack' },
+      { key: 'products', path: '/workspace/products', label: '产品与 BOM', section: 'products', permission: 'inventory.view', icon: 'stack' },
       // BOM 归入基础资料，旧地址和生产查看权限保留以兼容工单与已打开标签。
       {
         key: 'boms',
         path: '/workspace/boms',
-        label: '生产 BOM',
+        label: '生产 BOM', section: 'products',
         permission: 'production.view',
         icon: 'stack'
       },
@@ -158,14 +191,14 @@ export const workspaceRouteGroups = [
       {
         key: 'customers',
         path: '/workspace/customers',
-        label: '客户资料',
+        label: '客户资料', section: 'partners',
         permission: 'sales.view',
         icon: 'team'
       },
       {
         key: 'warehouses',
         path: '/workspace/warehouses',
-        label: '仓库管理',
+        label: '仓库管理', section: 'tools',
         permission: 'inventory.view',
         icon: 'archive'
       }
@@ -179,42 +212,42 @@ export const workspaceRouteGroups = [
       {
         key: 'purchaseRequests',
         path: '/workspace/purchase-requests',
-        label: '采购申请',
+        label: '采购申请', section: 'orders',
         permission: 'purchase_request.view',
         icon: 'file'
       },
       {
         key: 'purchase',
         path: '/workspace/purchase-orders',
-        label: '采购订单',
+        label: '采购订单', section: 'orders',
         permission: 'inventory.view',
         icon: 'file'
       },
       {
         key: 'goodsReceipts',
         path: '/workspace/purchase-goods-receipts',
-        label: '采购收货',
+        label: '采购收货', section: 'inbound',
         permission: 'purchase_receiving.view',
         icon: 'file'
       },
       {
         key: 'receipts',
         path: '/workspace/receipts',
-        label: '采购入库',
+        label: '采购入库', section: 'inbound',
         permission: 'inventory.view',
         icon: 'file'
       },
       {
         key: 'purchaseReports',
         path: '/workspace/purchase-reports',
-        label: '采购报表',
+        label: '采购报表', section: 'reports',
         permission: 'purchase_report.view',
         icon: 'file'
       },
       {
         key: 'purchaseReturns',
         path: '/workspace/purchase-returns',
-        label: '采购退货',
+        label: '采购退货', section: 'returns',
         permission: 'inventory.view',
         icon: 'history'
       }
@@ -225,26 +258,26 @@ export const workspaceRouteGroups = [
     icon: 'sales',
     label: '销售管理',
     routes: [
-      { key: 'customerRelations', path: '/workspace/customer-relations', label: '客户关系与报价', permission: 'crm.view', icon: 'team' },
-      { key: 'afterSales', path: '/workspace/after-sales', label: '售后退换修', permission: 'after_sales.view', icon: 'history' },
+      { key: 'customerRelations', path: '/workspace/customer-relations', label: '客户关系与报价', section: 'business', permission: 'crm.view', icon: 'team' },
+      { key: 'afterSales', path: '/workspace/after-sales', label: '售后退换修', section: 'afterSales', permission: 'after_sales.view', icon: 'history' },
       {
         key: 'sales',
         path: '/workspace/sales-orders',
-        label: '销售订单',
+        label: '销售订单', section: 'business',
         permission: 'sales.view',
         icon: 'file'
       },
       {
         key: 'shipments',
         path: '/workspace/shipments',
-        label: '销售出库',
+        label: '销售出库', section: 'outbound',
         permission: 'sales.view',
         icon: 'archive'
       },
       {
         key: 'salesReturns',
         path: '/workspace/sales-returns',
-        label: '销售退货',
+        label: '销售退货', section: 'afterSales',
         permission: 'sales.view',
         icon: 'history'
       }
@@ -255,38 +288,38 @@ export const workspaceRouteGroups = [
     icon: 'finance',
     label: '财务管理',
     routes: [
-      { key: 'journals', path: '/workspace/journals', label: '总账凭证', permission: 'journal.view', icon: 'file' },
-      { key: 'openingBalances', path: '/workspace/opening-balances', label: '期初余额', permission: 'opening_balance.view', icon: 'file' },
-      { key: 'subledgerOpenings', path: '/workspace/subledger-openings', label: '分户期初', permission: 'subledger_opening.view', icon: 'file' },
-      { key: 'controlBalanceTransfers', path: '/workspace/control-balance-transfers', label: '往来余额转账', permission: 'control_transfer.view', icon: 'file' },
-      { key: 'ledgerReports', path: '/workspace/ledger-reports', label: '总账报表', permission: 'journal.view', icon: 'chart' },
-      { key: 'financialStatements', path: '/workspace/financial-statements', label: '财务报表', permission: 'financial_statement.view', icon: 'chart' },
-      { key: 'auxiliaryAccounting', path: '/workspace/auxiliary-accounting', label: '辅助核算', permission: 'auxiliary.view', icon: 'file' },
+      { key: 'journals', path: '/workspace/journals', label: '总账凭证', section: 'accounting', permission: 'journal.view', icon: 'file' },
+      { key: 'openingBalances', path: '/workspace/opening-balances', label: '期初余额', section: 'accounting', permission: 'opening_balance.view', icon: 'file' },
+      { key: 'subledgerOpenings', path: '/workspace/subledger-openings', label: '分户期初', section: 'accounting', permission: 'subledger_opening.view', icon: 'file' },
+      { key: 'controlBalanceTransfers', path: '/workspace/control-balance-transfers', label: '往来余额转账', section: 'partners', permission: 'control_transfer.view', icon: 'file' },
+      { key: 'ledgerReports', path: '/workspace/ledger-reports', label: '总账报表', section: 'reports', permission: 'journal.view', icon: 'chart' },
+      { key: 'financialStatements', path: '/workspace/financial-statements', label: '财务报表', section: 'reports', permission: 'financial_statement.view', icon: 'chart' },
+      { key: 'auxiliaryAccounting', path: '/workspace/auxiliary-accounting', label: '辅助核算', section: 'accounting', permission: 'auxiliary.view', icon: 'file' },
       {
         key: 'ledgerAccounts',
         path: '/workspace/ledger-accounts',
-        label: '总账科目',
+        label: '总账科目', section: 'tools',
         permission: 'ledger_account.view',
         icon: 'finance'
       },
       {
         key: 'accountingPeriods',
         path: '/workspace/accounting-periods',
-        label: '会计期间',
+        label: '会计期间', section: 'tools',
         permission: 'accounting_period.view',
         icon: 'history'
       },
       {
         key: 'inventoryValuation',
         path: '/workspace/inventory-valuation',
-        label: '库存计价',
+        label: '库存计价', section: 'reports',
         permission: 'inventory_valuation.view',
         icon: 'file'
       },
       {
         key: 'finance',
         path: '/workspace/finance',
-        label: '应收应付',
+        label: '应收应付', section: 'partners',
         permission: 'finance.view',
         icon: 'file'
       },
@@ -294,28 +327,28 @@ export const workspaceRouteGroups = [
       {
         key: 'financePayments',
         path: '/workspace/payment-records',
-        label: '收付款记录',
+        label: '收付款记录', section: 'funds',
         permission: 'finance.view',
         icon: 'history'
       },
       {
         key: 'bankReconciliation',
         path: '/workspace/bank-reconciliation',
-        label: '银行勾对',
+        label: '银行勾对', section: 'funds',
         permission: 'bank_reconciliation.view',
         icon: 'history'
       },
       {
         key: 'bankBalance',
         path: '/workspace/bank-balance',
-        label: '银行余额调节',
+        label: '银行余额调节', section: 'funds',
         permission: 'bank_reconciliation.view',
         icon: 'file'
       },
       {
         key: 'financeSources',
         path: '/workspace/financial-sources',
-        label: '应收应付来源',
+        label: '应收应付来源', section: 'partners',
         permission: 'finance.view',
         icon: 'file'
       }
@@ -329,41 +362,41 @@ export const workspaceRouteGroups = [
       {
         key: 'workOrders',
         path: '/workspace/work-orders',
-        label: '生产工单',
+        label: '生产工单', section: 'production',
         permission: 'production.view',
         icon: 'file'
       },
       {
         key: 'materialIssues',
         path: '/workspace/material-issues',
-        label: '生产领料',
+        label: '生产领料', section: 'production',
         permission: 'production.view',
         icon: 'archive'
       },
       {
         key: 'materialReturns',
         path: '/workspace/material-returns',
-        label: '生产退料',
+        label: '生产退料', section: 'production',
         permission: 'production.view',
         icon: 'history'
       },
       {
         key: 'productionCompletions',
         path: '/workspace/production-completions',
-        label: '完工与质检',
+        label: '完工与质检', section: 'quality',
         permission: 'production.view',
         icon: 'file'
       },
       {
         key: 'productionCosts',
         path: '/workspace/production-costs',
-        label: '生产成本',
+        label: '生产成本', section: 'tools',
         permission: 'production_cost.view',
         icon: 'file'
       },
-      { key: 'materialPlanning', path: '/workspace/material-planning', label: '物料需求计划', permission: 'mrp.view', icon: 'file' },
-      { key: 'qualityDisposition', path: '/workspace/production-quality', label: '不合格品处置与返工', permission: 'quality.view', icon: 'file' },
-      { key: 'equipmentMaintenance', path: '/workspace/equipment-maintenance', label: '设备维护', permission: 'equipment.view', icon: 'file' }
+      { key: 'materialPlanning', path: '/workspace/material-planning', label: '物料需求计划', section: 'plans', permission: 'mrp.view', icon: 'file' },
+      { key: 'qualityDisposition', path: '/workspace/production-quality', label: '不合格品处置与返工', section: 'quality', permission: 'quality.view', icon: 'file' },
+      { key: 'equipmentMaintenance', path: '/workspace/equipment-maintenance', label: '设备维护', section: 'tools', permission: 'equipment.view', icon: 'file' }
     ]
   },
   {
@@ -375,35 +408,35 @@ export const workspaceRouteGroups = [
       {
         key: 'menuManagement',
         path: '/workspace/menu-management',
-        label: '菜单管理',
+        label: '菜单管理', section: 'tools',
         permission: 'users.manage',
         icon: 'menu'
       },
       {
         key: 'users',
         path: '/workspace/users',
-        label: '用户管理',
+        label: '用户管理', section: 'permissions',
         permission: 'users.manage',
         icon: 'team'
       },
       {
         key: 'roles',
         path: '/workspace/roles',
-        label: '权限管理',
+        label: '权限管理', section: 'permissions',
         permission: 'users.manage',
         icon: 'settings'
       },
       {
         key: 'permissionCatalog',
         path: '/workspace/permission-catalog',
-        label: '权限目录',
+        label: '权限目录', section: 'permissions',
         permission: 'users.manage',
         icon: 'file'
       },
       {
         key: 'settings',
         path: '/workspace/settings',
-        label: '连接与服务',
+        label: '连接与服务', section: 'tools',
         permission: null,
         icon: 'settings'
       }
@@ -418,6 +451,21 @@ export type WorkspaceRouteGroupKey =
   (typeof workspaceRouteGroups)[number]['key']
 export const workspaceRoutes: readonly WorkspaceRoute[] =
   workspaceRouteGroups.flatMap<WorkspaceRoute>((group) => group.routes)
+
+export function routeMenuSections<Route extends { key: string; section?: WorkspaceMenuSectionKey }>(
+  routes: readonly Route[]
+): { key: WorkspaceMenuSectionKey | 'default'; label: string | null; routes: Route[] }[] {
+  // 调用方先完成权限和自定义图标处理；保留原对象，避免分段时恢复默认图标或暴露无权入口。
+  const sections = workspaceMenuSections.map((section) => ({
+    ...section,
+    routes: routes.filter((route) => route.section === section.key)
+  })).filter((section) => section.routes.length > 0)
+  const ungrouped = routes.filter((route) => !route.section)
+  // 未配置分段的业务组保持原序；新增入口未分类时也能正常显示。
+  return ungrouped.length > 0
+    ? [...sections, { key: 'default', label: null, routes: ungrouped }]
+    : sections
+}
 
 export function nextExpandedGroup(
   current: WorkspaceRouteGroupKey | null,

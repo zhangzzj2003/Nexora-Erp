@@ -3,6 +3,9 @@
 :root[data-theme='light'] .sidebar { border-right: 1px solid #d9e1e9; background: #edf1f5; color: #1b2a40; }
 :root[data-theme='light'] .brand small { color: #687d94; }
 :root[data-theme='light'] .side-category { color: #50637a; }
+/* 明亮主题下分段仍使用清晰的次级文字和浅分隔线。 */
+:root[data-theme='light'] .nav-section-title { color: #60738a; }
+:root[data-theme='light'] .nav-section-grouped + .nav-section-grouped { border-top-color: #d4dce6; }
 :root[data-theme='light'] .side-category:hover,
 :root[data-theme='light'] .side-category[aria-expanded='true'] { background: #dfe8ed; color: #18364d; }
 :root[data-theme='light'] .side-category.current { color: var(--workspace-field-accent); }

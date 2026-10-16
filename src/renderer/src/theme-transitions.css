@@ -1,7 +1,7 @@
 /* 主题切换只过渡颜色相关属性，保留导航展开和卡片悬停各自的位移动画。 */
 :root[data-theme],
 :root[data-theme] :where(
-  .sidebar, .brand, .brand small, .side-category, .nav-item, .sidebar-bottom,
+  .sidebar, .brand, .brand small, .side-category, .nav-item, .nav-section-grouped, .nav-section-title, .sidebar-bottom,
   .sidebar-account-card, .sidebar-account-identity small, .theme-toggle,
   .n-button, .n-input, .n-base-selection,
   .sidebar-account-menu, .sidebar-account-menu button, .content,
@@ -54,7 +54,7 @@
 @media (prefers-reduced-motion: reduce) {
   :root[data-theme],
   :root[data-theme] :where(
-    .sidebar, .brand, .brand small, .side-category, .nav-item, .sidebar-bottom,
+    .sidebar, .brand, .brand small, .side-category, .nav-item, .nav-section-grouped, .nav-section-title, .sidebar-bottom,
     .sidebar-account-card, .sidebar-account-identity small, .theme-toggle,
     .n-button, .n-input, .n-base-selection,
     .sidebar-account-menu, .sidebar-account-menu button, .content,

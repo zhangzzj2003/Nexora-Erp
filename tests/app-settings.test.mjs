@@ -189,11 +189,13 @@ test('公共界面显式翻译文案和所有导航标签都有英文覆盖', as
     for (const [, , copy] of source.matchAll(/\bt\((['"])(.*?)\1/g))
       assert.ok(englishCopy[copy], `${file} 缺少英文：${copy}`)
   }
-  const { workspaceRouteGroups } = await server.ssrLoadModule('/src/renderer/src/router/workspace-routes.ts')
+  const { workspaceRouteGroups, workspaceMenuSections } = await server.ssrLoadModule('/src/renderer/src/router/workspace-routes.ts')
   for (const group of workspaceRouteGroups) {
     assert.ok(englishCopy[group.label], group.label)
     for (const route of group.routes) assert.ok(englishCopy[route.label], route.label)
   }
+  // 分段标题是动态导航文案，也必须和页面标签一样覆盖英文。
+  for (const section of workspaceMenuSections) assert.ok(englishCopy[section.label], section.label)
   const { onboardingCopy } = await server.ssrLoadModule('/src/renderer/src/i18n/zh-CN.ts')
   for (const copy of Object.values(onboardingCopy)) {
     assert.ok(englishCopy[copy.title], copy.title)

@@ -94,6 +94,10 @@ export const englishCopy: Readonly<Record<string, string>> = {
   '请将此指纹提供给需要连接的团队成员核对：': 'Share this fingerprint with team members so they can verify the connection:',
   '服务端': 'Server', '暂时无法连接': 'Unable to connect', '服务端可能未启动、网络不可达或证书发生变化。重新连接前请确认服务端身份。': 'The server may be stopped, unreachable or using a changed certificate. Verify its identity before reconnecting.', '重试连接': 'Retry connection',
   '工作台': 'Workspace', '工作台首页': 'Workspace home', '仓库管理': 'Warehouse management', '其他入库': 'Other receipts', '仓库出库': 'Warehouse issues',
+  // 各业务菜单复用分类标题，并与公共导航一同响应语言偏好。
+  '入库类': 'Inbound', '出库类': 'Outbound', '生产类': 'Production', '报表类': 'Reports', '功能类': 'Tools',
+  '物料类': 'Materials', '往来类': 'Counterparties', '产品类': 'Products', '订单类': 'Orders', '业务类': 'Business',
+  '计划类': 'Planning', '质量类': 'Quality', '核算类': 'Accounting', '资金类': 'Funds', '退货类': 'Returns', '售后类': 'After-sales', '权限类': 'Permissions',
   '库存总览': 'Inventory overview', '库存预警': 'Inventory alerts', '实物批次': 'Physical lots', '库存台账': 'Inventory ledger', '仓库调拨': 'Warehouse transfers',
   '库存调整': 'Inventory adjustments', '库存报表': 'Inventory reports', '库存盘点': 'Stocktakes', '基础资料': 'Master data', '物料管理': 'Materials',
   '供应商管理': 'Suppliers', '单位管理': 'Units', '物料分类与规格': 'Material categories and specifications', '客户资料': 'Customers', '采购管理': 'Purchasing', '采购申请': 'Purchase requests', '采购订单': 'Purchase orders', '采购收货': 'Goods receiving',

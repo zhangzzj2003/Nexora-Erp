@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { routeMenuSections } from '../../router/workspace-routes'
 // 公共界面文案随语言偏好即时更新，不影响输入草稿。
 import { useSettingsStore } from '../../store/settings-store'
 const { t } = useSettingsStore()
@@ -21,6 +23,12 @@ const {
   toggleRouteGroup,
   navigateToRoute
 } = useAppStore()
+
+// 权限与自定义图标仍由共享 store 解析，侧栏仅把可见入口组织成非交互的分类段落。
+const sidebarGroups = computed(() => visibleGroups.value.map((group) => ({
+  ...group,
+  sections: routeMenuSections(group.routes)
+})))
 </script>
 
 <template>
@@ -33,7 +41,7 @@ const {
       </div>
     </div>
     <div v-if="screen === 'app'" class="side-group">
-      <div v-for="group in visibleGroups" :key="group.key" class="nav-group">
+      <div v-for="group in sidebarGroups" :key="group.key" class="nav-group">
         <!-- 首页是固定入口，无须先展开分类才能找到可视化面板。 -->
         <AppButton
           v-if="group.key === 'home'"
@@ -76,18 +84,33 @@ const {
             :inert="expandedGroupKey !== group.key ? true : undefined"
           >
             <div class="nav-list">
-              <AppButton
-                v-for="item in group.routes"
-                :key="item.key"
-                :class="{ active: activeTab === item.key }"
-                type="button"
-                :aria-current="activeTab === item.key ? 'page' : undefined"
-                @click="navigateToRoute(item.key)"
-                class="nav-item"
-                variant="plain"
+              <!-- 小标题只帮助浏览，不增加一层展开操作；空分类已随权限过滤移除。 -->
+              <div
+                v-for="section in group.sections"
+                :key="section.key"
+                class="nav-section"
+                :class="{ 'nav-section-grouped': section.label }"
+                :role="section.label ? 'group' : undefined"
+                :aria-labelledby="section.label ? `route-section-${group.key}-${section.key}` : undefined"
               >
-                <component :is="item.icon" class="nav-icon" aria-hidden="true" />{{ t(item.label) }}
-              </AppButton>
+                <h3
+                  v-if="section.label"
+                  :id="`route-section-${group.key}-${section.key}`"
+                  class="nav-section-title"
+                >{{ t(section.label) }}</h3>
+                <AppButton
+                  v-for="item in section.routes"
+                  :key="item.key"
+                  :class="{ active: activeTab === item.key }"
+                  type="button"
+                  :aria-current="activeTab === item.key ? 'page' : undefined"
+                  @click="navigateToRoute(item.key)"
+                  class="nav-item"
+                  variant="plain"
+                >
+                  <component :is="item.icon" class="nav-icon" aria-hidden="true" />{{ t(item.label) }}
+                </AppButton>
+              </div>
             </div>
           </div>
         </template>
