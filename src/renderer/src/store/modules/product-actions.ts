@@ -182,10 +182,10 @@ export function createProductActions(state: AppState) {
       const form = state.productForm.value
       const fields = {can_sell: form.can_sell, can_purchase: form.can_purchase, can_produce: form.can_produce, kind: form.kind, model_id: form.model_id, configuration_name: form.configuration_name, reason: form.reason}
       const payload: ProductInput = form.mode === 'existing' ? {...fields, material_id: form.material_id}
-        : {...fields, material: materialInput(state.productMaterialForm.value, form.mode === 'edit', state.materialUnits.value)}
+        : {...fields, material: materialInput(state.productMaterialForm.value, form.mode === 'edit', state.materialUnits.value, 'product')}
       const result = form.mode === 'edit'
         ? await window.nexora!.callApi('updateProduct', {...fields, id: form.id, version: form.version,
-          material: materialInput(state.productMaterialForm.value, true, state.materialUnits.value)})
+          material: materialInput(state.productMaterialForm.value, true, state.materialUnits.value, 'product')})
         : await window.nexora!.callApi('createProduct', payload)
       return result
     }).then(async row => {

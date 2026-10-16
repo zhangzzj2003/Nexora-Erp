@@ -15,9 +15,11 @@ import './catalog.css'
 
 // 编辑器只维护表单交互，保存、权限与刷新仍由页面和 Pinia 处理。
 const props = defineProps<{
-  title?: string; entityLabel?: string; compact?: boolean; units?: MaterialUnit[]; suppliers?: Supplier[]; form: MaterialDraft; categories: MaterialCategory[]; editing: boolean; busy: boolean; disconnected: boolean
+  title?: string; entityLabel?: string; compact?: boolean; context?: 'material' | 'product'; units?: MaterialUnit[]; suppliers?: Supplier[]; form: MaterialDraft; categories: MaterialCategory[]; editing: boolean; busy: boolean; disconnected: boolean
 }>()
 const emit = defineEmits<{ save: []; cancel: [] }>()
+// 产品与物料共享编码、单位和保存校验；采购及元件资料只在物料管理维护，隐藏不清空原稿。
+const productContext = computed(() => props.context === 'product')
 const groups = computed(() => props.categories.map(group => ({ value: group.code, label: group.enabled === false ? `${group.name}（已停用）` : group.name, disabled: group.enabled === false && group.code !== props.form.original_category.split('-')[0] })))
 const unitOptions = computed(() => materialUnitOptions(props.units ?? [], props.form.original_unit, props.editing))
 const children = computed(() => [
@@ -41,9 +43,9 @@ function submit(): void {
   <form class="catalog-editor material-editor" @submit.prevent="submit">
     <div class="material-editor-body">
     <h3 v-if="!compact">{{ title ?? (editing ? '编辑物料' : '新增物料') }}</h3>
-    <!-- 产品编辑可插入归组字段，共用其余物料参数与保存校验。 -->
+    <!-- 产品编辑插入归组字段，采购及电子元件字段由明确的业务场景控制。 -->
     <slot name="beforeFields" />
-    <p class="material-hint">{{ compact ? '填写基本信息后即可保存，带 * 的项目必填。' : `按规格建立${entityLabel ?? '物料'}档案，同一物料可绑定多家供应商。带 * 的项目必填。` }}</p>
+    <p class="material-hint">{{ compact || productContext ? '填写基本信息后即可保存，带 * 的项目必填。' : `按规格建立${entityLabel ?? '物料'}档案，同一物料可绑定多家供应商。带 * 的项目必填。` }}</p>
     <fieldset :disabled="busy || disconnected" class="material-section">
       <legend>{{ compact ? `${entityLabel ?? '产品'}基本信息` : '基本资料' }}</legend>
       <div class="form-grid">
@@ -59,21 +61,23 @@ function submit(): void {
         <label>单位 *<WorkspaceSelect v-model="form.unit" :options="unitOptions" required aria-label="单位" placeholder="搜索并选择单位" :disabled="busy || disconnected" />
           <span class="material-hint">单位可在“基础资料 → 单位管理”中维护。</span>
         </label>
-        <label>规格型号<AppInput v-model.trim="form.specification" maxlength="200" placeholder="如：10kΩ ±1% 1/10W；尺寸、材质等" /></label>
-        <label>封装 / 外形<AppInput v-model.trim="form.package" maxlength="80" placeholder="如：0603、SOP-8、插件" /></label>
-        <label>品牌 / 制造商<AppInput v-model.trim="form.brand" maxlength="120" placeholder="如：国巨、村田、TI" /></label>
-        <label>制造商料号<AppInput v-model.trim="form.manufacturer_part_number" maxlength="120" placeholder="制造商的具体型号或订货料号" /></label>
+        <label>规格型号<AppInput v-model.trim="form.specification" maxlength="200" :placeholder="productContext ? '如：NET-8890、尺寸或功能配置' : '如：10kΩ ±1% 1/10W；尺寸、材质等'" /></label>
+        <template v-if="!productContext">
+          <label>封装 / 外形<AppInput v-model.trim="form.package" maxlength="80" placeholder="如：0603、SOP-8、插件" /></label>
+          <label>品牌 / 制造商<AppInput v-model.trim="form.brand" maxlength="120" placeholder="如：国巨、村田、TI" /></label>
+          <label>制造商料号<AppInput v-model.trim="form.manufacturer_part_number" maxlength="120" placeholder="制造商的具体型号或订货料号" /></label>
+        </template>
       </div>
     </fieldset>
-    <fieldset :disabled="busy || disconnected" class="material-section">
+    <fieldset v-if="!productContext" :disabled="busy || disconnected" class="material-section">
       <legend>供应商绑定</legend>
       <label>供货供应商（可多选）
         <WorkspaceSupplierSelect v-model="form.supplier_selection" :suppliers="suppliers ?? []" :disabled="busy || disconnected" />
       </label>
       <p class="material-hint">最多绑定 20 家供应商。搜索选择已有档案，或输入新名称后按 Enter 添加；新供应商将在保存物料时创建为“待完善供应商”，后续到供应商管理补齐资料。</p>
     </fieldset>
-    <MaterialSpecificationsEditor :form="form" :categories="categories" :disabled="busy || disconnected" />
-    <fieldset v-if="electronics" :disabled="busy || disconnected" class="material-section">
+    <MaterialSpecificationsEditor :form="form" :categories="categories" :context="context" :disabled="busy || disconnected" />
+    <fieldset v-if="!productContext && electronics" :disabled="busy || disconnected" class="material-section">
       <legend>电子参数（选填）</legend>
       <div class="form-grid">
         <label>标称值 / 关键参数<AppInput v-model.trim="form.electrical_value" maxlength="80" placeholder="如：10kΩ、100nF、主控芯片" /></label>
@@ -86,8 +90,8 @@ function submit(): void {
     <fieldset :disabled="busy || disconnected" class="material-section">
       <legend>其他资料</legend>
       <div class="form-grid">
-        <label class="material-wide">环保 / 合规要求<AppInput v-model.trim="form.compliance" maxlength="120" placeholder="如：RoHS、无铅；仅记录已确认要求" /></label>
-        <label class="material-wide">备注<AppInput v-model.trim="form.notes" maxlength="1000" placeholder="如：材质、颜色、表面处理、包装及存储要求" /></label>
+        <label v-if="!productContext" class="material-wide">环保 / 合规要求<AppInput v-model.trim="form.compliance" maxlength="120" placeholder="如：RoHS、无铅；仅记录已确认要求" /></label>
+        <label class="material-wide">备注<AppInput v-model.trim="form.notes" maxlength="1000" :placeholder="productContext ? '如：产品用途、交付要求或版本补充说明' : '如：材质、颜色、表面处理、包装及存储要求'" /></label>
         <label v-if="editing" class="material-wide">修改原因 *<AppInput v-model.trim="form.reason" required maxlength="500" placeholder="说明本次补充或调整的原因" /></label>
       </div>
     </fieldset>

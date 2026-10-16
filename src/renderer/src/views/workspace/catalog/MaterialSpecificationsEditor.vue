@@ -9,7 +9,7 @@ import { prepareMaterialSpecs } from '../../../utils/material-form.ts'
 import type { MaterialDraft } from '../../../utils/material-form'
 import type { MaterialCategory, MaterialSpecValueInput, MaterialSpecStatus, MaterialSpecField } from '../../../../../shared/material-api'
 
-const props = defineProps<{form: MaterialDraft; categories: MaterialCategory[]; disabled: boolean}>()
+const props = defineProps<{form: MaterialDraft; categories: MaterialCategory[]; disabled: boolean; context?: 'material' | 'product'}>()
 // 模板只在首次选择时复制，目录后来更新时提示重读，避免悄悄解释已经输入的值。
 watch(() => [props.form, props.form.category_code, props.categories], () => prepareMaterialSpecs(props.form, props.categories), {immediate: true})
 const template = computed(() => props.form.spec_templates[props.form.category_code])
@@ -41,7 +41,8 @@ function extra(): void {
 </script>
 
 <template>
-  <fieldset :disabled="disabled" class="material-section">
+  <!-- 产品仅展示该分类真实存在的规格，空模板不占位；既有隐藏属性仍保留在原草稿中。 -->
+  <fieldset v-if="context !== 'product' || template?.fields.length || archived.length" :disabled="disabled" class="material-section">
     <legend>分类规格字段</legend>
     <p class="material-hint">按所选子类填写；数值和单位分别保存。未知、不适用和待确认不会当成零。旧档案仅改其他资料时，可保留未补齐的规格。</p>
     <p v-if="template && template.version !== current?.template_version" class="material-hint">规格模板已更新。当前输入已保留；请先复制或核对输入，再重新打开最新物料。主动保存规格会提示版本冲突。</p>
@@ -64,7 +65,7 @@ function extra(): void {
       <p v-for="entry in archived" :key="entry.field_id">{{ entry.category_code }} · {{ entry.name }}：{{ entry.status === 'filled' ? `${typeof entry.value === 'boolean' ? entry.value ? '是' : '否' : entry.value}${entry.unit}` : statusOptions.find(option => option.value === entry.status)?.label }} {{ entry.source ? `｜${entry.source}` : '' }}</p>
     </AppCollapseItem></NCollapse>
   </fieldset>
-  <fieldset :disabled="disabled" class="material-section">
+  <fieldset v-if="context !== 'product'" :disabled="disabled" class="material-section">
     <legend>非标准扩展属性</legend>
     <p class="material-hint">特殊参数可单独记录，最多 20 项；不会自动变成其他物料的模板字段。</p>
     <div v-for="(entry, index) in form.extra_attributes" :key="index" class="specification-row">

@@ -52,7 +52,7 @@ export function prepareMaterialSpecs(draft: MaterialDraft, categories: readonly 
   })
   draft.spec_originals[category.code] = JSON.stringify(draft.spec_drafts[category.code])
 }
-export function materialInput(draft: MaterialDraft, editing: boolean, units?: readonly MaterialUnit[]): MaterialInput {
+export function materialInput(draft: MaterialDraft, editing: boolean, units?: readonly MaterialUnit[], context: 'material' | 'product' = 'material'): MaterialInput {
   const unit = units?.find(item => item.name === draft.unit)
   if (units && !unit) throw new Error('请从单位目录选择单位，或先到单位管理中新增。')
   if (unit && !unit.enabled && (!editing || draft.unit !== draft.original_unit)) throw new Error('所选单位已停用，请重新选择。')
@@ -64,14 +64,16 @@ export function materialInput(draft: MaterialDraft, editing: boolean, units?: re
     ...(editing ? { sku: draft.sku, version: draft.version } : {}),
     name: draft.name, unit: draft.unit, category_code: draft.category_code,
     ...(unit ? { unit_id: unit.id } : {}),
-    specification: draft.specification, package: draft.package, brand: draft.brand,
-    manufacturer_part_number: draft.manufacturer_part_number, electrical_value: draft.electrical_value,
-    tolerance: draft.tolerance, rated_voltage: draft.rated_voltage, rated_power: draft.rated_power,
-    temperature_range: draft.temperature_range, compliance: draft.compliance, notes: draft.notes,
-    reason: draft.reason, suppliers: supplierSelectionInput(draft.supplier_selection),
+    specification: draft.specification, notes: draft.notes, reason: draft.reason,
+    // 产品页不维护隐藏的采购及元件资料；省略让服务端保留原值，也不校验用户无法操作的旧供应商列表。
+    ...(context === 'material' ? {package: draft.package, brand: draft.brand,
+      manufacturer_part_number: draft.manufacturer_part_number, electrical_value: draft.electrical_value,
+      tolerance: draft.tolerance, rated_voltage: draft.rated_voltage, rated_power: draft.rated_power,
+      temperature_range: draft.temperature_range, compliance: draft.compliance,
+      suppliers: supplierSelectionInput(draft.supplier_selection)} : {}),
     // 未修改规格的旧档案不重验新增必填项；主动补规格必须提交当时模板版本。
     ...(template && changedSpecs ? {spec_template_version: template.version, spec_values: values.map(entry => ({...entry}))} : {}),
-    ...(!editing || JSON.stringify(draft.extra_attributes) !== draft.original_extras
+    ...(context === 'material' && (!editing || JSON.stringify(draft.extra_attributes) !== draft.original_extras)
       ? {extra_attributes: draft.extra_attributes.map(entry => ({...entry}))} : {})
   }
 }

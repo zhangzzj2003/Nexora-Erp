@@ -13,7 +13,7 @@
 | `warehouse/` | `OtherInboundsView.vue` | 处理期初、赠品等非采购入库，按处理人、仓库、来源及本地日期范围与搜索/状态组合筛选，确认时登记多批实物来源并按原批次冲销 |
 | `warehouse/` | `WarehouseTransfersView.vue` | 建立调拨草稿、逐行选择实物批次确认及按原批次冲销 |
 | `warehouse/` | `InventoryStocktakesView.vue` | 建立库存盘点，逐行核对盘盈/盘亏实物批次并确认，沿原批次冲销 |
-| `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，`utils/material-form.ts` 管理共享草稿与搜索，`MaterialSpecificationsEditor.vue` 按模板维护动态规格与扩展属性；展示关联供应商；沿用 `/workspace/catalog` 地址 |
+| `catalog/` | `MaterialsView.vue` | 物料分类筛选、参数搜索、分页、自动编码及版本编辑；`MaterialEditor.vue` 分组维护生产资料，产品场景仅展示基础信息及有效分类规格，`utils/material-form.ts` 按场景构建保存白名单，产品请求省略隐藏的采购及元件资料以保留原值；`MaterialSpecificationsEditor.vue` 按模板维护动态规格与扩展属性；物料管理保留完整字段及关联供应商；沿用 `/workspace/catalog` 地址 |
 | `catalog/` | `SuppliersView.vue` | 供应商增删改查及供货物料绑定、解绑 |
 | `catalog/` | `MaterialCategoriesView.vue` | 自定义两级物料类别与子类规格模板；版本编辑、启停、未使用项移除和变更快照，草稿保存在 Pinia |
 | `catalog/` | `UnitsView.vue` | 独立单位表的搜索、分页、新增、版本编辑、启停和变更记录；物料弹窗从单位目录选择 |

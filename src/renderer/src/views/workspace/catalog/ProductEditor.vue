@@ -13,7 +13,7 @@ withDefaults(defineProps<{entityLabel?: string}>(), {entityLabel:'产品'})
 const emit = defineEmits<{saved:[product:ProductProfile]}>()
 const store = usePiniaAppStore()
 const {productForm, productMaterialForm, productEditorOpen, productModels, busy, connectionLost,
-  materialCategories, materials, materialUnits, suppliers} = storeToRefs(store)
+  materialCategories, materials, materialUnits} = storeToRefs(store)
 const materialInfoCompact = ref(true)
 // 只重置资料展示状态，更换物料或重开弹窗时不携带上一物料的大块资料卡，也不修改产品草稿。
 watch([productEditorOpen, () => productForm.value.material_id, () => productForm.value.mode], () => {
@@ -42,9 +42,9 @@ async function save(): Promise<void> {
     :title="`${productForm.mode === 'edit' ? '编辑' : '新建'}${entityLabel}`" :busy="busy" preset="card"
     :style="{width: 'min(1120px, calc(100vw - 32px))', height: 'min(860px, calc(100vh - 48px))'}"
     :mask-closable="!busy" @update:show="productEditorOpen = $event" @invalidated="productEditorOpen = false">
-    <!-- 参数与供应商、分类目录复用物料编辑器；保存由产品接口一次提交。 -->
-    <MaterialEditor :entity-label="entityLabel" compact :title="`${entityLabel}资料`"
-      :form="productMaterialForm" :categories="materialCategories" :units="materialUnits" :suppliers="suppliers"
+    <!-- 仅复用产品所需的基础资料和分类规格；物料的采购、元件资料保持原值，由产品接口联合保存。 -->
+    <MaterialEditor :entity-label="entityLabel" context="product" compact :title="`${entityLabel}资料`"
+      :form="productMaterialForm" :categories="materialCategories" :units="materialUnits"
       :editing="productForm.mode === 'edit'" :busy="busy" :disconnected="connectionLost"
       @save="save" @cancel="productEditorOpen = false">
       <template #profileFields><ProductProfileFields :form="productForm" :models="productModels" :disabled="busy || connectionLost" /></template>
