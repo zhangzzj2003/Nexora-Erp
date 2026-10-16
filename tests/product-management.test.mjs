@@ -25,6 +25,205 @@ function fixture(t, handler = async action => action==='productModels'?[model]:p
   return {state,actions,calls}
 }
 
+// 滚动目录使用真实的独立物料身份和每页数量，避免测试用重号资料掩盖跨页串料。
+function directoryPage(number = 1, total = 45, {ids, modelId = 1, kind = 'finished', size = 20} = {}) {
+  const selected = ids ?? Array.from({length: Math.max(0, Math.min(size, total - (number - 1) * size))}, (_, index) => (number - 1) * size + index + 1)
+  return {page:number,page_size:size,total,items:selected.map(id => ({...product(id),material_id:100+id,
+    material:material(100+id),model_id:modelId,model_code:modelId?'A100':'',model_name:modelId?'机型A':'',kind}))}
+}
+
+test('产品侧栏按页触底追加并按身份去重，单页协议与当前详情保持独立', async t => {
+  const second=deferred()
+  const f=fixture(t,async(action,payload)=>{
+    if(action==='productModels')return [model]
+    if(payload.page===2)return second.promise
+    return directoryPage(payload.page,41,{ids:payload.page===3?[40,41]:undefined})
+  })
+  await f.actions.queryProducts()
+  assert.equal(f.state.productDirectoryRows.value.length,20)
+  const selected=f.state.productDirectoryRows.value[6]
+  f.state.productDetailId.value=selected.id;f.state.productDetailRecord.value=selected
+  f.state.productBomRecords.value=[{id:99,product_material_id:selected.material_id}]
+  const details=f.state.productDetailRecord.value, boms=f.state.productBomRecords.value
+  const pending=f.actions.loadMoreProducts()
+  assert.equal(f.state.productsLoadingMore.value,true)
+  await f.actions.loadMoreProducts()
+  assert.equal(f.calls.filter(([action])=>action==='queryProducts').length,2)
+  // 并发插入导致相邻页重叠时，只跳过同一产品身份，不覆盖已经加载的节点。
+  second.resolve(directoryPage(2,41,{ids:Array.from({length:20},(_,i)=>i+20)}))
+  await pending
+  assert.equal(f.state.productsLoadingMore.value,false)
+  assert.equal(f.state.productDirectoryRows.value.length,39)
+  assert.equal(f.state.productDirectoryRows.value[6],selected)
+  assert.equal(f.state.productResult.value.items.length,20)
+  assert.equal(f.state.productResult.value.page,2)
+  assert.doesNotThrow(()=>validateProductResult('queryProducts',f.state.productResult.value))
+  assert.equal(f.state.productDetailRecord.value,details);assert.equal(f.state.productBomRecords.value,boms)
+  await f.actions.loadMoreProducts()
+  assert.deepEqual(f.state.productDirectoryRows.value.map(row=>row.id),Array.from({length:41},(_,i)=>i+1))
+  assert.equal(f.state.productResult.value.items.length,2)
+  assert.equal(f.state.productQuery.value.page,3)
+  await f.actions.loadMoreProducts()
+  assert.deepEqual(f.calls.filter(([action])=>action==='queryProducts').map(([,payload])=>[payload.page,payload.page_size]),[[1,20],[2,20],[3,20]])
+  assert.equal(f.calls.filter(([action])=>action==='productModels').length,1)
+  assert.equal(f.state.productDetailId.value,7);assert.equal(f.state.productDetailRecord.value,details)
+})
+
+test('目录追加失败保留已加载节点与详情，重试只读取失败页', async t => {
+  let fail=true
+  const f=fixture(t,async(action,payload)=>{
+    if(action==='productModels')return [model]
+    if(payload.page===2&&fail)throw Error('下一页暂时不可用')
+    return directoryPage(payload.page,22)
+  })
+  await f.actions.queryProducts()
+  const rows=f.state.productDirectoryRows.value, result=f.state.productResult.value
+  f.state.productDetailId.value=3;f.state.productDetailRecord.value=rows[2]
+  const details=f.state.productDetailRecord.value
+  await f.actions.loadMoreProducts()
+  assert.equal(f.state.productDirectoryRows.value,rows);assert.equal(f.state.productResult.value,result)
+  assert.equal(f.state.productDetailRecord.value,details);assert.equal(f.state.productDetailId.value,3)
+  assert.equal(f.state.productsError.value,'');assert.match(f.state.productsMoreError.value,/下一页暂时不可用/)
+  assert.equal(f.state.productsLoadingMore.value,false)
+  fail=false
+  await f.actions.loadMoreProducts()
+  assert.equal(f.state.productDirectoryRows.value.length,22);assert.equal(f.state.productsMoreError.value,'')
+  assert.deepEqual(f.calls.filter(([action])=>action==='queryProducts').map(([,payload])=>payload.page),[1,2,2])
+  assert.equal(f.state.productDetailRecord.value,details)
+})
+
+test('追加拒绝错页、错系列类型、物料身份漂移和空页，已有目录保持不变', async t => {
+  const cases={
+    '页码回退':()=>directoryPage(1),
+    '页大小变化':()=>directoryPage(2,45,{size:10}),
+    '另一系列':()=>directoryPage(2,45,{modelId:2}),
+    '另一类型':()=>directoryPage(2,45,{kind:'semi_finished'}),
+    '跨产品复用物料':()=>{const next=directoryPage(2);next.items[0]={...next.items[0],material_id:101,material:material(101)};return next},
+    '已有产品改物料':()=>{const next=directoryPage(2);next.items[0]={...next.items[0],id:1};return next},
+    '响应内产品物料不符':()=>{const next=directoryPage(2);next.items[0].material_id=999;return next},
+    '空页仍声称有记录':()=>directoryPage(2,45,{ids:[]}),
+    '总数缩水为前页':()=>({...directoryPage(2),total:20})
+  }
+  for(const [label,response] of Object.entries(cases))await t.test(label,async t=>{
+    const f=fixture(t,async(action,payload)=>action==='productModels'?[model]:payload.page===1?directoryPage():response())
+    f.state.productQuery.value.model_id=1;f.state.productQuery.value.kind='finished'
+    await f.actions.queryProducts()
+    const rows=f.state.productDirectoryRows.value, result=f.state.productResult.value
+    f.state.productDetailId.value=1;f.state.productDetailRecord.value=rows[0]
+    await f.actions.loadMoreProducts()
+    assert.equal(f.state.productDirectoryRows.value,rows);assert.equal(f.state.productResult.value,result)
+    assert.equal(f.state.productDetailRecord.value,rows[0]);assert.equal(f.state.productDetailId.value,1)
+    assert.notEqual(f.state.productsMoreError.value,'');assert.equal(f.state.productsLoadingMore.value,false)
+    assert.equal(f.state.productQuery.value.page,1)
+  })
+})
+
+test('刷新、筛选和读取会话变化立即撤销追加，迟到响应不能混入新目录', async t => {
+  const changes={
+    '替换刷新':()=>{},
+    '搜索变化':state=>{state.productQuery.value.query='新版'},
+    '系列变化':state=>{state.productQuery.value.model_id=2},
+    '类型变化':state=>{state.productQuery.value.kind='semi_finished'},
+    '页大小变化':state=>{state.productQuery.value.page_size=10},
+    '账号变化':state=>{state.user.value={...state.user.value,id:2}},
+    '证书变化':state=>{state.server.value={...state.server.value,fingerprint:'new-cert'}},
+    '权限变化':state=>{state.user.value.permissions=['inventory.view','catalog.manage']},
+    '断线重连':state=>{state.connectionLost.value=true;state.connectionLost.value=false}
+  }
+  for(const [label,change] of Object.entries(changes))await t.test(label,async t=>{
+    const late=deferred();let reads=0
+    const f=fixture(t,async(action,payload)=>{
+      if(action==='productModels')return [model]
+      reads++
+      if(reads===2)return late.promise
+      return directoryPage(1,45,{size:payload.page_size,modelId:payload.model_id??1,kind:payload.kind??'finished',
+        ids:reads===1?undefined:Array.from({length:payload.page_size},(_,i)=>101+i)})
+    })
+    await f.actions.queryProducts()
+    const pending=f.actions.loadMoreProducts()
+    assert.equal(f.state.productsLoadingMore.value,true)
+    change(f.state)
+    await f.actions.queryProducts()
+    const fresh=f.state.productDirectoryRows.value
+    assert.equal(f.state.productsLoadingMore.value,false)
+    assert.equal(fresh[0].id,101)
+    late.resolve(directoryPage(2))
+    await pending
+    assert.equal(f.state.productDirectoryRows.value,fresh)
+    assert.equal(f.state.productResult.value.page,1);assert.equal(f.state.productsMoreError.value,'')
+  })
+})
+
+test('目录追加受无结果、忙碌、初次读取、末页、断线及撤权保护', async t => {
+  const guards={
+    '忙碌中':state=>{state.busy.value=true},
+    '初次读取中':state=>{state.productsLoading.value=true},
+    '断线中':state=>{state.connectionLost.value=true},
+    '无查看权限':state=>{state.user.value.permissions=[]}
+  }
+  for(const [label,guard] of Object.entries(guards))await t.test(label,async t=>{
+    const f=fixture(t,async(action,payload)=>action==='productModels'?[model]:directoryPage(payload.page))
+    await f.actions.queryProducts()
+    const count=f.calls.length
+    // 这里确实还有后续页，不能让“已是末页”的另一道保护掩盖当前状态校验。
+    assert.equal(f.state.productDirectoryRows.value.length,20);assert.equal(f.state.productResult.value.total,45)
+    guard(f.state)
+    await f.actions.loadMoreProducts()
+    assert.equal(f.calls.length,count);assert.equal(f.state.productsLoadingMore.value,false)
+  })
+  const f=fixture(t,async(action,payload)=>action==='productModels'?[model]:directoryPage(payload.page,20))
+  await f.actions.loadMoreProducts();assert.equal(f.calls.length,0)
+  await f.actions.queryProducts()
+  const count=f.calls.length
+  await f.actions.loadMoreProducts();assert.equal(f.calls.length,count)
+  f.state.busy.value=true;await f.actions.loadMoreProducts();assert.equal(f.calls.length,count)
+  f.state.busy.value=false
+  f.state.connectionLost.value=true;await f.actions.loadMoreProducts();assert.equal(f.calls.length,count)
+  f.state.connectionLost.value=false
+  f.state.user.value.permissions=[];await f.actions.loadMoreProducts();assert.equal(f.calls.length,count)
+
+  const waiting=deferred()
+  f.state.user.value.permissions=['inventory.view','catalog.manage']
+  globalThis.window.nexora.callApi=async action=>{f.calls.push([action]);return action==='productModels'?[model]:waiting.promise}
+  const pending=f.actions.queryProducts()
+  await f.actions.loadMoreProducts()
+  assert.equal(f.calls.filter(([action])=>action==='queryProducts').length,2)
+  waiting.resolve(directoryPage());await pending
+  assert.equal(f.state.productsLoading.value,false)
+})
+
+test('主动刷新和保存后的目录查询默认第一页，不沿用最后追加页码', async t => {
+  const f=fixture(t,async(action,payload)=>action==='productModels'?[model]:action==='createProductModel'?model:directoryPage(payload.page))
+  await f.actions.queryProducts();await f.actions.loadMoreProducts()
+  assert.equal(f.state.productQuery.value.page,2)
+  await f.actions.queryProducts()
+  assert.equal(f.state.productResult.value.page,1);assert.equal(f.state.productDirectoryRows.value.length,20)
+  await f.actions.loadMoreProducts()
+  f.state.productModelForm.value={id:0,version:0,code:'A100',name:'机型A',notes:'',reason:''}
+  assert.equal((await f.actions.saveProductModel()).id,1)
+  assert.equal(f.state.productResult.value.page,1);assert.equal(f.state.productQuery.value.page,1)
+  assert.equal(f.state.productDirectoryRows.value.length,20)
+  assert.equal(f.calls.filter(([action])=>action==='queryProducts').at(-1)[1].page,1)
+})
+
+test('目录快照提交触发同步换账号时，剩余旧目录和系列不能继续回填', async t => {
+  for(const mode of ['replace','append'])await t.test(mode,async t=>{
+    const f=fixture(t,async(action,payload)=>action==='productModels'?[model]:directoryPage(payload.page))
+    if(mode==='append')await f.actions.queryProducts()
+    const stop=watch(f.state.productResult,result=>{
+      if(result?.page!==(mode==='append'?2:1))return
+      f.state.user.value={...f.state.user.value,id:2}
+    },{flush:'sync'})
+    t.after(stop)
+    if(mode==='append')await f.actions.loadMoreProducts()
+    else await f.actions.queryProducts()
+    assert.equal(f.state.productResult.value,null)
+    assert.deepEqual(f.state.productDirectoryRows.value,[]);assert.deepEqual(f.state.productModels.value,[])
+    assert.equal(f.state.productsLoadingMore.value,false);assert.equal(f.state.productsLoading.value,false)
+    assert.equal(f.state.productsMoreError.value,'')
+  })
+})
+
 test('产品 IPC 白名单、建档互斥、版本及数量分页边界', () => {
   const base={kind:'finished',model_id:null,configuration_name:' 标准版 '}
   assert.deepEqual(productBody({...base,material_id:11,ignored:'不得透传'},false),{...base,configuration_name:'标准版',material_id:11})

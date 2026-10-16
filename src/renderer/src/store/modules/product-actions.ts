@@ -1,22 +1,38 @@
 import { watch } from 'vue'
 import type { AppState } from '../state'
 import type { Bom } from '../../../../shared/erp-api'
-import type { ProductInput, ProductProfile, ProductModel, ProductLifecycleAction } from '../../../../shared/product-api'
+import type { ProductInput, ProductProfile, ProductModel, ProductLifecycleAction, ProductQuery, ProductPage } from '../../../../shared/product-api'
 import { validateProductResult } from '../../../../shared/product-api.ts'
 import { materialDraft, materialInput } from '../../utils/material-form.ts'
 import { displayError } from '../../utils/formatters.ts'
 
 // 分页与详情按稳定会话失效；普通 me 刷新不会清空当前条件或输入。
 export function createProductActions(state: AppState) {
-  let listTicket = 0, detailTicket = 0, bomTicket = 0, editTicket = 0, writeTicket = 0
+  let listTicket = 0, moreTicket = 0, detailTicket = 0, bomTicket = 0, editTicket = 0, writeTicket = 0
+  let loadedScope: string | null = null
   let ownedWrite: number | null = null
   const can = (permission: string): boolean => state.user.value?.permissions.includes(permission) ?? false
   const identity = (): string => JSON.stringify([state.server.value?.id, state.server.value?.fingerprint, state.user.value?.id])
   const allowed = (permission: string): boolean => !!window.nexora && !state.connectionLost.value && can(permission)
+  const queryScope = (query: ProductQuery = state.productQuery.value): string =>
+    JSON.stringify([query.query, query.kind, query.model_id, query.page_size])
+  function cancelMore(): void {
+    // 追加请求属于旧目录快照；刷新或换筛选时不能回填，也不能让旧 finally 清掉新请求的状态。
+    moreTicket++; state.productsLoadingMore.value = false; state.productsMoreError.value = ''
+  }
+  function validatePage(result: ProductPage, query: ProductQuery, append = false): void {
+    validateProductResult('queryProducts', result)
+    // 普通刷新允许服务端因总数缩小而回退页码；追加必须命中所请求的下一页。
+    if (result.page_size !== query.page_size || (append ? result.page !== query.page : result.page > query.page))
+      throw Error('产品分页范围已变化，请刷新目录后重试')
+    if (result.items.some(row => (query.model_id !== null && row.model_id !== query.model_id)
+      || (query.kind !== null && row.kind !== query.kind))) throw Error('产品筛选范围不一致，请刷新目录后重试')
+  }
   function invalidateReads(): void {
     listTicket++; detailTicket++; bomTicket++; editTicket++
+    cancelMore(); loadedScope = null
     if (ownedWrite !== null) {ownedWrite = null; state.busy.value = false}
-    state.productResult.value = null; state.productModels.value = []
+    state.productResult.value = null; state.productDirectoryRows.value = []; state.productModels.value = []
     state.productDetailRecord.value = null; state.productBomRecords.value = []; state.productChangeRecords.value = []
     // 机型历史和失败提示也属于当前读取会话，不能带到新账号或证书实例。
     state.productModelChanges.value = []
@@ -35,22 +51,67 @@ export function createProductActions(state: AppState) {
     invalidateReads()
     if (!can('catalog.manage')) {state.productEditorOpen.value = false; state.productReturnToBom.value = false}
   }, {flush: 'sync'})
-  watch(() => JSON.stringify([state.productQuery.value.query, state.productQuery.value.kind, state.productQuery.value.model_id]), () => {
-    listTicket++; state.productQuery.value.page = 1; state.productResult.value = null
+  watch(() => queryScope(), () => {
+    listTicket++; state.productQuery.value.page = 1; state.productResult.value = null; state.productDirectoryRows.value = []
+    cancelMore(); loadedScope = null; state.productsLoading.value = false; state.productsError.value = ''
   }, {flush: 'sync'})
-  async function queryProducts(page = state.productQuery.value.page): Promise<void> {
+  async function queryProducts(page = 1): Promise<void> {
     if (!allowed('inventory.view')) return
     const ticket = ++listTicket
+    const query = {...state.productQuery.value, page}, scope = queryScope(query)
+    const ownsRead = (): boolean => ticket === listTicket && scope === queryScope() && allowed('inventory.view')
+    cancelMore(); loadedScope = null
     state.productsLoading.value = true; state.productsError.value = ''
     try {
-      const [result, models] = await Promise.all([window.nexora!.callApi('queryProducts', {...state.productQuery.value, page}),
+      const [result, models] = await Promise.all([window.nexora!.callApi('queryProducts', query),
         window.nexora!.callApi('productModels', undefined)])
-      if (ticket !== listTicket || !allowed('inventory.view')) return
-      validateProductResult('queryProducts', result); validateProductResult('productModels', models)
-      state.productResult.value = result; state.productModels.value = models
+      if (!ownsRead()) return
+      validatePage(result, query); validateProductResult('productModels', models)
+      // 同步观察者可能在任一快照更新时切换账号；每次写入后重核会话，不能回填剩余旧资料。
+      state.productResult.value = result
+      if (!ownsRead()) return
+      state.productDirectoryRows.value = result.items
+      if (!ownsRead()) return
+      state.productModels.value = models
+      if (!ownsRead()) return
       state.productQuery.value.page = result.page
-    } catch (cause) {if (ticket === listTicket) {state.productResult.value = null; state.productsError.value = displayError(cause)}}
+      if (ownsRead()) loadedScope = scope
+    } catch (cause) {if (ticket === listTicket) {state.productResult.value = null; state.productDirectoryRows.value = []; state.productsError.value = displayError(cause)}}
     finally {if (ticket === listTicket) state.productsLoading.value = false}
+  }
+  async function loadMoreProducts(): Promise<void> {
+    const current = state.productResult.value, rows = state.productDirectoryRows.value, scope = queryScope()
+    if (!allowed('inventory.view') || state.busy.value || state.productsLoading.value || state.productsLoadingMore.value
+      || !current || loadedScope !== scope || rows.length >= current.total
+      || current.page >= Math.ceil(current.total / current.page_size)) return
+    const ticket = ++moreTicket, generation = listTicket
+    const query = {...state.productQuery.value, page: current.page + 1, page_size: current.page_size}
+    const sameScope = (): boolean => ticket === moreTicket && generation === listTicket && scope === queryScope() && allowed('inventory.view')
+    const ownsRequest = (): boolean => sameScope() && state.productResult.value === current && state.productDirectoryRows.value === rows
+    state.productsLoadingMore.value = true; state.productsMoreError.value = ''
+    try {
+      const result = await window.nexora!.callApi('queryProducts', query)
+      if (!ownsRequest()) return
+      validatePage(result, query, true)
+      const byId = new Map(rows.map(row => [row.id, row]))
+      const materialIds = new Map(rows.map(row => [row.material_id, row.id]))
+      const added: ProductProfile[] = []
+      for (const row of result.items) {
+        const previous = byId.get(row.id), owner = materialIds.get(row.material_id)
+        // 并发新增可能让相邻页重叠，同一身份仅展示一次；不同产品不能争用物料或更换物料身份。
+        if ((previous && previous.material_id !== row.material_id) || (owner !== undefined && owner !== row.id))
+          throw Error('产品与已加载物料身份不一致，请刷新目录后重试')
+        if (!previous) added.push(row)
+      }
+      const items = [...rows, ...added]
+      if (!result.items.length || items.length > result.total) throw Error('产品分页范围已变化，请刷新目录后重试')
+      // 只追加目录节点，不触碰详情、BOM 或展开状态，保留用户正在查看的子机型。
+      state.productResult.value = result
+      if (!sameScope()) return
+      state.productDirectoryRows.value = items
+      if (sameScope()) state.productQuery.value.page = result.page
+    } catch (cause) {if (ownsRequest()) state.productsMoreError.value = displayError(cause)}
+    finally {if (ticket === moreTicket) state.productsLoadingMore.value = false}
   }
   async function openProduct(id: number): Promise<void> {
     if (!allowed('inventory.view') || state.busy.value) return
@@ -259,6 +320,6 @@ export function createProductActions(state: AppState) {
     finally {if (ticket === bomTicket) state.bomDetailLoading.value = false}
   }
   function closeBomDetail(): void {bomTicket++; state.bomDetailRecord.value = null; state.bomDetailLoading.value = false; state.bomDetailError.value = ''}
-  return {queryProducts, openProduct, closeProduct, startProduct, saveProduct, saveProductModel, editProductModel, deleteProductModel, applyProductLifecycle,
+  return {queryProducts, loadMoreProducts, openProduct, closeProduct, startProduct, saveProduct, saveProductModel, editProductModel, deleteProductModel, applyProductLifecycle,
     prepareProductBom, openBomDetail, closeBomDetail}
 }

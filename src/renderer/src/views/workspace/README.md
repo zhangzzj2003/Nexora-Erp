@@ -17,7 +17,7 @@
 | `catalog/` | `SuppliersView.vue` | 供应商增删改查及供货物料绑定、解绑 |
 | `catalog/` | `MaterialCategoriesView.vue` | 自定义两级物料类别与子类规格模板；版本编辑、启停、未使用项移除和变更快照，草稿保存在 Pinia |
 | `catalog/` | `UnitsView.vue` | 独立单位表的搜索、分页、新增、版本编辑、启停和变更记录；物料弹窗从单位目录选择 |
-| `catalog/` | `ProductsView.vue`、`ProductTreeSidebar.vue`、`ProductBomStructure.vue`、`bom-structure.ts`、`ProductEditor.vue`、`ProductModelsDialog.vue`、`ProductBomReuseDialog.vue`、`ProductModelDeleteDialog.vue`、`ProductLifecycleDialog.vue` | 左侧按“系列 → 成品/半成品”显示目录并新建，右侧用紧凑版本栏切换多层组成，版本历史及启停操作集中到版本管理弹窗；用途独立设置，固定下层配方与复制来源分开；系列与子机型支持关联校验后的软删除，子机型停启复用生产用途；保留纳入已有物料、联合版本编辑及变更记录，公共产品弹窗固定标题及底部操作，规则见 `docs/product-management.md` |
+| `catalog/` | `ProductsView.vue`、`ProductTreeSidebar.vue`、`ProductBomStructure.vue`、`bom-structure.ts`、`ProductEditor.vue`、`ProductModelsDialog.vue`、`ProductBomReuseDialog.vue`、`ProductModelDeleteDialog.vue`、`ProductLifecycleDialog.vue` | 左侧先搜索筛选、再新建，按“系列 → 成品/半成品”滚动追加目录，无页码分页；产品页标题紧凑，桌面目录与 BOM 各自滚动，右侧用紧凑版本栏切换多层组成，版本历史及启停操作集中到版本管理弹窗；用途独立设置，固定下层配方与复制来源分开；系列与子机型支持关联校验后的软删除，子机型停启复用生产用途；保留纳入已有物料、联合版本编辑及变更记录，公共产品弹窗固定标题及底部操作，规则见 `docs/product-management.md` |
 | `catalog/` | `ProductionBomsView.vue` | 生产 BOM 基础资料；复用公共单据弹窗编辑成品与组件用量，`BomEditor.vue` 与产品页共用编辑、快捷建档及派生草稿，`BomDetailDialog.vue` 查看用料及固定来源并进入工单；`bom-form.ts` 校验重复、自引用及数量；保留原地址和权限 |
 | `catalog/` | `CustomersView.vue` | 客户搜索、新增相似名称核对及单列 CSV 预检和批量导入；销售查看权限可浏览，客户管理权限可写入 |
 | `catalog/` | `WarehousesView.vue` | 仓库增删改查，默认主仓库禁止删除 |

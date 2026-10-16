@@ -26,7 +26,8 @@ import BomDetailDialog from './BomDetailDialog.vue'
 import ProductBomStructure from './ProductBomStructure.vue'
 // 页面只组织展示，分页、草稿、版本写入和会话边界统一放在 Pinia。
 const store = usePiniaAppStore(), route = useRoute()
-const {productQuery: query, productResult: result, productModels: models, productsLoading, productsError,
+const {productQuery: query, productResult: result, productDirectoryRows, productModels: models, productsLoading, productsError,
+  productsLoadingMore, productsMoreError,
   productDetailRecord: detail, productDetailId, productDetailLoading, productDetailError,
   productBomRecords, productChangeRecords, productEditorOpen, bomDetailRecord, bomDetailLoading, bomDetailError,
   materialCategories, boms, productModelForm, productModelChanges, busy, connectionLost} = storeToRefs(store)
@@ -84,7 +85,12 @@ watch([result, () => route.query.product_id], ([page, rawId]) => {
     consumedRoute = String(rawId); void store.openProduct(routeId); return
   }
   // 切换筛选时撤销旧读取，迟到的上一系列响应不能回填右侧。
-  const selected = page.items.find(row => row.id === productDetailId.value) ?? page.items[0]
+  // 追加只更新最后一页的元数据，选择依据完整已加载目录，避免滚到底就跳到另一产品。
+  const retained = detail.value?.id === productDetailId.value
+    && (query.value.model_id === null || detail.value.model_id === query.value.model_id)
+    && (query.value.kind === null || detail.value.kind === query.value.kind) ? detail.value : undefined
+  const selected = productDirectoryRows.value.find(row => row.id === productDetailId.value)
+    ?? retained ?? productDirectoryRows.value[0]
   if (selected && selected.id !== productDetailId.value) void store.openProduct(selected.id)
   else if (!selected) store.closeProduct()
 }, {immediate:true})
@@ -93,12 +99,6 @@ watch(() => JSON.stringify([store.user?.id,store.server?.id,store.server?.finger
   pendingProductId.value=0; reuseOpen.value=false; modelsOpen.value=false; bomOpen.value=false; bomTargetId.value=0; versionsOpen.value=false; modelToDelete.value=null; lifecycleTarget.value=null
 })
 onUnmounted(() => {store.closeProduct(); store.closeBomDetail()})
-function pageChange(page: number, size: number): void {
-  if (busy.value || connectionLost.value) return
-  // 翻页开始即撤销原产品选择，避免新页在途时继续操作上一页 BOM。
-  detailsOpen.value = false; store.closeProduct()
-  query.value.page_size = size; void store.queryProducts(page)
-}
 function reset(): void {
   if (busy.value || connectionLost.value) return
   const unchanged = !query.value.query && query.value.kind === null
@@ -154,10 +154,11 @@ function sameModel(): void {
 </script>
 <template>
   <section class="product-workspace">
-    <ProductTreeSidebar :models="models" :page="result" :query="query" :selected-id="productDetailId" :selected="detail"
+    <ProductTreeSidebar :models="models" :page="result" :rows="productDirectoryRows" :query="query" :selected-id="productDetailId" :selected="detail"
       :loading="productsLoading" :error="productsError" :busy="busy" :disconnected="connectionLost" :can-manage="store.can('catalog.manage')"
+      :loading-more="productsLoadingMore" :more-error="productsMoreError"
       @series="selectSeries" @select="selectProduct" @new-series="newSeries" @new-model="newModel()" @include="newModel('existing')"
-      @delete="modelToDelete=$event" @manage="createSeriesOnly=false;modelsOpen=true" @page-change="pageChange" @reset="reset" @retry="store.queryProducts()" />
+      @delete="modelToDelete=$event" @manage="createSeriesOnly=false;modelsOpen=true" @load-more="store.loadMoreProducts()" @reset="reset" @retry="store.queryProducts()" />
     <div class="product-main">
     <section v-if="productDetailId" class="product-bom-panel" aria-label="选中产品的 BOM">
       <header v-if="detail" class="product-bom-heading">
@@ -254,8 +255,8 @@ function sameModel(): void {
 </template>
 <style scoped>
 /* 既有主题控制颜色；产品头、版本栏和组成共用一个容器，减少重复卡片留白。 */
-.product-workspace { display:grid; grid-template-columns:280px minmax(0,1fr); gap:16px; align-items:start; }
-.product-main { min-width:0; }
+.product-workspace { display:grid; grid-template-columns:280px minmax(0,1fr); gap:14px; align-items:stretch; flex:1; min-height:0; }
+.product-main { min-width:0; min-height:0; }
 .product-bom-panel { min-width:0; padding:20px; border:1px solid var(--workspace-field-border); border-radius:14px; background:var(--app-modal-background); }
 .product-bom-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; padding-bottom:18px; }
 .product-identity { display:grid; gap:8px; min-width:0; flex:1 1 260px; }
@@ -268,6 +269,8 @@ function sameModel(): void {
 .product-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .bom-version-bar { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding:14px 0; border-top:1px solid var(--workspace-field-border); border-bottom:1px solid var(--workspace-field-border); }
 .bom-version-choice { display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; }
+/* 公共标签默认贴顶部；版本栏局部覆盖，保证标签与选择框、左右文字共用中心线。 */
+.bom-version-choice > .app-status-tag { align-self:center; }
 .bom-version-label { font-size:12px; color:var(--workspace-field-muted); }
 .bom-version-choice .workspace-select { width:170px; max-width:100%; }
 .bom-source { display:flex; align-items:center; flex-wrap:wrap; gap:4px; padding-top:14px; font-size:12px; }
@@ -277,6 +280,8 @@ function sameModel(): void {
 .bom-workspace-empty { display:grid; align-content:center; justify-items:center; gap:12px; min-height:360px; padding:32px; text-align:center; border:1px solid var(--workspace-field-border); border-radius:14px; background:var(--app-modal-surface); }
 .bom-workspace-empty h3,.bom-workspace-empty p { margin:0; }
 @media(max-width:1100px) { .product-workspace { grid-template-columns:260px minmax(0,1fr); gap:14px; } .product-bom-panel { padding:16px; } }
+/* 与左侧目录分别占用剩余高度，长 BOM 的滚动不再带走目录的搜索和新建入口。 */
+@media(min-width:761px) { .product-main { overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; } }
 /* 桌面最小宽度仍保留两列，隐藏重复标签，为版本选择与状态留出同一行。 */
 @media(max-width:1000px) { .bom-version-label { display:none; } .bom-version-choice .workspace-select { width:140px; } }
 @media(max-width:760px) { .product-workspace { grid-template-columns:minmax(0,1fr); } .product-bom-heading h3 { font-size:18px; } }

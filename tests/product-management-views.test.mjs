@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createSSRApp, h } from 'vue'
+import { createRenderer, createSSRApp, h, nextTick, reactive, ssrContextKey } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
@@ -39,6 +39,7 @@ async function fixture(t) {
  t.after(()=>server.close())
  const {usePiniaAppStore}=await server.ssrLoadModule('\0products-store')
  const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/ProductsView.vue')
+ const {default:Tree}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/ProductTreeSidebar.vue')
  const {default:LegacyBom}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/BomEditor.vue')
  const {default:WorkOrders}=await server.ssrLoadModule('/src/renderer/src/views/workspace/production/ProductionWorkOrdersView.vue')
  const {paginations}=await server.ssrLoadModule('\0products-pagination')
@@ -69,15 +70,56 @@ async function fixture(t) {
  store.materials=[material,{...material,id:22,sku:'EL-IC-22',name:'主芯片',unit:'个'}]
  const renderLegacyBom=async()=>{buttons.length=0;return renderToString(createSSRApp({render:()=>h(LegacyBom,{show:true})}).use(pinia).use(router))}
  const renderWorkOrders=async()=>{buttons.length=0;selects.length=0;const app=createSSRApp(WorkOrders).use(pinia).use(router);app.mixin({created(){components[this.$options.__name]=this.$.setupState}});return renderToString(app)}
- return {store,source,product,render,renderLegacyBom,renderWorkOrders,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,components,get setup(){return setup}}
+ const treeEvents=[],treeProps=reactive({models:store.productModels,rows:[product],page:{items:[product],page:1,page_size:20,total:43},
+  query:store.productQuery,selectedId:1,selected:product,loading:false,error:'',loadingMore:false,moreError:'',busy:false,disconnected:false,canManage:true})
+ const renderTree=async(props={})=>{Object.assign(treeProps,props);buttons.length=0;paginations.length=0
+  const app=createSSRApp({render:()=>h(Tree,{...treeProps,onLoadMore:()=>treeEvents.push('loadMore'),onRetry:()=>treeEvents.push('retry')})}).use(pinia)
+  app.mixin({created(){components[this.$options.__name]=this.$.setupState}})
+  return renderToString(app)
+ }
+ const mountView=async()=>{
+  // 真实监听必须持续挂载，才能发现追加元数据误触发“选择新页首项”的回归。
+  const renderer=createRenderer({createElement:()=>({}),createText:()=>({}),createComment:()=>({}),insert(){},remove(){},
+    setText(){},setElementText(){},patchProp(){},parentNode:()=>null,nextSibling:()=>null})
+  const app=renderer.createApp({render:()=>h({...View,render:()=>null})}).use(pinia).use(router)
+  app.provide(ssrContextKey,{modules:new Set()});app.mount({});t.after(()=>app.unmount())
+  await new Promise(done=>setImmediate(done));await nextTick()
+ }
+ return {store,source,product,render,renderLegacyBom,renderWorkOrders,renderTree,mountView,treeProps,treeEvents,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,components,get setup(){return setup}}
 }
 
-test('产品真实页面使用服务端分页和物料身份，查看权限不能显示维护入口',async t=>{
+// 标题由公共工作台生成；只替换导航和业务页，保留外壳的真实条件渲染。
+async function shellFixture(t) {
+ const server=await createServer({configFile:false,plugins:[{name:'product-shell',enforce:'pre',resolveId(id,importer){
+  if(!importer?.includes('/src/renderer/'))return
+  if(id.endsWith('/store/app-store'))return '\0product-shell-store'
+  if(importer.endsWith('/WorkspaceShell.vue') && id.endsWith('.vue'))return '\0product-shell-empty'
+ },load(id){
+  if(id==='\0product-shell-empty')return 'export default {render:()=>null}'
+  if(id==='\0product-shell-store')return `import {ref} from 'vue';export const state={screen:ref('app'),documentNumbering:ref(null),
+    activeTab:ref('products'),workspacePageVersion:ref(0),expandedGroupKey:ref(null),busy:ref(false),user:ref(null),
+    username:ref(''),password:ref(''),roles:ref([]),visibleGroups:ref([]),openedTabs:ref([]),activeRouteAllowed:ref(true),
+    visibleTabs:ref([{key:'products',label:'产品与 BOM'},{key:'stock',label:'库存查询'}])};export const useAppStore=()=>state`
+ }},vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'})
+ t.after(()=>server.close())
+ const previous=globalThis.window
+ globalThis.window={nexora:{platform:'darwin'}}
+ t.after(()=>{globalThis.window=previous})
+ const {state}=await server.ssrLoadModule('\0product-shell-store')
+ const {default:Shell}=await server.ssrLoadModule('/src/renderer/src/views/WorkspaceShell.vue')
+ const render=async key=>{state.activeTab.value=key;return renderToString(createSSRApp(Shell).use(createPinia()).component('RouterView',{render:()=>null}))}
+ return {render,state}
+}
+
+test('产品真实页面使用服务端目录和物料身份，移除分页且查看权限不显示维护入口',async t=>{
  const f=await fixture(t)
  const html=await f.render()
  assert.match(html,/EL-PC-11/);assert.match(html,/标准版/);assert.match(html,/新建系列/);assert.match(html,/新建子机型/)
- assert.equal(f.paginations[0].total,43)
+ assert.equal(f.paginations.length,0)
+ assert.doesNotMatch(html,/data-product-pagination/)
+ assert.equal(f.store.productResult.total,43)
  assert.equal(f.store.productResult.items.length,1)
+ assert.equal(f.store.productDirectoryRows.length,1)
  assert.match(html,/产品系列/);assert.match(html,/选择系列与子机型/)
  const left=html.slice(html.indexOf('<aside'),html.indexOf('</aside>'))
  assert.match(left,/新建系列/);assert.match(left,/新建子机型/);assert.match(left,/标准版/)
@@ -86,6 +128,169 @@ test('产品真实页面使用服务端分页和物料身份，查看权限不�
  f.store.user={...f.store.user,permissions:['inventory.view']}
  const readonly=await f.render()
  assert.doesNotMatch(readonly,/新建系列|新建子机型|纳入已有物料|系列管理/)
+})
+
+test('侧栏固定搜索在新建之前，滚动目录与维护按钮分开且没有分页控件',async t=>{
+ const f=await fixture(t)
+ const html=await f.renderTree()
+ const search=html.indexOf('class="tree-search"'), create=html.indexOf('class="tree-create"')
+ const scroll=html.indexOf('class="tree-scroll"'), footer=html.indexOf('<footer')
+ assert.ok(search>=0 && create>search && scroll>create && footer>scroll)
+ assert.ok(html.indexOf('搜索子机型')<html.indexOf('新建系列'))
+ assert.ok(html.indexOf('系列管理')>html.indexOf('</nav>'))
+ assert.doesNotMatch(html,/data-product-pagination|20\s*\/\s*页/)
+ assert.equal(f.paginations.length,0)
+})
+
+// 一次触底只派发一笔追加；页面状态变化与手动重试使用同一道入口。
+test('目录触底阈值与同 tick 闩锁生效，加载、失败、忙碌和断线不重复追加',async t=>{
+ const f=await fixture(t)
+ await f.renderTree()
+ let tree=f.components.ProductTreeSidebar
+ const scroll=remaining=>tree.onScroll({currentTarget:{scrollHeight:1000,clientHeight:400,scrollTop:600-remaining}})
+ scroll(65);assert.equal(f.treeEvents.length,0)
+ scroll(64);scroll(0);tree.requestMore()
+ assert.equal(f.treeEvents.length,1)
+ await nextTick()
+ for(const field of ['loading','loadingMore','busy','disconnected']) {
+  await f.renderTree({[field]:true});tree=f.components.ProductTreeSidebar
+  scroll(0);tree.requestMore(true)
+  assert.equal(f.treeEvents.length,1);f.treeProps[field]=false
+ }
+ await f.renderTree({moreError:'追加失败'});tree=f.components.ProductTreeSidebar
+ scroll(0);tree.requestMore();assert.equal(f.treeEvents.length,1)
+ tree.requestMore(true);assert.equal(f.treeEvents.length,2)
+ await nextTick()
+ await f.renderTree({moreError:'',page:{...f.treeProps.page,page:3}});tree=f.components.ProductTreeSidebar
+ scroll(0);tree.requestMore(true);assert.equal(f.treeEvents.length,2)
+ await f.renderTree({page:null});tree=f.components.ProductTreeSidebar
+ tree.requestMore(true);assert.equal(f.treeEvents.length,2)
+})
+
+test('目录未填满滚动容器时可补下一批，重复尺寸检查仍只派发一次',async t=>{
+ const f=await fixture(t)
+ await f.renderTree()
+ const tree=f.components.ProductTreeSidebar
+ tree.checkMore();assert.equal(f.treeEvents.length,0)
+ tree.scrollEl={scrollHeight:900,clientHeight:500,scrollTop:0}
+ tree.checkMore();assert.equal(f.treeEvents.length,0)
+ tree.scrollEl={scrollHeight:500,clientHeight:500,scrollTop:0}
+ tree.checkMore();tree.checkMore()
+ assert.equal(f.treeEvents.length,1)
+})
+
+test('追加期间保留已加载及当前选中节点，失败在树底重试，查看账号也可继续读取',async t=>{
+ const f=await fixture(t)
+ const second={...f.product,id:2,material_id:33,material:{...f.product.material,id:33,sku:'EL-PC-33',name:'第二款产品'}}
+ let html=await f.renderTree({rows:[f.product,second],page:{items:[second],page:2,page_size:20,total:43},loadingMore:true})
+ assert.match(html,/EL-PC-11/);assert.match(html,/EL-PC-33/)
+ assert.match(html,/正在加载更多/);assert.doesNotMatch(html,/正在读取子机型/)
+ assert.equal(f.components.ProductTreeSidebar.children.find(row=>row.id===1).material.sku,'EL-PC-11')
+ assert.equal(f.buttons.find(row=>row.attrs.class?.includes('tree-model') && row.attrs['aria-pressed']===true)?.label.includes('标准版'),true)
+ html=await f.renderTree({loadingMore:false,moreError:'下一批读取失败',canManage:false})
+ assert.match(html,/EL-PC-11/);assert.match(html,/EL-PC-33/);assert.match(html,/下一批读取失败/)
+ assert.doesNotMatch(html,/新建系列|新建子机型|纳入已有物料|系列管理/)
+ const retry=f.buttons.find(row=>row.label==='重试加载')
+ assert.ok(retry);assert.equal(retry.props.disabled,false)
+ assert.equal(f.buttons.find(row=>row.label==='刷新目录').props.disabled,false)
+ retry.attrs.onClick();assert.equal(f.treeEvents.length,1)
+ await nextTick()
+ await f.renderTree({disconnected:true})
+ assert.equal(f.buttons.find(row=>row.label==='重试加载').props.disabled,true)
+ assert.equal(f.buttons.find(row=>row.label==='刷新目录').props.disabled,true)
+ f.components.ProductTreeSidebar.requestMore(true);assert.equal(f.treeEvents.length,1)
+})
+
+// 服务端分页期间目录变化可能造成重叠；去重后的真实条数不能伪装成完整总数。
+test('末页去重后条数不足时提示目录更新，刷新走首次查询入口',async t=>{
+ const f=await fixture(t)
+ const rows=Array.from({length:21},(_,index)=>({...f.product,id:index+1,material_id:index+11,
+  material:{...f.product.material,id:index+11,sku:`EL-PC-${index+11}`,name:`产品${index+1}`}}))
+ const page={items:rows.slice(-2),page:2,page_size:20,total:22}
+ let html=await f.renderTree({rows,page})
+ assert.match(html,/已加载 21 个子机型，目录有更新/)
+ assert.doesNotMatch(html,/已显示全部/)
+ assert.equal(f.components.ProductTreeSidebar.children.length,21)
+ f.buttons.find(row=>row.label==='刷新目录').attrs.onClick()
+ assert.deepEqual(f.treeEvents,['retry'])
+ f.components.ProductTreeSidebar.requestMore(true)
+ assert.deepEqual(f.treeEvents,['retry'])
+ // 条数一致时才显示实际加载的全量数量，也无需额外刷新提示。
+ const last={...rows[20],id:22,material_id:32,material:{...rows[20].material,id:32,sku:'EL-PC-32'}}
+ html=await f.renderTree({rows:[...rows,last],page:{...page,items:[rows[20],last]}})
+ assert.match(html,/已显示全部 22 个子机型/)
+ assert.doesNotMatch(html,/目录有更新/)
+ assert.equal(f.buttons.some(row=>row.label==='刷新目录'),false)
+})
+
+// 真正派发到页面的追加事件不能触发“翻页清空选择”，右侧始终保留当前产品。
+test('侧栏触底接通真实追加操作，保留产品选择与右侧 BOM',async t=>{
+ const f=await fixture(t)
+ await f.render();await f.mountView()
+ const selected=f.store.productDetailRecord, bom=f.store.productBomRecords[0]
+ const second={...f.product,id:2,material_id:33,material:{...f.product.material,id:33,sku:'EL-PC-33',name:'第二款产品'}}
+ let resolve
+ const reply=new Promise(done=>{resolve=done})
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='queryProducts' && payload.page===2){f.calls.push([action,payload]);return reply}
+  return previous(action,payload)
+ }
+ f.components.ProductTreeSidebar.requestMore()
+ assert.equal(f.store.productsLoadingMore,true)
+ assert.equal(f.store.productDirectoryRows[0].id,1)
+ assert.equal(f.store.productDetailRecord,selected);assert.equal(f.store.productBomRecords[0],bom)
+ resolve({items:[second],page:2,page_size:20,total:43})
+ await new Promise(done=>setImmediate(done));await nextTick()
+ assert.deepEqual(f.store.productDirectoryRows.map(row=>row.id),[1,2])
+ assert.deepEqual(f.store.productResult.items.map(row=>row.id),[2])
+ assert.equal(f.store.productDetailId,1);assert.equal(f.store.productDetailRecord,selected)
+ assert.equal(f.store.productBomRecords[0],bom);assert.equal(f.store.productsLoadingMore,false)
+ assert.equal(f.calls.filter(([action,payload])=>action==='queryProducts' && payload.page===2).length,1)
+})
+
+test('关键词、系列和类型变化撤销旧范围选择，不能借详情保留逻辑选中旧产品',async t=>{
+ const f=await fixture(t)
+ const other={...f.product,id:2,material_id:33,model_id:2,model_code:'B200',model_name:'专业系列',kind:'semi_finished',
+  material:{...f.product.material,id:33,sku:'EL-PC-33',name:'专业控制板'}}
+ const secondBom={...f.source,id:9,product_material_id:33,product_name:'专业控制板'}
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='queryProducts'){
+   const items=[f.product,other].filter(row=>(!payload.query || row.material.name.includes(payload.query))
+    && (!payload.model_id || row.model_id===payload.model_id) && (!payload.kind || row.kind===payload.kind))
+   return {items,page:1,page_size:20,total:items.length}
+  }
+  if(action==='productDetail')return payload.id===2?other:f.product
+  if(action==='productBoms')return payload.materialId===33?[secondBom]:[f.source]
+  return previous(action,payload)
+ }
+ await f.mountView()
+ const settle=async()=>{await new Promise(done=>setImmediate(done));await nextTick()}
+ assert.equal(f.store.productDetailId,1)
+ f.store.productQuery.query='专业';await settle()
+ assert.equal(f.store.productDetailId,2);assert.equal(f.store.productBomRecords[0].id,9)
+ f.store.productQuery.query='';await settle();await f.store.openProduct(1)
+ f.store.productQuery.model_id=2;await settle()
+ assert.equal(f.store.productDetailId,2)
+ f.store.productQuery.model_id=null;await settle();await f.store.openProduct(1)
+ f.store.productQuery.kind='semi_finished';await settle()
+ assert.equal(f.store.productDetailId,2);assert.equal(f.store.productDetailRecord.kind,'semi_finished')
+ assert.equal(f.store.productDirectoryRows.some(row=>row.id===1),false)
+})
+
+test('产品页仅缩紧自己的公共标题，保留说明，库存页沿用原有标题',async t=>{
+ const f=await shellFixture(t)
+ const product=await f.render('products')
+ assert.match(product,/class="[^"]*product-catalog-screen/)
+ assert.match(product,/class="[^"]*topbar--compact/)
+ assert.match(product,/<h1[^>]*>\s*产品与 BOM\s*<\/h1>/)
+ assert.match(product,/统一管理成品与半成品/)
+ assert.match(product,/NEXORA WORKSPACE/)
+ const stock=await f.render('stock')
+ assert.doesNotMatch(stock,/product-catalog-screen|topbar--compact/)
+ assert.match(stock,/NEXORA WORKSPACE/);assert.match(stock,/<h1[^>]*>\s*库存查询\s*<\/h1>/)
+ assert.match(stock,/按物料查看当前库存/)
 })
 
 test('产品详情复用 BOM 编辑器派生，快捷建档保留组件，来源查看及启用版本创建工单',async t=>{
@@ -145,7 +350,6 @@ test('左侧系列限定服务端产品范围，右侧直接切换 BOM，重置�
  assert.doesNotMatch(html,/复制派生/)
  f.setup.reset();assert.equal(f.store.productQuery.model_id,2)
  assert.equal(f.calls.at(-2)[0],'queryProducts');assert.equal(f.calls.at(-2)[1].page,1)
- f.setup.pageChange(2,20);assert.equal(f.store.productDetailId,0)
  f.store.connectionLost=true;f.setup.selectSeries(1);assert.equal(f.store.productQuery.model_id,2)
 })
 

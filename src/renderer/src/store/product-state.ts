@@ -8,7 +8,11 @@ export function createProductState() {
   return {
     productQuery: ref<ProductQuery>({query: '', kind: null, model_id: null, page: 1, page_size: 20}),
     productResult: ref<ProductPage | null>(null), productModels: ref<ProductModel[]>([]),
+    // 单页响应继续遵守 IPC 分页协议，侧栏累计目录使用独立快照。
+    productDirectoryRows: ref<ProductProfile[]>([]),
     productsLoading: ref(false), productsError: ref(''),
+    // 触底追加失败不覆盖已有目录，单独保存加载状态及重试提示。
+    productsLoadingMore: ref(false), productsMoreError: ref(''),
     productDetailRecord: ref<ProductProfile | null>(null), productDetailId: ref(0),
     productDetailLoading: ref(false), productDetailError: ref(''),
     productBomRecords: ref<Bom[]>([]), productChangeRecords: ref<ProductChange[]>([]),

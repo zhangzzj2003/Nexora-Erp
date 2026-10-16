@@ -47,6 +47,8 @@ const {
 // 登录、初始化和工作台共用内容区域与底栏。
 const isNumberingScreen = computed(() => screen.value === 'numbering')
 const isAuthScreen = computed(() => screen.value === 'setup' || screen.value === 'login')
+// 产品目录与 BOM 需要连续工作空间，仅此页采用紧凑标题，其他业务页仍沿用原布局。
+const isProductWorkspace = computed(() => screen.value === 'app' && activeTab.value === 'products')
 // 浏览器和 Linux 没有融合标题栏，仍在内容顶部提供统一导航与主题入口。
 const integratedTitleBar = usesIntegratedTitleBar(window.nexora?.platform)
 // 窄窗口与侧栏账号卡片共用角色名称规则，避免同一用户显示两种称呼。
@@ -66,8 +68,8 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
       </header>
       <!-- 标签独占标题栏下方、侧栏右侧的一行，不随业务内容滚动。 -->
       <WorkspaceTabs v-if="screen === 'app'" class="workspace-page-tabs" />
-      <div class="content-body" :class="{ 'auth-screen': isAuthScreen, 'numbering-onboarding': isNumberingScreen }">
-        <header v-if="!isNumberingScreen" class="topbar">
+      <div class="content-body" :class="{ 'auth-screen': isAuthScreen, 'numbering-onboarding': isNumberingScreen, 'product-catalog-screen': isProductWorkspace }">
+        <header v-if="!isNumberingScreen" class="topbar" :class="{ 'topbar--compact': isProductWorkspace }">
           <!-- 登录标题沿用侧栏的品牌图形，保持未登录和工作台的视觉识别一致。 -->
           <span v-if="isAuthScreen" class="auth-header-mark" aria-hidden="true">
             <img :src="nexoraLogo" alt="" />
@@ -151,5 +153,16 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
   margin: 12px 0 0;
   line-height: 1.7;
   font-size: 13px;
+}
+/* 保留英文标识的上下层级；主标题与右侧说明按中线对齐，字号不同也不显得上下错位。 */
+.content-body.product-catalog-screen { padding-block: 20px; }
+.topbar--compact { flex: none; gap: 12px; margin-bottom: 16px; }
+.topbar--compact .workspace-page-title { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 16px; min-width: 0; }
+.topbar--compact .eyebrow { flex-basis: 100%; }
+.topbar--compact h1 { margin: 0; font-size: clamp(26px,2.4vw,30px); line-height: 1.3; letter-spacing: -.025em; }
+.topbar--compact .workspace-page-description { margin: 0; font-size: 12px; line-height: 1.6; }
+@media (min-width: 761px) {
+  /* 两个业务区域独立滚动；内容区本身不再挤出第二根纵向滚动条。 */
+  .content-body.product-catalog-screen { display: flex; flex-direction: column; overflow: hidden; }
 }
 </style>

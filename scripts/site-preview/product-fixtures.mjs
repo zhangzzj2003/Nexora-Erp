@@ -9,6 +9,15 @@ export const productPreviewProfiles = [7,5,6].map((id,index)=>({id:index+1,mater
   can_sell:true,can_purchase:id!==7,can_produce:id!==6,
   configuration_name:id===6?'长续航版':'标准版',model_code:id===7?'A100':'PCBA',model_name:id===7?'A100 控制系列':'通用主控板',version:1,
   created_by:3,created_at:'2026-10-15 08:00:00',material:productPreviewMaterials.find(row=>row.id===id)}))
+// 仅显式启用滚动验收时追加目录样例，默认截图和业务示例仍保留原来的三个产品。
+const scrollMaterials = Array.from({length:48},(_,index)=>{
+  const suffix=String(index+1).padStart(2,'0')
+  return {...materials[4],id:100+index,sku:`EL-PC-90${String(index+1).padStart(4,'0')}`,
+    name:`滚动示例控制板 ${suffix}`,manufacturer_part_number:`DEMO-SCROLL-${suffix}`,
+    specification:`DC 24 V · 四路控制 · 虚构配置 ${suffix}`}
+})
+const scrollProfiles = scrollMaterials.map((material,index)=>({...productPreviewProfiles[1],
+  id:4+index,material_id:material.id,configuration_name:`示例配置 ${String(index+1).padStart(2,'0')}`,material}))
 // 系列总数来自完整档案，停用子机型仍计入；空系列用于检查删除确认状态。
 export const productPreviewModels = [{id:1,code:'A100',name:'A100 控制系列',notes:'虚构机型，仅用于界面验收',version:1,
   created_by:3,created_at:'2026-10-15 08:00:00'}, {id:2,code:'PCBA',name:'通用主控板',notes:'可供多个成品系列引用的半成品',version:1,created_by:3,created_at:'2026-10-15 08:00:00'},
@@ -35,21 +44,26 @@ export const productPreviewBoms = [
 })
 export const productPreviewOperations = ['queryProducts','productDetail','productChanges','productModels','productModelDetail',
  'productModelChanges','productBoms','bomDetail','boms','materials','materialUnits']
-export function productPreviewResponse(action,payload){
+export function productPreviewResponse(action,payload,options={scroll:false}){
+ const profiles=options.scroll===true?[...productPreviewProfiles,...scrollProfiles]:productPreviewProfiles
+ const availableMaterials=options.scroll===true?[...productPreviewMaterials,...scrollMaterials]:productPreviewMaterials
+ // 系列数量始终来自所选隔离数据集的全部档案，不随当前查询页或搜索内容变化。
+ const models=options.scroll===true?productPreviewModels.map(model=>({...model,
+   child_count:profiles.filter(row=>row.model_id===model.id).length})):productPreviewModels
  let result
  if(action==='queryProducts'){
-   const rows=productPreviewProfiles.filter(row=>(!payload.kind||row.kind===payload.kind)&&(!payload.model_id||row.model_id===payload.model_id)
+   const rows=profiles.filter(row=>(!payload.kind||row.kind===payload.kind)&&(!payload.model_id||row.model_id===payload.model_id)
      && [row.material.sku,row.material.name,row.configuration_name,row.model_name,row.material.specification].join(' ').toLowerCase().includes(payload.query.trim().toLowerCase()))
    const page=Math.min(payload.page,Math.max(1,Math.ceil(rows.length/payload.page_size)))
    result={items:rows.slice((page-1)*payload.page_size,page*payload.page_size),total:rows.length,page,page_size:payload.page_size}
- }else if(action==='productModels')result=productPreviewModels
- else if(action==='productDetail')result=productPreviewProfiles.find(row=>row.id===payload.id)
+ }else if(action==='productModels')result=models
+ else if(action==='productDetail')result=profiles.find(row=>row.id===payload.id)
  else if(action==='productChanges'||action==='productModelChanges')result=[]
- else if(action==='productModelDetail')result=productPreviewModels.find(row=>row.id===payload.id)
+ else if(action==='productModelDetail')result=models.find(row=>row.id===payload.id)
  else if(action==='productBoms')result=productPreviewBoms.filter(row=>row.product_material_id===payload.materialId)
  else if(action==='bomDetail')result=productPreviewBoms.find(row=>row.id===payload.bomId)
  else if(action==='boms')result=productPreviewBoms
- else if(action==='materials')result=productPreviewMaterials
+ else if(action==='materials')result=availableMaterials
  else if(action==='materialUnits')result=['个','件','块'].map((name,index)=>({id:index+1,name,enabled:true,notes:'',version:1,created_at:'2026-10-15 08:00:00',material_count:1}))
  if(result===undefined)throw Error('截图预览不支持此操作，未连接业务服务。')
  return structuredClone(result)

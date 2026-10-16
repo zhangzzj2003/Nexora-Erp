@@ -40,8 +40,9 @@ test('登录页占满窗口，进入工作台后侧栏与底栏同步过渡', ()
   // 未登录时不挂载侧栏，内容始终占第二列；同一个底栏随列宽变化移动。
   assert.match(shell, /:class="\{ 'has-sidebar': screen === 'app' \}"/)
   assert.match(shell, /<Transition name="sidebar-slide">\s*<WorkspaceSidebar v-if="screen === 'app'" \/>/)
-  // 编号引导新增独立布局类，登录页的原有布局条件仍须保留。
-  assert.match(shell, /:class="\{ 'auth-screen': isAuthScreen, 'numbering-onboarding': isNumberingScreen \}"/)
+  // 产品目录新增专属布局，但登录和编号引导必须继续使用各自的原有条件。
+  assert.match(shell, /:class="\{ 'auth-screen': isAuthScreen, 'numbering-onboarding': isNumberingScreen, 'product-catalog-screen': isProductWorkspace \}"/)
+  assert.match(shell, /const isProductWorkspace = computed\(\(\) => screen\.value === 'app' && activeTab\.value === 'products'\)/)
   assert.match(shell, /import \{ nexoraLogo \} from '\.\.\/assets\/brand'/)
   assert.match(shell, /<span v-if="isAuthScreen" class="auth-header-mark" aria-hidden="true">\s*<img :src="nexoraLogo" alt="" \/>/)
   assert.match(css, /\.app-shell \{[^}]*grid-template-columns: 0px minmax\(0, 1fr\);[^}]*transition: grid-template-columns/)
