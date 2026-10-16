@@ -38,7 +38,7 @@ async function fixture(t) {
       if (id === '\0bom-material-collapse') return `import {h} from 'vue';export default {props:['title'],setup:(p,{slots})=>()=>h('section',[h('h4',p.title),slots.default?.()])}`
       if (id === '\0bom-material-button') return `import {h} from 'vue';export default {props:['disabled','type','variant'],setup:(p,{attrs,slots})=>()=>h('button',{...attrs,...p},slots.default?.())}`
       if (id === '\0bom-material-table') return `import {h} from 'vue';export default {props:['data','columns'],setup:(p,{slots})=>()=>h('table',[
-        h('thead',h('tr',p.columns.map(column=>h('th',{'data-column':column.key},column.title)))),
+        h('thead',h('tr',p.columns.map(column=>h('th',{'data-column':column.key,'data-width':column.width},column.title)))),
         h('tbody',p.data.map(row=>h('tr',{'data-key':row.key},p.columns.map(column=>h('td',{'data-column':column.key},slots['cell-'+column.key]?.({row}))))))])}`
     }
   }], optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' })
@@ -75,15 +75,28 @@ async function fixture(t) {
     for (const callback of [node.props.onClickCapture, node.props.onClick].flat().filter(Boolean)) callback(event)
     return event
   }
-  return { props, board, rootBom, materials, recipes, origins, nodes, text, row, cell, button, press,
+  return { props, board, rootBom, materials, recipes, origins, nodes, descendants: all, text, row, cell, button, press,
     bodyRows: () => nodes().filter(node => node.tag === 'tr' && node.props['data-key']) }
 }
 
-test('物料编号独立放在首列，名称列不再重复编号，普通物料和 PCB 点击只打开对应物料', async t => {
+test('树形控制与物料编号合并最左列，名称保持独立，普通物料和 PCB 点击只打开对应物料', async t => {
   const f = await fixture(t)
   const headings = f.nodes().filter(node => node.tag === 'th')
   assert.deepEqual(headings.map(node => node.props['data-column']), ['sku', 'component', 'quantity', 'unit', 'recipe'])
   assert.equal(f.text(headings[0]), '物料编号')
+  assert.equal(Number(headings[0].props['data-width']), 200)
+  // 箭头和圆点并入编号列，名称列不再预留树形装饰；普通叶节点仅有编号详情按钮。
+  assert.ok(f.descendants(f.cell('1/11', 'sku')).includes(f.button('展开PCB 控制板的组成')))
+  const ordinarySku = f.descendants(f.cell('1/12', 'sku'))
+  assert.ok(ordinarySku.some(node => String(node.props.class ?? '').includes('structure-leaf')))
+  assert.deepEqual(ordinarySku.filter(node => node.tag === 'button'), [f.button('查看物料 MAT-40 的详情')])
+  for (const key of ['1/11', '1/12']) {
+    assert.ok(f.descendants(f.cell(key, 'sku')).some(node => Object.values(node.props.style ?? {}).includes('0px')))
+    const nameNodes = f.descendants(f.cell(key, 'component'))
+    assert.equal(nameNodes.some(node => node.tag === 'button' || node.tag === 'svg'), false)
+    assert.equal(nameNodes.some(node => /structure-(?:toggle|chevron|leaf|tree)/.test(String(node.props.class ?? ''))), false)
+    assert.equal(nameNodes.some(node => node.props.style && ('paddingLeft' in node.props.style || '--structure-indent' in node.props.style)), false)
+  }
   assert.match(f.text(f.cell('1/11', 'component')), /PCB 控制板/)
   assert.doesNotMatch(f.text(f.cell('1/11', 'component')), /MAT-20/)
   assert.match(f.text(f.cell('1/11', 'sku')), /MAT-20/)
@@ -110,6 +123,16 @@ test('嵌套编号定位真实组件，展开、配方详情和物料详情各�
   f.press(f.button('展开PCB 控制板的组成')); await settle()
   assert.equal(f.bodyRows().length, 3)
   assert.deepEqual(f.materials, []); assert.deepEqual(f.recipes, [])
+  // 展开后仅编号格内的树形分支缩进，名称列始终沿同一条文本起点排列。
+  const skuHeading = f.nodes().find(node => node.tag === 'th' && node.props['data-column'] === 'sku')
+  assert.equal(Number(skuHeading.props['data-width']), 216)
+  const nestedTree = f.descendants(f.cell('1/11/21', 'sku'))
+  assert.ok(nestedTree.some(node => Object.values(node.props.style ?? {}).includes('16px')))
+  assert.ok(nestedTree.some(node => String(node.props.class ?? '').includes('is-nested')))
+  assert.deepEqual(nestedTree.filter(node => node.tag === 'button'), [f.button('查看物料 MAT-30 的详情')])
+  const nestedName = f.descendants(f.cell('1/11/21', 'component'))
+  assert.equal(nestedName.some(node => node.tag === 'button' || node.tag === 'svg' || /structure-(?:toggle|chevron|leaf|tree)/.test(String(node.props.class ?? ''))), false)
+  assert.equal(nestedName.some(node => node.props.style && ('paddingLeft' in node.props.style || '--structure-indent' in node.props.style)), false)
   assert.match(f.text(f.cell('1/11/21', 'component')), /板内电阻/)
   assert.doesNotMatch(f.text(f.cell('1/11/21', 'component')), /MAT-30/)
   f.press(f.button('查看物料 MAT-30 的详情')); await settle()

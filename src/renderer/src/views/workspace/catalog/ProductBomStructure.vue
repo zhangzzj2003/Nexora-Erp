@@ -29,24 +29,24 @@ function openMaterial(row:BomStructureRow, event:MouseEvent): void {
   captureDialogOrigin('inventory-material', event)
   emit('material', row)
 }
-// 编号放在首列便于定位物料；名称列保留树形缩进，数量、单位和配方列采用紧凑的最小宽度。
-const columns = [{key:'sku',title:'物料编号',width:'165'}, {key:'component',title:'组件 / 多层组成',width:'280'}, {key:'quantity',title:'用量',width:'90'},
-  {key:'unit',title:'单位',width:'60'}, {key:'recipe',title:'下层生产配方',width:'200'}]
+// 展开入口紧邻编号，按当前可见层级留出缩进，名称列保持对齐且无需额外的空白控制列。
+const columns = computed(() => [{key:'sku',title:'物料编号',width:String(200 + Math.max(0,...rows.value.map(row => row.depth)) * 16)},
+  {key:'component',title:'组件 / 多层组成',width:'280'}, {key:'quantity',title:'用量',width:'90'},
+  {key:'unit',title:'单位',width:'60'}, {key:'recipe',title:'下层生产配方',width:'200'}])
 </script>
 <template>
   <section class="bom-composition" aria-label="BOM 组成明细">
     <header class="structure-heading"><div><h4>组成明细</h4><span class="structure-basis">基准产出 <strong>{{ bom.base_quantity }} {{ bom.product_unit }}</strong><span class="structure-count">{{ bom.lines.length }} 项直接组件</span></span></div>
       <NCollapse class="structure-help"><AppCollapseItem name="production-notes" title="领料与版本说明"><p>生产领用第一层物料；展开下层仅查看其组成，不重复扣料。同一编码库存按可互换管理。固定版本约束配方，不区分实物库存版本。</p></AppCollapseItem></NCollapse>
     </header>
-    <WorkspaceTable class="structure-table" :title="`组成明细 · V${bom.version}`" :show-title="false" :data="rows" :columns="columns" :min-table-width="860">
-    <template #cell-component="{row}"><div class="structure-component" :class="{'is-assembly':!!row.childBom,'is-nested':row.depth>0}" :style="{'--structure-indent':`${row.depth * 22}px`}">
-      <!-- 展开箭头与普通物料占用相同宽度，名称保持对齐；实际展开仍沿用每条分支的独立键。 -->
+    <WorkspaceTable class="structure-table" :title="`组成明细 · V${bom.version}`" :show-title="false" :data="rows" :columns="columns" :min-table-width="895">
+    <template #cell-sku="{row}"><div class="structure-tree" :class="{'is-nested':row.depth>0}" :style="{'--structure-indent':`${row.depth * 16}px`}">
+      <!-- 树形入口与编号共用单元格但分别响应点击，展开不会打开详情，编号也不会展开分支。 -->
       <AppButton v-if="row.childBom && row.issue !== '存在循环引用' && row.depth < 20" variant="plain" class="structure-toggle" size="small" :aria-expanded="row.expanded" :aria-label="`${row.expanded ? '收起' : '展开'}${row.name}的组成`" :title="`${row.expanded ? '收起' : '展开'}下层组成`" :disabled="disabled" @click="toggle(row.key)"><IconArrowRightSLine class="structure-chevron" :class="{'is-expanded':row.expanded}" aria-hidden="true" focusable="false" /></AppButton>
       <span v-else class="structure-leaf" aria-hidden="true"><span /></span>
-      <div class="structure-material"><strong>{{ row.name }}</strong><p v-if="row.issue" role="status">{{ row.issue }}</p></div>
+      <AppButton variant="text" class="structure-sku" size="small" :disabled="disabled" :aria-label="`查看物料 ${row.sku} 的详情`" @click="openMaterial(row,$event)">{{ row.sku }}</AppButton>
     </div></template>
-    <!-- 编号与名称分列；物料详情与右侧配方详情使用各自的入口，不触发树形展开。 -->
-    <template #cell-sku="{row}"><AppButton variant="text" class="structure-sku" size="small" :disabled="disabled" :aria-label="`查看物料 ${row.sku} 的详情`" @click="openMaterial(row,$event)">{{ row.sku }}</AppButton></template>
+    <template #cell-component="{row}"><div class="structure-material" :class="{'is-assembly':!!row.childBom}"><strong>{{ row.name }}</strong><p v-if="row.issue" role="status">{{ row.issue }}</p></div></template>
     <template #cell-quantity="{row}"><span class="structure-quantity">{{ row.quantity }}</span></template><template #cell-unit="{row}">{{ row.unit }}</template>
     <template #cell-recipe="{row}">
       <!-- 固定配方与当前参考保留完整语义和原详情入口，仅通过轻量样式区分绑定方式。 -->
@@ -69,13 +69,14 @@ const columns = [{key:'sku',title:'物料编号',width:'165'}, {key:'component',
 .structure-help { width:auto; max-width:420px; font-size:12px; line-height:1.7; color:var(--workspace-field-muted); }
 .structure-help :deep(.app-collapse-trigger) { color:var(--workspace-field-accent); font-size:12px; }
 .structure-help p { margin:8px 0 0; }
-/* 固定宽度的树形入口让普通物料与有下层配方的组件对齐，分支线只提示真实的嵌套层级。 */
-.structure-component { position:relative; display:grid; grid-template-columns:26px minmax(0,1fr); align-items:center; gap:8px; min-width:0; padding-left:var(--structure-indent); }
-.structure-component.is-nested::before { content:''; position:absolute; left:calc(var(--structure-indent) - 12px); top:2px; width:9px; height:18px; border-left:1px solid var(--workspace-field-border); border-bottom:1px solid var(--workspace-field-border); border-bottom-left-radius:4px; }
+/* 固定图标宽度与紧凑间距让同层编号对齐，层级提示仅作用于编号列，名称保持平齐。 */
+.structure-tree { position:relative; display:grid; grid-template-columns:26px minmax(0,1fr); align-items:center; gap:6px; min-height:26px; padding-left:var(--structure-indent); }
+.structure-tree.is-nested::before { content:''; position:absolute; left:calc(var(--structure-indent) - 12px); top:2px; width:9px; height:18px; border-left:1px solid var(--workspace-field-border); border-bottom:1px solid var(--workspace-field-border); border-bottom-left-radius:4px; }
 .structure-material { min-width:0; }
 .structure-material strong { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
-.is-assembly>.structure-material>strong { color:var(--workspace-field-accent); }
-.structure-sku { font-size:12px; font-weight:500; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; text-align:left; }
+.structure-material.is-assembly>strong { color:var(--workspace-field-accent); }
+/* 按钮默认居中；显式靠左才能让不同长度的编号都紧邻树形入口。 */
+.structure-sku { justify-self:start; justify-content:flex-start; max-width:100%; font-size:12px; font-weight:500; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; text-align:left; }
 .structure-material p { margin:5px 0 0; color:var(--structure-warning-color); font-size:12px; }
 .structure-toggle { display:inline-grid; place-items:center; width:26px; height:26px; padding:0; border-radius:6px; background:var(--app-accent-tint); color:var(--workspace-field-accent); }
 .structure-toggle:hover:not(:disabled) { background:var(--app-accent-active-tint); }
