@@ -153,7 +153,6 @@ watch(() => props.models.map(model=>model.id).join(','), () => {
             <IconArrowDownSLine class="series-chevron" :class="{'is-collapsed':!isExpanded(model.id)}" aria-hidden="true" focusable="false" />
             <IconFolder3Line class="series-folder" aria-hidden="true" focusable="false" />
             <span class="series-label"><strong :title="model.name">{{ model.name }}</strong><small :title="model.code">{{ model.code }}</small></span>
-            <span v-if="model.child_count !== undefined" class="series-count" :aria-label="`${model.child_count} 个子机型`">{{ model.child_count }}</span>
           </AppButton>
             <!-- 图标入口保留独立确认与语义危险色，避免整行常驻红字抢走目录层级。 -->
             <AppButton v-if="canManage" class="tree-series-delete" variant="plain" tone="error" size="small" :title="`删除产品系列 ${model.name}`" :aria-label="`删除产品系列 ${model.name}`" :disabled="busy || disconnected"
@@ -212,9 +211,9 @@ header h3 { margin:0; font-size:14px; }
 .tree-roots,.tree-children { list-style:none; padding:0; margin:0; }
 .tree-roots>li { margin-top:8px; }
 .tree-all,.tree-series,.tree-model { width:100%; min-width:0; padding:8px 10px; border-radius:8px; text-align:left; white-space:normal; }
-/* 系列名、编码和数量各有固定位置，图标操作留在独立网格列，不挤压名称。 */
+/* 系列只展示名称和编码，图标操作留在独立网格列，不挤压名称。 */
 .tree-series-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:4px; padding:2px; border:1px solid transparent; border-radius:10px; }
-.tree-series { display:grid; grid-template-columns:12px 16px minmax(0,1fr) auto; align-items:center; justify-content:initial; gap:8px; min-height:44px; padding:6px; }
+.tree-series { display:grid; grid-template-columns:12px 16px minmax(0,1fr); align-items:center; justify-content:initial; gap:8px; min-height:44px; padding:6px; }
 .series-label { display:grid; justify-items:start; gap:2px; min-width:0; }
 .series-label strong,.series-label small { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .series-label strong { font-size:13px; line-height:18px; }
@@ -222,7 +221,6 @@ header h3 { margin:0; font-size:14px; }
 .series-chevron { width:12px; height:12px; color:var(--workspace-field-muted); transition:transform 160ms ease; }
 .series-chevron.is-collapsed { transform:rotate(-90deg); }
 .series-folder { width:16px; height:16px; color:var(--workspace-field-muted); }
-.series-count { display:inline-grid; place-items:center; min-width:20px; height:20px; padding:0 6px; border-radius:999px; background:var(--app-accent-tint); color:var(--workspace-field-muted); font-size:11px; font-variant-numeric:tabular-nums; box-sizing:border-box; }
 /* 只压低 SVG 的静态颜色，按钮本身沿用 error 主题；悬停和键盘聚焦时恢复其语义色。 */
 .tree-series-delete { display:grid; place-items:center; width:32px; min-width:32px; height:32px; padding:0; border-radius:8px; }
 .series-delete-icon { width:16px; height:16px; color:var(--workspace-field-muted); }
@@ -236,7 +234,6 @@ strong { font-size:13px; overflow-wrap:anywhere; }
 .tree-all { display:flex; justify-content:flex-start; text-align:left; color:var(--workspace-field-muted); }
 .tree-series-row.is-current { background:var(--app-accent-tint); color:var(--workspace-field-accent); }
 .tree-series-row.is-current .series-folder,.tree-series-row.is-current .series-chevron { color:inherit; }
-.tree-series-row.is-current .series-count { background:var(--app-modal-surface); color:var(--workspace-field-accent); }
 .tree-children { margin:4px 0 8px 15px; padding-left:10px; border-left:1px solid var(--workspace-field-border); }
 .tree-model { margin-bottom:4px; border:1px solid transparent; }
 .tree-model.is-active { border-color:var(--workspace-field-accent); background:var(--app-accent-tint); color:var(--workspace-field-accent); }

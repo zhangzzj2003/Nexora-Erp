@@ -74,8 +74,10 @@ async function fixture(t,extra={}) {
 test('点击 A 只收起当前系列，B 和未归组 PCB 保持真实节点，展开全部不改变新建归属',async t=>{
   const f=await fixture(t,{models:[{...models[0],child_count:37},models[1]]}),query=JSON.stringify(f.props.query)
   assert.ok(f.button('A 系列整机'));assert.ok(f.button('B 系列整机'));assert.ok(f.button('PCB 半成品'))
-  assert.match(f.nodeText(f.button('系列1')),/37/,'系列计数来自完整档案，不使用当前已加载的一个节点替代')
-  assert.ok(f.nodes().some(node=>node.props['aria-label']==='37 个子机型'))
+  // 系列行不再绘制数量徽标，完整计数仍随原系列资料传入删除确认。
+  assert.doesNotMatch(f.nodeText(f.button('系列1')),/37/)
+  assert.equal(f.nodes().some(node=>node.props['aria-label']==='37 个子机型'),false)
+  assert.match(f.text(),/60 个子机型/,'目录顶部仍显示完整查询总数')
   const remove=f.button('删除产品系列 系列1')
   assert.ok(remove,'图标按钮仍提供明确的可访问名称')
   assert.equal(remove.props['aria-label'],'删除产品系列 系列1')
