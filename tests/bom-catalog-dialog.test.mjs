@@ -5,6 +5,7 @@ import { renderToString } from '@vue/server-renderer'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { bomDraftIssue, bomComponentOptions } from '../src/renderer/src/views/workspace/catalog/bom-form.ts'
+import { validateProductResult } from '../src/shared/product-api.ts'
 
 const materials = [1, 2, 3].map(id => ({ id, sku: `MAT-${id}`, name: `物料${id}`, unit: '个' }))
 const draft = () => ({ product_material_id: 3, base_quantity: '1', note: '版本说明', lines: [{ component_material_id: 1, quantity: '0.125' }] })
@@ -34,11 +35,24 @@ test('BOM 草稿校验自身引用、重复、失效、空明细及数量边界'
 })
 
 const storeSource = `import {ref} from 'vue'
-export const state={error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),materialCategories:ref([]),materials:ref(${JSON.stringify(materials)}),boms:ref([]),bomForm:ref(${JSON.stringify(draft())}),can:()=>true,localTime:()=>'',activateBom:()=>{},retireBom:()=>{},cancelBom:()=>{}}
+export const state={error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),
+ user:ref({id:1,permissions:['production.view','bom.create']}),server:ref({id:'bom-dialog',fingerprint:'test-cert'}),
+ materialCategories:ref([]),materials:ref(${JSON.stringify(materials)}),boms:ref([]),bomForm:ref(${JSON.stringify(draft())}),can:()=>true,localTime:()=>'',activateBom:()=>{},retireBom:()=>{},cancelBom:()=>{}}
 export let calls=0
 export let fail=true
+export let savedBom
 export const setFail=value=>{fail=value}
-state.createBom=async()=>{calls++;if(fail){state.error.value='保存失败';return}state.error.value='';state.notice.value='已保存';state.bomForm.value={product_material_id:0,base_quantity:'1',note:'',lines:[{component_material_id:0,quantity:'1'}]}}
+// 成功回执采用实际 BOM 协议，不能再靠写入提示文字假装保存成功。
+state.createBom=async()=>{calls++;if(fail){state.error.value='保存失败';return}
+ const form=state.bomForm.value,product=state.materials.value.find(row=>row.id===form.product_material_id)
+ savedBom={id:31,version:1,status:'draft',product_material_id:product.id,product_name:product.name,
+  product_sku:product.sku,product_unit:product.unit,product_can_produce:true,base_quantity:form.base_quantity,note:form.note,
+  source_bom_id:null,source_bom:null,created_by:1,created_by_name:'测试管理员',created_at:'2026-10-16 08:00:00',
+  activated_by:null,activated_at:null,retired_by:null,retired_at:null,cancelled_by:null,cancelled_at:null,
+  lines:form.lines.map((line,index)=>{const material=state.materials.value.find(row=>row.id===line.component_material_id)
+   return {id:index+1,component_material_id:material.id,sku:material.sku,material_name:material.name,unit:material.unit,quantity:line.quantity}})}
+ state.error.value='';state.notice.value='已保存';state.bomForm.value={product_material_id:0,base_quantity:'1',note:'',lines:[{component_material_id:0,quantity:'1'}]}
+ return savedBom}
 export const useAppStore=()=>state`
 const modalSource = `import {defineComponent,h} from 'vue'
 export const captured={}
@@ -124,6 +138,8 @@ test('BOM 共用弹窗编辑原草稿，删除后不串行，保存失败保留�
   assert.equal(captured.props.show,true)
   store.setFail(false)
   await submit();assert.equal(store.calls,2)
+  assert.doesNotThrow(()=>validateProductResult('bomDetail',store.savedBom))
+  assert.equal(store.savedBom.product_material_id,3)
   assert.equal(viewVNode.component.setupState.createOpen,false)
   state.can=()=>false
   assert.doesNotMatch(await render(),/data-modal=/)

@@ -26,7 +26,8 @@ const storeSource = `import { ref, reactive } from 'vue'
 export const state = {}
 export const editLoads=[]
 for(const key of ${JSON.stringify(['materials','suppliers','warehouses','purchaseRequests','purchaseOrders','otherOutbounds','warehouseOutbounds','goodsReceipts','purchaseReturns','transfers','stocktakes','stockAdjustments','salesOrders','shipments','salesReturns','boms','workOrders','materialIssues','materialReturns','receipts'])})state[key]=ref([])
-Object.assign(state,{busy:ref(false),connectionLost:ref(false),error:ref(''),notice:ref(''),version:ref('0.1.0'),user:ref({id:1,permissions:[]}),
+// 共享 BOM 编辑器按账号与证书识别会话，物料单据 mock 也保留完整的会话引用。
+Object.assign(state,{busy:ref(false),connectionLost:ref(false),error:ref(''),notice:ref(''),version:ref('0.1.0'),user:ref({id:1,permissions:[]}),server:ref({id:'material-documents',fingerprint:'test-cert'}),
  adjustmentDecisionReasons:ref({}),adjustmentReversalReasons:ref({}),otherOutboundReversalReasons:ref({}),transferReversalReasons:ref({}),stocktakeReversalReasons:ref({}),salesReturnReversalReasons:ref({}),requestRejectReasons:ref({}),
  can:()=>true,localTime:()=>'',openCustomers:()=>{},editPurchaseRequest:id=>{editLoads.push(id);state.purchaseRequestForm.value={...state.purchaseRequestForm.value,requestId:id??null,lines:[{material_id:0,quantity:'1',unit_price:'',line_total:'',pricing_mode:'unit_price'}]}}})
 state.materialCategories=ref([])

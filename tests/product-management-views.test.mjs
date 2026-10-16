@@ -7,6 +7,13 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
+const componentRenderer=()=>createRenderer({createElement:()=>({}),createText:()=>({}),createComment:()=>({}),insert(){},remove(){},
+ setText(){},setElementText(){},patchProp(){},parentNode:()=>null,nextSibling:()=>null})
+async function click(button) {
+ const handlers=button.attrs.onClick
+ for(const handler of Array.isArray(handlers)?handlers:[handlers])await handler()
+}
+
 // 保留产品页、共享 BOM 编辑器与详情真实组件，仅替换需要 DOM 的绘制控件。
 async function fixture(t) {
  const server=await createServer({configFile:false,plugins:[{name:'product-views',enforce:'pre',resolveId(id,importer){
@@ -63,7 +70,9 @@ async function fixture(t) {
  let setup;const overrides={}, beforeRender={}, components={}
  const render=async()=>{buttons.length=0;tables.length=0;paginations.length=0;selects.length=0
    const app=createSSRApp(View).use(pinia).use(router)
-   app.mixin({async serverPrefetch(){if(this.$options.__name==='ProductsView'){await store.queryProducts();const id=store.productDetailId || store.productResult?.items[0]?.id;if(id)await store.openProduct(id);beforeRender.apply?.(store)}},created(){components[this.$options.__name]=this.$.setupState;if(this.$options.__name==='ProductsView'){setup=this.$.setupState;for(const[key,value]of Object.entries(overrides))setup[key]=value}}})
+   app.mixin({async serverPrefetch(){if(this.$options.__name==='ProductsView'){await store.queryProducts();const id=store.productDetailId || store.productResult?.items[0]?.id;if(id)await store.openProduct(id);beforeRender.apply?.(store);
+    // 模拟用户在详情读取完成后打开目标弹窗，不让初始化选中事件误清测试意图。
+    for(const[key,value]of Object.entries(overrides))this.$.setupState[key]=value}},created(){components[this.$options.__name]=this.$.setupState;if(this.$options.__name==='ProductsView')setup=this.$.setupState}})
    return renderToString(app)
  }
  await store.queryProducts()
@@ -79,13 +88,27 @@ async function fixture(t) {
  }
  const mountView=async()=>{
   // 真实监听必须持续挂载，才能发现追加元数据误触发“选择新页首项”的回归。
-  const renderer=createRenderer({createElement:()=>({}),createText:()=>({}),createComment:()=>({}),insert(){},remove(){},
-    setText(){},setElementText(){},patchProp(){},parentNode:()=>null,nextSibling:()=>null})
+  const renderer=componentRenderer()
+  let liveSetup
   const app=renderer.createApp({render:()=>h({...View,render:()=>null})}).use(pinia).use(router)
+  app.mixin({created(){if(this.$options.__name==='ProductsView')liveSetup=this.$.setupState}})
   app.provide(ssrContextKey,{modules:new Set()});app.mount({});t.after(()=>app.unmount())
   await new Promise(done=>setImmediate(done));await nextTick()
+  return liveSetup
  }
- return {store,source,product,render,renderLegacyBom,renderWorkOrders,renderTree,mountView,treeProps,treeEvents,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,components,get setup(){return setup}}
+ const mountBom=async(props,handlers)=>{
+  // 保存会更新受控 show 属性；持续挂载才能覆盖关闭完成后派发 saved 的真实时序。
+  const controlled=reactive({...props}),savedRecords=[],Editor={...LegacyBom,render:()=>null}
+  const app=componentRenderer().createApp({render:()=>h(Editor,{...controlled,
+   'onUpdate:show':show=>{controlled.show=show;handlers.update?.(show)},
+   onSaved:bom=>{savedRecords.push(bom);return handlers.saved?.(bom)}})}).use(pinia).use(router)
+  app.mixin({created(){if(this.$options.__name==='BomEditor')components.BomEditor=this.$.setupState}})
+  let unmounted=false
+  const unmount=()=>{if(!unmounted){unmounted=true;app.unmount()}}
+  app.provide(ssrContextKey,{modules:new Set()});app.mount({});t.after(unmount);await nextTick()
+  return {controlled,savedRecords,unmount}
+ }
+ return {store,source,product,render,renderLegacyBom,renderWorkOrders,renderTree,mountView,mountBom,treeProps,treeEvents,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,components,get setup(){return setup}}
 }
 
 // 标题由公共工作台生成；只替换导航和业务页，保留外壳的真实条件渲染。
@@ -323,6 +346,203 @@ test('产品详情复用 BOM 编辑器派生，快捷建档保留组件，来源
  await f.buttons.find(b=>b.label==='创建生产工单').attrs.onClick()
  assert.equal(f.router.currentRoute.value.path,'/workspace/work-orders')
  assert.equal(f.router.currentRoute.value.query.create_from_bom,'7')
+})
+
+test('产品工作区直接编辑当前产品，编辑权限和 BOM 创建权限相互独立',async t=>{
+ const f=await fixture(t)
+ let html=await f.render()
+ assert.match(html,/编辑产品/);assert.match(html,/修订 BOM/)
+ await f.buttons.find(row=>row.label==='编辑产品').attrs.onClick()
+ assert.equal(f.store.productEditorOpen,true)
+ assert.equal(f.store.productForm.mode,'edit');assert.equal(f.store.productForm.id,1)
+ assert.equal(f.store.productForm.material_id,11);assert.equal(f.store.productForm.version,1)
+ f.store.productEditorOpen=false
+ f.store.user={...f.store.user,permissions:['inventory.view','production.view','bom.create']}
+ html=await f.render()
+ assert.doesNotMatch(html,/编辑产品/);assert.match(html,/修订 BOM/)
+ await f.setup.editProduct();assert.equal(f.store.productEditorOpen,false)
+ f.setup.reviseBom();assert.equal(f.store.bomForm.source_bom_id,7)
+ f.store.user={...f.store.user,permissions:['inventory.view','catalog.manage']}
+ html=await f.render()
+ assert.match(html,/编辑产品/);assert.doesNotMatch(html,/修订 BOM/)
+ const draft=JSON.stringify(f.store.bomForm)
+ f.setup.reviseBom();assert.equal(JSON.stringify(f.store.bomForm),draft)
+ f.store.user={...f.store.user,permissions:['inventory.view','production.view']}
+ html=await f.render();assert.doesNotMatch(html,/编辑产品|修订 BOM/)
+})
+
+// 修订是从所选历史配方创建独立草稿，保存失败与收起都不能覆盖用户的修改。
+test('修订所选历史 BOM 保留来源与旧数组，失败关闭重开仍保留数量及组件草稿',async t=>{
+ const f=await fixture(t)
+ f.source.version=3
+ const history={...f.source,id:8,version:2,status:'retired',base_quantity:'2',
+  lines:[{...f.source.lines[0],quantity:'5'}]}
+ const original=JSON.stringify([f.source,history])
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='productBoms')return [f.source,history]
+  if(action==='createBom'){f.calls.push([action,payload]);throw Error('组件配方已变更，请修正后重试')}
+  return previous(action,payload)
+ }
+ await f.render()
+ f.selects.find(row=>row.attrs['aria-label']==='选择 BOM 版本').attrs['onUpdate:modelValue'](8)
+ await click(f.buttons.find(row=>row.label==='修订 BOM'))
+ assert.equal(f.setup.revisingBomVersion,2)
+ assert.equal(f.store.bomForm.source_bom_id,8);assert.equal(f.store.bomForm.base_quantity,'2')
+ assert.equal(f.store.bomForm.lines[0].quantity,'5')
+ f.store.materials.push({...f.product.material,id:44,sku:'EL-IC-44',name:'替换芯片'})
+ const draftLine=f.store.bomForm.lines[0]
+ draftLine.component_material_id=44;draftLine.quantity='9';f.store.bomForm.note='修订中的用料'
+ assert.equal(JSON.stringify([f.source,history]),original)
+ f.overrides.selectedBomId=8;f.overrides.bomOpen=true;f.overrides.bomTargetId=11;f.overrides.revisingBomVersion=2
+ let html=await f.render()
+ assert.match(html,/data-modal="修订 BOM · V2"/)
+ assert.match(html,/派生来源 BOM #8/);assert.match(html,/原版本及已有工单保持不变/)
+ assert.equal(f.buttons.some(row=>row.label==='保存为新版本草稿'),true)
+ await f.components.BomEditor.submitCreate()
+ assert.match(f.store.error,/组件配方已变更/);assert.equal(f.setup.bomOpen,true)
+ const payload=f.calls.find(([action])=>action==='createBom')[1]
+ assert.equal(payload.source_bom_id,8);assert.equal(payload.product_material_id,11)
+ assert.equal(payload.lines[0].component_material_id,44);assert.equal(payload.lines[0].quantity,'9')
+ f.buttons.find(row=>row.label==='收起').attrs.onClick()
+ assert.equal(f.setup.bomOpen,false)
+ f.setup.reviseBom()
+ assert.equal(f.setup.bomOpen,true);assert.equal(f.store.bomForm.lines[0],draftLine)
+ assert.equal(f.store.bomForm.lines[0].quantity,'9');assert.equal(f.store.bomForm.note,'修订中的用料')
+ assert.equal(JSON.stringify([f.source,history]),original)
+ // 普通新建继续使用原有编辑器标题，不把修订标记带入另一份草稿。
+ f.setup.startBom();f.overrides.revisingBomVersion=f.setup.revisingBomVersion
+ html=await f.render();assert.match(html,/data-modal="新建 BOM 版本"/)
+ assert.doesNotMatch(html,/data-modal="修订 BOM/)
+})
+
+test('修订和编辑入口拒绝忙碌、断线、加载错误、已取消版本及错误产出',async t=>{
+ const f=await fixture(t)
+ await f.render()
+ f.store.bomForm.note='不得被覆盖的草稿'
+ const draft=JSON.stringify(f.store.bomForm)
+ for(const blocked of ['busy','productDetailLoading','productDetailError']){
+  f.beforeRender.apply=store=>{store[blocked]=blocked==='productDetailError'?'读取失败':true}
+  await f.render()
+  assert.equal(f.buttons.find(row=>row.label==='编辑产品').props.disabled,true)
+  const revise=f.buttons.find(row=>row.label==='修订 BOM')
+  if(revise)assert.equal(revise.props.disabled,true)
+  await f.setup.editProduct();f.setup.reviseBom()
+  assert.equal(f.store.productEditorOpen,false);assert.equal(JSON.stringify(f.store.bomForm),draft)
+  f.store[blocked]=blocked==='productDetailError'?'':false
+ }
+ f.beforeRender.apply=store=>{store.productBomRecords=[{...f.source,status:'cancelled'}]}
+ await f.render()
+ assert.equal(f.buttons.find(row=>row.label==='修订 BOM').props.disabled,true)
+ f.setup.reviseBom();assert.equal(JSON.stringify(f.store.bomForm),draft)
+ f.beforeRender.apply=store=>{store.productBomRecords=[{...f.source,product_material_id:99}]}
+ await f.render();f.setup.reviseBom();assert.equal(JSON.stringify(f.store.bomForm),draft)
+ f.beforeRender.apply=undefined
+ await f.render();f.store.connectionLost=true
+ await f.setup.editProduct();f.setup.reviseBom()
+ assert.equal(f.store.productEditorOpen,false);assert.equal(JSON.stringify(f.store.bomForm),draft)
+})
+
+// 刷新期间可能出现别人的更高版本，当前选择必须跟随本次保存的真实回执。
+test('修订保存后选中自己的新草稿回执，不猜并发产生的最新版本',async t=>{
+ const f=await fixture(t)
+ f.source.version=3
+ const history={...f.source,id:8,version:2,status:'retired',base_quantity:'2',lines:f.source.lines.map(row=>({...row,quantity:'5'}))}
+ const saved={...f.source,id:90,version:4,status:'draft',base_quantity:'2',source_bom_id:8,
+  lines:f.source.lines.map(row=>({...row,id:90,quantity:'9'}))}
+ const competing={...saved,id:120,version:5}
+ let created=false
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='productBoms')return created?[competing,saved,f.source,history]:[f.source,history]
+  if(action==='createBom'){f.calls.push([action,payload]);created=true;return saved}
+  return previous(action,payload)
+ }
+ await f.render();f.setup.selectVersion(8);f.setup.reviseBom()
+ f.store.bomForm.lines[0].quantity='9'
+ f.overrides.selectedBomId=8;f.overrides.bomOpen=true;f.overrides.bomTargetId=11;f.overrides.revisingBomVersion=2
+ await f.render()
+ const editor=await f.mountBom({show:f.setup.bomOpen,targetMaterialId:f.setup.bomTargetId,sourceVersion:f.setup.revisingBomVersion},
+  {update:show=>{f.setup.bomOpen=show},saved:bom=>f.setup.afterBomSaved(bom)})
+ await f.components.BomEditor.submitCreate()
+ await new Promise(done=>setImmediate(done));await nextTick()
+ assert.equal(f.setup.bomOpen,false)
+ assert.equal(editor.controlled.show,false);assert.equal(editor.savedRecords[0].id,90)
+ assert.equal(f.setup.selectedBom.id,90);assert.equal(f.setup.selectedBom.version,4)
+ assert.equal(f.setup.selectedBom.status,'draft')
+ assert.equal(f.store.productBomRecords.some(row=>row.id===120),true)
+ assert.equal(history.lines[0].quantity,'5');assert.equal(f.source.lines[0].quantity,'2')
+ assert.equal(f.calls.filter(([action])=>action==='createBom').length,1)
+})
+
+test('合法 BOM 回执不依赖成功提示，saved 回调换账号时不关闭另一会话弹窗',async t=>{
+ const f=await fixture(t)
+ await f.render();f.setup.reviseBom()
+ const receipt={...f.source,id:90,version:2,status:'draft',source_bom_id:7}
+ f.store.createBom=async()=>receipt
+ f.store.notice='';f.store.error='BOM 已保存，但资料刷新失败'
+ let switchAccount=false
+ const editor=await f.mountBom({show:true,targetMaterialId:11,sourceVersion:1},{saved:()=>{
+  if(switchAccount)f.store.user={...f.store.user,id:2}
+ }})
+ await f.components.BomEditor.submitCreate();await nextTick()
+ assert.equal(editor.savedRecords[0].id,90);assert.equal(editor.controlled.show,false)
+ assert.equal(f.store.notice,'');assert.match(f.store.error,/刷新失败/)
+ editor.controlled.show=true;await nextTick();switchAccount=true
+ await f.components.BomEditor.submitCreate();await nextTick()
+ assert.equal(editor.savedRecords.length,2);assert.equal(editor.controlled.show,true)
+})
+
+test('保存途中关闭并重开同一修订窗，迟到回执不能关闭或定位新意图',async t=>{
+ const f=await fixture(t)
+ await f.render();f.setup.reviseBom()
+ let resolve
+ f.store.createBom=()=>new Promise(done=>{resolve=done})
+ const editor=await f.mountBom({show:true,targetMaterialId:11,sourceVersion:1},{})
+ const pending=f.components.BomEditor.submitCreate()
+ editor.controlled.show=false;await nextTick()
+ editor.controlled.show=true;await nextTick()
+ resolve({...f.source,id:90,version:2,status:'draft',source_bom_id:7})
+ await pending
+ assert.equal(editor.savedRecords.length,0);assert.equal(editor.controlled.show,true)
+})
+
+test('保存途中卸载 BOM 编辑器，迟到回执不能向旧页面派发 saved',async t=>{
+ const f=await fixture(t)
+ await f.render();f.setup.reviseBom()
+ let resolve
+ f.store.createBom=()=>new Promise(done=>{resolve=done})
+ const editor=await f.mountBom({show:true,targetMaterialId:11,sourceVersion:1},{})
+ const pending=f.components.BomEditor.submitCreate()
+ editor.unmount()
+ resolve({...f.source,id:90,version:2,status:'draft',source_bom_id:7})
+ await pending
+ assert.equal(editor.savedRecords.length,0)
+ assert.equal(editor.controlled.show,true)
+})
+
+// 同会话快速 A→B→A 仍是新的产品选择，旧刷新完成不能抢走用户后来选定的版本。
+test('保存后刷新期间切换产品再返回，旧修订回执不能抢选版本',async t=>{
+ const f=await fixture(t)
+ const receipt={...f.source,id:90,version:2,status:'draft',source_bom_id:7}
+ const other={...f.product,id:2,material_id:33,material:{...f.product.material,id:33,sku:'EL-PC-33',name:'其他产品'}}
+ let resolve,delay=false
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='productDetail'){
+   if(payload.id===1 && delay){delay=false;return new Promise(done=>{resolve=done})}
+   return payload.id===2?other:f.product
+  }
+  if(action==='productBoms')return payload.materialId===11?[receipt,f.source]:[{...f.source,id:18,product_material_id:33}]
+  return previous(action,payload)
+ }
+ const live=await f.mountView()
+ delay=true
+ const pending=live.afterBomSaved(receipt)
+ await f.store.openProduct(2);await f.store.openProduct(1)
+ assert.equal(live.selectedBom.id,7)
+ resolve(f.product);await pending;await nextTick()
+ assert.equal(f.store.productDetailId,1);assert.equal(live.selectedBom.id,7)
 })
 
 // 验证系列切换实际发送服务端范围，并让右侧展示新产品的 BOM；不能只变侧栏高亮。

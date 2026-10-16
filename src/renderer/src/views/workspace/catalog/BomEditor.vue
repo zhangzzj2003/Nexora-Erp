@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 产品页与 BOM 页共用一个编辑器，明细直接引用同一 Pinia 草稿。
-import { computed } from 'vue'
+import { computed, onUnmounted, watch } from 'vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
-import type { BomLine } from '../../../../../shared/erp-api'
+import type { Bom, BomLine } from '../../../../../shared/erp-api'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
@@ -11,16 +11,26 @@ import ProductEditor from './ProductEditor.vue'
 import { useDocumentMaterialDetails } from '../../../composables/use-document-material-details'
 import { bomDraftIssue, bomComponentOptions } from './bom-form'
 import { useAppStore } from '../../../store/app-store'
-import { submitCreateDialog } from '../../../utils/create-dialog'
-const props = defineProps<{show: boolean; targetMaterialId?:number}>()
-const emit = defineEmits<{'update:show': [value: boolean]; saved: []}>()
+const props = defineProps<{show: boolean; targetMaterialId?:number; sourceVersion?:number}>()
+const emit = defineEmits<{'update:show': [value: boolean]; saved: [bom:Bom]}>()
 const createOpen = computed({get: () => props.show, set: value => emit('update:show', value)})
-const { error, notice, connectionLost, materialCategories, busy, materials, boms, bomForm, can, createBom,
+const { connectionLost, materialCategories, busy, materials, boms, bomForm, can, createBom, user, server,
   startProduct, productEditorOpen } = useAppStore()
+let editorEpoch=0
+// 即使换账号后打开同号产品，也属于新的弹窗意图；旧保存回执不能关闭或定位新弹窗。
+watch(() => JSON.stringify([props.show,props.targetMaterialId,props.sourceVersion,user.value?.id,
+  user.value?.permissions.slice().sort(),server.value?.id,server.value?.fingerprint,connectionLost.value]),
+  () => {editorEpoch++}, {flush:'sync'})
+// 离开页面即撤销旧弹窗的保存回执，不能再回调已经卸载的产品页。
+onUnmounted(() => {editorEpoch++})
 async function submitCreate(): Promise<void> {
   if (busy.value || connectionLost.value || !can('bom.create') || bomIssue.value) return
-  await submitCreateDialog(createBom, {busy, error, notice}, createOpen)
-  if (!createOpen.value && !error.value && notice.value) emit('saved')
+  const epoch=editorEpoch
+  const saved=await createBom()
+  if (!saved || epoch!==editorEpoch || !props.show || connectionLost.value || !can('bom.create')) return
+  // 合法回执代表已保存；后续资料刷新失败不应让用户再次提交同一份草稿。
+  emit('saved',saved)
+  if (epoch===editorEpoch) createOpen.value=false
 }
 const componentRows = computed(() => bomForm.value.lines.map((line, index) => ({line, index})))
 const componentColumns = [
@@ -53,14 +63,15 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => bo
 </script>
 <template>
     <WorkspaceDocumentDialog origin-key="ProductionBomsView:form" @invalidated="createOpen = false"
-      v-if="can('bom.create')"  :show="createOpen && !productEditorOpen" @update:show="createOpen = $event" title="新建 BOM 版本"
+      v-if="can('bom.create')"  :show="createOpen && !productEditorOpen" @update:show="createOpen = $event" :title="sourceVersion ? `修订 BOM · V${sourceVersion}` : '新建 BOM 版本'"
       :data="componentRows" :columns="componentColumns" :busy="busy" :disabled="connectionLost"
       :submit-disabled="Boolean(bomIssue)" :add-disabled="bomForm.lines.length >= 100"
+      :submit-label="sourceVersion ? '保存为新版本草稿' : '保存草稿'"
       :hint="bomIssue || '旧版本会保留供追溯；同一产品或半成品只能启用一个版本。固定下层版本停用后，须修订本配方。'"
       @add-material="addComponent" @submit="submitCreate"
     >
       <template #basicInfo>
-        <p v-if="bomForm.source_bom_id" class="document-basic-extra muted">派生来源 BOM #{{ bomForm.source_bom_id }}；保存为完整的新草稿，来源更新不会自动同步。</p>
+        <p v-if="bomForm.source_bom_id" class="document-basic-extra muted">派生来源 BOM #{{ bomForm.source_bom_id }}；<template v-if="sourceVersion">调整用料后保存为新版本草稿，原版本及已有工单保持不变，新版本须另行启用。</template><template v-else>保存为完整的新草稿，来源更新不会自动同步。</template></p>
         <label class="bom-basic-field">产出产品 / 半成品<WorkspaceMaterialSelect v-model="bomForm.product_material_id"
           :materials="materials" :categories="materialCategories" :disabled="busy || connectionLost || Boolean(targetMaterialId)"
           placeholder="选择产出物料" required />

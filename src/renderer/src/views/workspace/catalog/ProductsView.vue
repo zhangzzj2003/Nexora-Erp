@@ -45,11 +45,14 @@ function selectLifecycle(action: string): void {
 }
 const pendingProductId = ref(0)
 const bomTargetId = ref(0)
+const revisingBomVersion = ref<number|undefined>()
+let viewSessionEpoch = 0
 const selectedBomId = ref(0)
+let productSelectionEpoch=0
 // 默认看启用版本，手动选择历史版本后保持到切换产品为止。
 const selectedBom = computed(() => productBomRecords.value.find(row => row.id === selectedBomId.value)
   ?? productBomRecords.value.find(row => row.status === 'active') ?? productBomRecords.value[0])
-watch(productDetailId, () => {selectedBomId.value = 0; versionsOpen.value = false})
+watch(productDetailId, () => {productSelectionEpoch++; selectedBomId.value = 0; versionsOpen.value = false}, {flush:'sync'})
 const bomStatuses: Record<Bom['status'], {label:string; tone:AppStatusTone}> = {
   draft:{label:'草稿',tone:'pending'}, active:{label:'已启用',tone:'success'},
   retired:{label:'已停用',tone:'neutral'}, cancelled:{label:'已取消',tone:'danger'}
@@ -96,8 +99,9 @@ watch([result, () => route.query.product_id], ([page, rawId]) => {
 }, {immediate:true})
 // 保存后的定位意图不能跨账号、实例或权限边界执行。
 watch(() => JSON.stringify([store.user?.id,store.server?.id,store.server?.fingerprint,store.user?.permissions.slice().sort()]), () => {
-  pendingProductId.value=0; reuseOpen.value=false; modelsOpen.value=false; bomOpen.value=false; bomTargetId.value=0; versionsOpen.value=false; modelToDelete.value=null; lifecycleTarget.value=null
-})
+  viewSessionEpoch++
+  pendingProductId.value=0; reuseOpen.value=false; modelsOpen.value=false; bomOpen.value=false; bomTargetId.value=0; revisingBomVersion.value=undefined; versionsOpen.value=false; modelToDelete.value=null; lifecycleTarget.value=null
+}, {flush:'sync'})
 onUnmounted(() => {store.closeProduct(); store.closeBomDetail()})
 function reset(): void {
   if (busy.value || connectionLost.value) return
@@ -115,10 +119,23 @@ function selectProduct(id: number): Promise<void> {
   pendingProductId.value=0; detailsOpen.value = false
   return store.openProduct(id)
 }
-function startBom(source?: Bom): void {
+function startBom(source?: Bom, revision=false): void {
+  if (productUnavailable.value || (source && !store.can('production.view'))) return
   if (detail.value && store.prepareProductBom(detail.value.material_id, source)) {
+    revisingBomVersion.value=revision ? source?.version : undefined
     bomTargetId.value=detail.value.material_id; reuseOpen.value=false; versionsOpen.value=false; bomOpen.value=true
   }
+}
+function reviseBom(): void {
+  const source=selectedBom.value
+  // 修订固定当前已选版本，不猜最新配方；已取消来源及其他产品的旧回执不能带入。
+  if (!source || source.status==='cancelled' || source.product_material_id!==detail.value?.material_id) return
+  startBom(source,true)
+}
+async function editProduct(): Promise<void> {
+  if (!detail.value || productUnavailable.value || !store.can('catalog.manage')) return
+  detailsOpen.value=false
+  await store.startProduct('edit',detail.value.id)
 }
 function newSeries(): void {
   if (!store.can('catalog.manage') || busy.value || connectionLost.value) return
@@ -138,9 +155,13 @@ function productSaved(row:ProductProfile): void {
   query.value={...query.value,model_id:row.model_id,query:'',kind:null,page:1}
   if (unchanged) void store.queryProducts(1)
 }
-async function afterBomSaved(): Promise<void> {
-  // 写后只刷新当前产品范围，不能把另一个产品的 BOM 显示在此详情中。
-  if (productDetailId.value) await store.openProduct(productDetailId.value)
+async function afterBomSaved(saved?: Bom): Promise<void> {
+  const id=productDetailId.value, epoch=viewSessionEpoch, selection=productSelectionEpoch
+  if (!id || (saved && saved.product_material_id!==detail.value?.material_id)) return
+  // 只定位自己的创建回执；并发产生的更高版本不能抢走修订后的当前选择。
+  await store.openProduct(id)
+  if (saved && epoch===viewSessionEpoch && selection===productSelectionEpoch && id===productDetailId.value && !productDetailError.value
+    && productBomRecords.value.some(row=>row.id===saved.id && row.product_material_id===saved.product_material_id)) selectedBomId.value=saved.id
 }
 function changeSummary(value: ProductProfile): string {
   return [value.material.sku, value.material.name, productKindLabels[value.kind], value.model_name || '未归组',
@@ -169,6 +190,7 @@ function sameModel(): void {
         </div>
         <div class="product-toolbar">
           <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-detail',$event)" @click="detailsOpen = true">产品资料</AppButton>
+          <AppButton v-if="store.can('catalog.manage')" size="small" :disabled="productUnavailable" @click="editProduct">编辑产品</AppButton>
           <NDropdown v-if="store.can('catalog.manage')" trigger="click" :options="lifecycleOptions" :disabled="productUnavailable" @select="selectLifecycle">
             <AppButton size="small" :disabled="productUnavailable" aria-haspopup="menu" @click.capture="captureDialogOrigin('product-lifecycle',$event)">子机型操作</AppButton>
           </NDropdown>
@@ -179,14 +201,15 @@ function sameModel(): void {
       <!-- 当前组成是工作区主体，历史表格按需打开，避免每次查看都占用一张卡片。 -->
       <template v-if="store.can('production.view')">
         <div v-if="productDetailLoading" class="bom-workspace-state" role="status">正在读取 BOM…</div>
-        <div v-else-if="productDetailError" class="bom-workspace-state" role="alert"><p>{{ productDetailError }}</p><AppButton size="small" :disabled="busy || connectionLost" @click="afterBomSaved">重试</AppButton></div>
+        <div v-else-if="productDetailError" class="bom-workspace-state" role="alert"><p>{{ productDetailError }}</p><AppButton size="small" :disabled="busy || connectionLost" @click="afterBomSaved()">重试</AppButton></div>
         <template v-else-if="selectedBom">
           <div class="bom-version-bar" aria-label="当前 BOM 版本">
             <div class="bom-version-choice"><span class="bom-version-label">BOM 版本</span>
               <WorkspaceSelect :model-value="selectedBom.id" :options="versionOptions" aria-label="选择 BOM 版本" size="small" :disabled="productUnavailable" @update:model-value="selectVersion" />
               <AppStatusTag :label="bomStatuses[selectedBom.status].label" :tone="bomStatuses[selectedBom.status].tone" />
             </div>
-            <div class="product-toolbar"><AppButton size="small" :disabled="productUnavailable" @click="store.openBomDetail(selectedBom.id)">版本详情</AppButton>
+            <div class="product-toolbar"><AppButton v-if="store.can('bom.create')" size="small" tone="primary" :disabled="productUnavailable || selectedBom.status==='cancelled'" @click.capture="captureDialogOrigin('ProductionBomsView:form',$event)" @click="reviseBom">修订 BOM</AppButton>
+              <AppButton size="small" :disabled="productUnavailable" @click="store.openBomDetail(selectedBom.id)">版本详情</AppButton>
               <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-bom-versions',$event)" @click="versionsOpen=true">版本管理 · {{ productBomRecords.length }}</AppButton></div>
           </div>
           <div v-if="selectedBom.source_bom" class="bom-source muted">复制来源：<AppButton variant="text" size="small" :disabled="productUnavailable" @click="store.openBomDetail(selectedBom.source_bom.id)">{{ selectedBom.source_bom.product_name }} · V{{ selectedBom.source_bom.version }}</AppButton></div>
@@ -203,7 +226,7 @@ function sameModel(): void {
     <ProductModelDeleteDialog :model="modelToDelete" @close="modelToDelete=null" />
     <ProductLifecycleDialog :product="lifecycleTarget" :action="lifecycleAction" @close="lifecycleTarget=null" />
     <ProductBomReuseDialog :show="reuseOpen && store.can('bom.create') && store.can('production.view')" :sources="boms" :target-name="detail ? `${detail.material.name} · ${detail.configuration_name || detail.material.sku}` : ''" :busy="busy" :disconnected="connectionLost" @update:show="reuseOpen=$event" @choose="startBom" />
-    <BomEditor v-model:show="bomOpen" :target-material-id="bomTargetId || undefined" @saved="afterBomSaved" />
+    <BomEditor v-model:show="bomOpen" :target-material-id="bomTargetId || undefined" :source-version="revisingBomVersion" @saved="afterBomSaved" />
     <BomDetailDialog />
     <WorkspaceDocumentDialog origin-key="product-bom-versions" :show="versionsOpen && store.can('production.view') && !bomDetailRecord && !bomDetailLoading && !bomDetailError"
       read-only title="BOM 版本管理" lines-title="全部版本" :data="productBomRecords" :columns="bomColumns" :min-table-width="860"
@@ -217,9 +240,9 @@ function sameModel(): void {
       <template #cell-actions="{row}"><div class="form-actions">
         <AppButton size="small" :disabled="productUnavailable" @click="viewComposition(row.id)">{{ selectedBom?.id === row.id ? '当前组成' : '查看组成' }}</AppButton>
         <AppButton v-if="row.status !== 'cancelled' && store.can('bom.create')" size="small" :disabled="productUnavailable" @click="startBom(row)">复制派生</AppButton>
-        <AppButton v-if="row.status === 'draft' && store.can('bom.activate')" size="small" tone="success" :disabled="productUnavailable || productBomRecords.some(item=>item.status==='active') || detail?.can_produce===false" @click="store.activateBom(row.id).then(afterBomSaved)">启用</AppButton>
-        <AppButton v-if="row.status === 'active' && store.can('bom.retire')" size="small" tone="warning" :disabled="productUnavailable" @click="store.retireBom(row.id).then(afterBomSaved)">停用</AppButton>
-        <AppButton v-if="row.status === 'draft' && store.can('bom.cancel')" size="small" tone="error" :disabled="productUnavailable" @click="store.cancelBom(row.id).then(afterBomSaved)">取消草稿</AppButton>
+        <AppButton v-if="row.status === 'draft' && store.can('bom.activate')" size="small" tone="success" :disabled="productUnavailable || productBomRecords.some(item=>item.status==='active') || detail?.can_produce===false" @click="store.activateBom(row.id).then(()=>afterBomSaved())">启用</AppButton>
+        <AppButton v-if="row.status === 'active' && store.can('bom.retire')" size="small" tone="warning" :disabled="productUnavailable" @click="store.retireBom(row.id).then(()=>afterBomSaved())">停用</AppButton>
+        <AppButton v-if="row.status === 'draft' && store.can('bom.cancel')" size="small" tone="error" :disabled="productUnavailable" @click="store.cancelBom(row.id).then(()=>afterBomSaved())">取消草稿</AppButton>
       </div></template>
     </WorkspaceDocumentDialog>
     <WorkspaceDocumentDialog origin-key="product-detail" :show="showDetail" read-only title="产品资料" :data="[]" :columns="[]" :show-lines="false"

@@ -1,6 +1,8 @@
-import { watch } from 'vue'
-import type { ProductionCostSettlement } from '../../../../shared/erp-api'
+import { toRaw, watch } from 'vue'
+import type { Bom, ProductionCostSettlement } from '../../../../shared/erp-api'
 import { validateDocumentApprovalRecord } from '../../../../shared/document-approval-api.ts'
+import { validateProductResult } from '../../../../shared/product-api.ts'
+import { displayError } from '../../utils/formatters.ts'
 import type { AppState } from '../state'
 import type { WorkspaceRouteKey } from '../../router/workspace-routes'
 import type {CompletionLotPartInput} from '../../../../shared/completion-lot-api'
@@ -30,24 +32,54 @@ export function createProductionActions(
     productionSettlementForm,
     settlementReversalReasons
   } = state
-  async function createBom(): Promise<void> {
-    if (!window.nexora) return
-    await perform(async () => {
-      await window.nexora!.callApi('createBom', {
-        product_material_id: bomForm.value.product_material_id,
-        ...(bomForm.value.source_bom_id ? {source_bom_id: bomForm.value.source_bom_id} : {}),
-        base_quantity: bomForm.value.base_quantity,
-        note: bomForm.value.note,
-        lines: bomForm.value.lines.map((line) => ({ ...line }))
-      })
-      bomForm.value = {
-        product_material_id: 0,
-        source_bom_id: null,
-        base_quantity: '1',
-        note: '',
-        lines: [{ component_material_id: 0, quantity: '1' }]
-      }
-    }, 'BOM 草稿已创建。')
+  let bomCreateSession = 0, bomCreateTicket = 0
+  watch(() => JSON.stringify([state.server?.value?.id, state.server?.value?.fingerprint, state.user?.value?.id,
+    state.user?.value?.permissions.slice().sort(), state.connectionLost?.value]), () => {bomCreateSession++}, {flush:'sync'})
+  async function createBom(): Promise<Bom | undefined> {
+    const available = (): boolean => !!window.nexora && !state.connectionLost.value
+      && !!state.user.value?.permissions.includes('bom.create')
+    if (!available() || state.busy.value) return
+    const session = bomCreateSession, ticket = ++bomCreateTicket, draft = bomForm.value
+    const original = JSON.stringify(draft), bridge = window.nexora!
+    const input = {
+      product_material_id: draft.product_material_id,
+      ...(draft.source_bom_id ? {source_bom_id: draft.source_bom_id} : {}),
+      base_quantity: draft.base_quantity, note: draft.note, lines: draft.lines.map(line => ({...line}))
+    }
+    const sameSession = (): boolean => session === bomCreateSession && ticket === bomCreateTicket
+      && available() && window.nexora === bridge
+    const ownsDraft = (): boolean => sameSession() && bomForm.value === draft && JSON.stringify(bomForm.value) === original
+    let created: Bom | undefined
+    let confirmedForm: typeof bomForm.value | undefined, confirmedSnapshot = ''
+    try {
+      await perform(async () => {
+        // perform 可能延迟执行回调，排队期间换账号、撤权或更换草稿后不能继续发旧请求。
+        if (!ownsDraft()) throw Error('BOM 建档会话或草稿已变化，请重新确认。')
+        const result = await bridge.callApi('createBom', input)
+        if (!ownsDraft()) throw Error('BOM 建档会话或草稿已变化，请重新读取。')
+        validateProductResult('bomDetail', result)
+        if (result.status !== 'draft' || result.product_material_id !== input.product_material_id
+          || (result.source_bom_id ?? null) !== (input.source_bom_id ?? null))
+          throw Error('服务端返回了另一产品或来源的 BOM 草稿，请重新读取。')
+        created = result
+        // 合法回执已经确认建档成功；后续资料刷新失败也不能留下可重复提交的同一份原稿。
+        const empty = {product_material_id:0,source_bom_id:null,base_quantity:'1',note:'',lines:[{component_material_id:0,quantity:'1'}]}
+        const emptySnapshot = JSON.stringify(empty)
+        bomForm.value = empty
+        // 同步观察者可能立刻换账号或建立新草稿，只接管本次确实写入的空草稿。
+        if (!sameSession()) throw Error('BOM 建档会话已变化，请重新读取。')
+        if (toRaw(bomForm.value) === empty && JSON.stringify(bomForm.value) === emptySnapshot) {
+          confirmedForm = bomForm.value; confirmedSnapshot = emptySnapshot
+        }
+      }, 'BOM 草稿已创建。')
+    } catch (cause) {
+      if (sameSession()) state.error.value = displayError(cause)
+    }
+    // 刷新、审批重读和 busy 解锁完成后再返回；新账号或新草稿不能被旧回执关闭或定位。
+    if (!created || !sameSession() || !confirmedForm || bomForm.value !== confirmedForm
+      || JSON.stringify(bomForm.value) !== confirmedSnapshot) return
+    if (state.error.value) state.error.value = `BOM 草稿 #${created.id} 已保存，刷新资料失败：${state.error.value}`
+    if (sameSession() && bomForm.value === confirmedForm && JSON.stringify(bomForm.value) === confirmedSnapshot) return created
   }
 
   async function activateBom(bomId: number): Promise<void> {
