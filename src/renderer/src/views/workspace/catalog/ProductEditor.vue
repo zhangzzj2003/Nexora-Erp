@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppModal from '../../../components/app/AppModal.vue'
 import AppInput from '../../../components/app/AppInput.vue'
@@ -13,6 +14,11 @@ const emit = defineEmits<{saved:[product:ProductProfile]}>()
 const store = usePiniaAppStore()
 const {productForm, productMaterialForm, productEditorOpen, productModels, busy, connectionLost,
   materialCategories, materials, materialUnits, suppliers} = storeToRefs(store)
+const materialInfoCompact = ref(true)
+// 只重置资料展示状态，更换物料或重开弹窗时不携带上一物料的大块资料卡，也不修改产品草稿。
+watch([productEditorOpen, () => productForm.value.material_id, () => productForm.value.mode], () => {
+  materialInfoCompact.value = true
+})
 async function save(): Promise<void> {
   // 联合编辑只有一份修改原因，物料与产品审计同时保存。
   if (productForm.value.mode === 'edit') productForm.value.reason = productMaterialForm.value.reason
@@ -26,7 +32,7 @@ async function save(): Promise<void> {
     :busy="busy" :disabled="connectionLost" :submit-disabled="!productForm.material_id"
     hint="沿用现有编码、库存和历史单据，只增加产品归组资料。" @submit="save" @invalidated="productEditorOpen = false">
     <template #basicInfo>
-      <label>已有物料<WorkspaceMaterialSelect v-model="productForm.material_id" :materials="materials" :categories="materialCategories" :disabled="busy || connectionLost" required /></label>
+      <label>已有物料<WorkspaceMaterialSelect v-model="productForm.material_id" v-model:compact="materialInfoCompact" :materials="materials" :categories="materialCategories" :disabled="busy || connectionLost" required /></label>
       <ProductProfileFields :form="productForm" :models="productModels" :disabled="busy || connectionLost" />
       <label>说明<AppInput v-model.trim="productForm.reason" maxlength="500" :disabled="busy || connectionLost" /></label>
     </template>
