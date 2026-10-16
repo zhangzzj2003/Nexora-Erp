@@ -11,9 +11,9 @@ import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { usePiniaAppStore } from '../../../store/app-store'
-import { useLocalPagination } from '../../../composables/use-local-pagination'
 import { materialCategoryAuditRows } from '../../../utils/material-category-audit'
 import type { MaterialCategoryNode, MaterialSpecField, MaterialSpecKind } from '../../../../../shared/material-api'
+import { categorySupportsManagement, materialCategoryTreeRows, type MaterialCategoryStatus } from './material-category-tree'
 import './catalog.css'
 
 const store = usePiniaAppStore()
@@ -21,19 +21,19 @@ const { materialCategories, busy, connectionLost, materialCategoryDraft: form, m
   materialCategoryEditorOpen: showForm, materialFieldDraft: fieldForm, materialFieldEditorOpen: showField,
   materialCategoryChanges: auditRows } = storeToRefs(store)
 const {can, reloadMaterialCategories, saveMaterialCategory, saveMaterialSpecField, removeMaterialCategory, loadMaterialCategoryChanges, localTime} = store
-const query = ref(''), status = ref('all'), selectedCode = ref(''), auditOpen = ref(false), auditTitle = ref('')
+const query = ref(''), status = ref<MaterialCategoryStatus>('all'), selectedCode = ref(''), auditOpen = ref(false), auditTitle = ref('')
+const collapsedGroups = ref(new Set<string>())
 // 有版本的目录才提供维护；旧服务仍能显示原目录，但不能提交不受校验的新功能。
 const nodes = computed(() => materialCategories.value.flatMap(group => [group, ...group.children])
-  .filter(node => node.version && node.fields).map(node => node as MaterialCategoryNode))
-const filtered = computed(() => nodes.value.filter(node =>
-  (status.value === 'all' || node.enabled === (status.value === 'enabled'))
-  && `${node.name} ${node.code} ${node.notes}`.toLowerCase().includes(query.value.trim().toLowerCase())))
-const filterKey = computed(() => JSON.stringify([query.value, status.value]))
-const {rows, total, page, pageSize, changePage} = useLocalPagination(filtered, filterKey)
+  .filter(categorySupportsManagement))
+// 不按行分页，大类与子类始终在同一段目录内；筛选展开不改写手动收起记录。
+const filtering = computed(() => !!query.value.trim() || status.value !== 'all')
+const rows = computed(() => materialCategoryTreeRows(materialCategories.value, query.value, status.value, collapsedGroups.value))
 const selected = computed(() => nodes.value.find(node => node.code === selectedCode.value && node.parent_code))
 const fieldCategory = computed(() => nodes.value.find(node => node.code === fieldForm.value.code))
-const selectedOptions = computed(() => nodes.value.filter(node => node.parent_code).map(node => ({value:node.code,
-  label:`${nodes.value.find(parent => parent.code === node.parent_code)?.name} / ${node.name}${node.enabled ? '' : '（已停用）'}`})))
+const categoryPath = (node: MaterialCategoryNode): string => node.parent_code
+  ? `${materialCategories.value.find(parent => parent.code === node.parent_code)?.name ?? node.parent_code} / ${node.name}` : node.name
+const selectedPath = computed(() => selected.value ? categoryPath(selected.value) : '')
 const parentOptions = computed(() => [{value:'', label:'大类'}, ...nodes.value.filter(node => !node.parent_code)
   .map(node => ({value:node.code,label:node.name,disabled:!node.enabled}))])
 const parentValue = computed({get:() => form.value.parent_code ?? '', set:(value: string) => {
@@ -41,13 +41,29 @@ const parentValue = computed({get:() => form.value.parent_code ?? '', set:(value
 }})
 const kindOptions: {value: MaterialSpecKind; label: string}[] = [{value:'text',label:'文字'}, {value:'number',label:'数值'}, {value:'enum',label:'选项'}, {value:'boolean',label:'是 / 否'}, {value:'date',label:'日期'}]
 const optionsText = computed({get:() => fieldForm.value.options.join('\n'), set:(value: string) => {fieldForm.value.options = value.split('\n').map(entry => entry.trim()).filter(Boolean)}})
-const categoryColumns = [{key:'name',title:'类别名称'}, {key:'code',title:'编码前缀'}, {key:'parent',title:'所属大类'},
+const categoryColumns = [{key:'name',title:'类别目录'}, {key:'code',title:'编码前缀'},
   {key:'status',title:'状态'}, {key:'material_count',title:'使用物料数'}, {key:'sort_order',title:'排序'}, {key:'actions',title:'操作',width:'270px'}]
 const fieldColumns = [{key:'name',title:'字段名称'}, {key:'kind',title:'类型 / 单位'}, {key:'options',title:'常用选项'},
   {key:'required',title:'必填'}, {key:'enabled',title:'状态'}, {key:'sort_order',title:'排序'}, {key:'actions',title:'操作',width:'100px'}]
 const auditColumns = [{key:'label',title:'调整项目'}, {key:'before',title:'修改前'}, {key:'after',title:'修改后'}]
 const blocked = computed(() => busy.value || connectionLost.value || !can('catalog.manage') || !nodes.value.length)
 const modalStyle = {width:'min(820px, calc(100vw - 32px))',maxHeight:'calc(100vh - 64px)',overflowY:'auto' as const}
+function toggleGroup(code: string): void {
+  if (filtering.value || !materialCategories.value.some(group => group.code === code)) return
+  const next = new Set(collapsedGroups.value)
+  if (next.has(code)) next.delete(code); else next.add(code)
+  collapsedGroups.value = next
+}
+function expandGroups(expanded: boolean): void {
+  if (!filtering.value) collapsedGroups.value = expanded ? new Set() : new Set(materialCategories.value.map(group => group.code))
+}
+function viewFields(code: string): void {
+  if (!busy.value && !connectionLost.value && nodes.value.some(node => node.code === code && node.parent_code)) selectedCode.value = code
+}
+watch(() => materialCategories.value.map(group => group.code).join(','), () => {
+  const existing = new Set(materialCategories.value.map(group => group.code))
+  collapsedGroups.value = new Set([...collapsedGroups.value].filter(code => existing.has(code)))
+})
 
 // 本页目录窗口共用请求代次，切换入口或关闭后不得接纳迟到的目录响应。
 const preparing = ref(false)
@@ -56,9 +72,15 @@ watch([showForm, showField, auditOpen], () => { if (!showForm.value && !showFiel
 onUnmounted(() => { formRead++; store.cancelCatalogPreparation() })
 async function editCategory(code?: string, parent?: string): Promise<void> {
   if (blocked.value) return
+  if (code && !nodes.value.some(node => node.code === code)) return
+  if (parent && !nodes.value.some(node => node.code === parent && !node.parent_code && node.enabled)) return
   const ticket = ++formRead; preparing.value = true; showForm.value = true
   if (!await reloadMaterialCategories() || ticket !== formRead || !showForm.value) { if (ticket === formRead) { showForm.value = false; preparing.value = false }; return }
   const node = nodes.value.find(entry => entry.code === code)
+  // 目录重读后目标可能已被移除或停用，不能把原来的编辑意图悄悄变成新建。
+  if ((code && !node) || (parent && !nodes.value.some(entry => entry.code === parent && !entry.parent_code && entry.enabled))) {
+    store.error = '类别资料已变化，请刷新目录后重试。'; showForm.value = false; preparing.value = false; return
+  }
   editing.value = !!node
   form.value = node ? {code:node.code,parent_code:node.parent_code,name:node.name,enabled:node.enabled,
     sort_order:node.sort_order,notes:node.notes,version:node.version,reason:''}
@@ -70,13 +92,19 @@ async function saveCategory(): Promise<void> {
 }
 async function editField(id?: number): Promise<void> {
   if (!selected.value || blocked.value) return
+  const code = selected.value.code
+  if (id && !selected.value.fields.some(field => field.id === id)) return
   const ticket = ++formRead; preparing.value = true; showField.value = true
-  if (!await reloadMaterialCategories() || ticket !== formRead || !showField.value || !selected.value) { if (ticket === formRead) { showField.value = false; preparing.value = false }; return }
-  const field = selected.value.fields.find(entry => entry.id === id)
-  fieldForm.value = {code:selected.value.code,field_id:field?.id,name:field?.name ?? '',kind:field?.kind ?? 'text',
+  if (!await reloadMaterialCategories() || ticket !== formRead || !showField.value) { if (ticket === formRead) { showField.value = false; preparing.value = false }; return }
+  const category = nodes.value.find(node => node.code === code && node.parent_code)
+  const field = category?.fields.find(entry => entry.id === id)
+  if (!category || selectedCode.value !== code || (id && !field)) {
+    store.error = '子类或规格字段已变化，请重新选择后再编辑。'; showField.value = false; preparing.value = false; return
+  }
+  fieldForm.value = {code,field_id:field?.id,name:field?.name ?? '',kind:field?.kind ?? 'text',
     unit:field?.unit ?? '',options:field ? [...field.options] : [],allow_custom:field?.allow_custom ?? false,
     required:field?.required ?? false,enabled:field?.enabled ?? true,sort_order:field?.sort_order ?? 0,
-    version:selected.value.version,reason:''}
+    version:category.version,reason:''}
   preparing.value = false
 }
 function changeKind(): void {
@@ -96,11 +124,13 @@ async function remove(field = false): Promise<void> {
     else {showForm.value = false; form.value.name = ''}
   }
 }
-async function history(node: MaterialCategoryNode): Promise<void> {
+async function history(code: string): Promise<void> {
+  const node = nodes.value.find(entry => entry.code === code)
+  if (!node || busy.value || connectionLost.value) return
   const ticket = ++formRead; preparing.value = true; auditOpen.value = true
   const loaded = await loadMaterialCategoryChanges(node.code)
   if (ticket !== formRead || !auditOpen.value) return
-  if (loaded) auditTitle.value = `${node.name} · 分类与模板变更`
+  if (loaded) auditTitle.value = `${categoryPath(node)} · 分类与模板变更`
   else auditOpen.value = false
   preparing.value = false
 }
@@ -111,29 +141,39 @@ function fieldKind(field: MaterialSpecField): string {return `${kindOptions.find
   <section class="stack catalog-page">
     <p class="material-hint">大类、子类与规格模板统一维护。名称可以调整，编码前缀固定；停用限制新选择，历史物料和单据继续保留。</p>
     <p v-if="!nodes.length && materialCategories.length" class="material-hint">服务端尚未提供分类与规格模板管理，请升级 ERP 服务。</p>
-    <WorkspaceTable :show-title="false" title="物料类别" :columns="categoryColumns" :data="rows" :min-table-width="1050" :pagination="{page,pageSize,total}" @page-change="changePage">
+    <WorkspaceTable :show-title="false" title="物料类别" :columns="categoryColumns" :data="rows" :min-table-width="1000">
       <template #actions>
+        <AppButton type="button" size="small" :disabled="filtering || !materialCategories.length" @click="expandGroups(true)">展开全部</AppButton>
+        <AppButton type="button" size="small" :disabled="filtering || !materialCategories.length" @click="expandGroups(false)">收起全部</AppButton>
         <AppButton v-if="can('catalog.manage')" variant="primary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="editCategory()">新增大类</AppButton>
         <AppButton v-if="can('catalog.manage') && form.name" variant="secondary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="showForm = true">继续类别草稿</AppButton>
         <AppButton v-if="can('catalog.manage') && fieldForm.name" variant="secondary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:field', $event)" @click="showField = true">继续规格草稿</AppButton>
       </template>
       <template #filters>
-        <label class="catalog-search">搜索类别<AppInput v-model="query" placeholder="类别名称、前缀或说明" /></label>
-        <label class="material-category-filter">状态<WorkspaceSelect v-model="status" :options="[{value:'all',label:'全部'}, {value:'enabled',label:'启用'}, {value:'disabled',label:'停用'}]" /></label>
+        <label class="catalog-search">搜索类别<AppInput v-model="query" aria-label="搜索类别" placeholder="类别名称、前缀或说明" /></label>
+        <label class="material-category-filter">状态<WorkspaceSelect v-model="status" aria-label="筛选类别状态" :options="[{value:'all',label:'全部'}, {value:'enabled',label:'启用'}, {value:'disabled',label:'停用'}]" /></label>
       </template>
-      <template #cell-name="{row}"><strong>{{ row.name }}</strong><p class="material-hint">{{ row.notes }}</p></template>
-      <template #cell-parent="{row}">{{ row.parent_code ? nodes.find(node => node.code === row.parent_code)?.name : '大类' }}</template>
-      <template #cell-status="{row}">{{ row.enabled ? '启用' : '停用' }}<p v-if="row.parent_code && !nodes.find(node => node.code === row.parent_code)?.enabled" class="material-hint">所属大类已停用</p></template>
+      <template #beforeTable><p v-if="filtering" class="material-hint category-tree-filter-hint">筛选时自动展开匹配路径，清空条件后恢复手动收起状态。</p></template>
+      <template #cell-name="{row}"><div class="category-tree-name" :class="{'category-tree-name--child':row.depth===1}">
+        <AppButton v-if="row.depth===0" variant="plain" class="category-tree-toggle" :disabled="filtering || !row.childCount" :aria-expanded="row.childCount ? row.expanded : undefined" :aria-label="`${row.expanded ? '收起' : '展开'}${row.name}子类`" @click="toggleGroup(row.code)">
+          <span class="category-tree-chevron" aria-hidden="true">{{ row.childCount ? row.expanded ? '▾' : '▸' : '·' }}</span><strong>{{ row.name }}</strong>
+        </AppButton>
+        <strong v-else>{{ row.name }}</strong>
+        <small class="category-tree-level">{{ row.depth===0 ? '大类' : '子类' }}</small>
+        <p v-if="row.contextOnly" class="material-hint">匹配子类所属大类</p><p v-if="row.notes" class="material-hint">{{ row.notes }}</p>
+      </div></template>
+      <template #cell-status="{row}">{{ row.enabled === undefined ? '旧版目录' : row.enabled ? '启用' : '停用' }}<p v-if="row.parentEnabled===false" class="material-hint">所属大类已停用</p></template>
+      <template #cell-material_count="{row}">{{ row.material_count ?? '—' }}</template>
+      <template #cell-sort_order="{row}">{{ row.sort_order ?? '—' }}</template>
       <template #cell-actions="{row}"><div class="catalog-actions">
-        <AppButton v-if="can('catalog.manage')" variant="text" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="editCategory(row.code)">编辑</AppButton>
-        <AppButton v-if="!row.parent_code && can('catalog.manage')" variant="text" type="button" :disabled="blocked || !row.enabled" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="editCategory(undefined,row.code)">新增子类</AppButton>
-        <AppButton v-if="row.parent_code" variant="text" type="button" @click="selectedCode = row.code">规格字段</AppButton>
-        <AppButton variant="text" type="button" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('MaterialCategoriesView:audit', $event)" @click="history(row)">变更记录</AppButton>
+        <AppButton v-if="can('catalog.manage')" variant="text" type="button" :disabled="blocked || !row.manageable" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="editCategory(row.code)">编辑</AppButton>
+        <AppButton v-if="!row.parent_code && can('catalog.manage')" variant="text" type="button" :disabled="blocked || !row.manageable || !row.enabled" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="editCategory(undefined,row.code)">新增子类</AppButton>
+        <AppButton v-if="row.parent_code" variant="text" type="button" :disabled="busy || connectionLost || !row.manageable" @click="viewFields(row.code)">规格字段</AppButton>
+        <AppButton variant="text" type="button" :disabled="busy || connectionLost || !row.manageable" @click.capture="captureDialogOrigin('MaterialCategoriesView:audit', $event)" @click="history(row.code)">变更记录</AppButton>
       </div></template>
       <template #empty>暂无匹配类别。</template>
     </WorkspaceTable>
-    <label class="material-category-filter">查看子类规格模板<WorkspaceSelect v-model="selectedCode" :options="selectedOptions" placeholder="选择子类" /></label>
-    <WorkspaceTable v-if="selected" :title="`${selected.name} · 规格模板 v${selected.template_version}`" :columns="fieldColumns" :data="selected.fields" :min-table-width="850">
+    <WorkspaceTable v-if="selected" :title="`${selectedPath} · 规格模板 v${selected.template_version}`" :description="`所属子类：${selectedPath}（${selected.code}）`" :columns="fieldColumns" :data="selected.fields" :min-table-width="850">
       <template #actions><AppButton v-if="can('catalog.manage')" variant="primary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:field', $event)" @click="editField()">新增规格字段</AppButton></template>
       <template #cell-kind="{row}">{{ fieldKind(row) }}</template>
       <template #cell-options="{row}">{{ row.options.join('、') || '—' }}<p v-if="row.allow_custom" class="material-hint">允许自定义值</p></template>
@@ -162,7 +202,7 @@ function fieldKind(field: MaterialSpecField): string {return `${kindOptions.find
     </AppModal>
     <AppModal :busy="busy" origin-key="MaterialCategoriesView:field" @invalidated="showField = false" :ready="!preparing" v-model:show="showField" preset="card" :style="modalStyle" :mask-closable="!busy" :closable="!busy" :close-on-esc="!busy">
       <form v-if="can('catalog.manage')" class="catalog-editor" @submit.prevent="saveField">
-        <h3>{{ fieldForm.field_id ? '编辑规格字段' : '新增规格字段' }} · {{ fieldCategory?.name }}</h3>
+        <h3>{{ fieldForm.field_id ? '编辑规格字段' : '新增规格字段' }} · {{ fieldCategory ? categoryPath(fieldCategory) : fieldForm.code }}</h3>
         <fieldset class="material-section" :disabled="blocked"><div class="form-grid">
           <label>字段名称 *<AppInput v-model.trim="fieldForm.name" required maxlength="80" :disabled="blocked" /></label>
           <label>字段类型<WorkspaceSelect v-model="fieldForm.kind" :options="kindOptions" :disabled="blocked || usedField" @change="changeKind" /></label>
@@ -188,3 +228,14 @@ function fieldKind(field: MaterialSpecField): string {return `${kindOptions.find
     </AppModal>
   </section>
 </template>
+
+<style scoped>
+/* 在共用表格内保留大类和子类的真实层级，不影响其他业务表格的单元格布局。 */
+.category-tree-name { display:flex; align-items:center; flex-wrap:wrap; gap:6px 9px; min-width:0; }
+.category-tree-name--child { padding-left:28px; }
+.category-tree-name > .material-hint { flex-basis:100%; }
+.category-tree-toggle { justify-content:flex-start; text-align:left; white-space:normal; }
+.category-tree-chevron { display:inline-block; width:16px; flex-shrink:0; color:var(--workspace-field-muted); }
+.category-tree-level { color:var(--workspace-field-muted); font-size:11px; }
+.category-tree-filter-hint { margin-bottom:12px; }
+</style>

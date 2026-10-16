@@ -13,7 +13,10 @@ import type { Material } from '../../../../../shared/erp-api'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import { useLocalPagination } from '../../../composables/use-local-pagination'
 import { usePiniaAppStore } from '../../../store/app-store'
-import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
+import WorkspaceTreeSelect from '../../../components/workspace/WorkspaceTreeSelect.vue'
+import { materialCategoryFilterOptions } from '../../../utils/material-category-filter'
+import { resolveWorkspaceTreeSelection } from '../../../utils/workspace-tree-select'
+import { workspaceSelectKey } from '../../../utils/workspace-select'
 import MaterialEditor from './MaterialEditor.vue'
 import { materialDraft, materialInput, prepareMaterialSpecs, materialCategoryLabel, matchesMaterial } from './material-form'
 import { defaultMaterialUnit } from './unit-options'
@@ -24,12 +27,11 @@ const { busy, error, connectionLost, materials, materialCategories, materialUnit
 const { can, loadMaterial, saveMaterial, deleteMaterial } = store
 const query = ref('')
 const categoryFilter = ref('')
-const categoryOptions = computed(() => [
-  { value: '', label: '全部分类' }, { value: 'unclassified', label: '未分类' },
-  ...materialCategories.value.flatMap(group => group.children.map(child => ({
-    value: child.code, label: `${group.name} / ${child.name}`
-  })))
-])
+const categoryOptions = computed(() => materialCategoryFilterOptions(materialCategories.value))
+// 当前分类被目录刷新移除时回到全部，避免控件显示空白却仍按旧代码过滤。
+watch(categoryOptions, options => {
+  if (!resolveWorkspaceTreeSelection(options, workspaceSelectKey(categoryFilter.value))) categoryFilter.value = ''
+})
 const filtered = computed(() => materials.value.filter(item =>
   matchesMaterial(item, query.value, categoryFilter.value, materialCategories.value)))
 const filterKey = computed(() => JSON.stringify([query.value, categoryFilter.value]))
@@ -115,7 +117,7 @@ function supplierNames(id: number): string {
         <label class="catalog-search"
           >搜索物料<AppInput v-model="query" placeholder="名称、编码、规格、封装或制造商料号"
         /></label>
-        <label class="material-category-filter">物料分类<WorkspaceSelect v-model="categoryFilter" :options="categoryOptions" aria-label="筛选物料分类" /></label>
+        <label class="material-category-filter">物料分类<WorkspaceTreeSelect v-model="categoryFilter" :options="categoryOptions" aria-label="筛选物料分类" /></label>
       </template>
       <template #beforeTable>
         <!-- 资料和供应商绑定较多，桌面端加宽；小窗口仍保留两侧各 16px 的边距。 -->

@@ -46,7 +46,8 @@ test('所有工作台页面与公共表格都通过公共封装使用下拉选�
   }
   for (const file of files(root)) {
     if (file === join(root, 'components/workspace/WorkspaceSelect.vue')
+      || file === join(root, 'components/workspace/WorkspaceTreeSelect.vue')
       || file === join(root, 'components/workspace/WorkspaceSupplierSelect.vue')) continue
-    assert.doesNotMatch(readFileSync(file, 'utf8'), /<(?:select|NSelect|n-select)\b/, file)
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /<(?:select|NSelect|n-select|NTreeSelect|n-tree-select)\b/, file)
   }
 })

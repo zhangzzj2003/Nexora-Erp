@@ -86,7 +86,11 @@ export function materialCategoryLabel(code: string, categories: MaterialCategory
 }
 export function matchesMaterial(item: Material, query: string, category: string, categories: MaterialCategory[]): boolean {
   // 搜索包含独立规格、封装及制造商料号，仍按字面子串匹配。
-  if (category === 'unclassified' ? !!item.category_code : category && item.category_code !== category) return false
+  // 大类按目录中的真实子类集合匹配，不靠编码前缀猜测；未知非空编码仍不属于“未分类”。
+  const group = category ? categories.find(entry => entry.code === category) : undefined
+  if (category === 'unclassified' ? !!item.category_code
+    : group ? !group.children.some(child => child.code === item.category_code)
+    : category && item.category_code !== category) return false
   return [item.sku, item.name, item.unit, item.specification, item.package, item.brand,
     item.manufacturer_part_number, item.electrical_value, item.tolerance, item.rated_voltage,
     item.rated_power, item.temperature_range, item.compliance, item.notes, item.spec_summary,
