@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { captureDialogOrigin } from '../../../utils/dialog-origin'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
@@ -11,7 +12,7 @@ const props = defineProps<{models:ProductModel[]; page:ProductPage|null; query:P
   busy:boolean; disconnected:boolean; canManage:boolean}>()
 const emit = defineEmits<{
   series:[id:number|null]; select:[id:number]; newSeries:[]; newModel:[]; manage:[]; include:[];
-  reset:[]; retry:[]; pageChange:[page:number,size:number]
+  delete:[model:ProductModel]; reset:[]; retry:[]; pageChange:[page:number,size:number]
 }>()
 const filterOpen=ref(false)
 // 子节点来自当前服务端分页；系列目录始终完整，不把当前页条数冒充全局数量。
@@ -44,14 +45,18 @@ const members = (id:number|null):ProductProfile[] => children.value.filter(row=>
       <div v-else-if="error" role="alert"><p>{{ error }}</p><AppButton :disabled="disconnected" @click="emit('retry')">重试</AppButton></div>
       <ul class="tree-roots">
         <li v-for="model in models" :key="model.id">
-          <AppButton variant="plain" class="tree-series" :class="{'is-current':query.model_id===model.id}" :aria-expanded="query.model_id===model.id || members(model.id).length>0" :disabled="busy || disconnected" @click="emit('series',model.id)">
+          <div class="tree-series-row"><AppButton variant="plain" class="tree-series" :class="{'is-current':query.model_id===model.id}" :aria-expanded="query.model_id===model.id || members(model.id).length>0" :disabled="busy || disconnected" @click="emit('series',model.id)">
             <span aria-hidden="true">{{ query.model_id===model.id || members(model.id).length ? '▾' : '▸' }}</span>
-            <span class="series-label"><strong>{{ model.name }}</strong><small>{{ model.code }}</small></span>
+            <span class="series-label"><strong>{{ model.name }}</strong><small>{{ model.code }}<template v-if="model.child_count !== undefined"> · {{ model.child_count }} 个子机型</template></small></span>
           </AppButton>
+            <!-- plain 保留语义红色，避免旧全局 text 样式把危险操作染成主题强调色。 -->
+            <AppButton v-if="canManage" variant="plain" tone="error" size="small" :aria-label="`删除产品系列 ${model.name}`" :disabled="busy || disconnected"
+              @click.capture="captureDialogOrigin('product-model-delete',$event)" @click="emit('delete',model)">删除</AppButton>
+          </div>
           <ul v-if="members(model.id).length" class="tree-children">
             <li v-for="row in members(model.id)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="emit('select',row.id)">
               <!-- 名称只显示一次；配置有实际差异时才补充，避免未配置产品出现重复行。 -->
-              <strong>{{ row.material.name }}</strong><small>{{ row.material.sku }}</small><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
+              <strong>{{ row.material.name }}</strong><small>{{ row.material.sku }}</small><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.can_produce===false">已停用</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
             </AppButton></li>
           </ul>
           <p v-else-if="query.model_id===model.id && !loading && !error" class="tree-empty muted">此系列暂无匹配子机型</p>
@@ -59,7 +64,7 @@ const members = (id:number|null):ProductProfile[] => children.value.filter(row=>
         <li v-if="members(null).length"><h4 class="tree-unassigned">未归组产品 / 半成品</h4><ul class="tree-children">
           <li v-for="row in members(null)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="emit('select',row.id)">
             <!-- 名称只显示一次；配置有实际差异时才补充，避免未配置产品出现重复行。 -->
-              <strong>{{ row.material.name }}</strong><small>{{ row.material.sku }}</small><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
+              <strong>{{ row.material.name }}</strong><small>{{ row.material.sku }}</small><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.can_produce===false">已停用</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
           </AppButton></li>
         </ul></li>
       </ul>
@@ -83,6 +88,8 @@ header h3 { margin:0; font-size:16px; } header p { margin:7px 0 0; font-size:12p
 .tree-roots,.tree-children { list-style:none; padding:0; margin:0; }
 .tree-roots>li { margin-top:8px; }
 .tree-all,.tree-series,.tree-model { width:100%; min-width:0; padding:10px 12px; border-radius:10px; text-align:left; white-space:normal; }
+.tree-series-row { display:flex; align-items:center; gap:4px; }
+.tree-series-row .tree-series { flex:1; width:auto; }
 .tree-series { display:flex; align-items:center; justify-content:start; gap:8px; }
 .series-label { display:grid; justify-items:start; gap:5px; }
 /* 按钮内部承载文字网格，避免公共按钮的居中容器让不同长度的名称来回跳动。 */

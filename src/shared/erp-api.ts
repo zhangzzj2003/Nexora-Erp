@@ -868,6 +868,8 @@ export interface Bom {
   source_bom?: { id: number; product_material_id: number; product_name: string; product_sku: string; version: number } | null
   id: number
   product_material_id: number
+  // 子机型停用或删除后，配方历史仍保留，但不可用于新生产。
+  product_can_produce?: boolean
   product_sku: string
   product_name: string
   product_unit: string
@@ -1644,11 +1646,13 @@ export interface ErpOperations extends MaterialFlowOperations, MaterialSupplyOpe
   productChanges: {input: {id: number}; output: ProductChange[]}
   createProduct: {input: ProductInput; output: ProductProfile}
   updateProduct: {input: ProductUpdate; output: ProductProfile}
+  deleteProduct: {input: {id: number; version: number; reason: string}; output: ProductProfile}
   productModels: {input: undefined; output: ProductModel[]}
   productModelDetail: {input: {id: number}; output: ProductModel}
   productModelChanges: {input: {id: number}; output: ProductChange[]}
   createProductModel: {input: ProductModelInput; output: ProductModel}
   updateProductModel: {input: ProductModelInput & {id: number; version: number; reason: string}; output: ProductModel}
+  deleteProductModel: {input: {id: number; version: number; reason: string}; output: ProductModel}
   bomDetail: {input: {bomId: number}; output: Bom}
   productBoms: {input: {materialId: number}; output: Bom[]}
   boms: { input: undefined; output: Bom[] }

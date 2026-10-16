@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.orm import orm_session, add_model
-from app.core.models import Bom, BomLine, Material, User
+from app.core.models import Bom, BomLine, Material, User, ProductProfile
 from app.catalog.product_rules import require_product_use
 from app.access.security import require
 from app.production.bom_dependencies import validate_component_bom, require_bom_ready
@@ -108,20 +108,22 @@ def bom_data(db: Session, bom_id: int) -> dict:
         child = db.get(Bom, line['component_bom_id']) if line['component_bom_id'] else None
         enriched.append({**dict(line), 'component_bom_version': child.version if child else None,
                          'component_bom_status': child.status if child else None})
-    return {**dict(row), "lines": enriched, 'source_bom': {
+    profile = db.scalar(select(ProductProfile).where(ProductProfile.material_id == row['product_material_id']))
+    return {**dict(row), 'product_can_produce': profile is None or (profile.deleted_at is None and profile.can_produce), "lines": enriched, 'source_bom': {
         'id': source.id, 'version': source.version, 'product_material_id': source.product_material_id,
         'product_name': source_material.name, 'product_sku': source_material.sku,
     } if source else None}
 
 
 def has_cycle_after_activation(db: Session, product_id: int, components: list[int]) -> bool:
-    # 只看启用版本；草稿互相引用尚未生效，启用时必须阻止组件回指成品。
+    # 只看仍有产品身份的启用版本；软删后的历史配方不再产生新的制造环路。
     graph: dict[int, set[int]] = {}
     for row in db.execute(
         select(Bom.product_material_id, BomLine.component_material_id)
         .select_from(Bom)
         .join(BomLine, (BomLine.bom_id == Bom.id))
-        .where((Bom.status == "active"))
+        .where(Bom.status == "active", Bom.product_material_id.not_in(
+            select(ProductProfile.material_id).where(ProductProfile.deleted_at.is_not(None))))
     ).mappings():
         graph.setdefault(row["product_material_id"], set()).add(row["component_material_id"])
     pending = list(components)

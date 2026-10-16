@@ -1,6 +1,7 @@
 """产品与机型管理：沿用统一物料身份，联合写入在同一 ORM 事务提交。"""
 
 import json
+from datetime import datetime, timezone
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -8,7 +9,7 @@ from sqlalchemy import func, or_, select
 from app.access.security import require, current_user
 from app.catalog.routes import MaterialInput, create_material_in_session, update_material_in_session, flush_catalog
 from app.catalog.product_rules import product_data, product_change, validate_model
-from app.core.models import Material, ProductProfile, ProductModel, ProductChange, User
+from app.core.models import Material, ProductProfile, ProductModel, ProductChange, User, Bom, BomLine
 from app.core.orm import orm_session, model_data
 
 router = APIRouter(prefix='/api/v1')
@@ -106,7 +107,7 @@ def changes(db, kind, entity_id):
 @router.post('/products/query')
 def query_products(payload: ProductQuery, _: dict = Depends(require('inventory.view'))) -> dict:
     with orm_session() as db:
-        terms = []
+        terms = [ProductProfile.deleted_at.is_(None)]
         if payload.kind:
             terms.append(ProductProfile.kind == payload.kind)
         if payload.model_id is not None:
@@ -132,8 +133,8 @@ def query_products(payload: ProductQuery, _: dict = Depends(require('inventory.v
 def product_detail(product_id: int, _: dict = Depends(require('inventory.view'))) -> dict:
     with orm_session() as db:
         row = db.get(ProductProfile, product_id)
-        if row is None:
-            raise HTTPException(404, '产品不存在')
+        if row is None or row.deleted_at is not None:
+            raise HTTPException(404, '子机型不存在或已删除')
         return product_data(db, row)
 
 
@@ -168,8 +169,8 @@ def create_product(payload: ProductInput, actor: dict = Depends(require('catalog
 def update_product(product_id: int, payload: ProductUpdate, actor: dict = Depends(require('catalog.manage'))) -> dict:
     with orm_session(write=True) as db:
         row = db.get(ProductProfile, product_id)
-        if row is None:
-            raise HTTPException(404, '产品不存在')
+        if row is None or row.deleted_at is not None:
+            raise HTTPException(404, '子机型不存在或已删除')
         if row.version != payload.version:
             raise HTTPException(409, '产品资料已更新，请重新加载后编辑')
         validate_model(db, payload.model_id)
@@ -189,7 +190,11 @@ def update_product(product_id: int, payload: ProductUpdate, actor: dict = Depend
 @router.get('/product-models')
 def list_models(_: dict = Depends(require('inventory.view'))) -> list[dict]:
     with orm_session() as db:
-        return [model_data(row) for row in db.scalars(select(ProductModel).order_by(ProductModel.code, ProductModel.id))]
+        # 数量覆盖整个系列，不能用前端搜索结果或当前分页判断能否删除。
+        counts = dict(db.execute(select(ProductProfile.model_id, func.count(ProductProfile.id))
+                                 .where(ProductProfile.deleted_at.is_(None)).group_by(ProductProfile.model_id)).all())
+        return [{**model_data(row), 'child_count': counts.get(row.id, 0)} for row in db.scalars(
+            select(ProductModel).where(ProductModel.deleted_at.is_(None)).order_by(ProductModel.code, ProductModel.id))]
 
 
 @router.get('/product-models/{model_id}')
@@ -198,7 +203,7 @@ def model_detail(model_id: int, _: dict = Depends(require('inventory.view'))) ->
         row = db.get(ProductModel, model_id)
         if row is None:
             raise HTTPException(404, '机型不存在')
-        return model_data(row)
+        return {**model_data(row), 'child_count': db.scalar(select(func.count(ProductProfile.id)).where(ProductProfile.model_id == model_id, ProductProfile.deleted_at.is_(None)))}
 
 
 @router.get('/product-models/{model_id}/changes')
@@ -224,8 +229,8 @@ def create_model(payload: ModelInput, actor: dict = Depends(require('catalog.man
 def update_model(model_id: int, payload: ModelInput, actor: dict = Depends(require('catalog.manage'))) -> dict:
     with orm_session(write=True) as db:
         row = db.get(ProductModel, model_id)
-        if row is None:
-            raise HTTPException(404, '机型不存在')
+        if row is None or row.deleted_at is not None:
+            raise HTTPException(404, '产品系列不存在或已删除')
         if row.version != payload.version:
             raise HTTPException(409, '机型资料已更新，请重新加载后编辑')
         if not payload.reason:
@@ -235,3 +240,60 @@ def update_model(model_id: int, payload: ModelInput, actor: dict = Depends(requi
         flush_catalog(db, '机型编码已存在')
         product_change(db, 'model', row, before, actor, payload.reason)
         return model_data(row)
+
+
+class ModelDeleteInput(BaseModel):
+    version: int = Field(ge=1, strict=True)
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator('reason')
+    @classmethod
+    def require_reason(cls, value):
+        if not value.strip():
+            raise ValueError('请填写删除原因')
+        return value.strip()
+
+
+@router.delete('/product-models/{model_id}')
+def delete_model(model_id: int, payload: ModelDeleteInput, actor: dict = Depends(require('catalog.manage'))) -> dict:
+    # BEGIN IMMEDIATE 串行化删除与子机型建档/归组；完整关联校验和软删除、审计必须同事务提交。
+    with orm_session(write=True) as db:
+        row = db.get(ProductModel, model_id)
+        if row is None or row.deleted_at is not None:
+            raise HTTPException(404, '产品系列不存在或已删除')
+        if row.version != payload.version:
+            raise HTTPException(409, '产品系列已更新，请刷新后再删除')
+        count = db.scalar(select(func.count(ProductProfile.id)).where(ProductProfile.model_id == model_id, ProductProfile.deleted_at.is_(None)))
+        if count:
+            raise HTTPException(409, f'此系列仍有 {count} 个子机型，请先删除子机型后再删除系列')
+        before = model_data(row)
+        row.deleted_at = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        row.deleted_by, row.deletion_reason = actor['id'], payload.reason
+        row.version += 1
+        db.flush()
+        product_change(db, 'model', row, before, actor, payload.reason)
+        return {**model_data(row), 'child_count': 0}
+
+
+@router.delete('/products/{product_id}')
+def delete_product(product_id: int, payload: ModelDeleteInput, actor: dict = Depends(require('catalog.manage'))) -> dict:
+    with orm_session(write=True) as db:
+        row = db.get(ProductProfile, product_id)
+        if row is None or row.deleted_at is not None:
+            raise HTTPException(404, '子机型不存在或已删除')
+        if row.version != payload.version:
+            raise HTTPException(409, '子机型已更新，请刷新后再删除')
+        # 未删除上层的启用配方仍受保护；已删除上层只剩历史，不得永久卡住后续目录清理。
+        parents = db.scalar(select(func.count(BomLine.id)).join(Bom, Bom.id == BomLine.bom_id).where(
+            Bom.status == 'active', BomLine.component_material_id == row.material_id,
+            BomLine.component_bom_id.is_not(None), Bom.product_material_id.not_in(
+                select(ProductProfile.material_id).where(ProductProfile.deleted_at.is_not(None)))))
+        if parents:
+            raise HTTPException(409, '子机型仍被启用的上层 BOM 固定引用，请先修订或停用上层 BOM')
+        before = product_data(db, row)
+        row.deleted_at = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+        row.deleted_by, row.deletion_reason, row.can_produce = actor['id'], payload.reason, False
+        row.version += 1
+        db.flush()
+        product_change(db, 'product', row, before, actor, payload.reason)
+        return product_data(db, row)

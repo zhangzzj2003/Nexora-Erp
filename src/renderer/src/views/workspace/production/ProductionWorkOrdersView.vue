@@ -71,7 +71,7 @@ async function submitCreate(): Promise<void> {
   );
 }
 // 单张工单固定一个产品及一个 BOM 版本；产品与版本均从 Pinia 草稿反推，收起后不会丢失。
-const activeBoms = computed(() => boms.value.filter(item => item.status === 'active')
+const activeBoms = computed(() => boms.value.filter(item => item.status === 'active' && item.product_can_produce !== false)
   .sort((left, right) => right.version - left.version || right.id - left.id));
 const selectedBom = computed(() => boms.value.find(item => item.id === workOrderForm.value.bom_id));
 const productId = computed({
@@ -79,7 +79,7 @@ const productId = computed({
   set: (id: number) => {
     if (busy.value || connectionLost.value || !can('work_order.create')) return;
     // 同一产品保留已选版本；切换产品默认使用最新启用版本，不带入另一产品的 BOM。
-    if (selectedBom.value?.status === 'active' && selectedBom.value.product_material_id === id) return;
+    if (selectedBom.value?.status === 'active' && selectedBom.value.product_can_produce !== false && selectedBom.value.product_material_id === id) return;
     workOrderForm.value.bom_id = activeBoms.value.find(item => item.product_material_id === id)?.id ?? 0;
   },
 });
@@ -108,6 +108,7 @@ const productColumns: readonly WorkspaceTableColumn[] = [
   { key: 'quantity', title: '目标产量', width: '150' },
 ];
 const productIssue = computed(() => {
+  if (selectedBom.value?.product_can_produce === false) return '此子机型已停用或删除，请选择可生产的子机型。';
   if (!activeBoms.value.length) return '暂无已启用的 BOM，请先为生产产品启用 BOM。';
   if (!selectedBom.value) return '请在下方表格选择生产产品及 BOM 版本。';
   if (selectedBom.value.status !== 'active') return '所选 BOM 已停用，请重新选择启用版本。';
@@ -164,10 +165,10 @@ async function openCompletions(create = false): Promise<void> {
 // 产品 BOM 详情使用一次性建单意图；仅有效启用版本和实时权限允许打开草稿。
 const consumedBom = ref(0);
 watch([() => route?.query.create_from_bom, () => busy.value, () => connectionLost.value,
-  () => store.user?.id, () => store.user?.permissions.join('|'), () => boms.value.find(item => item.id === Number(route?.query.create_from_bom))?.status], () => {
+  () => store.user?.id, () => store.user?.permissions.join('|'), () => boms.value.find(item => item.id === Number(route?.query.create_from_bom))?.status, () => boms.value.find(item => item.id === Number(route?.query.create_from_bom))?.product_can_produce], () => {
   const id = Number(route?.query.create_from_bom);
   if (!Number.isSafeInteger(id) || id <= 0 || consumedBom.value === id || busy.value || connectionLost.value || !can('work_order.create')) return;
-  const bom = boms.value.find(item => item.id === id && item.status === 'active');
+  const bom = boms.value.find(item => item.id === id && item.status === 'active' && item.product_can_produce !== false);
   if (!bom) return;
   consumedBom.value = id;
   workOrderForm.value.bom_id = id; workOrderForm.value.target_quantity = '1';

@@ -1,7 +1,7 @@
 import { watch } from 'vue'
 import type { AppState } from '../state'
 import type { Bom } from '../../../../shared/erp-api'
-import type { ProductInput, ProductProfile, ProductModel } from '../../../../shared/product-api'
+import type { ProductInput, ProductProfile, ProductModel, ProductLifecycleAction } from '../../../../shared/product-api'
 import { validateProductResult } from '../../../../shared/product-api.ts'
 import { materialDraft, materialInput } from '../../utils/material-form.ts'
 import { displayError } from '../../utils/formatters.ts'
@@ -157,6 +157,72 @@ export function createProductActions(state: AppState) {
     state.notice.value = '产品系列已保存。'; await queryProducts()
     if (identity() === session && allowed('catalog.manage')) return row
   }
+  async function deleteProductModel(model: ProductModel, reason: string): Promise<boolean> {
+    // busy 解除时同步监听可能切换会话，写入前固定边界，返回后不能用新会话接收旧结果。
+    const session=identity(), permissions=state.user.value?.permissions.slice().sort().join('|'), epoch=editTicket
+    const row = await write(async () => {
+      const result = await window.nexora!.callApi('deleteProductModel', {id:model.id, version:model.version, reason})
+      validateProductResult('deleteProductModel', result)
+      if (result.id !== model.id) throw Error('服务端返回了另一产品系列的删除结果')
+      return result
+    })
+    if (!row || identity()!==session || epoch!==editTicket || state.user.value?.permissions.slice().sort().join('|')!==permissions || !allowed('catalog.manage')) return false
+    // 服务端已确认没有子机型；仅清理失效的系列选择，其他产品草稿字段保留。
+    state.productModels.value = state.productModels.value.filter(item => item.id !== row.id)
+    if (state.productQuery.value.model_id === row.id) {closeProduct(); state.productQuery.value.model_id = null}
+    if (state.productForm.value.model_id === row.id) state.productForm.value.model_id = null
+    if (state.productModelForm.value.id === row.id) {
+      state.productModelForm.value = {id:0,version:0,code:'',name:'',notes:'',reason:''}
+      state.productModelChanges.value = []
+    }
+    state.notice.value = '空系列已删除，原编码与删除记录已保留。'
+    await queryProducts(1)
+    return identity() === session && allowed('catalog.manage')
+  }
+  async function applyProductLifecycle(product: ProductProfile, action: ProductLifecycleAction, reason: string): Promise<boolean> {
+    // busy 解除时同步监听可能切换会话，写入前固定边界，返回后不能用新会话接收旧结果。
+    const session=identity(), permissions=state.user.value?.permissions.slice().sort().join('|'), epoch=editTicket
+    if (product.deleted_at) {state.error.value='子机型已删除，请刷新目录'; return false}
+    const row = await write(async () => {
+      // 停启复用既有生产用途开关，不再引入与 BOM 版本状态冲突的第二套 enabled 字段。
+      const result = action === 'delete'
+        ? await window.nexora!.callApi('deleteProduct',{id:product.id,version:product.version,reason})
+        : await window.nexora!.callApi('updateProduct',{id:product.id,version:product.version,reason,
+          kind:product.kind,model_id:product.model_id,configuration_name:product.configuration_name,
+          can_sell:product.can_sell ?? true,can_purchase:product.can_purchase ?? true,can_produce:action==='enable'})
+      validateProductResult(action === 'delete' ? 'deleteProduct' : 'updateProduct', result)
+      if (result.id !== product.id || result.material_id !== product.material_id) throw Error('服务端返回了另一子机型的操作结果')
+      if (action !== 'delete' && result.can_produce !== (action==='enable')) throw Error('子机型生产状态未生效，请升级服务端后重试')
+      return result
+    })
+    if (!row || identity()!==session || epoch!==editTicket || state.user.value?.permissions.slice().sort().join('|')!==permissions || !allowed('catalog.manage')) return false
+    const enabled = !row.deleted_at && row.can_produce !== false
+    // 立即同步可生产性，旧工单草稿及 BOM 详情不能继续显示一个可用的建单入口。
+    const updateBoms = (rows: Bom[]): Bom[] => rows.map(bom => bom.product_material_id === row.material_id
+      ? {...bom,product_can_produce:enabled} : bom)
+    state.boms.value = updateBoms(state.boms.value)
+    state.productBomRecords.value = updateBoms(state.productBomRecords.value)
+    if (state.bomDetailRecord.value?.product_material_id === row.material_id)
+      state.bomDetailRecord.value = {...state.bomDetailRecord.value,product_can_produce:enabled}
+    if (action === 'delete') {
+      if (state.productDetailId.value === row.id) {
+        closeProduct(); state.productDetailRecord.value=null; state.productBomRecords.value=[]; state.productChangeRecords.value=[]
+      }
+      if (state.productForm.value.id === row.id) {
+        state.productEditorOpen.value=false
+        state.productForm.value={id:0,version:0,mode:'new',material_id:0,kind:'finished',model_id:null,
+          configuration_name:'',can_sell:true,can_purchase:true,can_produce:true,reason:''}
+      }
+      state.notice.value='子机型已删除，原物料、库存、BOM 和历史单据已保留。'
+    } else {
+      if (state.productDetailId.value === row.id) state.productDetailRecord.value=row
+      state.notice.value=enabled ? '子机型已启用，可使用启用版本创建新生产工单。' : '子机型已停用，禁止新生产，已有工单和 BOM 版本保留。'
+    }
+    await queryProducts()
+    if (identity() !== session || !allowed('catalog.manage')) return false
+    if (action !== 'delete' && state.productDetailId.value === row.id) await openProduct(row.id)
+    return identity() === session && allowed('catalog.manage')
+  }
   async function editProductModel(id: number): Promise<void> {
     if (!allowed('catalog.manage') || state.busy.value) return
     const ticket = ++editTicket
@@ -164,6 +230,8 @@ export function createProductActions(state: AppState) {
       const [row, changes] = await Promise.all([window.nexora!.callApi('productModelDetail', {id}), window.nexora!.callApi('productModelChanges', {id})])
       if (ticket !== editTicket || !allowed('catalog.manage')) return
       if (row.id !== id) throw Error('服务端返回了另一产品系列的资料')
+      validateProductResult('productModelDetail', row)
+      if (row.deleted_at) throw Error('产品系列已删除，请刷新目录')
       state.productModelForm.value = {...row, reason: ''}; state.productModelChanges.value = changes
     } catch (cause) {if (ticket === editTicket) state.error.value = displayError(cause)}
   }
@@ -191,6 +259,6 @@ export function createProductActions(state: AppState) {
     finally {if (ticket === bomTicket) state.bomDetailLoading.value = false}
   }
   function closeBomDetail(): void {bomTicket++; state.bomDetailRecord.value = null; state.bomDetailLoading.value = false; state.bomDetailError.value = ''}
-  return {queryProducts, openProduct, closeProduct, startProduct, saveProduct, saveProductModel, editProductModel,
+  return {queryProducts, openProduct, closeProduct, startProduct, saveProduct, saveProductModel, editProductModel, deleteProductModel, applyProductLifecycle,
     prepareProductBom, openBomDetail, closeBomDetail}
 }

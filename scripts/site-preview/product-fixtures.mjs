@@ -5,22 +5,27 @@ export const productPreviewMaterials = [...materials, {...materials[4], id:6, sk
   specification:'DC 24 V · 四路控制 · 长续航配置', manufacturer_part_number:'DEMO-CTRL02'},
   {...materials[4],id:7,sku:'FG-A100-01',name:'A100 智能控制器',specification:'标准整机 · 主控板 + 铝合金外壳'},
   {...materials[4],id:8,sku:'PART-CASE-01',name:'铝合金外壳',unit:'套',specification:'120 × 80 × 35 mm'}]
-export const productPreviewModels = [{id:1,code:'A100',name:'A100 控制系列',notes:'虚构机型，仅用于界面验收',version:1,
-  created_by:3,created_at:'2026-10-15 08:00:00'}, {id:2,code:'PCBA',name:'通用主控板',notes:'可供多个成品系列引用的半成品',version:1,created_by:3,created_at:'2026-10-15 08:00:00'}]
 export const productPreviewProfiles = [7,5,6].map((id,index)=>({id:index+1,material_id:id,kind:id===7?'finished':'semi_finished',model_id:id===7?1:2,
-  can_sell:true,can_purchase:id!==7,can_produce:true,
+  can_sell:true,can_purchase:id!==7,can_produce:id!==6,
   configuration_name:id===6?'长续航版':'标准版',model_code:id===7?'A100':'PCBA',model_name:id===7?'A100 控制系列':'通用主控板',version:1,
   created_by:3,created_at:'2026-10-15 08:00:00',material:productPreviewMaterials.find(row=>row.id===id)}))
+// 系列总数来自完整档案，停用子机型仍计入；空系列用于检查删除确认状态。
+export const productPreviewModels = [{id:1,code:'A100',name:'A100 控制系列',notes:'虚构机型，仅用于界面验收',version:1,
+  created_by:3,created_at:'2026-10-15 08:00:00'}, {id:2,code:'PCBA',name:'通用主控板',notes:'可供多个成品系列引用的半成品',version:1,created_by:3,created_at:'2026-10-15 08:00:00'},
+  {id:3,code:'EMPTY',name:'待规划系列',notes:'暂无子机型，用于验收空系列删除确认',version:1,created_by:3,created_at:'2026-10-15 08:00:00'}]
+  .map(model=>({...model,child_count:productPreviewProfiles.filter(row=>row.model_id===model.id).length}))
 export const productPreviewBoms = [
  {id:1,product_material_id:5,version:1,status:'retired',source_bom_id:null},
  {id:2,product_material_id:5,version:2,status:'active',source_bom_id:1},
- {id:3,product_material_id:6,version:1,status:'draft',source_bom_id:2},
+ // BOM 本身仍启用，生产资格由停用的子机型关闭，便于验收两种状态的区别。
+ {id:3,product_material_id:6,version:1,status:'active',source_bom_id:2},
  {id:4,product_material_id:7,version:1,status:'active',source_bom_id:null},
 ].map(bom=>{
  const product=productPreviewMaterials.find(row=>row.id===bom.product_material_id)
  const parent=bom.source_bom_id?{id:bom.source_bom_id,version:bom.source_bom_id===1?1:2,
    product_material_id:5,product_name:materials[4].name,product_sku:materials[4].sku}:null
  return {...bom,product_name:product.name,product_sku:product.sku,product_unit:product.unit,source_bom:parent,
+  product_can_produce:productPreviewProfiles.find(row=>row.material_id===bom.product_material_id)?.can_produce!==false,
   base_quantity:'1',note:'产品管理界面示例',created_by:3,created_by_name:'示例计划员',created_at:'2026-10-15 08:00:00',
   activated_by:null,activated_at:null,retired_by:null,retired_at:null,cancelled_by:null,cancelled_at:null,
   lines:bom.id===4?[{id:40,component_material_id:5,component_bom_id:2,component_bom_version:2,component_bom_status:'active',

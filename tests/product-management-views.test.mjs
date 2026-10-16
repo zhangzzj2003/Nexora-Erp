@@ -12,9 +12,17 @@ async function fixture(t) {
  const server=await createServer({configFile:false,plugins:[{name:'product-views',enforce:'pre',resolveId(id,importer){
    if(!importer?.includes('/src/renderer/'))return
    if(id.endsWith('/store/app-store'))return '\0products-store'
+   if(id==='test-products-dropdown')return '\0products-dropdown'
+   if(['ProductionAssociationDialog','DocumentApprovalDialog','WorkOrderMaterialFlowPanel'].some(name=>id.endsWith('/'+name+'.vue')))return '\0products-empty'
    for(const [name,key] of [['AppModal','modal'],['WorkspaceTable','table'],['WorkspacePagination','pagination'],['AppButton','button'],['AppInput','input'],['WorkspaceMaterialSelect','select'],['WorkspaceSelect','select'],['MaterialEditor','material']])
      if(id.endsWith('/'+name+'.vue'))return '\0products-'+key
+ },transform(code,id){
+   // 浮层定位需要浏览器 DOM；保留真实页面菜单选项和选择处理，只替换绘制层。
+   if(id.endsWith('/ProductsView.vue'))return code.replace("import { NCollapse, NDropdown } from 'naive-ui'",
+     "import { NCollapse } from 'naive-ui'\nimport NDropdown from 'test-products-dropdown'")
  },load(id){
+   if(id==='\0products-empty')return 'export default {render:()=>null}'
+   if(id==='\0products-dropdown')return `import {h} from 'vue';export default {props:['options','disabled'],setup:(p,{slots})=>()=>h('div',{'data-lifecycle-menu':p.options.map(row=>row.key).join(',')},slots.default?.())}`
    if(id==='\0products-store')return `import {defineStore,storeToRefs} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';
     import {createProductActions} from '/src/renderer/src/store/modules/product-actions.ts';import {createProductionActions} from '/src/renderer/src/store/modules/production-actions.ts';
     export const usePiniaAppStore=defineStore('product-view',()=>{const s=createAppState();return {...s,...createProductActions(s),
@@ -32,6 +40,7 @@ async function fixture(t) {
  const {usePiniaAppStore}=await server.ssrLoadModule('\0products-store')
  const {default:View}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/ProductsView.vue')
  const {default:LegacyBom}=await server.ssrLoadModule('/src/renderer/src/views/workspace/catalog/BomEditor.vue')
+ const {default:WorkOrders}=await server.ssrLoadModule('/src/renderer/src/views/workspace/production/ProductionWorkOrdersView.vue')
  const {paginations}=await server.ssrLoadModule('\0products-pagination')
  const {selects}=await server.ssrLoadModule('\0products-select')
  const {buttons}=await server.ssrLoadModule('\0products-button'), {tables}=await server.ssrLoadModule('\0products-table')
@@ -50,16 +59,17 @@ async function fixture(t) {
  t.after(()=>{globalThis.window=previous})
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/workspace/products',component:View},{path:'/workspace/work-orders',component:{render:()=>null}}]})
  await router.push('/workspace/products');await router.isReady()
- let setup;const overrides={}, beforeRender={}
+ let setup;const overrides={}, beforeRender={}, components={}
  const render=async()=>{buttons.length=0;tables.length=0;paginations.length=0;selects.length=0
    const app=createSSRApp(View).use(pinia).use(router)
-   app.mixin({async serverPrefetch(){if(this.$options.__name==='ProductsView'){await store.queryProducts();const id=store.productDetailId || store.productResult?.items[0]?.id;if(id)await store.openProduct(id);beforeRender.apply?.(store)}},created(){if(this.$options.__name==='ProductsView'){setup=this.$.setupState;for(const[key,value]of Object.entries(overrides))setup[key]=value}}})
+   app.mixin({async serverPrefetch(){if(this.$options.__name==='ProductsView'){await store.queryProducts();const id=store.productDetailId || store.productResult?.items[0]?.id;if(id)await store.openProduct(id);beforeRender.apply?.(store)}},created(){components[this.$options.__name]=this.$.setupState;if(this.$options.__name==='ProductsView'){setup=this.$.setupState;for(const[key,value]of Object.entries(overrides))setup[key]=value}}})
    return renderToString(app)
  }
  await store.queryProducts()
  store.materials=[material,{...material,id:22,sku:'EL-IC-22',name:'主芯片',unit:'个'}]
  const renderLegacyBom=async()=>{buttons.length=0;return renderToString(createSSRApp({render:()=>h(LegacyBom,{show:true})}).use(pinia).use(router))}
- return {store,source,product,render,renderLegacyBom,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,get setup(){return setup}}
+ const renderWorkOrders=async()=>{buttons.length=0;selects.length=0;const app=createSSRApp(WorkOrders).use(pinia).use(router);app.mixin({created(){components[this.$options.__name]=this.$.setupState}});return renderToString(app)}
+ return {store,source,product,render,renderLegacyBom,renderWorkOrders,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,components,get setup(){return setup}}
 }
 
 test('产品真实页面使用服务端分页和物料身份，查看权限不能显示维护入口',async t=>{
@@ -258,4 +268,105 @@ test('BOM 读取失败、加载与空状态都隐藏旧组成，失败可重试'
  f.beforeRender.apply=store=>{store.productBomRecords=[]}
  html=await f.render();assert.match(html,/尚未建立 BOM/)
  assert.equal(f.tables.some(row=>row.title.startsWith('组成明细')),false)
+})
+
+// 服务端子机型总数与当前分页互不混淆，停用机型仍占用系列归属。
+test('系列删除按完整子机型数量阻断，失败保留原因，查看账号不显示删除入口',async t=>{
+ const f=await fixture(t)
+ const model={id:1,code:'A100',name:'机型A',notes:'',version:3,child_count:4,created_by:1,created_at:'2026-10-15'}
+ f.product.can_produce=false
+ f.overrides.modelToDelete=model
+ let html=await f.render()
+ assert.match(html,/删除产品系列/);assert.match(html,/先删除子机型，再删除系列/)
+ assert.equal(f.buttons.find(row=>row.label==='确认删除系列').props.disabled,true)
+ const blocked=f.components.ProductModelDeleteDialog
+ blocked.reason='清理停用系列';await blocked.remove()
+ assert.equal(f.calls.some(([action])=>action==='deleteProductModel'),false)
+ // 空系列可发起删除；服务端并发新增或关联校验失败时保留本次确认原因。
+ f.overrides.modelToDelete={...model,child_count:0}
+ await f.render()
+ const empty=f.components.ProductModelDeleteDialog
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='deleteProductModel'){f.calls.push([action,payload]);throw Error('系列已有新的子机型')}
+  return previous(action,payload)
+ }
+ empty.reason='整理空系列';await empty.remove()
+ assert.equal(empty.reason,'整理空系列');assert.match(f.store.error,/新的子机型/)
+ assert.deepEqual(f.calls.find(([action])=>action==='deleteProductModel')[1],{id:1,version:3,reason:'整理空系列'})
+ f.store.user={...f.store.user,permissions:['inventory.view','production.view']}
+ html=await f.render();assert.doesNotMatch(html,/删除产品系列|确认删除系列/)
+})
+
+// 子机型停用优先于其 BOM 的 active 状态，旧详情按钮不能继续发出建单意图。
+test('停用子机型的 BOM 详情禁止建单，启用版本历史仍可查看',async t=>{
+ const f=await fixture(t)
+ f.store.bomDetailRecord={...f.source,product_can_produce:false}
+ const html=await f.render()
+ assert.match(html,/BOM 版本详情/);assert.match(html,/主芯片/)
+ const button=f.buttons.find(row=>row.label==='创建生产工单')
+ assert.equal(button.props.disabled,true)
+ await button.attrs.onClick()
+ assert.equal(f.router.currentRoute.value.path,'/workspace/products')
+ assert.equal(f.store.bomDetailRecord.id,7)
+})
+
+// 确认窗把停用与删除的后果分开，所有写入都要求原因，失败不丢输入。
+test('子机型操作按当前生产状态切换，确认窗保留失败原因并受权限断线约束',async t=>{
+ const f=await fixture(t)
+ await f.render()
+ assert.deepEqual(f.setup.lifecycleOptions.map(row=>row.key),['disable','delete'])
+ f.setup.selectLifecycle('disable')
+ assert.equal(f.setup.lifecycleTarget.id,1);assert.equal(f.setup.lifecycleAction,'disable')
+ f.overrides.lifecycleTarget=f.product;f.overrides.lifecycleAction='disable'
+ let html=await f.render()
+ assert.match(html,/停用后禁止此子机型的新生产/);assert.match(html,/已有工单继续履行/)
+ assert.equal(f.buttons.find(row=>row.label==='确认停用子机型').props.disabled,true)
+ assert.equal(f.buttons.find(row=>row.label==='确认停用子机型').attrs.tone,'warning')
+ const dialog=f.components.ProductLifecycleDialog
+ await dialog.submit();assert.equal(f.calls.some(([action])=>action==='updateProduct'),false)
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='updateProduct'){f.calls.push([action,payload]);throw Error('资料版本已变更，请刷新')}
+  return previous(action,payload)
+ }
+ dialog.reason=' 暂停此型号生产 ';await dialog.submit()
+ assert.equal(dialog.reason,' 暂停此型号生产 ');assert.match(f.store.error,/版本已变更/)
+ assert.equal(f.calls.find(([action])=>action==='updateProduct')[1].reason,'暂停此型号生产')
+ const writes=f.calls.filter(([action])=>action==='updateProduct').length
+ f.store.connectionLost=true;await dialog.submit()
+ assert.equal(f.calls.filter(([action])=>action==='updateProduct').length,writes)
+ f.store.connectionLost=false;f.product.can_produce=false
+ f.overrides.lifecycleAction='enable'
+ html=await f.render()
+ assert.deepEqual(f.setup.lifecycleOptions.map(row=>row.key),['enable','delete'])
+ assert.match(html,/子机型已停用/);assert.match(html,/原 BOM 版本状态保持不变/)
+ assert.equal(f.buttons.find(row=>row.label==='确认启用子机型').attrs.tone,'success')
+ f.overrides.lifecycleAction='delete'
+ html=await f.render()
+ assert.match(html,/保留原物料、库存、BOM 及历史工单/)
+ assert.equal(f.buttons.find(row=>row.label==='确认删除子机型').attrs.tone,'error')
+ f.store.user={...f.store.user,permissions:['inventory.view','production.view']}
+ html=await f.render();assert.doesNotMatch(html,/子机型操作|确认删除子机型/)
+ f.setup.lifecycleTarget=null
+ f.setup.selectLifecycle('delete');assert.equal(f.setup.lifecycleTarget,null)
+})
+
+test('工单产品选项排除停用子机型，旧建单链接及已填草稿均不能继续生产',async t=>{
+ const f=await fixture(t)
+ const blocked={...f.source,product_can_produce:false}
+ const available={...f.source,id:8,product_material_id:22,product_name:'可生产主控板',product_can_produce:true}
+ f.store.boms=[blocked,available]
+ await f.router.push({path:'/workspace/work-orders',query:{create_from_bom:'7'}})
+ f.store.workOrderForm={...f.store.workOrderForm,bom_id:7,target_quantity:'1',warehouse_id:1}
+ f.store.warehouses=[{id:1,name:'主仓库'}]
+ await f.renderWorkOrders()
+ const view=f.components.ProductionWorkOrdersView
+ assert.equal(view.createOpen,false)
+ assert.deepEqual(view.activeBoms.map(row=>row.id),[8])
+ assert.deepEqual(view.productChoices.map(row=>row.id),[22])
+ assert.match(view.productIssue,/子机型已停用或删除/)
+ await view.submitCreate()
+ assert.match(f.store.error,/子机型已停用或删除/)
+ assert.equal(f.calls.some(([action])=>action==='createWorkOrder'),false)
 })

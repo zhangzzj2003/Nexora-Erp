@@ -28,6 +28,8 @@ def product_change(db: Session, kind: str, row, before: dict | None, actor: dict
 def ensure_product(db: Session, material_id: int, actor: dict) -> ProductProfile:
     # 旧 BOM 入口与派生入口也补充同一档案；唯一约束避免重复纳入。
     row = db.scalar(select(ProductProfile).where(ProductProfile.material_id == material_id))
+    if row is not None and row.deleted_at is not None:
+        raise HTTPException(409, '此子机型已删除，不能再新建 BOM')
     if row is None:
         row = ProductProfile(material_id=material_id, kind='unclassified', configuration_name='', version=1,
                              created_by=actor['id'])
@@ -38,8 +40,11 @@ def ensure_product(db: Session, material_id: int, actor: dict) -> ProductProfile
 
 
 def validate_model(db: Session, model_id: int | None) -> None:
-    if model_id is not None and db.get(ProductModel, model_id) is None:
-        raise HTTPException(422, '所选机型不存在，请重新选择')
+    if model_id is not None:
+        row = db.get(ProductModel, model_id)
+        # 与产品建档/改归组共用写事务，软删除后不能通过旧客户端或迟到草稿重新引用。
+        if row is None or row.deleted_at is not None:
+            raise HTTPException(422, '所选产品系列不存在或已删除，请重新选择')
 
 
 def require_product_use(db: Session, material_id: int, capability: str) -> None:
@@ -48,6 +53,8 @@ def require_product_use(db: Session, material_id: int, capability: str) -> None:
     if capability not in labels:
         raise ValueError('未知产品用途')
     row = db.scalar(select(ProductProfile).where(ProductProfile.material_id == material_id))
+    if row is not None and row.deleted_at is not None and capability == 'can_produce':
+        raise HTTPException(409, '此子机型已删除，不能用于新生产')
     if row is not None and not getattr(row, capability):
         material = db.get(Material, material_id)
         raise HTTPException(409, f'物料 {material.sku} 未允许{labels[capability]}，请先维护产品资料')

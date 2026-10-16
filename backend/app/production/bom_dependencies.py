@@ -4,12 +4,15 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.models import Bom, BomLine
+from app.core.models import Bom, BomLine, ProductProfile
 
 
 def validate_component_bom(db: Session, material_id: int, bom_id: int | None) -> None:
     if bom_id is None:
         return
+    profile = db.scalar(select(ProductProfile).where(ProductProfile.material_id == material_id))
+    if profile is not None and profile.deleted_at is not None:
+        raise HTTPException(422, '固定配方的子机型已删除，请重新选择组件配方')
     child = db.get(Bom, bom_id)
     if child is None or child.product_material_id != material_id or child.status not in ('active', 'retired'):
         raise HTTPException(422, '组件配方须属于该组件物料，且已经启用过')

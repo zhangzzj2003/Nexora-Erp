@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from 'vue'
-import { NCollapse } from 'naive-ui'
+import { NCollapse, NDropdown } from 'naive-ui'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import { storeToRefs } from 'pinia'
 import { useRoute } from 'vue-router'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { productKindLabels } from '../../../../../shared/product-api'
-import type { ProductProfile, ProductModel } from '../../../../../shared/product-api'
+import type { ProductProfile, ProductModel, ProductLifecycleAction } from '../../../../../shared/product-api'
 import type { Bom } from '../../../../../shared/erp-api'
 import { materialChoiceFacts } from '../../../utils/material-selection'
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
@@ -19,6 +19,8 @@ import ProductEditor from './ProductEditor.vue'
 import ProductTreeSidebar from './ProductTreeSidebar.vue'
 import ProductBomReuseDialog from './ProductBomReuseDialog.vue'
 import ProductModelsDialog from './ProductModelsDialog.vue'
+import ProductModelDeleteDialog from './ProductModelDeleteDialog.vue'
+import ProductLifecycleDialog from './ProductLifecycleDialog.vue'
 import BomEditor from './BomEditor.vue'
 import BomDetailDialog from './BomDetailDialog.vue'
 import ProductBomStructure from './ProductBomStructure.vue'
@@ -30,6 +32,16 @@ const {productQuery: query, productResult: result, productModels: models, produc
   materialCategories, boms, productModelForm, productModelChanges, busy, connectionLost} = storeToRefs(store)
 const modelsOpen = ref(false), bomOpen = ref(false), detailsOpen = ref(false), reuseOpen = ref(false), createSeriesOnly = ref(false)
 const versionsOpen = ref(false)
+const modelToDelete = ref<ProductModel|null>(null)
+const lifecycleTarget = ref<ProductProfile|null>(null)
+const lifecycleAction = ref<ProductLifecycleAction>('disable')
+const lifecycleOptions = computed(() => detail.value ? [
+  {key:detail.value.can_produce===false ? 'enable' : 'disable',label:detail.value.can_produce===false ? '启用子机型' : '停用子机型'},
+  {key:'delete',label:'删除子机型'}] : [])
+function selectLifecycle(action: string): void {
+  if (!detail.value || productUnavailable.value || !store.can('catalog.manage') || !['enable','disable','delete'].includes(action)) return
+  lifecycleAction.value=action as ProductLifecycleAction; lifecycleTarget.value=detail.value
+}
 const pendingProductId = ref(0)
 const bomTargetId = ref(0)
 const selectedBomId = ref(0)
@@ -78,7 +90,7 @@ watch([result, () => route.query.product_id], ([page, rawId]) => {
 }, {immediate:true})
 // 保存后的定位意图不能跨账号、实例或权限边界执行。
 watch(() => JSON.stringify([store.user?.id,store.server?.id,store.server?.fingerprint,store.user?.permissions.slice().sort()]), () => {
-  pendingProductId.value=0; reuseOpen.value=false; modelsOpen.value=false; bomOpen.value=false; bomTargetId.value=0; versionsOpen.value=false
+  pendingProductId.value=0; reuseOpen.value=false; modelsOpen.value=false; bomOpen.value=false; bomTargetId.value=0; versionsOpen.value=false; modelToDelete.value=null; lifecycleTarget.value=null
 })
 onUnmounted(() => {store.closeProduct(); store.closeBomDetail()})
 function pageChange(page: number, size: number): void {
@@ -145,17 +157,20 @@ function sameModel(): void {
     <ProductTreeSidebar :models="models" :page="result" :query="query" :selected-id="productDetailId" :selected="detail"
       :loading="productsLoading" :error="productsError" :busy="busy" :disconnected="connectionLost" :can-manage="store.can('catalog.manage')"
       @series="selectSeries" @select="selectProduct" @new-series="newSeries" @new-model="newModel()" @include="newModel('existing')"
-      @manage="createSeriesOnly=false;modelsOpen=true" @page-change="pageChange" @reset="reset" @retry="store.queryProducts()" />
+      @delete="modelToDelete=$event" @manage="createSeriesOnly=false;modelsOpen=true" @page-change="pageChange" @reset="reset" @retry="store.queryProducts()" />
     <div class="product-main">
     <section v-if="productDetailId" class="product-bom-panel" aria-label="选中产品的 BOM">
       <header v-if="detail" class="product-bom-heading">
         <div class="product-identity">
-          <div class="product-meta"><span class="product-kind">{{ productKindLabels[detail.kind] }}</span><span class="product-code">{{ detail.material.sku }}</span><span v-if="detail.configuration_name && detail.configuration_name !== detail.material.name">{{ detail.configuration_name }}</span></div>
+          <div class="product-meta"><span class="product-kind">{{ productKindLabels[detail.kind] }}</span><AppStatusTag v-if="detail.can_produce===false" label="子机型已停用" tone="pending" /><span class="product-code">{{ detail.material.sku }}</span><span v-if="detail.configuration_name && detail.configuration_name !== detail.material.name">{{ detail.configuration_name }}</span></div>
           <h3>{{ detail.material.name }}</h3>
           <p v-if="detail.material.spec_summary || detail.material.specification" class="muted">{{ detail.material.spec_summary || detail.material.specification }}</p>
         </div>
         <div class="product-toolbar">
           <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-detail',$event)" @click="detailsOpen = true">产品资料</AppButton>
+          <NDropdown v-if="store.can('catalog.manage')" trigger="click" :options="lifecycleOptions" :disabled="productUnavailable" @select="selectLifecycle">
+            <AppButton size="small" :disabled="productUnavailable" aria-haspopup="menu" @click.capture="captureDialogOrigin('product-lifecycle',$event)">子机型操作</AppButton>
+          </NDropdown>
           <AppButton v-if="store.can('bom.create') && store.can('production.view')" size="small" :disabled="productUnavailable" @click="reuseOpen = true">复用 BOM</AppButton>
           <AppButton v-if="store.can('bom.create')" size="small" variant="primary" :disabled="productUnavailable" @click="startBom()">新建版本</AppButton>
         </div>
@@ -183,7 +198,9 @@ function sameModel(): void {
     <section v-else class="bom-workspace-empty"><h3>BOM 工作区</h3><p class="muted">{{ productsLoading ? '正在读取子机型…' : productsError ? '左侧目录查询失败，请重试。' : `在左侧选择子机型，或在「${seriesName}」中新建子机型，再配置 BOM。` }}</p></section>
     </div>
     <ProductEditor v-if="!bomOpen && productEditorOpen" entity-label="子机型" @saved="productSaved" />
-    <ProductModelsDialog v-model:show="modelsOpen" :create-only="createSeriesOnly" @saved="seriesSaved" />
+    <ProductModelsDialog v-model:show="modelsOpen" :create-only="createSeriesOnly" @saved="seriesSaved" @delete="modelToDelete=$event" />
+    <ProductModelDeleteDialog :model="modelToDelete" @close="modelToDelete=null" />
+    <ProductLifecycleDialog :product="lifecycleTarget" :action="lifecycleAction" @close="lifecycleTarget=null" />
     <ProductBomReuseDialog :show="reuseOpen && store.can('bom.create') && store.can('production.view')" :sources="boms" :target-name="detail ? `${detail.material.name} · ${detail.configuration_name || detail.material.sku}` : ''" :busy="busy" :disconnected="connectionLost" @update:show="reuseOpen=$event" @choose="startBom" />
     <BomEditor v-model:show="bomOpen" :target-material-id="bomTargetId || undefined" @saved="afterBomSaved" />
     <BomDetailDialog />
@@ -199,7 +216,7 @@ function sameModel(): void {
       <template #cell-actions="{row}"><div class="form-actions">
         <AppButton size="small" :disabled="productUnavailable" @click="viewComposition(row.id)">{{ selectedBom?.id === row.id ? '当前组成' : '查看组成' }}</AppButton>
         <AppButton v-if="row.status !== 'cancelled' && store.can('bom.create')" size="small" :disabled="productUnavailable" @click="startBom(row)">复制派生</AppButton>
-        <AppButton v-if="row.status === 'draft' && store.can('bom.activate')" size="small" tone="success" :disabled="productUnavailable || productBomRecords.some(item=>item.status==='active')" @click="store.activateBom(row.id).then(afterBomSaved)">启用</AppButton>
+        <AppButton v-if="row.status === 'draft' && store.can('bom.activate')" size="small" tone="success" :disabled="productUnavailable || productBomRecords.some(item=>item.status==='active') || detail?.can_produce===false" @click="store.activateBom(row.id).then(afterBomSaved)">启用</AppButton>
         <AppButton v-if="row.status === 'active' && store.can('bom.retire')" size="small" tone="warning" :disabled="productUnavailable" @click="store.retireBom(row.id).then(afterBomSaved)">停用</AppButton>
         <AppButton v-if="row.status === 'draft' && store.can('bom.cancel')" size="small" tone="error" :disabled="productUnavailable" @click="store.cancelBom(row.id).then(afterBomSaved)">取消草稿</AppButton>
       </div></template>

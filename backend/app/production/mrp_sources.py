@@ -46,7 +46,9 @@ def collect(db: Session, exclude_plan_id: int | None = None) -> dict:
         'version': 0, 'changed_by': None, 'created_at': None} for row in materials]
     boms = []
     seen = set()
-    for bom in db.scalars(select(Bom).where(Bom.status == 'active').order_by(Bom.id)):
+    # 删除产品的配方保留作历史，不能再参与新计划；已有工单供给和预约仍在下方独立收集。
+    for bom in db.scalars(select(Bom).where(Bom.status == 'active', Bom.product_material_id.not_in(
+            select(ProductProfile.material_id).where(ProductProfile.deleted_at.is_not(None)))).order_by(Bom.id)):
         from app.production.bom_dependencies import require_bom_ready
         require_bom_ready(db, bom.id)
         if bom.product_material_id in seen:

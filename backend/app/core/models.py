@@ -2793,6 +2793,11 @@ class ProductModel(Base):
     created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
+    # 软删除保留编号与编码，审计记录仍能追溯原系列，不能复用历史身份。
+    deleted_at: Mapped[str | None] = mapped_column(Text)
+    deleted_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    deletion_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+
 
 class ProductProfile(Base):
     __tablename__ = 'product_profiles'
@@ -2809,6 +2814,11 @@ class ProductProfile(Base):
     # 历史迁移不猜测是谁建立产品档案，新建操作才记录实际账号。
     created_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+    # 子机型删除仅隐藏产品扩展，原物料、库存与历史配方仍保留。
+    deleted_at: Mapped[str | None] = mapped_column(Text)
+    deleted_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    deletion_reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
 
 
 class ProductChange(Base):

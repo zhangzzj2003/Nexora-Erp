@@ -1,4 +1,4 @@
-import { productBody, productModelBody, productQueryBody, productBomBody, validateProductResult } from '../shared/product-api.ts'
+import { productBody, productModelBody, productModelDeleteBody, productQueryBody, productBomBody, validateProductResult } from '../shared/product-api.ts'
 import { materialFlowRequest, validateMaterialFlowResult } from '../shared/material-flow-api.ts'
 import { materialSupplyBody, validateMaterialSupply } from '../shared/material-supply-api.ts'
 import { materialCategoryCode, materialCategoryRevision, materialCategoryBody, materialSpecFieldBody, validateMaterialCategoryResult } from '../shared/material-category-validation.ts'
@@ -1478,11 +1478,13 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'productChanges': return {method: 'GET', path: `/api/v1/products/${positiveId(payload, 'id')}/changes`}
     case 'createProduct': return {method: 'POST', path: '/api/v1/products', body: productBody(payload, false)}
     case 'updateProduct': return {method: 'PUT', path: `/api/v1/products/${positiveId(payload, 'id')}`, body: productBody(payload, true)}
+    case 'deleteProduct': return {method:'DELETE', path:`/api/v1/products/${positiveId(payload, 'id')}`, body:productModelDeleteBody(payload)}
     case 'productModels': return {method: 'GET', path: '/api/v1/product-models'}
     case 'productModelDetail': return {method: 'GET', path: `/api/v1/product-models/${positiveId(payload, 'id')}`}
     case 'productModelChanges': return {method: 'GET', path: `/api/v1/product-models/${positiveId(payload, 'id')}/changes`}
     case 'createProductModel': return {method: 'POST', path: '/api/v1/product-models', body: productModelBody(payload, false)}
     case 'updateProductModel': return {method: 'PUT', path: `/api/v1/product-models/${positiveId(payload, 'id')}`, body: productModelBody(payload, true)}
+    case 'deleteProductModel': return {method: 'DELETE', path: `/api/v1/product-models/${positiveId(payload, 'id')}`, body: productModelDeleteBody(payload)}
     case 'bomDetail': return {method: 'GET', path: `/api/v1/boms/${positiveId(payload, 'bomId')}`}
     case 'productBoms': return {method: 'GET', path: `/api/v1/boms?product_material_id=${positiveId(payload, 'materialId')}`}
     case 'boms': return { method: 'GET', path: '/api/v1/boms' }

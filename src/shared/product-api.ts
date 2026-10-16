@@ -4,14 +4,20 @@ import { materialBody, validateMaterialResult } from './material-validation.ts'
 
 // 产品档案只扩展物料，所有业务仍使用 material_id。
 export const productKinds = ['finished', 'semi_finished', 'component', 'unclassified'] as const
+export type ProductLifecycleAction = 'delete' | 'disable' | 'enable'
 export type ProductKind = typeof productKinds[number]
 export const productKindLabels: Record<ProductKind, string> = {
   finished: '成品', semi_finished: '半成品', component: '组件', unclassified: '待分类'
 }
-export interface ProductModel { id: number; code: string; name: string; notes: string; version: number; created_by: number; created_at: string }
+export interface ProductModel {
+  id: number; code: string; name: string; notes: string; version: number; created_by: number; created_at: string
+  // 老服务与历史审计可以缺省；删除请求仍由新服务完整校验关联及版本。
+  child_count?: number; deleted_at?: string | null; deleted_by?: number | null; deletion_reason?: string
+}
 export interface ProductProfile {
   id: number; material_id: number; kind: ProductKind; model_id: number | null
   can_sell?: boolean; can_purchase?: boolean; can_produce?: boolean
+  deleted_at?: string | null; deleted_by?: number | null; deletion_reason?: string
   configuration_name: string; version: number; created_by: number | null; created_at: string
   model_code: string; model_name: string; material: Material
 }
@@ -70,6 +76,11 @@ export function productModelBody(value: unknown, editing: boolean): Record<strin
   }
   return body
 }
+export function productModelDeleteBody(value: unknown): {version:number; reason:string} {
+  const input = object(value)
+  if (!positive(input.version)) throw Error('请刷新资料版本后再删除')
+  return {version:input.version, reason:text(input.reason, 500, true)}
+}
 export function productQueryBody(value: unknown): ProductQuery {
   const input = object(value)
   if (!positive(input.page) || !positive(input.page_size) || input.page_size > 100
@@ -102,6 +113,7 @@ function validateBom(value: unknown): void {
     || !['draft','active','retired','cancelled'].includes(String(row.status))
     || !['product_name','product_sku','product_unit'].every(key => typeof row[key] === 'string')
     || typeof row.base_quantity !== 'string' || receiptLotMilli(row.base_quantity) === null || !Array.isArray(row.lines)) throw Error('BOM 版本资料不完整')
+  if (row.product_can_produce !== undefined && typeof row.product_can_produce !== 'boolean') throw Error('BOM 生产状态无效')
   row.lines.forEach(raw => {const line = object(raw)
     if (!positive(line.id) || !positive(line.component_material_id) || typeof line.quantity !== 'string'
       || receiptLotMilli(line.quantity) === null || !['sku','material_name','unit'].every(key => typeof line[key] === 'string')) throw Error('BOM 组件资料不完整')
@@ -115,6 +127,11 @@ function validateBom(value: unknown): void {
       || !positive(source.product_material_id) || typeof source.product_name !== 'string' || typeof source.product_sku !== 'string') throw Error('BOM 来源资料无效')
   }
 }
+function validateDeletionFields(row: Record<string, unknown>): void {
+  if (row.deleted_at !== undefined && row.deleted_at !== null && (typeof row.deleted_at !== 'string' || !row.deleted_at.trim())) throw Error('删除时间无效')
+  if (row.deleted_by !== undefined && row.deleted_by !== null && !positive(row.deleted_by)) throw Error('删除人员无效')
+  if (row.deletion_reason !== undefined) text(row.deletion_reason, 500)
+}
 function validateProfile(value: unknown): void {
   const row = object(value)
   if (!positive(row.id) || !positive(row.material_id) || !positive(row.version)
@@ -123,6 +140,7 @@ function validateProfile(value: unknown): void {
   for (const field of ['can_sell', 'can_purchase', 'can_produce']) {
     if (row[field] !== undefined && typeof row[field] !== 'boolean') throw Error('产品用途资料无效')
   }
+  validateDeletionFields(row)
   modelId(row.model_id)
   validateMaterialResult('materialDetail', row.material)
   if (object(row.material).id !== row.material_id) throw Error('产品与物料身份不一致')
@@ -131,8 +149,16 @@ function validateModel(value: unknown): void {
   const row = object(value)
   if (!positive(row.id) || !positive(row.version) || !positive(row.created_by) || typeof row.created_at !== 'string') throw Error('机型资料不完整')
   productModelBody(row, false)
+  if (row.child_count !== undefined && (!Number.isSafeInteger(row.child_count) || Number(row.child_count) < 0)) throw Error('系列子机型数量无效')
+  validateDeletionFields(row)
 }
 export function validateProductResult(action: string, value: unknown): void {
+  if (action === 'boms') {
+    if (!Array.isArray(value)) throw Error('BOM 列表格式无效')
+    value.forEach(raw => {const row=object(raw)
+      if (row.product_can_produce !== undefined && typeof row.product_can_produce !== 'boolean') throw Error('BOM 生产状态无效')})
+    return
+  }
   if (action === 'bomDetail') { validateBom(value); return }
   if (action === 'productBoms') {
     if (!Array.isArray(value)) throw Error('产品 BOM 列表格式无效')
@@ -145,15 +171,31 @@ export function validateProductResult(action: string, value: unknown): void {
     if (row.items.length > Number(row.total) || row.page > Math.max(1, Math.ceil(Number(row.total) / row.page_size))) throw Error('产品分页范围不一致')
     const ids = new Set<number>(), materialIds = new Set<number>()
     row.items.forEach(item => {validateProfile(item); const id = object(item).id as number
+      if (object(item).deleted_at) throw Error('产品目录包含已删除项')
       if (ids.has(id) || materialIds.has(object(item).material_id as number)) throw Error('产品分页包含重复项'); ids.add(id); materialIds.add(object(item).material_id as number)})
-  } else if (['productDetail', 'createProduct', 'updateProduct'].includes(action)) validateProfile(value)
+  } else if (['productDetail', 'createProduct', 'updateProduct', 'deleteProduct'].includes(action)) {
+    validateProfile(value)
+    if (action === 'deleteProduct') {
+      const row=object(value)
+      if (!row.deleted_at || !positive(row.deleted_by) || row.can_produce !== false) throw Error('子机型删除结果不完整')
+      text(row.deletion_reason,500,true)
+    }
+  }
   else if (action === 'productModels') {
     if (!Array.isArray(value)) throw Error('机型目录格式无效')
     const ids = new Set<number>(), codes = new Set<string>()
     value.forEach(item => {validateModel(item); const row = object(item)
+      if (row.deleted_at) throw Error('系列目录包含已删除项')
       if (ids.has(row.id as number) || codes.has(row.code as string)) throw Error('机型目录包含重复项')
       ids.add(row.id as number); codes.add(row.code as string)})
-  } else if (['productModelDetail', 'createProductModel', 'updateProductModel'].includes(action)) validateModel(value)
+  } else if (['productModelDetail', 'createProductModel', 'updateProductModel', 'deleteProductModel'].includes(action)) {
+    validateModel(value)
+    if (action === 'deleteProductModel') {
+      const row = object(value)
+      if (!row.deleted_at || !positive(row.deleted_by) || row.child_count !== 0) throw Error('系列删除结果不完整')
+      text(row.deletion_reason, 500, true)
+    }
+  }
   else if (['productChanges', 'productModelChanges'].includes(action)) {
     if (!Array.isArray(value)) throw Error('产品变更记录格式无效')
     value.forEach(item => { const row = object(item)

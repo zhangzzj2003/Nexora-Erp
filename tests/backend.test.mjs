@@ -156,6 +156,8 @@ test('桌面业务接口只转发固定操作且令牌留在主进程', async (t
       return Response.json({ token: 'private-session-token', user: { id: 1, username: 'admin', roles: ['admin'], permissions: [] } })
     }
     if (url.pathname.endsWith('/logout')) return new Response(null, { status: 204 })
+    // BOM 目录遵循实际列表协议，不能复用账号对象作为服务端响应。
+    if (url.pathname === '/api/v1/boms' && options.method === 'GET') return Response.json([])
     return Response.json({ id: 1, username: 'admin', roles: ['admin'], permissions: [] })
   })
   const user = await callBackend('login', { username: 'admin', password: 'secure-pass-123' })

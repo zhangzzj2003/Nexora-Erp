@@ -207,7 +207,7 @@ def _migrate_product_boms(db: sqlite3.Connection) -> None:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 105:
+        if version > 106:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -3249,3 +3249,13 @@ def migrate() -> None:
         if version < 105:
             _migrate_product_boms(db)
             db.execute('PRAGMA user_version = 105')
+
+        if version < 106:
+            # 仅追加系列和子机型的删除事实；旧记录默认可用，不修改物料与历史业务记录。
+            for table in ('product_models', 'product_profiles'):
+                columns = {row[1] for row in db.execute(f'PRAGMA table_info({table})')}
+                for name, definition in (('deleted_at', 'TEXT'), ('deleted_by', 'INTEGER REFERENCES users(id)'),
+                                         ('deletion_reason', "TEXT NOT NULL DEFAULT ''")):
+                    if name not in columns:
+                        db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
+            db.execute('PRAGMA user_version = 106')
