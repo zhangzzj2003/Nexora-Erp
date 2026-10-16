@@ -8,8 +8,9 @@ import { displayError } from '../../utils/formatters.ts'
 
 // 分页与详情按稳定会话失效；普通 me 刷新不会清空当前条件或输入。
 export function createProductActions(state: AppState) {
-  let listTicket = 0, moreTicket = 0, detailTicket = 0, bomTicket = 0, editTicket = 0, writeTicket = 0
+  let listTicket = 0, moreTicket = 0, detailTicket = 0, changesTicket = 0, bomTicket = 0, editTicket = 0, writeTicket = 0
   let loadedScope: string | null = null
+  let changesLoadedFor = 0
   let ownedWrite: number | null = null
   const can = (permission: string): boolean => state.user.value?.permissions.includes(permission) ?? false
   const identity = (): string => JSON.stringify([state.server.value?.id, state.server.value?.fingerprint, state.user.value?.id])
@@ -19,6 +20,12 @@ export function createProductActions(state: AppState) {
   function cancelMore(): void {
     // 追加请求属于旧目录快照；刷新或换筛选时不能回填，也不能让旧 finally 清掉新请求的状态。
     moreTicket++; state.productsLoadingMore.value = false; state.productsMoreError.value = ''
+  }
+  function invalidateProductChanges(): void {
+    // 同编号重开也是新的读取意图，旧审计的成功、失败和 finally 都不能回填。
+    changesTicket++; changesLoadedFor = 0
+    state.productChangeRecords.value = []
+    state.productChangesLoading.value = false; state.productChangesError.value = ''
   }
   function validatePage(result: ProductPage, query: ProductQuery, append = false): void {
     validateProductResult('queryProducts', result)
@@ -30,10 +37,11 @@ export function createProductActions(state: AppState) {
   }
   function invalidateReads(): void {
     listTicket++; detailTicket++; bomTicket++; editTicket++
+    invalidateProductChanges()
     cancelMore(); loadedScope = null
     if (ownedWrite !== null) {ownedWrite = null; state.busy.value = false}
     state.productResult.value = null; state.productDirectoryRows.value = []; state.productModels.value = []
-    state.productDetailRecord.value = null; state.productBomRecords.value = []; state.productChangeRecords.value = []
+    state.productDetailRecord.value = null; state.productBomRecords.value = []
     // 机型历史和失败提示也属于当前读取会话，不能带到新账号或证书实例。
     state.productModelChanges.value = []
     state.productsError.value = ''; state.productDetailError.value = ''; state.bomDetailError.value = ''
@@ -116,23 +124,55 @@ export function createProductActions(state: AppState) {
   async function openProduct(id: number): Promise<void> {
     if (!allowed('inventory.view') || state.busy.value) return
     const ticket = ++detailTicket
+    invalidateProductChanges()
     state.productDetailId.value = id; state.productDetailRecord.value = null
-    state.productBomRecords.value = []; state.productChangeRecords.value = []
+    state.productBomRecords.value = []
     state.productDetailLoading.value = true; state.productDetailError.value = ''
     try {
-      const [row, changes] = await Promise.all([window.nexora!.callApi('productDetail', {id}), window.nexora!.callApi('productChanges', {id})])
+      // BOM 首屏只依赖产品身份，不等待尚未打开的产品审计历史。
+      const row = await window.nexora!.callApi('productDetail', {id})
       if (ticket !== detailTicket || !allowed('inventory.view')) return
-      validateProductResult('productDetail', row); validateProductResult('productChanges', changes)
+      validateProductResult('productDetail', row)
       if (row.id !== id) throw Error('服务端返回了另一产品的资料')
       const boms = can('production.view') ? await window.nexora!.callApi('productBoms', {materialId: row.material_id}) : []
       if (ticket !== detailTicket || !allowed('inventory.view')) return
       validateProductResult('productBoms', boms)
       if (boms.some(bom => bom.product_material_id !== row.material_id)) throw Error('产品 BOM 范围不一致')
-      state.productDetailRecord.value = row; state.productChangeRecords.value = changes; state.productBomRecords.value = boms
+      state.productDetailRecord.value = row; state.productBomRecords.value = boms
     } catch (cause) {if (ticket === detailTicket) state.productDetailError.value = displayError(cause)}
     finally {if (ticket === detailTicket) state.productDetailLoading.value = false}
   }
-  function closeProduct(): void {detailTicket++; state.productDetailId.value = 0; state.productDetailLoading.value = false}
+  async function loadProductChanges(force = false): Promise<void> {
+    const id = state.productDetailId.value, row = state.productDetailRecord.value
+    if (!allowed('inventory.view') || !id || row?.id !== id || state.productDetailLoading.value
+      || state.productDetailError.value || state.productChangesLoading.value || (!force && changesLoadedFor === id)) return
+    const ticket = ++changesTicket, epoch = detailTicket, session = identity()
+    const permissions = state.user.value!.permissions.slice().sort().join('|')
+    const ownsRead = (): boolean => ticket === changesTicket && epoch === detailTicket && identity() === session
+      && state.user.value?.permissions.slice().sort().join('|') === permissions && allowed('inventory.view')
+      && state.productDetailId.value === id && state.productDetailRecord.value?.id === id
+      && !state.productDetailLoading.value && !state.productDetailError.value
+    state.productChangesError.value = ''
+    if (!ownsRead()) return
+    state.productChangesLoading.value = true
+    try {
+      // 同步观察者可能在显示加载状态时切换账号，发出请求前仍须核对所属意图。
+      if (!ownsRead()) return
+      const changes = await window.nexora!.callApi('productChanges', {id})
+      if (!ownsRead()) return
+      validateProductResult('productChanges', changes)
+      if (changes.some(change => change.after.id !== id || (change.before !== null && change.before.id !== id)))
+        throw Error('服务端返回了另一产品的变更记录')
+      // 单独记录成功身份，让空历史也能幂等；重新打开产品时会一并失效。
+      changesLoadedFor = id
+      state.productChangeRecords.value = changes
+    } catch (cause) {if (ownsRead()) state.productChangesError.value = displayError(cause)}
+    finally {if (ownsRead()) state.productChangesLoading.value = false}
+  }
+  function closeProduct(): void {
+    detailTicket++; invalidateProductChanges()
+    state.productDetailId.value = 0; state.productDetailLoading.value = false
+  }
   async function startProduct(mode: 'new' | 'existing' | 'edit', id = 0, returnToBom = false, parentModelId?: number | null): Promise<void> {
     if (!allowed('catalog.manage') || state.busy.value) return
     // 同一未完成草稿再次打开直接沿用；主动切换建档方式才更换草稿。
@@ -320,6 +360,6 @@ export function createProductActions(state: AppState) {
     finally {if (ticket === bomTicket) state.bomDetailLoading.value = false}
   }
   function closeBomDetail(): void {bomTicket++; state.bomDetailRecord.value = null; state.bomDetailLoading.value = false; state.bomDetailError.value = ''}
-  return {queryProducts, loadMoreProducts, openProduct, closeProduct, startProduct, saveProduct, saveProductModel, editProductModel, deleteProductModel, applyProductLifecycle,
+  return {queryProducts, loadMoreProducts, openProduct, closeProduct, loadProductChanges, startProduct, saveProduct, saveProductModel, editProductModel, deleteProductModel, applyProductLifecycle,
     prepareProductBom, openBomDetail, closeBomDetail}
 }

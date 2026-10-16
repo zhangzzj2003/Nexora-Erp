@@ -29,7 +29,7 @@ const store = usePiniaAppStore(), route = useRoute()
 const {productQuery: query, productResult: result, productDirectoryRows, productModels: models, productsLoading, productsError,
   productsLoadingMore, productsMoreError,
   productDetailRecord: detail, productDetailId, productDetailLoading, productDetailError,
-  productBomRecords, productChangeRecords, productEditorOpen, bomDetailRecord, bomDetailLoading, bomDetailError,
+  productBomRecords, productChangeRecords, productChangesLoading, productChangesError, productEditorOpen, bomDetailRecord, bomDetailLoading, bomDetailError,
   materialCategories, boms, productModelForm, productModelChanges, busy, connectionLost} = storeToRefs(store)
 // 系列是目录中的归属与新建上下文，不再作为整棵树的查询条件。
 const currentSeriesId = ref<number|null>(query.value.model_id)
@@ -95,6 +95,10 @@ const facts = computed(() => detail.value ? materialChoiceFacts(detail.value.mat
 const technicalFacts = computed(() => detail.value ? materialChoiceFacts(detail.value.material, materialCategories.value, true) : [])
 const showDetail = computed(() => detailsOpen.value && !!productDetailId.value && !bomOpen.value && !productEditorOpen.value
   && !bomDetailRecord.value && !bomDetailLoading.value && !bomDetailError.value)
+// 历史只在查看资料时读取，审计接口的等待或失败不能阻塞右侧 BOM。
+watch(() => showDetail.value && !productDetailLoading.value && detail.value?.id === productDetailId.value, ready => {
+  if (ready) void store.loadProductChanges()
+})
 watch(() => JSON.stringify([query.value.query, query.value.kind, query.value.model_id,
   store.user?.id, store.user?.permissions.slice().sort(), connectionLost.value, store.server?.id, store.server?.fingerprint]),
   () => {if (store.can('inventory.view') && !connectionLost.value) void store.queryProducts()}, {immediate:true})
@@ -315,8 +319,10 @@ function sameModel(): void {
           <AppButton v-if="store.can('bom.create')" :disabled="busy || connectionLost" @click="startBom()">新建 BOM</AppButton>
         </div>
         <section class="product-section-actions"><h3>产品变更记录</h3>
-          <p v-if="!productChangeRecords.length" class="muted">暂无产品变更记录。</p>
-          <NCollapse><AppCollapseItem v-for="change in productChangeRecords" :key="change.id" :name="change.id" :title="`${store.localTime(change.created_at)} · ${change.changed_by_name} · ${change.reason}`">
+          <p v-if="productChangesLoading" class="muted" role="status">正在读取产品变更记录…</p>
+          <div v-else-if="productChangesError" role="alert"><p>{{ productChangesError }}</p><AppButton size="small" :disabled="busy || connectionLost" @click="store.loadProductChanges(true)">重试读取记录</AppButton></div>
+          <p v-else-if="!productChangeRecords.length" class="muted">暂无产品变更记录。</p>
+          <NCollapse v-else><AppCollapseItem v-for="change in productChangeRecords" :key="change.id" :name="change.id" :title="`${store.localTime(change.created_at)} · ${change.changed_by_name} · ${change.reason}`">
             <p v-if="change.before && 'material' in change.before">变更前：{{ changeSummary(change.before) }}</p>
             <p v-if="'material' in change.after">变更后：{{ changeSummary(change.after) }}</p>
           </AppCollapseItem></NCollapse>

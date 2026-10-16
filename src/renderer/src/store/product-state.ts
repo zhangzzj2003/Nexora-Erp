@@ -16,6 +16,8 @@ export function createProductState() {
     productDetailRecord: ref<ProductProfile | null>(null), productDetailId: ref(0),
     productDetailLoading: ref(false), productDetailError: ref(''),
     productBomRecords: ref<Bom[]>([]), productChangeRecords: ref<ProductChange[]>([]),
+    // 审计仅在查看产品资料时读取，独立失败不阻塞当前 BOM。
+    productChangesLoading: ref(false), productChangesError: ref(''),
     productEditorOpen: ref(false), productReturnToBom: ref(false),
     productForm: ref({id: 0, version: 0, mode: 'new' as 'new' | 'existing' | 'edit', material_id: 0,
       kind: 'finished' as ProductKind, model_id: null as number | null, configuration_name: '', can_sell: true, can_purchase: true, can_produce: true, reason: ''}),

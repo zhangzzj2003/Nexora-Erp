@@ -378,6 +378,190 @@ test('产品详情对无生产权限账号不读取 BOM，旧详情不能覆盖�
   f.actions.closeProduct();assert.equal(f.state.productDetailId.value,0)
 })
 
+// 审计夹具保留真实前后快照结构，错误产品编号必须经过共享格式校验后再被范围校验拒绝。
+const productChange=(id=1,before=null)=>({id:1,before,after:product(id),reason:'调整产品资料',
+  changed_by_name:'admin',created_at:'2026-10-16 08:00:00'})
+const currentProductBom=()=>({id:7,version:1,product_material_id:11,product_name:'测试产品',product_sku:'EL-PC-11',
+  product_unit:'件',base_quantity:'1',status:'active',lines:[]})
+
+test('打开产品只读取详情和 BOM，慢历史及历史失败均不阻塞或清空 BOM',async t=>{
+  const history=deferred()
+  const f=fixture(t,async(action,payload)=>{
+    if(action==='productDetail')return product(payload.id)
+    if(action==='productBoms')return [currentProductBom()]
+    if(action==='productChanges')return history.promise
+  })
+  await f.actions.openProduct(1)
+  assert.deepEqual(f.calls.map(([action])=>action),['productDetail','productBoms'])
+  assert.equal(f.state.productDetailLoading.value,false)
+  assert.equal(f.state.productDetailRecord.value.id,1)
+  assert.equal(f.state.productBomRecords.value[0].id,7)
+  const details=f.state.productDetailRecord.value,boms=f.state.productBomRecords.value
+  const reading=f.actions.loadProductChanges()
+  assert.equal(f.state.productChangesLoading.value,true)
+  assert.equal(f.state.productDetailLoading.value,false)
+  assert.equal(f.state.productDetailRecord.value,details)
+  assert.equal(f.state.productBomRecords.value,boms)
+  history.reject(Error('产品历史读取超时'))
+  await reading
+  assert.equal(f.state.productChangesLoading.value,false)
+  assert.match(f.state.productChangesError.value,/历史读取超时/)
+  assert.equal(f.state.productDetailError.value,'')
+  assert.equal(f.state.error.value,'')
+  assert.equal(f.state.productDetailRecord.value,details)
+  assert.equal(f.state.productBomRecords.value,boms)
+})
+
+test('历史按需读取去重，空历史也缓存，强制重读和同编号重新打开可再次读取',async t=>{
+  const history=deferred();let reads=0
+  const f=fixture(t,async(action,payload)=>{
+    if(action==='productDetail')return product(payload.id)
+    if(action==='productBoms')return []
+    if(action==='productChanges')return ++reads===1?history.promise:[]
+  })
+  await f.actions.loadProductChanges()
+  assert.equal(reads,0)
+  await f.actions.openProduct(1)
+  assert.equal(reads,0)
+  const reading=f.actions.loadProductChanges()
+  await f.actions.loadProductChanges();await f.actions.loadProductChanges(true)
+  assert.equal(reads,1)
+  // 同账号权限数组换顺序不属于失效，普通账号资料刷新不能丢掉本次读取。
+  f.state.user.value={...f.state.user.value,permissions:[...f.state.user.value.permissions].reverse()}
+  assert.equal(f.state.productChangesLoading.value,true)
+  history.resolve([]);await reading
+  assert.deepEqual(f.state.productChangeRecords.value,[])
+  assert.equal(f.state.productChangesLoading.value,false)
+  await f.actions.loadProductChanges();assert.equal(reads,1)
+  await f.actions.loadProductChanges(true);assert.equal(reads,2)
+  f.actions.closeProduct()
+  assert.deepEqual(f.state.productChangeRecords.value,[])
+  assert.equal(f.state.productChangesError.value,'')
+  await f.actions.loadProductChanges();assert.equal(reads,2)
+  await f.actions.openProduct(1)
+  assert.equal(reads,2)
+  await f.actions.loadProductChanges();assert.equal(reads,3)
+})
+
+test('历史失败可局部重试，格式错误及另一产品的前后快照均不能写入',async t=>{
+  let response=[{id:1}]
+  const f=fixture(t,async(action,payload)=>{
+    if(action==='productDetail')return product(payload.id)
+    if(action==='productBoms')return [currentProductBom()]
+    if(action==='productChanges')return response
+  })
+  await f.actions.openProduct(1)
+  const boms=f.state.productBomRecords.value,details=f.state.productDetailRecord.value
+  await f.actions.loadProductChanges()
+  assert.match(f.state.productChangesError.value,/变更记录不完整/)
+  assert.equal(f.state.productChangesLoading.value,false)
+  for(const invalid of [productChange(2),productChange(1,product(2))]) {
+    response=[invalid]
+    await f.actions.loadProductChanges(true)
+    assert.match(f.state.productChangesError.value,/另一产品/)
+    assert.deepEqual(f.state.productChangeRecords.value,[])
+    assert.equal(f.state.productDetailRecord.value,details)
+    assert.equal(f.state.productBomRecords.value,boms)
+    assert.equal(f.state.productDetailError.value,'')
+  }
+  response=[productChange(1,product())]
+  await f.actions.loadProductChanges(true)
+  assert.equal(f.state.productChangesError.value,'')
+  assert.equal(f.state.productChangeRecords.value[0].after.id,1)
+  assert.equal(f.state.productChangesLoading.value,false)
+})
+
+test('历史在切换产品会话权限或断线后失效，迟到成功和失败均不能清新读取状态',async t=>{
+  const scopes={
+    '关闭后打开同编号':async f=>{f.actions.closeProduct();await f.actions.openProduct(1)},
+    '重读同编号':async f=>{await f.actions.openProduct(1)},
+    '切到另一产品':async f=>{await f.actions.openProduct(2)},
+    '更换账号':async f=>{f.state.user.value={...f.state.user.value,id:2};await f.actions.openProduct(1)},
+    '更换实例':async f=>{f.state.server.value={...f.state.server.value,id:'another'};await f.actions.openProduct(1)},
+    '更换证书':async f=>{f.state.server.value={...f.state.server.value,fingerprint:'new-cert'};await f.actions.openProduct(1)},
+    '权限变化':async f=>{f.state.user.value.permissions=['inventory.view','production.view'];await f.actions.openProduct(1)},
+    '断线后重连':async f=>{f.state.connectionLost.value=true;f.state.connectionLost.value=false;await f.actions.openProduct(1)}
+  }
+  for(const [label,changeScope] of Object.entries(scopes)) for(const lateFailure of [false,true])
+    await t.test(`${label}-${lateFailure?'迟到失败':'迟到成功'}`,async t=>{
+      const old=deferred(),fresh=deferred();let reads=0
+      const f=fixture(t,async(action,payload)=>{
+        if(action==='productDetail')return product(payload.id)
+        if(action==='productBoms')return []
+        if(action==='productChanges')return ++reads===1?old.promise:fresh.promise
+      })
+      await f.actions.openProduct(1)
+      const previous=f.actions.loadProductChanges()
+      assert.equal(f.state.productChangesLoading.value,true)
+      await changeScope(f)
+      assert.equal(f.state.productChangesLoading.value,false)
+      assert.equal(f.state.productChangesError.value,'')
+      assert.deepEqual(f.state.productChangeRecords.value,[])
+      const currentId=f.state.productDetailId.value
+      const current=f.actions.loadProductChanges()
+      assert.equal(reads,2)
+      assert.equal(f.state.productChangesLoading.value,true)
+      if(lateFailure)old.reject(Error('旧会话的历史失败'))
+      else old.resolve([productChange()])
+      await previous
+      assert.equal(f.state.productChangesLoading.value,true)
+      assert.equal(f.state.productChangesError.value,'')
+      assert.deepEqual(f.state.productChangeRecords.value,[])
+      fresh.resolve([productChange(currentId)]);await current
+      assert.equal(f.state.productChangesLoading.value,false)
+      assert.equal(f.state.productChangeRecords.value[0].after.id,currentId)
+    })
+})
+
+test('历史读取受当前详情和查看权限保护，撤权后迟到回执不保留历史',async t=>{
+  const history=deferred();let reads=0
+  const f=fixture(t,async(action,payload)=>{
+    if(action==='productDetail')return product(payload.id)
+    if(action==='productBoms')return []
+    if(action==='productChanges'){reads++;return history.promise}
+  })
+  await f.actions.openProduct(1)
+  f.state.productDetailLoading.value=true
+  await f.actions.loadProductChanges();assert.equal(reads,0)
+  f.state.productDetailLoading.value=false;f.state.productDetailError.value='产品资料暂不可用'
+  await f.actions.loadProductChanges();assert.equal(reads,0)
+  f.state.productDetailError.value='';f.state.productDetailRecord.value=product(2)
+  await f.actions.loadProductChanges();assert.equal(reads,0)
+  f.state.productDetailRecord.value=product()
+  const reading=f.actions.loadProductChanges()
+  f.state.user.value.permissions=[]
+  history.resolve([productChange()]);await reading
+  assert.equal(f.state.productChangesLoading.value,false)
+  assert.equal(f.state.productChangesError.value,'')
+  assert.deepEqual(f.state.productChangeRecords.value,[])
+  await f.actions.loadProductChanges(true);assert.equal(reads,1)
+})
+
+test('历史回填触发同步切换账号时，旧 finally 不能结束新账号的加载',async t=>{
+  const fresh=deferred();let reads=0
+  const f=fixture(t,async(action,payload)=>{
+    if(action==='productDetail')return product(payload.id)
+    if(action==='productBoms')return []
+    if(action==='productChanges')return ++reads===1?[productChange()]:fresh.promise
+  })
+  await f.actions.openProduct(1)
+  let current,switched=false
+  const stop=watch(f.state.productChangeRecords,records=>{
+    if(!records.length || switched)return
+    switched=true;f.state.user.value={...f.state.user.value,id:2}
+    f.state.productDetailId.value=1;f.state.productDetailRecord.value=product()
+    current=f.actions.loadProductChanges()
+  },{flush:'sync'})
+  t.after(stop)
+  await f.actions.loadProductChanges()
+  assert.equal(reads,2)
+  assert.equal(f.state.productChangesLoading.value,true)
+  assert.deepEqual(f.state.productChangeRecords.value,[])
+  fresh.resolve([]);await current
+  assert.equal(f.state.productChangesLoading.value,false)
+  assert.equal(f.state.productChangesError.value,'')
+})
+
 test('快捷建产品失败保留草稿，成功只带回 BOM 产出物料；写入跨会话响应不回填', async t => {
   let fail=true
   const f=fixture(t,async action=>action==='productModels'?[model]:action==='createProduct'?(fail?Promise.reject(Error('重复建档')):product()):page())

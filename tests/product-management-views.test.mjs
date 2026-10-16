@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createRenderer, createSSRApp, h, nextTick, reactive, ssrContextKey } from 'vue'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { createRenderer, createSSRApp, h, markRaw, nextTick, reactive, ssrContextKey } from 'vue'
+import { compileScript, parse } from '@vue/compiler-sfc'
 import { renderToString } from '@vue/server-renderer'
 import { createPinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
-import { createServer } from 'vite'
+import { createServer, normalizePath } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 const componentRenderer=()=>createRenderer({createElement:()=>({}),createText:()=>({}),createComment:()=>({}),insert(){},remove(){},
@@ -18,7 +21,25 @@ const settleProductView=async()=>{await new Promise(done=>setImmediate(done));aw
 
 // 保留产品页、共享 BOM 编辑器与详情真实组件，仅替换需要 DOM 的绘制控件。
 async function fixture(t) {
+ const liveModules=['views/workspace/catalog/ProductsView.vue','components/workspace/WorkspaceDocumentDialog.vue','views/workspace/catalog/ProductBomStructure.vue'].map(file=>{
+  const filename=resolve('src/renderer/src',file)
+  const content=compileScript(parse(readFileSync(filename,'utf8'),{filename}).descriptor,{id:file,inlineTemplate:true}).content
+   .replace("import { NCollapse, NDropdown } from 'naive-ui'","import { NCollapse, NDropdown } from 'virtual:products-live-collapse'")
+   .replace("import { NCollapse } from 'naive-ui'","import { NCollapse } from 'virtual:products-live-collapse'")
+  return [normalizePath(filename)+'.client.ts',content]
+ })
+ const liveSources=new Map(liveModules)
  const server=await createServer({configFile:false,plugins:[{name:'product-views',enforce:'pre',resolveId(id,importer){
+   if(liveSources.has(id))return id
+   if(id==='virtual:products-live-collapse')return '\0products-live-collapse'
+   if(importer?.endsWith('.vue.client.ts')){
+    if(id.endsWith('/WorkspaceDocumentDialog.vue'))return liveModules[1][0]
+    if(id.endsWith('/ProductBomStructure.vue'))return liveModules[2][0]
+    if(id.endsWith('/ProductTreeSidebar.vue'))return '\0products-live-tree'
+    if(id.endsWith('/AppCollapseItem.vue'))return '\0products-live-collapse-item'
+    if(id.endsWith('/AppStatusTag.vue'))return '\0products-live-status'
+    if(['ProductTreeSidebar','ProductEditor','ProductBomReuseDialog','ProductModelsDialog','ProductModelDeleteDialog','ProductLifecycleDialog','BomEditor','BomDetailDialog'].some(name=>id.endsWith('/'+name+'.vue')))return '\0products-empty'
+   }
    if(id.startsWith('~icons/'))return '\0products-icon'
    if(!importer?.includes('/src/renderer/'))return
    if(id.endsWith('/store/app-store'))return '\0products-store'
@@ -31,6 +52,12 @@ async function fixture(t) {
    if(id.endsWith('/ProductsView.vue'))return code.replace("import { NCollapse, NDropdown } from 'naive-ui'",
      "import { NCollapse } from 'naive-ui'\nimport NDropdown from 'test-products-dropdown'")
  },load(id){
+   if(liveSources.has(id))return liveSources.get(id)
+   // 历史读取测试持续绘制真实页面、资料弹窗和 BOM，只替换不影响业务的折叠及状态控件。
+   if(id==='\0products-live-collapse')return `import {h} from 'vue';const Fold={setup:(p,{slots})=>()=>h('section',slots.default?.())};export const NCollapse=Fold,NDropdown=Fold`
+   if(id==='\0products-live-collapse-item')return `import {h} from 'vue';export default {props:['title'],setup:(p,{slots})=>()=>h('section',[h('h4',p.title),slots.default?.()])}`
+   if(id==='\0products-live-status')return `import {h} from 'vue';export default {props:['label'],setup:p=>()=>h('span',p.label)}`
+   if(id==='\0products-live-tree')return `import {h} from 'vue';export default {props:['rows'],emits:['select'],setup:(p,{emit})=>()=>h('nav',p.rows.map(row=>h('button',{onClick:()=>emit('select',row.id)},'选择产品 '+row.material.name)))}`
    // 图标仅替换绘制层，系列折叠、删除事件与可访问文案继续由真实组件提供。
    if(id==='\0products-icon')return `import {h} from 'vue';export default {render:()=>h('svg',{'aria-hidden':'true'})}`
    if(id==='\0products-empty')return 'export default {render:()=>null}'
@@ -103,6 +130,30 @@ async function fixture(t) {
   await new Promise(done=>setImmediate(done));await nextTick()
   return liveSetup
  }
+ const mountRenderedView=async()=>{
+  const {default:LiveView}=await server.ssrLoadModule(liveModules[0][0])
+  // 原生节点保留父子关系和实际文字，检查局部历史状态时不以 setup 变量冒充已渲染界面。
+  const element=tag=>markRaw({tag,children:[],props:{},text:'',parent:null}),root=element('root')
+  const renderer=createRenderer({createElement:element,createText:text=>({...element('#text'),text}),createComment:()=>element('#comment'),
+   insert(node,parent,anchor){
+    if(node.parent)node.parent.children.splice(node.parent.children.indexOf(node),1)
+    const index=anchor?parent.children.indexOf(anchor):-1
+    parent.children.splice(index<0?parent.children.length:index,0,node);node.parent=parent
+   },remove(node){if(node.parent)node.parent.children.splice(node.parent.children.indexOf(node),1);node.parent=null},
+   setText(node,text){node.text=text},setElementText(node,text){node.text=text;node.children=[]},
+   patchProp(node,key,old,value){node.props[key]=value},parentNode:node=>node.parent,
+   nextSibling:node=>node.parent?.children[node.parent.children.indexOf(node)+1]??null})
+  const app=renderer.createApp({render:()=>h(LiveView)}).use(pinia).use(router)
+  app.mount(root);t.after(()=>app.unmount());await settleProductView()
+  const text=node=>[node.text,...node.children.map(text)].join('')
+  const descendants=node=>[node,...node.children.flatMap(descendants)]
+  const nodes=()=>descendants(root)
+  const button=(label,within=root)=>descendants(within).find(node=>node.tag==='button'&&(label instanceof RegExp?label.test(text(node)):text(node)===label))
+  const press=node=>{assert.ok(node,'目标操作必须真实渲染');for(const handler of [node.props.onClick].flat())handler()}
+  const modal=()=>nodes().find(node=>node.props['data-modal']==='产品资料')
+  const bomVisible=()=>nodes().some(node=>node.props['data-table']==='组成明细 · V1')
+  return {nodes,button,press,modal,bomVisible,nodeText:text,text:()=>text(root)}
+ }
  const renderBom=async(props)=>{
   // 单独绘制共享编辑器，可确认行内表单没有意外套回弹窗，也保留真实物料控件事件。
   buttons.length=0;tables.length=0;selects.length=0
@@ -122,7 +173,7 @@ async function fixture(t) {
   app.provide(ssrContextKey,{modules:new Set()});app.mount({});t.after(unmount);await nextTick()
   return {controlled,savedRecords,updates,unmount}
  }
- return {store,source,product,render,renderLegacyBom,renderWorkOrders,renderTree,renderBom,mountView,mountBom,treeProps,treeEvents,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,components,get setup(){return setup}}
+ return {store,source,product,render,renderLegacyBom,renderWorkOrders,renderTree,renderBom,mountView,mountRenderedView,mountBom,treeProps,treeEvents,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,components,get setup(){return setup}}
 }
 
 // 标题由公共工作台生成；只替换导航和业务页，保留外壳的真实条件渲染。
@@ -165,6 +216,112 @@ test('产品真实页面使用服务端目录和物料身份，移除分页且�
  f.store.user={...f.store.user,permissions:['inventory.view']}
  const readonly=await f.render()
  assert.doesNotMatch(readonly,/新建系列|新建子机型|纳入已有物料|系列管理/)
+})
+
+// 变更历史并非 BOM 展示的前置资料：用永不提前完成的请求证明真实主表可以先绘制。
+test('产品变更记录仅在打开资料后读取，历史在途不阻塞基本资料与 BOM，关闭重开复用请求及缓存',async t=>{
+ const f=await fixture(t),historyCalls=[]
+ let resolve
+ const pending=new Promise(done=>{resolve=done})
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='productChanges'){historyCalls.push(payload.id);return pending}
+  return previous(action,payload)
+ }
+ const live=await f.mountRenderedView()
+ assert.deepEqual(historyCalls,[])
+ assert.equal(live.bomVisible(),true);assert.match(live.text(),/主芯片/)
+ assert.equal(f.store.productDetailLoading,false);assert.equal(f.store.productDetailError,'')
+ live.press(live.button('产品资料'));await settleProductView()
+ assert.deepEqual(historyCalls,[1]);assert.equal(f.store.productChangesLoading,true)
+ assert.ok(live.modal());assert.match(live.nodeText(live.modal()),/产品编码/)
+ assert.match(live.nodeText(live.modal()),/EL-PC-11/)
+ assert.match(live.nodeText(live.modal()),/产品名称/);assert.match(live.nodeText(live.modal()),/标准版/)
+ assert.match(live.nodeText(live.modal()),/正在读取产品变更记录/)
+ assert.equal(live.bomVisible(),true);assert.match(live.text(),/主芯片/)
+ assert.equal(f.store.productDetailLoading,false);assert.equal(f.store.productDetailError,'')
+ live.press(live.button('关闭',live.modal()));await settleProductView()
+ assert.equal(live.modal(),undefined)
+ live.press(live.button('产品资料'));await settleProductView()
+ assert.deepEqual(historyCalls,[1],'同一份在途历史不能因重开资料重复读取')
+ resolve([{id:1,before:null,after:f.product,reason:'首次建立产品档案',changed_by_name:'资料管理员',created_at:'2026-10-16 08:00:00'}])
+ await settleProductView()
+ assert.equal(f.store.productChangesLoading,false)
+ assert.match(live.nodeText(live.modal()),/首次建立产品档案/)
+ assert.doesNotMatch(live.nodeText(live.modal()),/正在读取产品变更记录/)
+ live.press(live.button('关闭',live.modal()));await settleProductView()
+ live.press(live.button('产品资料'));await settleProductView()
+ assert.deepEqual(historyCalls,[1],'已成功读取的同产品历史直接复用缓存')
+ assert.match(live.nodeText(live.modal()),/首次建立产品档案/)
+ assert.equal(live.bomVisible(),true)
+})
+
+test('历史失败只在资料内显示并可重试，已可见 BOM 不进入错误或重新加载状态',async t=>{
+ const f=await fixture(t)
+ let historyReads=0
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='productChanges'){
+   if(++historyReads===1)throw Error('历史服务暂不可用')
+   return [{id:2,before:null,after:f.product,reason:'重试后读取的产品历史',changed_by_name:'管理员',created_at:'2026-10-16 08:00:00'}]
+  }
+  return previous(action,payload)
+ }
+ const live=await f.mountRenderedView()
+ assert.equal(historyReads,0);assert.equal(live.bomVisible(),true)
+ live.press(live.button('产品资料'));await settleProductView()
+ assert.equal(historyReads,1)
+ assert.match(f.store.productChangesError,/历史服务暂不可用/)
+ assert.match(live.nodeText(live.modal()),/历史服务暂不可用/)
+ assert.equal(f.store.productChangesLoading,false)
+ assert.equal(f.store.productDetailError,'');assert.equal(f.store.productDetailLoading,false)
+ assert.equal(live.bomVisible(),true);assert.match(live.text(),/主芯片/)
+ const retry=live.button('重试读取记录',live.modal())
+ assert.ok(retry);assert.equal(retry.props.disabled,false)
+ live.press(retry);await settleProductView()
+ assert.equal(historyReads,2);assert.equal(f.store.productChangesError,'')
+ assert.match(live.nodeText(live.modal()),/重试后读取的产品历史/)
+ assert.doesNotMatch(live.nodeText(live.modal()),/历史服务暂不可用/)
+ assert.equal(f.store.productDetailError,'');assert.equal(f.store.productDetailLoading,false)
+ assert.equal(live.bomVisible(),true)
+})
+
+test('切换产品后旧历史回执不进入新产品资料，两个产品的 BOM 与基本资料保持独立',async t=>{
+ const f=await fixture(t),historyCalls=[]
+ const second={...f.product,id:2,material_id:33,material:{...f.product.material,id:33,sku:'EL-PC-33',name:'第二款产品'}}
+ const secondBom={...f.source,id:9,product_material_id:33,product_sku:second.material.sku,product_name:second.material.name,
+  lines:[{...f.source.lines[0],material_name:'第二款专用芯片'}]}
+ let resolve
+ const oldHistory=new Promise(done=>{resolve=done})
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='queryProducts')return {items:[f.product,second],page:1,page_size:20,total:2}
+  if(action==='productDetail'&&payload.id===2)return second
+  if(action==='productBoms'&&payload.materialId===33)return [secondBom]
+  if(action==='productChanges'){
+   historyCalls.push(payload.id)
+   return payload.id===1?oldHistory:[{id:2,before:null,after:second,reason:'第二款独立历史',changed_by_name:'管理员',created_at:'2026-10-16 08:00:00'}]
+  }
+  return previous(action,payload)
+ }
+ const live=await f.mountRenderedView()
+ live.press(live.button('产品资料'));await settleProductView()
+ assert.deepEqual(historyCalls,[1]);assert.equal(f.store.productChangesLoading,true)
+ live.press(live.button('选择产品 第二款产品'));await settleProductView()
+ assert.equal(live.modal(),undefined)
+ assert.equal(f.store.productDetailId,2);assert.equal(live.bomVisible(),true)
+ assert.match(live.text(),/第二款专用芯片/)
+ live.press(live.button('产品资料'));await settleProductView()
+ assert.deepEqual(historyCalls,[1,2])
+ assert.match(live.nodeText(live.modal()),/第二款产品/)
+ assert.match(live.nodeText(live.modal()),/第二款独立历史/)
+ resolve([{id:1,before:null,after:f.product,reason:'不能带入第二款的旧历史',changed_by_name:'管理员',created_at:'2026-10-16 08:00:00'}])
+ await settleProductView()
+ assert.equal(f.store.productDetailId,2);assert.equal(f.store.productDetailError,'')
+ assert.equal(f.store.productChangesLoading,false);assert.equal(f.store.productChangesError,'')
+ assert.deepEqual(f.store.productChangeRecords.map(row=>row.reason),['第二款独立历史'])
+ assert.doesNotMatch(live.nodeText(live.modal()),/不能带入第二款的旧历史/)
+ assert.match(live.text(),/第二款专用芯片/)
 })
 
 test('侧栏固定搜索在新建之前，滚动目录与维护按钮分开且没有分页控件',async t=>{
