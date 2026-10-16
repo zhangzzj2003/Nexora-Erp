@@ -5,6 +5,9 @@ import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import type { Bom } from '../../../../../shared/erp-api'
 import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import IconArrowRightSLine from '~icons/ri/arrow-right-s-line'
+import IconPushpinLine from '~icons/ri/pushpin-line'
+import IconGitBranchLine from '~icons/ri/git-branch-line'
 import { bomStructureRows } from './bom-structure'
 const props = defineProps<{bom:Bom; catalog:Bom[]; disabled:boolean}>()
 const emit = defineEmits<{open:[id:number]}>()
@@ -26,12 +29,18 @@ const columns = [{key:'component',title:'组件 / 多层组成'}, {key:'quantity
       <NCollapse class="structure-help"><AppCollapseItem name="production-notes" title="领料与版本说明"><p>生产领用第一层物料；展开下层仅查看其组成，不重复扣料。同一编码库存按可互换管理。固定版本约束配方，不区分实物库存版本。</p></AppCollapseItem></NCollapse>
     </header>
     <WorkspaceTable class="structure-table" :title="`组成明细 · V${bom.version}`" :show-title="false" :data="rows" :columns="columns" :min-table-width="680">
-    <template #cell-component="{row}"><div class="structure-component" :style="{paddingLeft:`${row.depth * 20}px`}">
-      <AppButton v-if="row.childBom && row.issue !== '存在循环引用' && row.depth < 20" size="small" :aria-expanded="row.expanded" :aria-label="`${row.expanded ? '收起' : '展开'}${row.name}的组成`" :disabled="disabled" @click="toggle(row.key)">{{ row.expanded ? '−' : '+' }}</AppButton>
-      <div><strong>{{ row.name }}</strong><small>{{ row.sku }}</small><p v-if="row.issue" role="status">{{ row.issue }}</p></div>
+    <template #cell-component="{row}"><div class="structure-component" :class="{'is-assembly':!!row.childBom,'is-nested':row.depth>0}" :style="{'--structure-indent':`${row.depth * 22}px`}">
+      <!-- 展开箭头与普通物料占用相同宽度，名称保持对齐；实际展开仍沿用每条分支的独立键。 -->
+      <AppButton v-if="row.childBom && row.issue !== '存在循环引用' && row.depth < 20" variant="plain" class="structure-toggle" size="small" :aria-expanded="row.expanded" :aria-label="`${row.expanded ? '收起' : '展开'}${row.name}的组成`" :title="`${row.expanded ? '收起' : '展开'}下层组成`" :disabled="disabled" @click="toggle(row.key)"><IconArrowRightSLine class="structure-chevron" :class="{'is-expanded':row.expanded}" aria-hidden="true" focusable="false" /></AppButton>
+      <span v-else class="structure-leaf" aria-hidden="true"><span /></span>
+      <div class="structure-material"><strong>{{ row.name }}</strong><small>{{ row.sku }}</small><p v-if="row.issue" role="status">{{ row.issue }}</p></div>
     </div></template>
-    <template #cell-quantity="{row}">{{ row.quantity }}</template><template #cell-unit="{row}">{{ row.unit }}</template>
-    <template #cell-recipe="{row}"><AppButton v-if="row.childBom" size="small" :disabled="disabled" @click="emit('open',row.childBom.id)">{{ row.fixed ? '固定' : '当前启用参考' }} V{{ row.childBom.version }}</AppButton><span v-else>{{ row.fixed ? '固定版本不可用' : '按物料领用' }}</span></template>
+    <template #cell-quantity="{row}"><span class="structure-quantity">{{ row.quantity }}</span></template><template #cell-unit="{row}">{{ row.unit }}</template>
+    <template #cell-recipe="{row}">
+      <!-- 固定配方与当前参考保留完整语义和原详情入口，仅通过轻量样式区分绑定方式。 -->
+      <AppButton v-if="row.childBom" variant="plain" class="structure-recipe" :class="row.fixed ? 'is-fixed' : 'is-reference'" size="small" :title="`查看${row.name}的${row.fixed ? '固定' : '当前启用参考'}配方 V${row.childBom.version}`" :disabled="disabled" @click="emit('open',row.childBom.id)"><IconPushpinLine v-if="row.fixed" class="structure-recipe-icon" aria-hidden="true" focusable="false" /><IconGitBranchLine v-else class="structure-recipe-icon" aria-hidden="true" focusable="false" /><span>{{ row.fixed ? '固定' : '当前启用参考' }} <strong>V{{ row.childBom.version }}</strong></span></AppButton>
+      <span v-else class="structure-recipe-empty" :class="{'is-unavailable':row.fixed}">{{ row.fixed ? '固定版本不可用' : '按物料领用' }}</span>
+    </template>
     </WorkspaceTable>
   </section>
 </template>
@@ -48,8 +57,31 @@ const columns = [{key:'component',title:'组件 / 多层组成'}, {key:'quantity
 .structure-help { width:auto; max-width:420px; font-size:12px; line-height:1.7; color:var(--workspace-field-muted); }
 .structure-help :deep(.app-collapse-trigger) { color:var(--workspace-field-accent); font-size:12px; }
 .structure-help p { margin:8px 0 0; }
-.structure-component strong { font-size:13px; }
-.structure-component { display:flex; align-items:center; gap:10px; }
-.structure-component small { display:block; color:var(--workspace-field-muted); margin-top:5px; }
-.structure-component p { margin:5px 0 0; color:var(--workspace-warning); }
+/* 固定宽度的树形入口让普通物料与有下层配方的组件对齐，分支线只提示真实的嵌套层级。 */
+.structure-component { position:relative; display:grid; grid-template-columns:26px minmax(0,1fr); align-items:center; gap:8px; min-width:0; padding-left:var(--structure-indent); }
+.structure-component.is-nested::before { content:''; position:absolute; left:calc(var(--structure-indent) - 12px); top:2px; width:9px; height:18px; border-left:1px solid var(--workspace-field-border); border-bottom:1px solid var(--workspace-field-border); border-bottom-left-radius:4px; }
+.structure-material { min-width:0; }
+.structure-material strong { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+.is-assembly>.structure-material>strong { color:var(--workspace-field-accent); }
+.structure-material small { display:block; color:var(--workspace-field-muted); margin-top:4px; font-size:11px; overflow-wrap:anywhere; }
+.structure-material p { margin:5px 0 0; color:var(--structure-warning-color); font-size:12px; }
+.structure-toggle { display:inline-grid; place-items:center; width:26px; height:26px; padding:0; border-radius:6px; background:var(--app-accent-tint); color:var(--workspace-field-accent); }
+.structure-toggle:hover:not(:disabled) { background:var(--app-accent-active-tint); }
+.structure-chevron { width:17px; height:17px; transition:transform 140ms ease; }
+.structure-chevron.is-expanded { transform:rotate(90deg); }
+.structure-leaf { display:grid; place-items:center; width:26px; height:26px; }
+.structure-leaf>span { width:4px; height:4px; border-radius:50%; background:var(--workspace-field-border); }
+.structure-quantity { font-variant-numeric:tabular-nums; }
+/* 配方仍是可点击按钮；图钉表示固定版本，分支表示随当前启用配方参考查看。 */
+.structure-recipe { display:inline-flex; align-items:center; gap:6px; min-height:28px; padding:3px 8px; border:1px solid var(--workspace-field-border); border-radius:6px; font-size:12px; font-weight:400; line-height:18px; white-space:nowrap; }
+.structure-recipe.is-fixed { color:var(--workspace-field-accent); background:var(--app-accent-tint); border-color:color-mix(in srgb,var(--workspace-field-accent) 24%,transparent); }
+.structure-recipe.is-reference { color:var(--workspace-field-muted); border-style:dashed; }
+.structure-recipe:hover:not(:disabled) { color:var(--workspace-field-accent); border-color:var(--workspace-field-accent); background:var(--app-accent-active-tint); }
+.structure-recipe strong { font-weight:600; }
+.structure-recipe-icon { width:13px; height:13px; flex:none; }
+.structure-recipe-empty { color:var(--workspace-field-muted); font-size:12px; }
+.structure-recipe-empty.is-unavailable { color:var(--structure-warning-color); }
+.bom-composition { --structure-warning-color:#946000; }
+:root[data-theme='dark'] .bom-composition { --structure-warning-color:#efc16a; }
+@media (prefers-reduced-motion:reduce) { .structure-chevron { transition:none; } }
 </style>
