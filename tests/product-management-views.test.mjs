@@ -211,7 +211,10 @@ test('产品真实页面使用服务端目录和物料身份，移除分页且�
  assert.match(html,/产品系列/);assert.match(html,/选择系列与子机型/)
  const left=html.slice(html.indexOf('<aside'),html.indexOf('</aside>'))
  assert.match(left,/新建系列/);assert.match(left,/新建子机型/);assert.match(left,/标准版/)
+ // 目录仅收起产品编码的展示；系列编码和右侧产品身份仍可查看。
+ assert.doesNotMatch(left,/EL-PC-11/);assert.match(left,/A100/)
  const right=html.slice(html.indexOf('class="product-main"'))
+ assert.match(right,/EL-PC-11/)
  assert.doesNotMatch(right,/产品类型<select|class="product-options"/)
  f.store.user={...f.store.user,permissions:['inventory.view']}
  const readonly=await f.render()
@@ -235,6 +238,7 @@ test('产品变更记录仅在打开资料后读取，历史在途不阻塞基�
  live.press(live.button('产品资料'));await settleProductView()
  assert.deepEqual(historyCalls,[1]);assert.equal(f.store.productChangesLoading,true)
  assert.ok(live.modal());assert.match(live.nodeText(live.modal()),/产品编码/)
+ // 左侧列表隐藏编号不改变产品资料弹窗，用户仍能查看完整产品编码。
  assert.match(live.nodeText(live.modal()),/EL-PC-11/)
  assert.match(live.nodeText(live.modal()),/产品名称/);assert.match(live.nodeText(live.modal()),/标准版/)
  assert.match(live.nodeText(live.modal()),/正在读取产品变更记录/)
@@ -380,12 +384,14 @@ test('追加期间保留已加载及当前选中节点，失败在树底重试�
  const f=await fixture(t)
  const second={...f.product,id:2,material_id:33,material:{...f.product.material,id:33,sku:'EL-PC-33',name:'第二款产品'}}
  let html=await f.renderTree({rows:[f.product,second],page:{items:[second],page:2,page_size:20,total:43},loadingMore:true})
- assert.match(html,/EL-PC-11/);assert.match(html,/EL-PC-33/)
+ assert.match(html,/标准版/);assert.match(html,/第二款产品/)
+ assert.doesNotMatch(html,/EL-PC-11|EL-PC-33/)
  assert.match(html,/正在加载更多/);assert.doesNotMatch(html,/正在读取子机型/)
  assert.equal(f.components.ProductTreeSidebar.children.find(row=>row.id===1).material.sku,'EL-PC-11')
  assert.equal(f.buttons.find(row=>row.attrs.class?.includes('tree-model') && row.attrs['aria-pressed']===true)?.label.includes('标准版'),true)
  html=await f.renderTree({loadingMore:false,moreError:'下一批读取失败',canManage:false})
- assert.match(html,/EL-PC-11/);assert.match(html,/EL-PC-33/);assert.match(html,/下一批读取失败/)
+ assert.match(html,/标准版/);assert.match(html,/第二款产品/);assert.match(html,/下一批读取失败/)
+ assert.doesNotMatch(html,/EL-PC-11|EL-PC-33/)
  assert.doesNotMatch(html,/新建系列|新建子机型|纳入已有物料|系列管理/)
  const retry=f.buttons.find(row=>row.label==='重试加载')
  assert.ok(retry);assert.equal(retry.props.disabled,false)
@@ -751,7 +757,8 @@ test('点击系列保留全目录与未归组 PCB，右侧产品和历史 BOM �
  }
  live.selectSeries(2)
  const html=await f.renderTree({models:f.store.productModels,rows,page:f.store.productResult,activeSeriesId:live.currentSeriesId,selectedId:1,selected})
- assert.match(html,/B200 系列/);assert.match(html,/未归组产品 \/ 半成品/);assert.match(html,/PCB-44/)
+ assert.match(html,/B200 系列/);assert.match(html,/未归组产品 \/ 半成品/);assert.match(html,/未归组 PCB 板/)
+ assert.doesNotMatch(html,/EL-PC-11|EL-PC-33|PCB-44/)
 })
 
 test('入页清除遗留系列过滤但保留关键词类型，首次请求读取全目录',async t=>{
@@ -793,7 +800,8 @@ test('保存子机型后全目录刷新不收窄，第一页之外的回执仍�
  assert.equal(f.store.productDetailId,saved.id);assert.equal(f.store.productDetailRecord.id,saved.id)
  assert.equal(live.currentSeriesId,saved.model_id)
  const html=await f.renderTree({models:f.store.productModels,rows:f.store.productDirectoryRows,page:f.store.productResult,activeSeriesId:live.currentSeriesId,selectedId:saved.id,selected:f.store.productDetailRecord})
- assert.match(html,/PCB-44/);assert.match(html,/新保存的子机型/)
+ assert.match(html,/未归组 PCB/);assert.match(html,/新保存的子机型/)
+ assert.doesNotMatch(html,/EL-PC-11|EL-PC-33|PCB-44/)
  assert.equal(f.components.ProductTreeSidebar.children.filter(row=>row.id===saved.id).length,1)
 })
 

@@ -107,6 +107,22 @@ test('点击 A 只收起当前系列，B 和未归组 PCB 保持真实节点，�
   assert.equal(f.button('展开全部').props['aria-pressed'],undefined)
 })
 
+test('归组与未归组子机型隐藏产品编码，系列编码保留且仍按原产品编号选择',async t=>{
+  const f=await fixture(t)
+  // 检查真实列表节点，隐藏的只是展示文字，选择事件继续传产品 ID 而非名称或物料编号。
+  assert.doesNotMatch(f.text(),/SKU-1|SKU-2|SKU-3/)
+  assert.match(f.text(),/SERIES-1/);assert.match(f.text(),/SERIES-2/)
+  assert.ok(f.button('A 系列整机'));assert.ok(f.button('PCB 半成品'))
+  f.click(f.button('A 系列整机'));await settle()
+  assert.equal(f.props.selectedId,1)
+  assert.equal(f.button('A 系列整机').props['aria-pressed'],true)
+  f.click(f.button('PCB 半成品'));await settle()
+  assert.equal(f.props.selectedId,3)
+  assert.equal(f.button('PCB 半成品').props['aria-pressed'],true)
+  assert.deepEqual(f.events,[['select',1],['select',3]])
+  assert.doesNotMatch(f.text(),/SKU-1|SKU-2|SKU-3/)
+})
+
 test('翻页追加不推翻手动折叠，选中不同机型或显式定位才展开祖先',async t=>{
   const f=await fixture(t)
   f.click(f.button('系列1'));await settle()

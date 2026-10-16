@@ -160,8 +160,8 @@ watch(() => props.models.map(model=>model.id).join(','), () => {
           </div>
           <ul v-if="isExpanded(model.id) && members(model.id).length" class="tree-children">
             <li v-for="row in members(model.id)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="selectProduct(row.id)">
-              <!-- 名称只显示一次；配置有实际差异时才补充，避免未配置产品出现重复行。 -->
-              <strong>{{ row.material.name }}</strong><small>{{ row.material.sku }}</small><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.can_produce===false">已停用</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
+              <!-- 子项隐藏物料编号以精简目录；选择仍使用原 ID，配置有实际差异时才补充。 -->
+              <strong>{{ row.material.name }}</strong><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.can_produce===false">已停用</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
             </AppButton></li>
           </ul>
           <p v-else-if="isExpanded(model.id)" class="tree-empty muted">{{ hasMore ? '子机型尚未加载，可继续加载目录' : '此系列暂无匹配子机型' }}</p>
@@ -173,8 +173,8 @@ watch(() => props.models.map(model=>model.id).join(','), () => {
           <span class="series-label"><strong title="未归组产品 / 半成品">未归组产品 / 半成品</strong><small>未分配产品系列</small></span>
         </AppButton></div><ul v-if="isExpanded(null) && members(null).length" class="tree-children">
           <li v-for="row in members(null)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="selectProduct(row.id)">
-            <!-- 名称只显示一次；配置有实际差异时才补充，避免未配置产品出现重复行。 -->
-              <strong>{{ row.material.name }}</strong><small>{{ row.material.sku }}</small><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.can_produce===false">已停用</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
+            <!-- 未归组产品采用同样的精简展示，保留原身份和按编码搜索能力。 -->
+              <strong>{{ row.material.name }}</strong><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.can_produce===false">已停用</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
           </AppButton></li>
         </ul><p v-else-if="isExpanded(null)" class="tree-empty muted">{{ hasMore ? '子机型尚未加载，可继续加载目录' : '暂无匹配的未归组子机型' }}</p></li>
       </ul>
