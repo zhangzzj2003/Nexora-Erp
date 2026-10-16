@@ -29,8 +29,8 @@ function openMaterial(row:BomStructureRow, event:MouseEvent): void {
   captureDialogOrigin('inventory-material', event)
   emit('material', row)
 }
-// 名称列保留树形缩进与长物料名称的空间，数量、单位和配方列采用紧凑的最小宽度。
-const columns = [{key:'component',title:'组件 / 多层组成',width:'280'}, {key:'sku',title:'物料编号',width:'165'}, {key:'quantity',title:'用量',width:'90'},
+// 编号放在首列便于定位物料；名称列保留树形缩进，数量、单位和配方列采用紧凑的最小宽度。
+const columns = [{key:'sku',title:'物料编号',width:'165'}, {key:'component',title:'组件 / 多层组成',width:'280'}, {key:'quantity',title:'用量',width:'90'},
   {key:'unit',title:'单位',width:'60'}, {key:'recipe',title:'下层生产配方',width:'200'}]
 </script>
 <template>

@@ -79,11 +79,11 @@ async function fixture(t) {
     bodyRows: () => nodes().filter(node => node.tag === 'tr' && node.props['data-key']) }
 }
 
-test('物料编号独立成列，名称列不再重复编号，普通物料和 PCB 点击只打开对应物料', async t => {
+test('物料编号独立放在首列，名称列不再重复编号，普通物料和 PCB 点击只打开对应物料', async t => {
   const f = await fixture(t)
   const headings = f.nodes().filter(node => node.tag === 'th')
-  assert.deepEqual(headings.map(node => node.props['data-column']), ['component', 'sku', 'quantity', 'unit', 'recipe'])
-  assert.equal(f.text(headings[1]), '物料编号')
+  assert.deepEqual(headings.map(node => node.props['data-column']), ['sku', 'component', 'quantity', 'unit', 'recipe'])
+  assert.equal(f.text(headings[0]), '物料编号')
   assert.match(f.text(f.cell('1/11', 'component')), /PCB 控制板/)
   assert.doesNotMatch(f.text(f.cell('1/11', 'component')), /MAT-20/)
   assert.match(f.text(f.cell('1/11', 'sku')), /MAT-20/)
