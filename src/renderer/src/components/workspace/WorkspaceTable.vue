@@ -209,12 +209,19 @@ onMounted(async () => {
   await refreshScrollbar()
 })
 onUnmounted(() => { cancelColumnResize?.(); resizeObserver?.disconnect() })
-async function refreshScrollbar(): Promise<void> {
+async function refreshScrollbar(full = false): Promise<void> {
   await nextTick()
   // 等列宽和数据行完成重排后读取真实范围，窗口缩放或筛选后不会残留过期位置。
-  await tableRef.value?.recalculate()
+  await tableRef.value?.recalculate(full ? true : undefined)
   updateScrollbar()
 }
+// 行内表单的资料展开会改变真实行高，显式刷新测量，避免保留旧的虚拟高度占位。
+defineExpose({refreshLayout: async () => {
+  await nextTick()
+  // 普通布局重算不会清掉非虚拟行的旧高度，先按当前单元格内容重新测量。
+  await tableRef.value?.recalcRowHeight(props.data)
+  await refreshScrollbar(true)
+}})
 watch(() => [props.minTableWidth, props.stretchColumns, props.columns, props.data.length, props.error], () => {
   void refreshScrollbar()
 }, { deep: true })

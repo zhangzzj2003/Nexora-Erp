@@ -72,7 +72,9 @@ async function fixture(t) {
    const app=createSSRApp(View).use(pinia).use(router)
    app.mixin({async serverPrefetch(){if(this.$options.__name==='ProductsView'){await store.queryProducts();const id=store.productDetailId || store.productResult?.items[0]?.id;if(id)await store.openProduct(id);beforeRender.apply?.(store);
     // 模拟用户在详情读取完成后打开目标弹窗，不让初始化选中事件误清测试意图。
-    for(const[key,value]of Object.entries(overrides))this.$.setupState[key]=value}},created(){components[this.$options.__name]=this.$.setupState;if(this.$options.__name==='ProductsView')setup=this.$.setupState}})
+    for(const[key,value]of Object.entries(overrides))this.$.setupState[key]=value
+    // 在同一页面实例记录选择来源的意图，避免测试越过产品与会话校验。
+    await beforeRender.interact?.(this.$.setupState,store)}},created(){components[this.$options.__name]=this.$.setupState;if(this.$options.__name==='ProductsView')setup=this.$.setupState}})
    return renderToString(app)
  }
  await store.queryProducts()
@@ -91,24 +93,31 @@ async function fixture(t) {
   const renderer=componentRenderer()
   let liveSetup
   const app=renderer.createApp({render:()=>h({...View,render:()=>null})}).use(pinia).use(router)
-  app.mixin({created(){if(this.$options.__name==='ProductsView')liveSetup=this.$.setupState}})
+  app.mixin({created(){components[this.$options.__name]=this.$.setupState;if(this.$options.__name==='ProductsView')liveSetup=this.$.setupState}})
   app.provide(ssrContextKey,{modules:new Set()});app.mount({});t.after(()=>app.unmount())
   await new Promise(done=>setImmediate(done));await nextTick()
   return liveSetup
  }
- const mountBom=async(props,handlers)=>{
+ const renderBom=async(props)=>{
+  // 单独绘制共享编辑器，可确认行内表单没有意外套回弹窗，也保留真实物料控件事件。
+  buttons.length=0;tables.length=0;selects.length=0
+  const app=createSSRApp({render:()=>h(LegacyBom,props)}).use(pinia).use(router)
+  app.mixin({created(){if(this.$options.__name==='BomEditor')components.BomEditor=this.$.setupState}})
+  return renderToString(app)
+ }
+ const mountBom=async(props,handlers={})=>{
   // 保存会更新受控 show 属性；持续挂载才能覆盖关闭完成后派发 saved 的真实时序。
-  const controlled=reactive({...props}),savedRecords=[],Editor={...LegacyBom,render:()=>null}
+  const controlled=reactive({...props}),savedRecords=[],updates=[],Editor={...LegacyBom,render:()=>null}
   const app=componentRenderer().createApp({render:()=>h(Editor,{...controlled,
-   'onUpdate:show':show=>{controlled.show=show;handlers.update?.(show)},
+   'onUpdate:show':show=>{updates.push(show);controlled.show=show;handlers.update?.(show)},
    onSaved:bom=>{savedRecords.push(bom);return handlers.saved?.(bom)}})}).use(pinia).use(router)
   app.mixin({created(){if(this.$options.__name==='BomEditor')components.BomEditor=this.$.setupState}})
   let unmounted=false
   const unmount=()=>{if(!unmounted){unmounted=true;app.unmount()}}
   app.provide(ssrContextKey,{modules:new Set()});app.mount({});t.after(unmount);await nextTick()
-  return {controlled,savedRecords,unmount}
+  return {controlled,savedRecords,updates,unmount}
  }
- return {store,source,product,render,renderLegacyBom,renderWorkOrders,renderTree,mountView,mountBom,treeProps,treeEvents,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,components,get setup(){return setup}}
+ return {store,source,product,render,renderLegacyBom,renderWorkOrders,renderTree,renderBom,mountView,mountBom,treeProps,treeEvents,buttons,tables,paginations,selects,router,calls,overrides,beforeRender,components,get setup(){return setup}}
 }
 
 // 标题由公共工作台生成；只替换导航和业务页，保留外壳的真实条件渲染。
@@ -597,7 +606,7 @@ test('右侧可从其他机型复用 BOM 到当前机型，排除取消版本',a
  const f=await fixture(t)
  const other={...f.source,id:88,product_material_id:33,product_name:'来源专业版',lines:f.source.lines.map(row=>({...row,quantity:'9'}))}
  f.store.boms=[other,{...f.source,id:99,status:'cancelled'}]
- f.overrides.reuseOpen=true
+ f.beforeRender.interact=setup=>setup.openBomCreation(false)
  const html=await f.render()
  assert.match(html,/选择要复用的 BOM/);assert.match(html,/来源专业版/)
  assert.equal(f.tables.find(row=>row.title==='可复用版本').data.length,1)
@@ -605,7 +614,229 @@ test('右侧可从其他机型复用 BOM 到当前机型，排除取消版本',a
  assert.equal(f.store.bomForm.product_material_id,11)
  assert.equal(f.store.bomForm.source_bom_id,88)
  assert.equal(f.store.bomForm.lines[0].quantity,'9')
+ assert.equal(f.setup.reuseOpen,false);assert.equal(f.setup.bomOpen,true)
  f.store.bomForm.lines[0].quantity='4';assert.equal(other.lines[0].quantity,'9')
+})
+
+// 首次建配方直接发生在工作区；重复读取不能把用户已选组件和数量清回空白。
+test('无 BOM 产品自动准备固定产出草稿，右侧直接显示共享物料编辑器并保留未保存内容',async t=>{
+ const f=await fixture(t)
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>action==='productBoms'?[]:previous(action,payload)
+ const prepare=f.store.prepareProductBom,prepared=[]
+ f.store.prepareProductBom=(...args)=>{prepared.push(args);return prepare(...args)}
+ let html=await f.render()
+ assert.equal(f.store.productDetailId,1);assert.equal(f.setup.selectedBom,undefined)
+ assert.equal(prepared.some(([id])=>id===11),true)
+ assert.equal(f.store.bomForm.product_material_id,11)
+ assert.equal(f.store.bomForm.source_bom_id??null,null)
+ assert.equal(f.store.bomForm.base_quantity,'1')
+ const line=f.store.bomForm.lines[0]
+ assert.doesNotMatch(html,/data-modal="新建 BOM 版本"/)
+ assert.match(html,/aria-label="建立首个 BOM"/)
+ assert.match(html,/第 1 行物料/);assert.match(html,/基准用量/)
+ assert.equal(f.buttons.some(row=>row.label==='复用已有 BOM'),true)
+ assert.equal(f.buttons.some(row=>row.props.type==='submit' && row.label==='保存 BOM 草稿'),true)
+ const component=f.selects.find(row=>row.attrs['aria-label']==='第 1 行物料')
+ component.attrs['onUpdate:modelValue'](22)
+ line.quantity='3';f.store.bomForm.note='首版配方'
+ html=await f.render()
+ assert.equal(f.store.bomForm.lines[0],line)
+ assert.equal(line.component_material_id,22);assert.equal(line.quantity,'3')
+ assert.equal(f.store.bomForm.note,'首版配方')
+ assert.match(html,/第 1 行物料/)
+})
+
+// 关闭详情、刷新或返回页面均会重新挂载编辑器，同目标不能丢掉已经复用并修改的整份配方。
+test('首建复用草稿重挂载和重读仍保留来源、基准、备注与下层配方，切换目标才初始化',async t=>{
+ const f=await fixture(t)
+ const other={...f.source,id:88,product_material_id:33,base_quantity:'2',
+  lines:f.source.lines.map(row=>({...row,quantity:'9',component_bom_id:71}))}
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>action==='productBoms'?[]:previous(action,payload)
+ f.store.materials.push({...f.product.material,id:33,sku:'EL-PC-33',name:'另一款产品'})
+ f.store.prepareProductBom(11,other)
+ const draft=f.store.bomForm,line=draft.lines[0]
+ draft.base_quantity='3';draft.note='复用后调整的首版';line.quantity='5'
+ const snapshot=JSON.stringify(draft)
+ const first=await f.mountBom({show:true,inline:true,targetMaterialId:11})
+ assert.equal(f.store.bomForm,draft);assert.equal(f.store.bomForm.lines[0],line)
+ assert.equal(JSON.stringify(f.store.bomForm),snapshot)
+ first.unmount()
+ const second=await f.mountBom({show:true,inline:true,targetMaterialId:11})
+ assert.equal(f.store.bomForm,draft);assert.equal(f.store.bomForm.lines[0],line)
+ assert.equal(JSON.stringify(f.store.bomForm),snapshot)
+ const html=await f.render()
+ assert.match(html,/aria-label="建立首个 BOM"/);assert.match(html,/派生来源 BOM #88/)
+ assert.equal(f.store.bomForm,draft);assert.equal(f.store.bomForm.lines[0],line)
+ assert.equal(JSON.stringify(f.store.bomForm),snapshot)
+ assert.equal(line.component_bom_id,71)
+ second.controlled.targetMaterialId=33;await nextTick()
+ assert.notEqual(f.store.bomForm,draft);assert.notEqual(f.store.bomForm.lines[0],line)
+ assert.equal(f.store.bomForm.product_material_id,33);assert.equal(f.store.bomForm.source_bom_id??null,null)
+ assert.equal(f.store.bomForm.base_quantity,'1');assert.equal(f.store.bomForm.note,'')
+ assert.equal(f.store.bomForm.lines[0].component_material_id,0)
+ assert.equal(JSON.stringify(draft),snapshot)
+})
+
+// 产品弹窗由工作区统一承载；行内编辑器不能像独立 BOM 弹窗一样再挂一份默认产品编辑器。
+test('行内首建时新建或编辑子机型仅显示一份产品弹窗，不叠加默认产品编辑器',async t=>{
+ const f=await fixture(t)
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>action==='productBoms'?[]:previous(action,payload)
+ for(const [action,title]of [['newModel','新建子机型'],['editProduct','编辑子机型']]){
+  f.store.productEditorOpen=false
+  f.beforeRender.interact=setup=>setup[action]()
+  const html=await f.render()
+  assert.equal(f.store.productEditorOpen,true)
+  assert.equal((html.match(new RegExp(`data-modal="${title}"`,'g'))??[]).length,1)
+  assert.equal((html.match(/data-modal="(?:新建|编辑)(?:子机型|产品)"/g)??[]).length,1)
+  assert.doesNotMatch(html,/data-modal="(?:新建|编辑)产品"/)
+ }
+})
+
+// 保存调用真实 Pinia 写入与产品重读，确保清空已确认草稿后仍能定位 V1 回执。
+test('行内首建 BOM 失败保留用料，重试成功选中 V1 且不派发关闭事件',async t=>{
+ const f=await fixture(t)
+ const previous=globalThis.window.nexora.callApi
+ const saved={...f.source,id:90,version:1,status:'draft',source_bom_id:null,
+  lines:f.source.lines.map(row=>({...row,id:90,quantity:'3'}))}
+ const competing={...saved,id:120,version:2}
+ let fail=true,created=false
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='productBoms')return created?[competing,saved]:[]
+  if(action==='createBom'){
+   f.calls.push([action,payload])
+   if(fail)throw Error('首版配方保存失败，请重试')
+   created=true;return saved
+  }
+  return previous(action,payload)
+ }
+ await f.render()
+ const live=await f.mountView()
+ const line=f.store.bomForm.lines[0]
+ line.component_material_id=22;line.quantity='3';f.store.bomForm.note='首版配方'
+ const html=await f.renderBom({show:true,inline:true,targetMaterialId:11})
+ assert.doesNotMatch(html,/data-modal=/)
+ assert.match(html,/第 1 行物料/)
+ const editor=await f.mountBom({show:true,inline:true,targetMaterialId:11},{saved:bom=>live.afterBomSaved(bom)})
+ await f.components.BomEditor.submitCreate()
+ assert.match(f.store.error,/首版配方保存失败/)
+ assert.equal(f.store.bomForm.lines[0],line);assert.equal(line.quantity,'3')
+ assert.equal(f.store.bomForm.note,'首版配方')
+ assert.equal(editor.savedRecords.length,0);assert.deepEqual(editor.updates,[])
+ assert.equal(editor.controlled.show,true)
+ fail=false
+ await f.components.BomEditor.submitCreate()
+ await new Promise(done=>setImmediate(done));await nextTick()
+ assert.equal(editor.savedRecords[0].id,90);assert.deepEqual(editor.updates,[])
+ assert.equal(editor.controlled.show,true)
+ assert.equal(live.selectedBom.id,90);assert.equal(live.selectedBom.version,1)
+ assert.equal(live.selectedBom.status,'draft')
+ assert.equal(f.store.productBomRecords.some(row=>row.id===120),true)
+ const writes=f.calls.filter(([action])=>action==='createBom')
+ assert.equal(writes.length,2)
+ for(const [,payload]of writes){
+  assert.equal(payload.product_material_id,11);assert.equal(payload.source_bom_id,undefined)
+  assert.equal(payload.base_quantity,'1');assert.equal(payload.lines[0].component_material_id,22)
+  assert.equal(payload.lines[0].quantity,'3')
+ }
+})
+
+test('行内保存途中切换目标，迟到回执不得定位另一产品',async t=>{
+ const f=await fixture(t)
+ await f.render();f.store.prepareProductBom(11,f.source)
+ let resolve
+ f.store.createBom=()=>new Promise(done=>{resolve=done})
+ const editor=await f.mountBom({show:true,inline:true,targetMaterialId:11})
+ f.store.bomForm.lines[0].component_material_id=22
+ const pending=f.components.BomEditor.submitCreate()
+ editor.controlled.targetMaterialId=33;await nextTick()
+ resolve({...f.source,id:90,version:2,status:'draft',source_bom_id:7})
+ await pending
+ assert.deepEqual(editor.savedRecords,[]);assert.deepEqual(editor.updates,[])
+ assert.equal(editor.controlled.show,true)
+})
+
+// 新建后续版本先明确来源，空白创建与复制都会成为独立草稿，不能改写旧组成。
+test('已有版本新建先选择空白或复用，空白分支清理来源后才打开编辑器',async t=>{
+ const f=await fixture(t)
+ f.store.prepareProductBom(11,f.source)
+ f.store.bomForm.note='旧草稿说明'
+ const existing=JSON.stringify(f.source)
+ const draft=JSON.stringify(f.store.bomForm)
+ await f.render()
+ await click(f.buttons.find(row=>row.label==='新建版本'))
+ assert.equal(f.setup.reuseOpen,true);assert.equal(f.setup.bomOpen,false)
+ assert.equal(JSON.stringify(f.store.bomForm),draft)
+ f.beforeRender.interact=setup=>setup.openBomCreation()
+ await f.render()
+ assert.equal(f.selects.some(row=>row.attrs['aria-label']==='第 1 行物料'),false)
+ assert.equal(f.buttons.some(row=>row.label==='空白创建'),true)
+ await click(f.buttons.find(row=>row.label==='空白创建'))
+ assert.equal(f.setup.reuseOpen,false);assert.equal(f.setup.bomOpen,true)
+ assert.equal(f.store.bomForm.product_material_id,11)
+ assert.equal(f.store.bomForm.source_bom_id??null,null)
+ assert.equal(f.store.bomForm.lines[0].component_material_id,0)
+ assert.equal(f.store.bomForm.base_quantity,'1');assert.equal(f.store.bomForm.note,'')
+ assert.equal(JSON.stringify(f.source),existing)
+})
+
+test('后续版本选择原 BOM 复用时复制完整用料，来源本身不随新草稿更改',async t=>{
+ const f=await fixture(t)
+ const original=JSON.stringify(f.source)
+ f.store.boms=[f.source]
+ f.beforeRender.interact=setup=>setup.openBomCreation()
+ await f.render()
+ await click(f.buttons.find(row=>row.label==='复用到当前机型'))
+ assert.equal(f.setup.reuseOpen,false);assert.equal(f.setup.bomOpen,true)
+ assert.equal(f.setup.bomTargetId,11)
+ assert.equal(f.store.bomForm.product_material_id,11);assert.equal(f.store.bomForm.source_bom_id,7)
+ assert.equal(f.store.bomForm.base_quantity,'1');assert.equal(f.store.bomForm.lines[0].quantity,'2')
+ f.store.bomForm.lines[0].quantity='6'
+ assert.equal(JSON.stringify(f.source),original)
+})
+
+test('首建复用来源后继续在右侧编辑，不打开新建版本弹窗',async t=>{
+ const f=await fixture(t)
+ const other={...f.source,id:88,product_material_id:33,product_name:'来源专业版',base_quantity:'2',
+  lines:f.source.lines.map(row=>({...row,quantity:'9'}))}
+ f.store.boms=[other]
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>action==='productBoms'?[]:previous(action,payload)
+ f.beforeRender.interact=setup=>setup.openBomCreation(false)
+ const html=await f.render()
+ assert.match(html,/第 1 行物料/)
+ await click(f.buttons.find(row=>row.label==='复用到当前机型'))
+ assert.equal(f.setup.reuseOpen,false);assert.equal(f.setup.bomOpen,false)
+ assert.equal(f.store.bomForm.product_material_id,11);assert.equal(f.store.bomForm.source_bom_id,88)
+ assert.equal(f.store.bomForm.base_quantity,'2');assert.equal(f.store.bomForm.lines[0].quantity,'9')
+ f.store.bomForm.lines[0].quantity='4'
+ assert.equal(other.lines[0].quantity,'9')
+})
+
+// 来源按钮可能在切换产品后才结束事件派发，旧目标意图不得套用到新的子机型。
+test('选择来源期间切换产品，迟到复用事件不替换新产品草稿',async t=>{
+ const f=await fixture(t)
+ const other={...f.product,id:2,material_id:33,material:{...f.product.material,id:33,sku:'EL-PC-33',name:'其他产品'}}
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='productDetail' && payload.id===2)return other
+  if(action==='productBoms' && payload.materialId===33)return [{...f.source,id:18,product_material_id:33}]
+  return previous(action,payload)
+ }
+ const live=await f.mountView()
+ f.store.boms=[f.source]
+ live.openBomCreation()
+ assert.equal(live.reuseOpen,true)
+ await live.selectProduct(2);await nextTick()
+ f.store.prepareProductBom(33)
+ f.store.bomForm.note='另一个子机型的草稿'
+ const draft=JSON.stringify(f.store.bomForm)
+ live.chooseBomSource(f.source)
+ assert.equal(f.store.productDetailId,2)
+ assert.equal(live.reuseOpen,false);assert.equal(live.bomOpen,false)
+ assert.equal(JSON.stringify(f.store.bomForm),draft)
 })
 
 // 使用真实页面的事件与组成行验证版本切换，避免只断言新增文案。
@@ -690,8 +921,11 @@ test('BOM 读取失败、加载与空状态都隐藏旧组成，失败可重试'
  html=await f.render();assert.match(html,/正在读取 BOM/)
  assert.equal(f.tables.some(row=>row.title.startsWith('组成明细')),false)
  f.beforeRender.apply=store=>{store.productBomRecords=[]}
- html=await f.render();assert.match(html,/尚未建立 BOM/)
+ html=await f.render();assert.match(html,/aria-label="建立首个 BOM"/)
  assert.equal(f.tables.some(row=>row.title.startsWith('组成明细')),false)
+ f.store.user={...f.store.user,permissions:['inventory.view','production.view']}
+ html=await f.render();assert.match(html,/尚未建立 BOM/)
+ assert.doesNotMatch(html,/aria-label="建立首个 BOM"/)
 })
 
 // 服务端子机型总数与当前分页互不混淆，停用机型仍占用系列归属。
