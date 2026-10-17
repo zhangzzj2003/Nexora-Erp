@@ -9,6 +9,8 @@ import DocumentApprovalProgress from './DocumentApprovalProgress.vue'
 import { usePiniaAppStore } from '../../store/app-store'
 import InventoryMaterialFacts from './InventoryMaterialFacts.vue'
 import InventoryMaterialLedger from './InventoryMaterialLedger.vue'
+import WorkspaceMaterialParameters from './WorkspaceMaterialParameters.vue'
+import { materialParameterSource } from '../../utils/material-parameter-source'
 import { isNegativeStock } from '../../../../shared/stock-overview'
 import { documentApprovalLayout } from '../../utils/document-approval-layout'
 import { movementTypeLabel } from '../../utils/formatters'
@@ -74,11 +76,11 @@ const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: 
         <div class="document-detail-field"><span>单据类型</span><strong>{{ movementTypeLabel(documentTarget.source_type) }}</strong></div>
         <div class="document-detail-field"><span>单据编号</span><strong>{{ document.document_no || `#${document.document_id}` }}</strong></div>
         <div class="document-detail-field"><span>关联流水</span><strong>#{{ documentTarget.id }} · 明细 #{{ documentTarget.source_line_id }}</strong></div>
-        <div v-for="(item, index) in layout.basic" :key="index" class="document-detail-field"><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div>
+        <div v-for="(item, index) in layout.basic" :key="index" class="document-detail-field"><span>{{ item.label }}</span><strong>{{ item.value }}</strong><WorkspaceMaterialParameters v-if="item.material_id" :material="materialParameterSource(item.material_id,item.material)" current-reference /></div>
         <div v-if="document.reversal_reason" class="document-detail-field"><span>冲销原因</span><strong>{{ document.reversal_reason }}</strong></div>
       </template>
     </template>
-    <template #cell-label="{ row }">{{ row.label }}</template>
+    <template #cell-label="{ row }"><strong>{{ row.label }}</strong><WorkspaceMaterialParameters v-if="row.material_id" :material="materialParameterSource(row.material_id,row.material)" current-reference /></template>
     <template #cell-value="{ row }">{{ row.value }}</template>
     <template #footer><div class="ledger-detail-actions">
       <AppButton v-if="documentError" :disabled="connectionLost || documentLoading" @click="store.loadLedgerDocument()">重新读取单据</AppButton>

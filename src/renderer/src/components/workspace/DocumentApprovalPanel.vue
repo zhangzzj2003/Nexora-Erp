@@ -6,6 +6,8 @@ import AppButton from '../app/AppButton.vue'
 import AppInput from '../app/AppInput.vue'
 import { usePiniaAppStore } from '../../store/app-store'
 import DocumentApprovalProgress from './DocumentApprovalProgress.vue'
+import WorkspaceMaterialParameters from './WorkspaceMaterialParameters.vue'
+import { materialParameterSource } from '../../utils/material-parameter-source'
 import { approvalTargetKey } from '../../store/modules/document-approval-case-actions'
 
 // 同一套审批控件可嵌入详情；分区插槽让操作继续留在公共弹窗的固定页脚。
@@ -45,7 +47,8 @@ const reversalSubmit = computed(() => target.value?.intent === 'reverse' && reco
       <!-- 内嵌详情展示最新业务快照，发生差异时另行保留原送审内容供核对。 -->
       <section v-if="liveDetails && record && !record.content_matches" class="approval-snapshot">
         <h4>原送审内容</h4>
-        <dl><template v-for="(item, index) in record.summary" :key="index"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></template></dl>
+        <!-- 历史正文不变；附加资料注明当前档案，不能被误认为送审时的固定参数。 -->
+        <dl><template v-for="(item, index) in record.summary" :key="index"><dt>{{ item.label }}</dt><dd>{{ item.value }}<WorkspaceMaterialParameters v-if="item.material_id" :material="materialParameterSource(item.material_id,item.material)" current-reference /></dd></template></dl>
       </section>
   </div>
   <template v-else-if="part === 'opinion'">

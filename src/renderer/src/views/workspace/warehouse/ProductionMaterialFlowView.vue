@@ -6,6 +6,8 @@ import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
+import WorkspaceMaterialParameters from '../../../components/workspace/WorkspaceMaterialParameters.vue'
+import { materialParameterIndex, materialParameterSource } from '../../../utils/material-parameter-source'
 import WorkspaceSearchFilters from '../../../components/workspace/WorkspaceSearchFilters.vue'
 import WorkspaceSummaryFilters from '../../../components/workspace/WorkspaceSummaryFilters.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
@@ -30,6 +32,8 @@ const props = withDefaults(defineProps<{ kind: MaterialFlowKind; workOrderId?: n
 const app = usePiniaAppStore(), flow = useMaterialFlowStore(), route = useRoute(), router = useRouter()
 const { pages, orders, documents, loading, readErrors, readReady, busy, error, available } = storeToRefs(flow)
 const { workOrders, warehouses, materials, materialCategories, connectionLost } = storeToRefs(app)
+// 生产详情自带资料供业务只读账号使用；已有全局缓存仅兼容旧服务端。
+const materialById = computed(() => materialParameterIndex(materials.value))
 const query = ref(''), filters = ref({ status: '', warehouse: 0, person: 0, from: '', to: '' }), page = ref(1), pageSize = ref(20)
 const scopeOrder = computed(() => props.workOrderId || (Number(route.query.work_order_id) || undefined))
 const pageKey = computed(() => flow.pageKey(props.kind, scopeOrder.value))
@@ -472,7 +476,7 @@ watch(() => [route.query.document_id, props.kind], () => { if (!props.embedded &
         <div class="document-detail-field"><span>来源单据</span><AppButton v-if="detail.source_document_kind && detail.source_document_id" variant="text" @click="openLinked(detail.source_document_kind, detail.source_document_id, $event)">{{ detail.source_document_no }}</AppButton><strong v-else>{{ detail.source_document_no || (detail.kind === 'dispatch' ? '工单正常需求' : '按明细来源') }}</strong></div>
         <div class="document-detail-field"><span>参考 / 原因</span><strong>{{ detail.reference || '—' }} · {{ detail.reason || '—' }}</strong></div>
       </template></template>
-      <template #cell-material="{ row }"><strong>{{ row.sku }} · {{ row.material_name }}</strong><AppButton v-if="row.source_document_kind && row.source_document_id" variant="text" @click="openLinked(row.source_document_kind, row.source_document_id, $event)">{{ row.source_document_no }}</AppButton><small v-else-if="row.legacy_issue_line_id">原领料来源 #{{ row.legacy_issue_line_id }}</small><small v-else-if="row.source_receipt_line_id">已签收明细 #{{ row.source_receipt_line_id }}</small><small v-if="detail?.kind === 'exchange' && row.disposal">{{ row.disposal === 'loss' ? '无实物损耗' : '旧料隔离接收' }} {{ row.evidence }}</small></template>
+      <template #cell-material="{ row }"><strong>{{ row.sku }} · {{ row.material_name }}</strong><WorkspaceMaterialParameters :material="materialParameterSource(row.material_id,row.material,materialById)" :categories="materialCategories" current-reference /><AppButton v-if="row.source_document_kind && row.source_document_id" variant="text" @click="openLinked(row.source_document_kind, row.source_document_id, $event)">{{ row.source_document_no }}</AppButton><small v-else-if="row.legacy_issue_line_id">原领料来源 #{{ row.legacy_issue_line_id }}</small><small v-else-if="row.source_receipt_line_id">已签收明细 #{{ row.source_receipt_line_id }}</small><small v-if="detail?.kind === 'exchange' && row.disposal">{{ row.disposal === 'loss' ? '无实物损耗' : '旧料隔离接收' }} {{ row.evidence }}</small></template>
       <template #cell-unit="{ row }">{{ row.unit }}</template><template #cell-quantity="{ row }">{{ row.quantity }}</template>
       <template #cell-progress="{ row }">{{ lineProgress(row, detail?.kind ?? kind, detail?.status) }}</template>
       <template #afterLines>

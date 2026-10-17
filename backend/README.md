@@ -136,6 +136,8 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 ## 生产 BOM
 
+单据详情的当前物料参数沿原业务查看权限返回，不要求额外读取全量物料目录。BOM、其他入库、生产物料收发明细及工单物料汇总、生产关联组件使用可选 `material`；通用审批物料摘要同时提供 `material_id` 与 `material`。资料由 `material_choice_data` 生成，只含编号、名称、单位、分类、规格、技术参数与扩展属性，不含编辑版本、供应商绑定或价格。参数属于当前档案参考，原数量、金额、历史名称和送审正文保持原样，不写入审批快照或内容摘要。BOM/入库复用已有物料 JOIN，摘要按物料集合批量读取，分类目录在同一 ORM 会话内缓存；旧接口未提供参数时调用方应保留原明细并提示资料暂不可用。
+
 `POST /api/v1/boms` 创建成品物料的 BOM 草稿（可带固定 `source_bom_id` 派生来源）；`GET /api/v1/boms/{id}` 查看单版本，列表可按 `product_material_id` 筛选。创建 BOM 时自动纳入尚未登记的产出物料，记录基准产出数量、组件物料及基准用量；同一物料不能重复作为组件，也不能直接作为自身组件。服务端在写事务中按成品分配递增版本号。`GET /api/v1/boms` 返回含物料名称的全部历史版本；`POST /api/v1/boms/{id}/activate` 启用草稿，`/retire` 停用启用版本，`/cancel` 取消草稿。每个成品只允许一个启用版本，启用时检查其他启用 BOM 的组件链，阻止循环引用。停用和取消后的内容保留审计；修订需新建版本，不能改写历史。查看、创建、启用、停用和取消分别要求 `production.view`、`bom.create`、`bom.activate`、`bom.retire`、`bom.cancel`。管理员和生产计划员可管理，仓库员可查看。BOM 不影响库存。
 
 ## 生产工单

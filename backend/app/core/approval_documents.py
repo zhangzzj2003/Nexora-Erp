@@ -26,6 +26,7 @@ from app.core.models import (
     Journal, JournalChange, JournalAttachment, JournalAttachmentReversal, OpeningBalance, OpeningBalanceChange, SubledgerOpening, SubledgerOpeningChange,
 )
 from app.core.approval_catalog import approval_type
+from app.catalog.material_rules import material_choice_data
 
 
 def inbound_snapshot(db: Session, identifier: int) -> dict:
@@ -1003,16 +1004,34 @@ def submit_permission(document_type: str, intent: str, source=None) -> str | Non
 
 
 def document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
+    # 先沿原快照生成展示摘要，再按其中明确的物料身份批量附加当前档案。
+    # 参数不写回 content，不进入送审 JSON 或 digest，也不扩展原领域的访问权限。
+    summary = _document_summary(db, document_type, content)
+    identifiers = {entry['material_id'] for entry in summary if entry.get('material_id')}
+    materials = {material.id: material for material in db.scalars(select(Material).where(
+        Material.id.in_(identifiers)))} if identifiers else {}
+    choices = {identifier: material_choice_data(material) for identifier, material in materials.items()}
+    return [{**entry, 'material': choices[entry['material_id']]} if entry.get('material_id') in choices else entry
+            for entry in summary]
+
+
+def _document_summary(db: Session, document_type: str, content: dict) -> list[dict]:
     if document_type in _FLOW_TYPES:
         order=db.get(WorkOrder,content['work_order_id'])
         warehouse=db.get(Warehouse,content['warehouse_id'])
         summary=[{'label':'生产工单','value':order.document_no or f'#{order.id}'},
             {'label':'仓库','value':warehouse.name},{'label':'原因','value':content['reason']},
             {'label':'参考号','value':content['reference']},{'label':'说明','value':content['note']}]
+        # 按本次快照涉及的工单行和组件批量读取，不因摘要行数增加逐行 SELECT。
+        worklines = {line.id: line for line in db.scalars(select(WorkOrderLine).where(
+            WorkOrderLine.id.in_({line['work_order_line_id'] for line in content['lines']})))}
+        materials = {material.id: material for material in db.scalars(select(Material).where(
+            Material.id.in_({line.component_material_id for line in worklines.values()})))}
         for line in content['lines']:
-            workline=db.get(WorkOrderLine,line['work_order_line_id'])
-            material=db.get(Material,workline.component_material_id)
-            summary.append({'label':material.sku+' '+material.name,'value':line['quantity']+' '+material.unit})
+            workline=worklines[line['work_order_line_id']]
+            material=materials[workline.component_material_id]
+            summary.append({'label':material.sku+' '+material.name,'value':line['quantity']+' '+material.unit,
+                'material_id':material.id})
             if line['evidence']:
                 summary.append({'label':'无实物损耗依据','value':line['evidence']})
         return summary
@@ -1166,8 +1185,11 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
             ('计划日期或小时阈值', content['plan_due_date'] or content['plan_due_hours']),
             ('指定执行人', executor.username if executor else content['assigned_to']),
             ('维护方案', content['request_note']), ('生产关联', '有生产关联，仅说明影响' if content['work_order_id'] else '无')]]
-        summary.extend({'label': '计划耗材', 'value': f"{db.get(Material, item['material_id']).name} × {item['quantity']}"}
-            for item in json.loads(content['parts_json']))
+        parts = json.loads(content['parts_json'])
+        materials = {material.id: material for material in db.scalars(select(Material).where(
+            Material.id.in_({item['material_id'] for item in parts})))} if parts else {}
+        summary.extend({'label': '计划耗材', 'value': f"{materials[item['material_id']].name} × {item['quantity']}",
+            'material_id':item['material_id']} for item in parts)
         summary.extend({'label': '方案附件', 'value': item['file_name'] + ' · SHA256 ' + item['sha256']
             + ('（已撤销）' if item['reversal_id'] else '')} for item in content['attachments'][:10])
         summary.append({'label': '附件核对', 'value': f"固定附件共 {len(content['attachments'])} 份；此处最多展示前十份，完整指纹均参与审批校验。"})
@@ -1180,7 +1202,8 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
             ('编制依据', inputs['reason']), ('来源指纹', content['fingerprint']),
             ('固定建议数', len(snapshot['suggestions'])), ('固定警告数', len(snapshot['warnings']))]]
         # 完整正文参与摘要校验；通用弹窗限制展示量，明确引导核对原固定结果与 CSV。
-        summary.extend({'label': '固定供给建议', 'value': f"{row['sku']} · {row['name']} × {row['quantity']} {row['unit']}；需求日 {row['due_date']}；{'采购' if row['supply_mode'] == 'buy' else '生产'}"}
+        summary.extend({'label': '固定供给建议', 'value': f"{row['sku']} · {row['name']} × {row['quantity']} {row['unit']}；需求日 {row['due_date']}；{'采购' if row['supply_mode'] == 'buy' else '生产'}",
+            'material_id':row['material_id']}
             for row in snapshot['suggestions'][:100])
         summary.append({'label': '完整依据', 'value': '请核对本计划的结果与来源、警告及固定 CSV；此处最多展示前 100 条建议。'})
         return summary
@@ -1194,10 +1217,13 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
             ('处置方式及数量', f"{ {'scrap': '报废', 'rework': '返工'}[content['kind']] } · {content['quantity']} {original['product_unit']}"),
             ('成本处理', {'absorb': '由合格品承担', 'expense': '独立报废损失', 'carry': '携带来源成本返工'}[content['loss_treatment']]),
             ('缺陷记录', content['defect']), ('处置说明', content['action_note'])]]
+        # 成品行保留固定展示名，辨认资料只沿固定来源里的物料身份关联。
+        summary[1]['material_id'] = original['product_material_id']
         if content['warehouse_id'] is not None:
             warehouse = db.get(Warehouse, content['warehouse_id'])
             summary.append({'label': '返工仓库', 'value': warehouse.name if warehouse else str(content['warehouse_id'])})
-        summary.extend({'label': '追加材料', 'value': f"{line['sku']} · {line['material_name']} × {line['quantity']} {line['unit']}"}
+        summary.extend({'label': '追加材料', 'value': f"{line['sku']} · {line['material_name']} × {line['quantity']} {line['unit']}",
+            'material_id':line['material_id']}
             for line in json.loads(content['materials_json']))
         return summary
     if document_type == 'AfterSalesCase':
@@ -1211,10 +1237,14 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
             ('客户同意依据', content['customer_acceptance']),
             ('维修收费', f"{ {'none': '不涉及维修费', 'free': '免费维修', 'charge': '收费维修'}[content['charge_mode']] } · ¥{content['fee_amount']}"),
             ('保修依据', content['warranty_basis'] or '未确认保修条款')]]
+        # 原物品与换货、维修耗材各自使用明确身份，不能用相似名称互相补配。
+        summary[4]['material_id'] = original['material_id']
         if 'replacement' in original:
             line = original['replacement']
-            summary.append({'label': '换货计划', 'value': f"{line['sku']} · {line['material_name']} × {line['quantity']} {line['unit']}；单价 ¥{line['unit_price']}"})
-        summary.extend({'label': '维修耗材', 'value': f"{line['sku']} · {line['material_name']} × {line['quantity']} {line['unit']}"}
+            summary.append({'label': '换货计划', 'value': f"{line['sku']} · {line['material_name']} × {line['quantity']} {line['unit']}；单价 ¥{line['unit_price']}",
+                'material_id':line['material_id']})
+        summary.extend({'label': '维修耗材', 'value': f"{line['sku']} · {line['material_name']} × {line['quantity']} {line['unit']}",
+            'material_id':line['material_id']}
             for line in json.loads(content['parts_json']))
         summary.extend({'label': '方案附件', 'value': row['file_name'] +
             ('（已撤销）' if row['reversal_id'] else '') + ' · SHA256 ' + row['sha256']}
@@ -1229,7 +1259,8 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
             ('电话', party['phone']), ('邮箱', party['email']), ('参考号', content['reference']),
             ('有效期', content['valid_until']), ('商务条款', content['terms'])]]
         summary.extend({'label': f"{line['sku']} · {line['material_name']}",
-            'value': f"{line['quantity']} {line['unit']}；单价 ¥{line['unit_price']}"}
+            'value': f"{line['quantity']} {line['unit']}；单价 ¥{line['unit_price']}",
+            **({'material_id':line['material_id']} if line.get('material_id') else {})}
             for line in content['lines'])
         summary.extend({'label': '附件依据', 'value': row['file_name'] +
             ('（已撤销）' if row['reversal_id'] else '') + ' · SHA256 ' + row['sha256']}
@@ -1237,6 +1268,12 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
         return summary
     # 其他单据只读取固定正文和当前资料名称，不调用其他领域详情。
     summary = []
+    material_ids = {line['material_id'] for line in content['lines']}
+    if document_type == 'WorkOrder':
+        material_ids.add(content['product_material_id'])
+    # 同一摘要的辨认文字和附加资料都按稳定编号读取，数量仍使用固定业务快照。
+    materials = {material.id: material for material in db.scalars(select(Material).where(
+        Material.id.in_(material_ids)))} if material_ids else {}
     for field, model, label in [('supplier_id', Supplier, '供应商'), ('customer_id', Customer, '客户'), ('warehouse_id', Warehouse, '仓库'),
                                 ('from_warehouse_id', Warehouse, '来源仓库'), ('to_warehouse_id', Warehouse, '目标仓库')]:
         if field in content:
@@ -1261,8 +1298,9 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
             job = db.get(MaintenanceJob, identifier)
             summary.append({'label': '维护工单', 'value': job.document_no or f'#{job.id}'})
     if document_type == 'WorkOrder':
-        product = db.get(Material, content['product_material_id'])
-        summary.extend([{'label': '成品目标', 'value': f"{product.sku} · {product.name} × {content['target_quantity']} {product.unit}"},
+        product = materials[content['product_material_id']]
+        summary.extend([{'label': '成品目标', 'value': f"{product.sku} · {product.name} × {content['target_quantity']} {product.unit}",
+                            'material_id':product.id},
                         {'label': 'BOM 版本', 'value': str(content['bom_version'])},
                         {'label': '工单说明', 'value': content['note']}])
         for conversion_id in content['mrp_conversion_ids']:
@@ -1315,7 +1353,7 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
     if 'reference' in content:
         summary.append({'label': '参考号', 'value': content['reference'] or '—'})
     for line in content['lines']:
-        material = db.get(Material, line['material_id'])
+        material = materials.get(line['material_id'])
         unit = f' {material.unit}' if material else ''
         value = (f"合格 {line['accepted_quantity']}{unit}；拒收 {line['rejected_quantity']}{unit}；原因 {line['rejection_reason'] or '—'}"
                  if document_type == 'PurchaseGoodsReceipt' else (f"账面 {line['book_quantity']}{unit}；实盘 {line['counted_quantity']}{unit}；差异 {Decimal(line['counted_quantity']) - Decimal(line['book_quantity'])}{unit}"
@@ -1327,5 +1365,5 @@ def document_summary(db: Session, document_type: str, content: dict) -> list[dic
         if document_type == 'SalesOrder' and line['warranty_days'] is not None:
             value += f"；保修 {line['warranty_days']} 天（{line['warranty_basis']}）"
         summary.append({'label': f'{material.sku} · {material.name}' if material else str(line['material_id']),
-                        'value': value})
+                        'value': value, 'material_id':line['material_id']})
     return summary

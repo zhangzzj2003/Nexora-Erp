@@ -81,12 +81,15 @@ test('台账与库存报表按独立字段展示，编号打开只读详情且�
   assert.equal(calls[1][1].source_id, 8)
 
   store.ledgerMaterialTarget = row
-  store.ledgerMaterialDetail = { id: 3, sku: 'EL-03', name: '连接器 · 2P', unit: '个', specification: '2.54mm', brand: '示例品牌', category_code: '', notes: '只读备注' }
+  store.ledgerMaterialDetail = { id: 3, sku: 'EL-03', name: '连接器 · 2P', unit: '个', specification: '2.54mm', brand: '示例品牌', category_code: '', notes: '只读备注',
+    spec_values: [{field_id:1,name:'针脚数',status:'filled',value:'2',unit:'P',historical:false}], extra_attributes:[{name:'接触工艺',value:'镀金',unit:''}] }
   store.ledgerMaterialQuery = { warehouse_id: 1, material_id: 3, from_date: null, to_date: '2026-10-13', source_type: null, page: 2, page_size: 20 }
   store.ledgerMaterialResult = { ...store.ledgerResult, page: 2, total: 41 }
   const materialHtml = await render(Ledger)
   assert.match(materialHtml, /role="dialog" aria-label="物料详情 · EL-03"/)
-  assert.match(materialHtml, /2.54mm/); assert.match(materialHtml, /展开规格与更多资料/)
+  // 物料详情直接呈现真实分类参数及扩展属性，不必先展开“更多资料”。
+  for (const value of ['2.54mm', '针脚数', '2P', '接触工艺', '镀金']) assert.ok(materialHtml.includes(value), value)
+  assert.doesNotMatch(materialHtml, /展开规格与更多资料/)
   assert.match(materialHtml, /台账明细/)
   // 三个入口均直接上下阅读；分页和日期范围仍沿用原查询，操作区位于正文之后。
   function assertStacked(html) {

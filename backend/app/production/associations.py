@@ -3,6 +3,7 @@
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import select
+from app.catalog.material_rules import material_choice_data
 from app.access.security import require
 from app.core.orm import orm_session
 from app.core.models import (Bom, Material, WorkOrder, WorkOrderLine, MaterialIssue, MaterialIssueLine,
@@ -116,7 +117,9 @@ def associations(db,work,kind,identifier,inventory_visible,include_references):
         for record in flow:
             if record['document_type'] == 'dispatch' and record['status'] != 'reversed':
                 cutoff = max(cutoff, *(event['created_at'] for event in record['executions']), record['created_at'])
+        # 只附加当前组件辨认资料，不改变来源、成本与采购参考的权限边界。
         components.append(dict(id=line.id,material_id=material.id,sku=material.sku,name=material.name,unit=material.unit,
+            material=material_choice_data(material),
             required_quantity=line.required_quantity,net_issued_quantity=format(issued_quantity(db,line.id),'f'),
             issues=issues, material_flow=flow, purchase_references=[]))
     completions=[]

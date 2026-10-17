@@ -18,7 +18,7 @@ import type {StocktakeLotLineInput,StocktakeLotOptions} from './stocktake-lot-ap
 import type {AdjustmentLotLineInput,AdjustmentLotOptions} from './adjustment-lot-api'
 import type {SalesReturnLotLineInput,SalesReturnLotOptions} from './sales-return-lot-api'
 import type {CompletionLotPartInput,CompletionPhysicalLot} from './completion-lot-api'
-import type { Material, MaterialSummary, MaterialCategory, MaterialInput } from './material-api'
+import type { Material, MaterialSummary, MaterialChoice, MaterialCategory, MaterialInput } from './material-api'
 import type { MaterialCategoryNode, MaterialCategoryInput, MaterialCategoryRevision, MaterialSpecFieldInput, MaterialCategoryChange } from './material-api'
 import type { MaterialUnit, MaterialUnitInput, MaterialUnitChange } from './material-unit-api'
 export type { Material, MaterialCategory, MaterialInput } from './material-api'
@@ -528,6 +528,8 @@ export interface InventoryCostInput {
   created_at: string
 }
 export interface ReceiptLine {
+  // 可选当前档案仅补充参数，历史单据的原名称、编码和单位仍保留。
+  material?: MaterialChoice
   id: number
   material_id: number
   sku: string
@@ -852,6 +854,8 @@ export interface FinanceOverview {
 }
 // 组件配方约束与复制来源相互独立，不改变组件的库存身份。
 export interface BomLine {
+  // 完整参数与组件真实物料身份绑定，旧服务缺省时继续使用简要资料。
+  material?: MaterialChoice
   component_bom_id?: number | null
   component_bom_version?: number | null
   component_bom_status?: 'active' | 'retired' | null

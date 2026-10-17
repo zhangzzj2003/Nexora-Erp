@@ -23,7 +23,9 @@ export function materialChoiceCategory(item: MaterialChoice, categories: readonl
   return '分类资料暂不可用'
 }
 export function hasMaterialDetails(item: MaterialChoice): boolean {
-  return !!item.spec_values?.length || detailKeys.some(key => typeof item[key] === 'string')
+  // 新旧业务接口可以只提供摘要或扩展属性；显式空数组也代表服务已返回资料，只是尚未填写。
+  return typeof item.spec_summary === 'string' || Array.isArray(item.spec_values)
+    || Array.isArray(item.extra_attributes) || detailKeys.some(key => typeof item[key] === 'string')
 }
 export function materialChoiceFacts(item: MaterialChoice, categories: readonly MaterialCategory[], technical = false) {
   const facts: {key: string; label: string; value: string}[] = (technical ? materialTechnicalFields : materialCoreFields).map(([key, label]) => ({
@@ -35,6 +37,17 @@ export function materialChoiceFacts(item: MaterialChoice, categories: readonly M
     for (const [index, entry] of (item.extra_attributes ?? []).entries()) facts.push({key:`extra:${index}`,label:entry.name,value:entry.value + entry.unit})
   } else if (item.spec_summary) facts.push({key:'spec_summary', label:'分类规格', value:item.spec_summary})
   return facts
+}
+export function materialParameterFacts(item: MaterialChoice, categories: readonly MaterialCategory[] = []) {
+  const currentSpecifications = item.spec_values?.some(entry => !entry.historical) ?? false
+  // 与选料详情共用状态、单位和历史标签；只移除空的固定字段，不把 0、否或待确认当成空值。
+  return [...materialChoiceFacts(item, categories), ...materialChoiceFacts(item, categories, true)].filter(fact => {
+    if (fact.key.startsWith('spec:') || fact.key.startsWith('extra:')) return true
+    // 逐项参数已经完整提供时不再重复一遍分类摘要；旧服务只有摘要时仍可直接阅读。
+    if (fact.key === 'spec_summary') return !currentSpecifications && !!item.spec_summary?.trim()
+    if (fact.key === 'category_name' || fact.key === 'unit') return false
+    return !!item[fact.key as keyof MaterialDetails]?.trim()
+  })
 }
 export interface MaterialSelectOption<T extends number | null> extends WorkspaceSelectOption<T> {
   description: string

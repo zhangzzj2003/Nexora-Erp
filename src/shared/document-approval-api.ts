@@ -1,3 +1,5 @@
+import type { MaterialChoice } from './material-api'
+import { validateMaterialMetadata } from './material-choice-validation.ts'
 // 类型白名单与后端目录一致；领料仅更正需要审批，普通签收不申请独立审批。
 export const documentApprovalTypes = [
   'PurchaseRequest', 'PurchaseOrder', 'PurchaseGoodsReceipt', 'Receipt', 'PurchaseReturn',
@@ -111,7 +113,7 @@ export interface DocumentApprovalRecord extends DocumentApprovalState {
   reopen_trace?: import('./erp-api').OtherInboundReopenLink[]
   document_type: DocumentApprovalType; document_id: number; intent: DocumentApprovalIntent
   document_no: string | null; business_status: string; reversal_reason: string; reversal_evidence?: string
-  summary: { label: string; value: string }[]; content_matches: boolean
+  summary: { label: string; value: string; material_id?: number; material?: MaterialChoice }[]; content_matches: boolean
   can_submit: boolean; can_review: boolean; can_withdraw: boolean; events: DocumentApprovalEvent[]
 }
 export interface DocumentApprovalTarget {
@@ -208,6 +210,9 @@ export function validateDocumentApprovalRecord(value: unknown): asserts value is
     const entry = record(item)
     if (typeof entry.label !== 'string' || !entry.label.trim() || typeof entry.value !== 'string'
         || entry.label.length > 500 || entry.value.length > 1000) throw Error('服务端审批摘要字段无效')
+    // 普通摘要允许没有物料身份；附带参数时必须由独立 material_id 证明所属物料。
+    if (entry.material_id !== undefined && !positive(entry.material_id)) throw Error('服务端审批摘要物料编号无效')
+    if (entry.material !== undefined) validateMaterialMetadata(entry.material,entry.material_id)
   }
   // 服务端操作标志也必须符合进度，避免响应格式错误时显示不合时宜的审批按钮。
   if (row.can_review && (row.status !== 'submitted' || !row.content_matches)

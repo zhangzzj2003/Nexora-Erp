@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from app.access.security import require
+from app.catalog.material_rules import material_choice_data
 from app.core.orm import orm_session, add_model
 from app.core import document_approval as approval
 from app.core.approval_documents import inbound_snapshot, document_snapshot
@@ -171,6 +172,7 @@ def inbound_data(db: Session, inbound_id: int) -> dict:
                 Material.name.label("material_name"),
                 Material.unit,
                 WarehouseInboundLine.quantity,
+                Material,
             )
             .select_from(WarehouseInboundLine)
             .join(Material, (Material.id == WarehouseInboundLine.material_id))
@@ -197,13 +199,19 @@ def inbound_data(db: Session, inbound_id: int) -> dict:
     # 部分入库是流水推导出的展示状态，保留旧库状态约束与原始单据，不重建历史表。
     status = 'partially_posted' if row['status'] == 'draft' and any(received.values()) else row['status']
     trace = reopen_trace(db, inbound_id)
+    # 当前档案资料仅作辨认参考，直接复用行查询的 JOIN，不逐行读取或改写入库事实。
+    detailed_lines = []
+    for line in lines:
+        values = dict(line)
+        material = values.pop('Material')
+        detailed_lines.append({**values, 'material': material_choice_data(material)})
     return {**dict(row), 'status': status, 'reopen_trace': trace,
             'reopened_as_id': next((link['new_id'] for link in trace if link['source_id'] == inbound_id), None), 'approval': approval.case_data(approval.find_case(db, 'WarehouseInbound', inbound_id)),
             'reversal_approval': approval.case_data(approval.find_case(db, 'WarehouseInbound', inbound_id, 'reverse')),
             'lines': [
-        {**dict(line), 'received_quantity': str(received.get(line['id'], Decimal(0))),
+        {**line, 'received_quantity': str(received.get(line['id'], Decimal(0))),
          'remaining_quantity': str(Decimal(line['quantity']) - received.get(line['id'], Decimal(0))),
-         'physical_lots': lots_by_line.get(line['id'], [])} for line in lines]}
+         'physical_lots': lots_by_line.get(line['id'], [])} for line in detailed_lines]}
 
 
 @router.get("/warehouse-inbounds")

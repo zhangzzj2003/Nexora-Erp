@@ -7,6 +7,8 @@ import { documentApprovalLayout } from "../../utils/document-approval-layout";
 import { usePiniaAppStore } from "../../store/app-store";
 import DocumentApprovalPanel from "./DocumentApprovalPanel.vue";
 import OtherInboundReopenTrace from "./OtherInboundReopenTrace.vue";
+import WorkspaceMaterialParameters from './WorkspaceMaterialParameters.vue';
+import { materialParameterSource } from '../../utils/material-parameter-source';
 import { captureDialogOrigin } from '../../utils/dialog-origin';
 
 // 审批复用查看详情的公共单据布局，业务内容始终来自服务端送审快照。
@@ -98,10 +100,12 @@ const columns = [
       >
         <span>{{ item.label }}</span
         ><strong>{{ item.value }}</strong>
+        <!-- 参数仅为当前档案参考；送审名称、数量和金额仍完整保留。 -->
+        <WorkspaceMaterialParameters v-if="item.material_id" :material="materialParameterSource(item.material_id,item.material)" current-reference />
       </div>
     </template>
     <template #cell-label="{ row }"
-      ><strong class="approval-value">{{ row.label }}</strong></template
+      ><strong class="approval-value">{{ row.label }}</strong><WorkspaceMaterialParameters v-if="row.material_id" :material="materialParameterSource(row.material_id,row.material)" current-reference /></template
     >
     <template #cell-value="{ row }"
       ><span class="approval-value">{{ row.value }}</span></template

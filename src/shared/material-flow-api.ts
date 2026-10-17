@@ -1,3 +1,5 @@
+import type { MaterialChoice } from './material-api'
+import { validateMaterialMetadata } from './material-choice-validation.ts'
 import type { DocumentApprovalState } from './document-approval-api'
 import { receiptLotMilli } from './receipt-lot-api.ts'
 
@@ -6,6 +8,8 @@ export const materialFlowKinds = ['dispatch', 'receipt', 'exchange', 'return'] a
 export type MaterialFlowKind = typeof materialFlowKinds[number]
 export type MaterialFlowStatus = 'draft' | 'partial' | 'completed' | 'closed' | 'reversed'
 export interface MaterialFlowLine {
+  // 当前档案参数不改变单据行的数量与来源事实。
+  material?: MaterialChoice
   id: number; work_order_line_id: number; material_id: number; sku: string; material_name: string; unit: string
   quantity: string; executed_quantity: string; received_quantity: string; remaining_quantity: string; dispatched_quantity?: string
   closed_quantity?: string; handover_returned_quantity?: string; replacement_available_quantity?: string
@@ -42,7 +46,7 @@ export interface MaterialFlowSource {
 }
 export interface WorkOrderMaterialFlow {
   work_order_id: number
-  lines: { work_order_line_id: number; material_id: number; sku: string; material_name: string; unit: string
+  lines: { material?: MaterialChoice; work_order_line_id: number; material_id: number; sku: string; material_name: string; unit: string
     required_quantity: string; signed_quantity: string; returned_quantity: string; damaged_quantity: string; in_transit_quantity?: string; historical_direct_quantity?: string
     reserved_quantity: string; effective_quantity: string; available_quantity?: string; dispatchable_quantity: string }[]
   sources: MaterialFlowSource[]; dispatches: MaterialFlowDocument[]; receipts: MaterialFlowDocument[]
@@ -186,6 +190,7 @@ export function validateMaterialFlowDocument(value: unknown, expected?: Material
   if (typeof row.document_no !== 'string' || !row.document_no || !Array.isArray(row.lines) || !Array.isArray(row.executions)) throw Error('生产物料单据响应不完整')
   for (const entry of row.lines) {
     const line = record(entry); id(line.id); id(line.material_id); id(line.work_order_line_id)
+    if (line.material !== undefined) validateMaterialMetadata(line.material,line.material_id)
     for (const key of ['quantity', 'executed_quantity', 'received_quantity', 'remaining_quantity'])
       if (typeof line[key] !== 'string' || !/^\d+(?:\.\d{1,3})?$/.test(line[key] as string)) throw Error('生产物料数量响应无效')
   }
@@ -199,6 +204,11 @@ export function validateMaterialFlowResult(action: string, value: unknown, paylo
   } else if (action === 'workOrderMaterialFlow') {
     const row = record(value)
     if (row.work_order_id !== record(payload).orderId || !Array.isArray(row.lines) || !Array.isArray(row.sources)) throw Error('工单物料汇总响应无效')
+    // 工单汇总也使用行上的物料 ID，不能让组件参数错配到相邻需求行。
+    for (const entry of row.lines) {
+      const line=record(entry)
+      if (line.material !== undefined) validateMaterialMetadata(line.material,line.material_id)
+    }
     for (const key of ['dispatches', 'receipts', 'exchanges', 'returns']) {
       if (!Array.isArray(row[key])) throw Error('工单关联单据响应无效')
       for (const item of row[key] as unknown[]) validateMaterialFlowDocument(item)

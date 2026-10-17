@@ -17,12 +17,18 @@ const settle = async () => { await nextTick(); await new Promise(done => setImme
 async function fixture(t) {
   const filename = resolve('src/renderer/src/views/workspace/catalog/ProductBomStructure.vue')
   const moduleId = normalizePath(filename) + '.material-detail.client.ts'
+  // 持续挂载使用客户端编译，避免将 SSR 专用上下文误用于交互渲染器。
+  const parametersFile = resolve('src/renderer/src/components/workspace/WorkspaceMaterialParameters.vue')
+  const parametersId = normalizePath(parametersFile) + '.material-detail.client.ts'
+  const parametersContent = compileScript(parse(readFileSync(parametersFile, 'utf8'), { filename: parametersFile }).descriptor,
+    { id: 'bom-parameters-test', inlineTemplate: true }).content
   const content = compileScript(parse(readFileSync(filename, 'utf8'), { filename }).descriptor,
     { id: 'bom-material-details-test', inlineTemplate: true }).content
     .replace(/from (['"])naive-ui\1/g, "from 'virtual:bom-material-naive'")
   const server = await createServer({ configFile: false, plugins: [{ name: 'bom-material-details-test', enforce: 'pre',
     resolveId(id) {
       if (id === moduleId) return id
+      if (id.endsWith('/WorkspaceMaterialParameters.vue')) return parametersId
       if (id === 'virtual:bom-material-naive') return '\0bom-material-naive'
       if (id.startsWith('~icons/')) return '\0bom-material-icon'
       if (id.endsWith('/utils/dialog-origin')) return '\0bom-material-origin'
@@ -32,6 +38,7 @@ async function fixture(t) {
     },
     load(id) {
       if (id === moduleId) return content
+      if (id === parametersId) return parametersContent
       if (id === '\0bom-material-naive') return `import {h} from 'vue';export const NCollapse={setup:(p,{slots})=>()=>h('section',slots.default?.())}`
       if (id === '\0bom-material-icon') return `import {h} from 'vue';export default {render:()=>h('svg',{'aria-hidden':'true'})}`
       if (id === '\0bom-material-origin') return `export const origins=[];export function captureDialogOrigin(key,event){origins.push({key,event})}`
@@ -188,4 +195,28 @@ test('同一行身份更新后拒绝旧回调，物料编号、名称和分支�
     assert.deepEqual(f.materials, [])
     assert.deepEqual(f.recipes, [])
   })
+})
+
+// 参数使用当前真实物料资料；展开不同层级时不借用父项或同名物料，也不覆盖原 BOM 的数量单位。
+test('组成名称下直接显示参数，嵌套行独立取料，旧响应按身份缓存回退且响应式更新', async t => {
+  const f = await fixture(t)
+  const material = (id, specification, extra = {}) => ({ id, sku: `NEW-${id}`, name: '档案新名称', unit: '新单位', specification, ...extra })
+  f.props.bom.lines[0].material = material(20, '控制板规格', { spec_values: [{ field_id: 1, name: '层数', value: '2', unit: '层', status: 'filled', historical: false }] })
+  f.props.materials = [material(40, '旧服务回退外壳规格'), material(30, '板内电阻参数'), material(999, '同名错误资料')]
+  await settle()
+  assert.match(f.text(f.cell('1/11', 'component')), /控制板规格.*层数2层/)
+  assert.match(f.text(f.cell('1/11', 'component')), /当前档案参数/)
+  assert.doesNotMatch(f.text(f.cell('1/11', 'component')), /档案新名称|新单位|同名错误资料|板内电阻参数/)
+  assert.equal(f.text(f.cell('1/11', 'unit')), '件')
+  assert.equal(f.text(f.cell('1/11', 'quantity')), '1.000')
+  assert.match(f.text(f.cell('1/12', 'component')), /旧服务回退外壳规格/)
+  f.press(f.button('展开PCB 控制板的组成')); await settle()
+  assert.match(f.text(f.cell('1/11/21', 'component')), /板内电阻参数/)
+  assert.doesNotMatch(f.text(f.cell('1/11/21', 'component')), /控制板规格|同名错误资料/)
+  // 更新缓存重新建索引，不把之前选中的参数永久缓存到行对象。
+  f.props.materials = [material(30, '更新后电阻规格'), material(40, '更新后外壳规格')]; await settle()
+  assert.match(f.text(f.cell('1/11/21', 'component')), /更新后电阻规格/)
+  assert.doesNotMatch(f.text(f.cell('1/11/21', 'component')), /板内电阻参数/)
+  f.props.bom.lines[0].material = material(999, '不匹配的板卡参数'); await settle()
+  assert.doesNotMatch(f.text(f.cell('1/11', 'component')), /不匹配的板卡参数/)
 })

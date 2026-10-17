@@ -4,6 +4,7 @@ from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, or_, and_
 from app.access.security import require
+from app.catalog.material_rules import material_choice_data
 from app.core import document_approval as approval
 from app.core.document_responses import NumberedRoute
 from app.core.orm import orm_session
@@ -44,7 +45,9 @@ def document_data(db,kind,identifier):
         replacement_available = max(ZERO,actual-sum((replacement_committed(db,child)
             for child in db.scalars(select(MaterialFlowLine).where(MaterialFlowLine.document_type=='dispatch',
                 MaterialFlowLine.exchange_line_id==line.id))),ZERO)) if kind=='exchange' else ZERO
+        # 参数沿本行工单物料身份提供，复用已读取对象；不包含供应商绑定及价格。
         items.append({'id':line.id,'work_order_line_id':workline.id,'material_id':material.id,'sku':material.sku,
+            'material':material_choice_data(material),
             'material_name':material.name,'unit':material.unit,'quantity':line.quantity,'executed_quantity':str(actual),
             'dispatched_quantity':str(dispatched),'received_quantity':str(signed),'handover_returned_quantity':str(handover),
             'replacement_available_quantity':str(replacement_available),
@@ -225,7 +228,9 @@ def work_order_material_flow(identifier:int,user:dict=Depends(require('material_
             # 有效量只减已执行事实；可用量另扣待退、待换及旧退料草稿预留，避免展示混淆。
             effective=facts['signed']+historical-facts['returned']-old_returned-facts['damaged']
             available=issued_quantity(db,line.id)
+            # 工单汇总复用已查询物料的当前参数，不额外逐行读取资料。
             lines.append({'work_order_line_id':line.id,'material_id':material.id,'sku':material.sku,'material_name':material.name,'unit':material.unit,
+                'material':material_choice_data(material),
                 'required_quantity':line.required_quantity,'signed_quantity':str(facts['signed']+historical),'historical_direct_quantity':str(historical),'returned_quantity':str(facts['returned']+old_returned),
                 'damaged_quantity':str(facts['damaged']),'reserved_quantity':str(effective-available),'effective_quantity':str(effective),'available_quantity':str(available),
                 'in_transit_quantity':str(facts['in_transit']),'dispatchable_quantity':str(max(ZERO,Decimal(line.required_quantity)-committed_quantity(db,line.id)))})

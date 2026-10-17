@@ -1,3 +1,4 @@
+import { validateMaterialMetadata } from './material-choice-validation.ts'
 import { receiptLotMilli } from './receipt-lot-api.ts'
 import type { Material, MaterialInput } from './material-api'
 import { materialBody, validateMaterialResult } from './material-validation.ts'
@@ -117,6 +118,7 @@ function validateBom(value: unknown): void {
   row.lines.forEach(raw => {const line = object(raw)
     if (!positive(line.id) || !positive(line.component_material_id) || typeof line.quantity !== 'string'
       || receiptLotMilli(line.quantity) === null || !['sku','material_name','unit'].every(key => typeof line[key] === 'string')) throw Error('BOM 组件资料不完整')
+    if (line.material !== undefined) validateMaterialMetadata(line.material, line.component_material_id)
     if (line.component_bom_id !== undefined && line.component_bom_id !== null
       && (!positive(line.component_bom_id) || !positive(line.component_bom_version)
       || !['active','retired'].includes(String(line.component_bom_status)))) throw Error('组件配方版本资料无效')})
@@ -152,13 +154,24 @@ function validateModel(value: unknown): void {
   if (row.child_count !== undefined && (!Number.isSafeInteger(row.child_count) || Number(row.child_count) < 0)) throw Error('系列子机型数量无效')
   validateDeletionFields(row)
 }
+// 列表和旧写回响应保留原有简要格式；一旦附带组件参数，就逐行核对真实身份。
+function validateBomLineMaterials(row: Record<string, unknown>): void {
+  if (row.lines === undefined) return
+  if (!Array.isArray(row.lines)) throw Error('BOM 组件资料不完整')
+  for (const raw of row.lines) {
+    const line=object(raw)
+    if (line.material !== undefined) validateMaterialMetadata(line.material,line.component_material_id)
+  }
+}
 export function validateProductResult(action: string, value: unknown): void {
   if (action === 'boms') {
     if (!Array.isArray(value)) throw Error('BOM 列表格式无效')
     value.forEach(raw => {const row=object(raw)
-      if (row.product_can_produce !== undefined && typeof row.product_can_produce !== 'boolean') throw Error('BOM 生产状态无效')})
+      if (row.product_can_produce !== undefined && typeof row.product_can_produce !== 'boolean') throw Error('BOM 生产状态无效')
+      validateBomLineMaterials(row)})
     return
   }
+  if (['createBom','activateBom','retireBom','cancelBom'].includes(action)) {validateBomLineMaterials(object(value)); return}
   if (action === 'bomDetail') { validateBom(value); return }
   if (action === 'productBoms') {
     if (!Array.isArray(value)) throw Error('产品 BOM 列表格式无效')

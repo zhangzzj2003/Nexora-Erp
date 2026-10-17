@@ -10,7 +10,7 @@ import { documentApprovalType, documentApprovalPolicyBody, validateDocumentAppro
 import { validateInventoryLedgerDocument } from '../shared/inventory-ledger-document.ts'
 import { supplierBody } from '../shared/supplier-api.ts'
 import { materialUnitBody, validateMaterialUnitResult } from '../shared/material-unit-api.ts'
-import { validateMaterialChoiceResult } from '../shared/material-choice-validation.ts'
+import { validateMaterialChoiceResult, validateDocumentMaterialResult } from '../shared/material-choice-validation.ts'
 import {validateInventoryWarningResult} from '../shared/inventory-warning-validation.ts'
 import {validatePhysicalLotResult} from '../shared/physical-lot-validation.ts'
 import {physicalLotEvidenceBody,physicalLotEvidenceGroupBody,physicalLotEvidencePairBody,physicalLotMovementEvidenceBody,physicalLotReverseBody} from '../shared/physical-lot-api.ts'
@@ -1915,6 +1915,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   validateMaterialCategoryResult(action, data)
   validateMaterialResult(action, data)
   validateMaterialChoiceResult(action, data)
+  validateDocumentMaterialResult(action, data)
   validateMaterialUnitResult(action, data)
   validateProductResult(action, data)
   if (action === 'materialDetail' && (payload as ErpOperations['materialDetail']['input']).include_suppliers

@@ -12,6 +12,7 @@ import { materialChoiceFacts } from '../../../utils/material-selection'
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import InventoryDetailDialogs from '../../../components/workspace/InventoryDetailDialogs.vue'
+import WorkspaceMaterialParameters from '../../../components/workspace/WorkspaceMaterialParameters.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import type { AppStatusTone } from '../../../components/app/AppStatusTag.vue'
@@ -32,7 +33,7 @@ const {productQuery: query, productResult: result, productDirectoryRows, product
   productsLoadingMore, productsMoreError,
   productDetailRecord: detail, productDetailId, productDetailLoading, productDetailError,
   productBomRecords, productChangeRecords, productChangesLoading, productChangesError, productEditorOpen, bomDetailRecord, bomDetailLoading, bomDetailError,
-  materialCategories, boms, productModelForm, productModelChanges, busy, connectionLost} = storeToRefs(store)
+  materials, materialCategories, boms, productModelForm, productModelChanges, busy, connectionLost} = storeToRefs(store)
 // 系列是目录中的归属与新建上下文，不再作为整棵树的查询条件。
 const currentSeriesId = ref<number|null>(query.value.model_id)
 const seriesRevealKey = ref(0)
@@ -114,8 +115,9 @@ watch(models, rows => {
 })
 const bomColumns = [{key:'version',title:'BOM 版本',width:'110'}, {key:'status',title:'状态',width:'90'},
   {key:'source',title:'派生来源'}, {key:'actions',title:'操作',width:'390'}]
-const facts = computed(() => detail.value ? materialChoiceFacts(detail.value.material, materialCategories.value) : [])
-const technicalFacts = computed(() => detail.value ? materialChoiceFacts(detail.value.material, materialCategories.value, true) : [])
+// 身份信息与详细参数分区，参数直接展示，避免详情中还需寻找折叠入口。
+const facts = computed(() => detail.value ? materialChoiceFacts(detail.value.material, materialCategories.value)
+  .filter(fact => ['category_name','unit'].includes(fact.key)) : [])
 const showDetail = computed(() => detailsOpen.value && !!productDetailId.value && !bomOpen.value && !productEditorOpen.value
   && !bomDetailRecord.value && !bomDetailLoading.value && !bomDetailError.value)
 // 历史只在查看资料时读取，审计接口的等待或失败不能阻塞右侧 BOM。
@@ -325,7 +327,7 @@ function sameModel(): void {
               <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-bom-versions',$event)" @click="openVersionList">版本管理 · {{ productBomRecords.length }}</AppButton></div>
           </div>
           <div v-if="selectedBom.source_bom" class="bom-source muted">复制来源：<AppButton variant="text" size="small" :disabled="productUnavailable" @click="openBomDetails(selectedBom.source_bom.id)">{{ selectedBom.source_bom.product_name }} · V{{ selectedBom.source_bom.version }}</AppButton></div>
-          <ProductBomStructure :bom="selectedBom" :catalog="boms" :disabled="productUnavailable" @open="openBomDetails" @material="openCompositionMaterial" />
+          <ProductBomStructure :bom="selectedBom" :catalog="boms" :materials="materials" :categories="materialCategories" :disabled="productUnavailable" @open="openBomDetails" @material="openCompositionMaterial" />
         </template>
         <!-- 首次配方直接编辑，物料选择、数量校验和保存仍与升版弹窗共用。 -->
         <BomEditor v-else-if="detail && store.can('bom.create')" :key="detail.material_id" inline :show="true"
@@ -374,9 +376,7 @@ function sameModel(): void {
         <div v-for="fact in facts" :key="fact.key" class="document-detail-field"><span>{{ fact.label }}</span><strong>{{ fact.value }}</strong></div>
       </template></template>
       <template #afterLines><template v-if="detail">
-        <NCollapse v-if="technicalFacts.length" class="product-more"><AppCollapseItem name="specifications" title="规格与更多资料">
-          <dl><div v-for="fact in technicalFacts" :key="fact.key"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl>
-        </AppCollapseItem></NCollapse>
+        <section class="product-parameters"><h3>物料参数</h3><WorkspaceMaterialParameters :material="detail.material" :categories="materialCategories" :compact="false" /></section>
         <div class="form-actions product-section-actions">
           <AppButton v-if="store.can('catalog.manage')" :disabled="busy || connectionLost" @click="editProduct">编辑子机型</AppButton>
           <AppButton v-if="detail.model_id" :disabled="busy" @click="sameModel">查看同系列产品</AppButton>
@@ -429,8 +429,6 @@ function sameModel(): void {
 @media(max-width:1000px) { .bom-version-label { display:none; } .bom-version-choice .workspace-select { width:140px; } }
 @media(max-width:760px) { .product-workspace { grid-template-columns:minmax(0,1fr); } .product-bom-heading h3 { font-size:18px; } }
 .product-section-actions { margin:20px 0; }
-.product-more { margin:16px 0; }
-.product-more dl { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:16px; }
-.product-more dt { color:var(--workspace-field-muted); font-size:12px; }
-.product-more dd { margin:6px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+/* 产品资料直接展示参数，保留独立标题与身份区的间距。 */
+.product-parameters { margin:16px 0; }
 </style>

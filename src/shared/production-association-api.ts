@@ -1,3 +1,5 @@
+import type { MaterialChoice } from './material-api'
+import { validateMaterialMetadata } from './material-choice-validation.ts'
 // 工单关联只包含数量与来源，财务成本和客户信息不进入这个只读协议。
 export interface ProductionAssociationTarget { kind: 'work_order' | 'completion'; id: number }
 export interface AssociationDocument {
@@ -18,6 +20,7 @@ export interface PurchaseReference {
   supplier_id: number; supplier_name: string
 }
 export interface AssociationComponent {
+  material?: MaterialChoice
   id: number; material_id: number; sku: string; name: string; unit: string; required_quantity: string
   net_issued_quantity: string; issues: AssociationIssue[]; purchase_references: PurchaseReference[]
 }
@@ -67,6 +70,7 @@ export function validateProductionAssociations(value: unknown): asserts value is
     const component = object(value)
     if (!positive(component.id) || !positive(component.material_id) || !['sku','name','unit'].every(key => text(component[key]))
       || !quantity(component.required_quantity) || !quantity(component.net_issued_quantity)) throw Error('生产需求数量无效')
+    if (component.material !== undefined) validateMaterialMetadata(component.material,component.material_id)
     for (const value of rows(component.issues)) {
       const issue = document(value)
       if (!positive(issue.line_id) || !quantity(issue.quantity) || !quantity(issue.returned_quantity) || typeof issue.effective !== 'boolean'

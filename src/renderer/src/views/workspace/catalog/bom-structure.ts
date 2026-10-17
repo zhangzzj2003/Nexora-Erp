@@ -1,9 +1,12 @@
 import type { Bom } from '../../../../../shared/erp-api'
+import type { MaterialChoice } from '../../../../../shared/material-api'
 import { receiptLotMilli } from '../../../../../shared/receipt-lot-api.ts'
 
 export interface BomStructureRow {
   key: string; depth: number; materialId: number; sku: string; name: string; unit: string; quantity: string
   childBom: Bom | null; fixed: boolean; expanded: boolean; issue: string
+  // 参数属于本层组件的物料，不能使用下层 BOM 的产出名称或其他行的资料。
+  material?: MaterialChoice
 }
 
 // 展开仅用于查看结构：整机实际领用的是第一层组件，不再次扣减板内的原材料。
@@ -31,7 +34,8 @@ export function bomStructureRows(root: Bom, catalog: readonly Bom[], expanded: R
       const quantity = milli === null ? '—' : `${milli / 1000n}.${String(milli % 1000n).padStart(3, '0')}`
       // 明细行号与物料身份不同，详情入口始终保留当前层组件的真实物料 ID。
       result.push({key, depth, materialId:line.component_material_id, sku:line.sku, name:line.material_name, unit:line.unit, quantity,
-        childBom:valid ? child! : null, fixed, expanded:expanded.has(key), issue})
+        childBom:valid ? child! : null, fixed, expanded:expanded.has(key), issue,
+        material:line.material?.id === line.component_material_id ? line.material : undefined})
       if (valid && child && amount !== null && childBase !== null && !cycle && depth < 20 && expanded.has(key)) {
         visit(child, key, depth + 1, numerator * amount, denominator * childBase,
           new Set([...path, line.component_material_id]))

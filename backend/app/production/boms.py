@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.orm import orm_session, add_model
 from app.core.models import Bom, BomLine, Material, User, ProductProfile
 from app.catalog.product_rules import require_product_use
+from app.catalog.material_rules import material_choice_data
 from app.access.security import require
 from app.production.bom_dependencies import validate_component_bom, require_bom_ready
 
@@ -91,6 +92,7 @@ def bom_data(db: Session, bom_id: int) -> dict:
                 Material.unit,
                 BomLine.quantity,
                 BomLine.component_bom_id,
+                Material,
             )
             .select_from(BomLine)
             .join(Material, (Material.id == BomLine.component_material_id))
@@ -103,10 +105,15 @@ def bom_data(db: Session, bom_id: int) -> dict:
     source = db.get(Bom, row['source_bom_id']) if row['source_bom_id'] else None
     source_material = db.get(Material, source.product_material_id) if source else None
     # 来源派生与下层配方使用不同字段；停用的历史版本仍能准确展示。
+    child_ids = {line['component_bom_id'] for line in lines if line['component_bom_id']}
+    children = {child.id: child for child in db.scalars(select(Bom).where(Bom.id.in_(child_ids)))} if child_ids else {}
     enriched = []
     for line in lines:
-        child = db.get(Bom, line['component_bom_id']) if line['component_bom_id'] else None
-        enriched.append({**dict(line), 'component_bom_version': child.version if child else None,
+        # 复用同一 JOIN 的物料对象，明细行号与物料编号分开，ORM 对象不进入 JSON。
+        values = dict(line)
+        material = values.pop('Material')
+        child = children.get(line['component_bom_id'])
+        enriched.append({**values, 'material': material_choice_data(material), 'component_bom_version': child.version if child else None,
                          'component_bom_status': child.status if child else None})
     profile = db.scalar(select(ProductProfile).where(ProductProfile.material_id == row['product_material_id']))
     return {**dict(row), 'product_can_produce': profile is None or (profile.deleted_at is None and profile.can_produce), "lines": enriched, 'source_bom': {

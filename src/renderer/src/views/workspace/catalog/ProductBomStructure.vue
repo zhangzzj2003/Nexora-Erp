@@ -3,20 +3,25 @@ import { computed, ref, watch } from 'vue'
 import { NCollapse } from 'naive-ui'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import type { Bom } from '../../../../../shared/erp-api'
+import type { MaterialCategory, MaterialChoice } from '../../../../../shared/material-api'
 import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import WorkspaceMaterialParameters from '../../../components/workspace/WorkspaceMaterialParameters.vue'
+import { materialParameterIndex, materialParameterSource } from '../../../utils/material-parameter-source'
 import IconArrowRightSLine from '~icons/ri/arrow-right-s-line'
 import IconPushpinLine from '~icons/ri/pushpin-line'
 import IconGitBranchLine from '~icons/ri/git-branch-line'
 import { bomStructureRows } from './bom-structure'
 import type { BomStructureRow } from './bom-structure'
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
-const props = defineProps<{bom:Bom; catalog:Bom[]; disabled:boolean}>()
+const props = defineProps<{bom:Bom; catalog:Bom[]; disabled:boolean; materials?:readonly MaterialChoice[]; categories?:readonly MaterialCategory[]}>()
 const emit = defineEmits<{open:[id:number]; material:[row:BomStructureRow]}>()
 const expanded = ref(new Set<string>())
 // 切换产品或版本重新收起；相同组件在不同分支独立展开。
 watch(() => props.bom.id, () => {expanded.value = new Set()})
 const rows = computed(() => bomStructureRows(props.bom, props.catalog, expanded.value))
+// 整个表只建一次索引，展开下层也不逐行请求物料或重复扫描缓存。
+const materialById = computed(() => materialParameterIndex(props.materials ?? []))
 function toggle(key:string): void {
   const next = new Set(expanded.value)
   if (next.has(key)) next.delete(key); else next.add(key)
@@ -46,7 +51,7 @@ const columns = computed(() => [{key:'sku',title:'物料编号',width:String(200
       <span v-else class="structure-leaf" aria-hidden="true"><span /></span>
       <AppButton variant="text" class="structure-sku" size="small" :disabled="disabled" :aria-label="`查看物料 ${row.sku} 的详情`" @click="openMaterial(row,$event)">{{ row.sku }}</AppButton>
     </div></template>
-    <template #cell-component="{row}"><div class="structure-material" :class="{'is-assembly':!!row.childBom}"><strong>{{ row.name }}</strong><p v-if="row.issue" role="status">{{ row.issue }}</p></div></template>
+    <template #cell-component="{row}"><div class="structure-material" :class="{'is-assembly':!!row.childBom}"><strong>{{ row.name }}</strong><WorkspaceMaterialParameters :material="materialParameterSource(row.materialId,row.material,materialById)" :categories="categories" current-reference /><p v-if="row.issue" role="status">{{ row.issue }}</p></div></template>
     <template #cell-quantity="{row}"><span class="structure-quantity">{{ row.quantity }}</span></template><template #cell-unit="{row}">{{ row.unit }}</template>
     <template #cell-recipe="{row}">
       <!-- 固定配方与当前参考保留完整语义和原详情入口，仅通过轻量样式区分绑定方式。 -->

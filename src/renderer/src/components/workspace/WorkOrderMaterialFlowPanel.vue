@@ -4,6 +4,8 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import AppButton from '../app/AppButton.vue'
 import WorkspaceTable from './WorkspaceTable.vue'
+import WorkspaceMaterialParameters from './WorkspaceMaterialParameters.vue'
+import { materialParameterSource } from '../../utils/material-parameter-source'
 import { usePiniaAppStore } from '../../store/app-store'
 import { useMaterialFlowStore, materialFlowLabels, materialFlowRoutes, materialFlowStatusLabel } from '../../store/modules/material-flow-store'
 import { routeByKey } from '../../router/workspace-routes'
@@ -60,7 +62,7 @@ const columns = [{ key: 'material', title: '物料', width: '260' }, { key: 'req
       <AppButton :disabled="app.connectionLost || pending || !!preparationError" @click="open(section.kind)">查看与办理{{ section.title.slice(2) }}</AppButton>
     </section></div>
     <WorkspaceTable title="工单材料核对" :columns="columns" :data="summary?.lines ?? []" :loading="loading[`order:${orderId}`]" :error="preparationError" :min-table-width="780">
-      <template #cell-material="{ row }">{{ row.sku }} · {{ row.material_name }}</template><template #cell-required="{ row }">{{ row.required_quantity }} {{ row.unit }}</template>
+      <template #cell-material="{ row }"><strong>{{ row.sku }} · {{ row.material_name }}</strong><WorkspaceMaterialParameters :material="materialParameterSource(row.material_id,row.material)" current-reference /></template><template #cell-required="{ row }">{{ row.required_quantity }} {{ row.unit }}</template>
       <template #cell-signed="{ row }">{{ row.signed_quantity }}<small v-if="Number(row.historical_direct_quantity) > 0">含历史直接领料 {{ row.historical_direct_quantity }}（无签收记录）</small></template><template #cell-transit="{ row }">{{ row.in_transit_quantity ?? '0' }}</template><template #cell-returned="{ row }">{{ row.returned_quantity }} / {{ row.damaged_quantity }}</template>
       <template #cell-available="{ row }">{{ row.effective_quantity }} / {{ row.reserved_quantity }} / {{ row.available_quantity ?? '—' }}</template>
     </WorkspaceTable>
