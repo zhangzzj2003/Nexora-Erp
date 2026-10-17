@@ -245,18 +245,22 @@ export function createProductActions(state: AppState) {
     }).catch(cause => {state.error.value = displayError(cause); return undefined})
   }
   async function saveProductModel(): Promise<ProductModel | undefined> {
+    const session=identity(), epoch=editTicket
+    const ownsSave=():boolean => session===identity() && epoch===editTicket && allowed('catalog.manage')
     const row = await write(async () => {
       const {id, ...payload} = state.productModelForm.value
       return id ? window.nexora!.callApi('updateProductModel', {...payload, id})
         : window.nexora!.callApi('createProductModel', payload)
     })
-    if (!row) return
-    const session = identity()
+    if (!row || !ownsSave()) return
     validateProductResult('productModelDetail', row)
-    state.productModelForm.value = {id: 0, version: 0, code: '', name: '', notes: '', reason: ''}
-    state.productModelChanges.value = []
     state.notice.value = '产品系列已保存。'; await queryProducts()
-    if (identity() === session && allowed('catalog.manage')) return row
+    // 刷新目录期间若用户换了编辑目标，不清空新草稿，也不返回旧回执去关闭新窗口。
+    if (!ownsSave()) return
+    state.productModelForm.value = {id: 0, version: 0, code: '', name: '', notes: '', reason: ''}
+    if (!ownsSave()) return
+    state.productModelChanges.value = []
+    if (ownsSave()) return row
   }
   async function deleteProductModel(model: ProductModel, reason: string): Promise<boolean> {
     // busy 解除时同步监听可能切换会话，写入前固定边界，返回后不能用新会话接收旧结果。
@@ -324,17 +328,24 @@ export function createProductActions(state: AppState) {
     if (action !== 'delete' && state.productDetailId.value === row.id) await openProduct(row.id)
     return identity() === session && allowed('catalog.manage')
   }
-  async function editProductModel(id: number): Promise<void> {
-    if (!allowed('catalog.manage') || state.busy.value) return
+  // 复用原编辑票据取消未完成读取，不清空用户已输入的同系列草稿。
+  function cancelProductModelEdit(): void { editTicket++ }
+  async function editProductModel(id: number): Promise<ProductModel | undefined> {
+    if (!allowed('catalog.manage') || state.busy.value || !Number.isSafeInteger(id) || id <= 0) return
     const ticket = ++editTicket
+    const ownsRead = (): boolean => ticket === editTicket && allowed('catalog.manage')
     try {
       const [row, changes] = await Promise.all([window.nexora!.callApi('productModelDetail', {id}), window.nexora!.callApi('productModelChanges', {id})])
-      if (ticket !== editTicket || !allowed('catalog.manage')) return
+      if (!ownsRead()) return
       if (row.id !== id) throw Error('服务端返回了另一产品系列的资料')
-      validateProductResult('productModelDetail', row)
+      validateProductResult('productModelDetail', row); validateProductResult('productModelChanges', changes)
       if (row.deleted_at) throw Error('产品系列已删除，请刷新目录')
-      state.productModelForm.value = {...row, reason: ''}; state.productModelChanges.value = changes
-    } catch (cause) {if (ticket === editTicket) state.error.value = displayError(cause)}
+      state.productModelForm.value = {...row, reason: ''}
+      // 同步订阅也可能切换会话；不能在新账号中继续补入旧系列审计记录。
+      if (!ownsRead()) return
+      state.productModelChanges.value = changes
+      if (ownsRead()) return row
+    } catch (cause) {if (ownsRead()) state.error.value = displayError(cause)}
   }
   function prepareProductBom(materialId: number, source?: Bom): boolean {
     if (!allowed('bom.create') || state.busy.value || source?.status === 'cancelled') return false
@@ -360,6 +371,6 @@ export function createProductActions(state: AppState) {
     finally {if (ticket === bomTicket) state.bomDetailLoading.value = false}
   }
   function closeBomDetail(): void {bomTicket++; state.bomDetailRecord.value = null; state.bomDetailLoading.value = false; state.bomDetailError.value = ''}
-  return {queryProducts, loadMoreProducts, openProduct, closeProduct, loadProductChanges, startProduct, saveProduct, saveProductModel, editProductModel, deleteProductModel, applyProductLifecycle,
+  return {queryProducts, loadMoreProducts, openProduct, closeProduct, loadProductChanges, startProduct, saveProduct, saveProductModel, editProductModel, cancelProductModelEdit, deleteProductModel, applyProductLifecycle,
     prepareProductBom, openBomDetail, closeBomDetail}
 }

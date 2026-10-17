@@ -60,7 +60,7 @@ async function fixture(t,extra={}) {
     onSeries:id=>{events.push(['series',id]);props.activeSeriesId=id},
     onSelect:id=>{events.push(['select',id]);props.selectedId=id;props.selected=props.rows.find(row=>row.id===id)??null},
     onLoadMore:()=>events.push(['more']),onNewModel:()=>events.push(['newModel']),onNewSeries:()=>events.push(['newSeries']),
-    onDelete:model=>events.push(['delete',model.id]),onReset:()=>events.push(['reset']),onRetry:()=>events.push(['retry'])})})
+    onEdit:id=>events.push(['edit',id]),onDelete:model=>events.push(['delete',model.id]),onReset:()=>events.push(['reset']),onRetry:()=>events.push(['retry'])})})
   app.mount(root);t.after(()=>app.unmount());await settle()
   const text=node=>[node.text,...node.children.map(text)].join('')
   const nodes=()=>all(root)
@@ -183,20 +183,53 @@ test('没有未归组机型时根节点仍常驻，区分未加载和真正无�
 })
 
 test('忙碌与断线阻断旧按钮事件，查看账号可展开但不能借旧维护按钮写入',async t=>{
-  const f=await fixture(t),series=f.button('系列1'),child=f.button('A 系列整机'),create=f.button('新建子机型'),remove=f.button('删除'),more=f.button('加载更多')
+  const f=await fixture(t),series=f.button('系列1'),child=f.button('A 系列整机'),create=f.button('新建子机型'),edit=f.button('编辑产品系列 系列1'),remove=f.button('删除'),more=f.button('加载更多')
   for(const field of ['busy','disconnected']){
     f.props[field]=true;await settle()
     assert.equal(f.button('系列1').props.disabled,true)
-    for(const node of [series,child,create,remove,more])f.click(node)
+    for(const node of [series,child,create,edit,remove,more])f.click(node)
     await settle()
     assert.deepEqual(f.events,[])
     assert.equal(f.button('系列1').props['aria-expanded'],true)
     f.props[field]=false;await settle()
   }
   f.props.canManage=false;await settle()
-  assert.equal(f.button('新建子机型'),undefined);assert.equal(f.button('删除'),undefined)
-  f.click(create);f.click(remove);assert.deepEqual(f.events,[])
+  assert.equal(f.button('新建子机型'),undefined);assert.equal(f.button('删除'),undefined);assert.equal(f.button('编辑产品系列'),undefined)
+  f.click(create);f.click(edit);f.click(remove);assert.deepEqual(f.events,[])
   f.click(f.button('系列1'));await settle()
   assert.equal(f.button('系列1').props['aria-expanded'],false)
   assert.deepEqual(f.events,[['series',1]])
+})
+
+// 编辑是系列自己的动作；不能复用整行点击，从而误折叠或选走右侧产品。
+test('系列树项独立编辑入口保留身份、折叠和选择，底部不再重复提供管理入口',async t=>{
+ const f=await fixture(t),before=JSON.stringify([f.props.query,f.props.selectedId,f.props.activeSeriesId])
+ const edit=f.button('编辑产品系列 系列1')
+ assert.ok(edit);assert.equal(edit.props.title,'编辑产品系列 系列1')
+ assert.equal(edit.props['aria-label'],'编辑产品系列 系列1');assert.equal(f.nodeText(edit),'')
+ assert.equal(f.button('系列管理'),undefined);assert.ok(f.button('纳入已有物料'))
+ f.click(edit);await settle()
+ assert.deepEqual(f.events,[['edit',1]])
+ assert.equal(f.button('系列1').props['aria-expanded'],true)
+ assert.ok(f.button('A 系列整机'));assert.ok(f.button('B 系列整机'));assert.ok(f.button('PCB 半成品'))
+ assert.equal(JSON.stringify([f.props.query,f.props.selectedId,f.props.activeSeriesId]),before)
+ // 系列已从目录移除后，保留的旧图标事件也不能发送失效身份。
+ f.props.models=f.props.models.filter(row=>row.id!==1);await settle()
+ f.click(edit);assert.deepEqual(f.events,[['edit',1]])
+ assert.equal(f.button('编辑产品系列 未归组'),undefined)
+})
+
+test('正常末页不再显示完成提示及空状态容器，真实目录数量变化仍可刷新',async t=>{
+ const complete=structuredClone(rows),f=await fixture(t,{rows:complete,page:{items:complete,page:1,page_size:20,total:3}})
+ assert.doesNotMatch(f.text(),/已显示全部|目录有更新/)
+ assert.equal(f.nodes().some(node=>node.props.class==='tree-load-state'),false)
+ assert.match(f.text(),/3 个子机型/,'顶部总数仍作为目录概览保留')
+ f.props.page={...f.props.page,total:4};await settle()
+ assert.match(f.text(),/已加载 3 个子机型，目录有更新/);assert.ok(f.button('刷新目录'))
+ f.click(f.button('刷新目录'));assert.deepEqual(f.events,[['retry']])
+ f.props.page={...f.props.page,total:3};await settle()
+ assert.equal(f.nodes().some(node=>node.props.class==='tree-load-state'),false)
+ f.props.rows=[];f.props.page={...f.props.page,items:[],total:0};f.props.selected=null;f.props.selectedId=0;await settle()
+ assert.equal(f.nodes().some(node=>node.props.class==='tree-load-state'),false)
+ assert.doesNotMatch(f.text(),/已显示全部|目录有更新/)
 })

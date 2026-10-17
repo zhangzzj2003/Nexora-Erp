@@ -769,3 +769,72 @@ test('子机型保存后的刷新跨实例时不返回旧导航身份', async t 
   assert.equal(await pending,undefined)
   assert.equal(f.state.productForm.value.material_id,0)
 })
+
+// 树项编辑先取得真实系列及审计回执，失败不能把之前的系列草稿冒充为这次打开成功。
+test('系列编辑返回明确模型回执，详情审计错误及失效身份保留原草稿',async t=>{
+ const history=[{id:1,before:null,after:model,reason:'建立系列',changed_by_name:'管理员',created_at:'2026-10-16'}]
+ let mode='success'
+ const f=fixture(t,async action=>{
+  if(action==='productModelChanges')return mode==='invalid-history'?[{id:1}]:history
+  if(mode==='failure')throw Error('系列资料读取失败')
+  return mode==='wrong'?{...model,id:2}:mode==='deleted'?{...model,deleted_at:'2026-10-16'}:model
+ })
+ assert.equal((await f.actions.editProductModel(1)).id,1)
+ assert.equal(f.state.productModelForm.value.version,model.version)
+ assert.deepEqual(f.state.productModelChanges.value,history)
+ f.state.productModelForm.value.notes='未保存的系列说明'
+ const before=JSON.stringify([f.state.productModelForm.value,f.state.productModelChanges.value])
+ for(mode of ['failure','wrong','deleted','invalid-history']){
+  assert.equal(await f.actions.editProductModel(1),undefined)
+  assert.equal(JSON.stringify([f.state.productModelForm.value,f.state.productModelChanges.value]),before)
+ }
+ const calls=f.calls.length
+ for(const id of [0,-1,1.5,NaN])assert.equal(await f.actions.editProductModel(id),undefined)
+ f.state.busy.value=true;assert.equal(await f.actions.editProductModel(1),undefined)
+ f.state.busy.value=false;f.state.user.value.permissions=['inventory.view']
+ assert.equal(await f.actions.editProductModel(1),undefined)
+ assert.equal(f.calls.length,calls)
+})
+
+test('系列编辑票据拒绝旧目标和取消回执，账号证书权限及断线切换不回填旧资料',async t=>{
+ for(const mode of ['new-target','cancel','user','server','permission','disconnect'])await t.test(mode,async t=>{
+  const jobs=[],f=fixture(t,(action,payload)=>new Promise(resolve=>jobs.push({action,payload,resolve})))
+  const first=f.actions.editProductModel(1)
+  let second
+  if(mode==='new-target')second=f.actions.editProductModel(2)
+  else if(mode==='cancel')f.actions.cancelProductModelEdit()
+  else if(mode==='user')f.state.user.value={...f.state.user.value,id:2}
+  else if(mode==='server')f.state.server.value={...f.state.server.value,fingerprint:'new-certificate'}
+  else if(mode==='permission')f.state.user.value={...f.state.user.value,permissions:['inventory.view']}
+  else {f.state.connectionLost.value=true;f.state.connectionLost.value=false}
+  const later={...model,id:2,code:'B200',name:'第二系列'}
+  if(second){
+   jobs[2].resolve(later);jobs[3].resolve([])
+   assert.equal((await second).id,2)
+  }
+  jobs[0].resolve(model);jobs[1].resolve([{id:1,before:null,after:model,reason:'旧系列记录',changed_by_name:'管理员',created_at:'2026-10-16'}])
+  assert.equal(await first,undefined)
+  assert.equal(f.state.productModelForm.value.id,second?2:0)
+  assert.deepEqual(f.state.productModelChanges.value,[])
+ })
+})
+
+test('系列表单回填触发同步换账号时停止补入旧审计，保存刷新期间换目标不清新草稿',async t=>{
+ const f=fixture(t,async action=>action==='productModelChanges'?[{id:1,before:null,after:model,reason:'旧审计',changed_by_name:'管理员',created_at:'2026-10-16'}]:model)
+ const stop=watch(f.state.productModelForm,row=>{if(row.id===1)f.state.user.value={...f.state.user.value,id:2}},{flush:'sync'})
+ assert.equal(await f.actions.editProductModel(1),undefined)
+ assert.equal(f.state.productModelForm.value.id,0);assert.deepEqual(f.state.productModelChanges.value,[])
+ stop()
+ const refreshing=deferred()
+ globalThis.window.nexora.callApi=async action=>action==='updateProductModel'?{...model,version:2}:
+  action==='productModels'?[model]:refreshing.promise
+ f.state.productModelForm.value={...model,reason:'修改系列说明'}
+ const saving=f.actions.saveProductModel()
+ await new Promise(done=>setImmediate(done))
+ f.actions.cancelProductModelEdit()
+ f.state.productModelForm.value={id:0,version:0,code:'NEXT',name:'新目标草稿',notes:'不能被旧保存清空',reason:''}
+ refreshing.resolve(page())
+ assert.equal(await saving,undefined)
+ assert.equal(f.state.productModelForm.value.name,'新目标草稿')
+ assert.equal(f.state.productModelForm.value.notes,'不能被旧保存清空')
+})

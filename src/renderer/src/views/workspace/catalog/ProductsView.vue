@@ -42,6 +42,15 @@ let followsProductSelection = true
 if (query.value.model_id !== null) query.value = {...query.value,model_id:null,page:1}
 const modelsOpen = ref(false), bomOpen = ref(false), detailsOpen = ref(false), reuseOpen = ref(false), createSeriesOnly = ref(false)
 const versionsOpen = ref(false)
+let seriesEditIntent=0, pendingSeriesId=0
+function cancelSeriesEdit(pendingOnly=false): void {
+  // 其他弹窗只撤销在途系列读取，不干扰已经完成的编辑票据或草稿。
+  if (pendingOnly && !pendingSeriesId) return
+  seriesEditIntent++
+  pendingSeriesId=0; store.cancelProductModelEdit()
+}
+// 关闭聚焦表单保留草稿，但不允许旧的未完成读取再次打开它。
+watch(modelsOpen, open => {if (!open) cancelSeriesEdit()}, {flush:'sync'})
 const creationAllowsBlank = ref(true)
 let creationTarget = 0, creationSelection = 0, creationSession = 0
 const modelToDelete = ref<ProductModel|null>(null)
@@ -52,6 +61,7 @@ const lifecycleOptions = computed(() => detail.value ? [
   {key:'delete',label:'删除子机型'}] : [])
 function selectLifecycle(action: string): void {
   if (!detail.value || productUnavailable.value || !store.can('catalog.manage') || !['enable','disable','delete'].includes(action)) return
+  cancelSeriesEdit(true)
   lifecycleAction.value=action as ProductLifecycleAction; lifecycleTarget.value=detail.value
 }
 const pendingProductId = ref(0)
@@ -78,6 +88,7 @@ watch([productDetailId, () => selectedBom.value?.id], () => store.closeLedgerMat
 function openCompositionMaterial(row:BomStructureRow): void {
   if (productUnavailable.value || !store.can('inventory.view') || !selectedBom.value
     || !row.key.startsWith(`${selectedBom.value.id}/`)) return
+  cancelSeriesEdit(true)
   // 从 BOM 查看完整物料记录，不继承用户在库存台账页面遗留的仓库、日期或来源筛选。
   void store.openLedgerMaterial({material_id:row.materialId,sku:row.sku,material_name:row.name},
     {warehouse_id:null,from_date:null,to_date:null,source_type:null})
@@ -98,6 +109,7 @@ watch(detail, row => {
   }
 })
 watch(models, rows => {
+  if (pendingSeriesId && !rows.some(row=>row.id===pendingSeriesId)) cancelSeriesEdit()
   if (currentSeriesId.value !== null && !rows.some(row=>row.id===currentSeriesId.value)) currentSeriesId.value=null
 })
 const bomColumns = [{key:'version',title:'BOM 版本',width:'110'}, {key:'status',title:'状态',width:'90'},
@@ -134,11 +146,11 @@ watch([result, () => route.query.product_id], ([page, rawId]) => {
 }, {immediate:true})
 // 保存后的定位意图不能跨账号、实例或权限边界执行。
 watch(() => JSON.stringify([store.user?.id,store.server?.id,store.server?.fingerprint,store.user?.permissions.slice().sort()]), () => {
-  viewSessionEpoch++
+  viewSessionEpoch++; cancelSeriesEdit()
   currentSeriesId.value=null; contextProductId=0; followsProductSelection=true; seriesRevealKey.value++
   pendingProductId.value=0; reuseOpen.value=false; modelsOpen.value=false; bomOpen.value=false; bomTargetId.value=0; revisingBomVersion.value=undefined; versionsOpen.value=false; modelToDelete.value=null; lifecycleTarget.value=null
 }, {flush:'sync'})
-onUnmounted(() => {store.closeLedgerMaterial(); store.closeProduct(); store.closeBomDetail()})
+onUnmounted(() => {cancelSeriesEdit(); store.closeLedgerMaterial(); store.closeProduct(); store.closeBomDetail()})
 function reset(): void {
   if (busy.value || connectionLost.value) return
   const unchanged = !query.value.query && query.value.kind === null
@@ -148,11 +160,13 @@ function reset(): void {
 }
 function selectSeries(id: number | null): void {
   if (busy.value || connectionLost.value || (id !== null && !models.value.some(row=>row.id===id))) return
+  cancelSeriesEdit()
   // 折叠由侧栏维护；选择系列只决定下一次新建的归属，不清空右侧 BOM。
   // 用户的明确归属意图优先于在途详情，迟到响应不能把“未归组”改回旧系列。
   followsProductSelection=false; currentSeriesId.value=id
 }
 function selectProduct(id: number): Promise<void> {
+  if (!busy.value && !connectionLost.value) {cancelSeriesEdit(); modelsOpen.value=false}
   pendingProductId.value=0; detailsOpen.value = false
   followsProductSelection=true
   const row=productDirectoryRows.value.find(item=>item.id===id) ?? (detail.value?.id===id ? detail.value : undefined)
@@ -162,6 +176,7 @@ function selectProduct(id: number): Promise<void> {
 }
 function startBom(source?: Bom, revision=false): void {
   if (productUnavailable.value || (source && !store.can('production.view'))) return
+  cancelSeriesEdit(true)
   if (detail.value && store.prepareProductBom(detail.value.material_id, source)) {
     revisingBomVersion.value=revision ? source?.version : undefined
     bomTargetId.value=detail.value.material_id; reuseOpen.value=false; versionsOpen.value=false; bomOpen.value=true
@@ -169,6 +184,7 @@ function startBom(source?: Bom, revision=false): void {
 }
 function openBomCreation(allowBlank=true): void {
   if (!detail.value || productUnavailable.value || !store.can('bom.create') || (!allowBlank && !store.can('production.view'))) return
+  cancelSeriesEdit(true)
   // 选择方式时锁定目标意图，不能在切到另一子机型后将旧选择带给新产品。
   creationTarget=detail.value.material_id; creationSelection=productSelectionEpoch; creationSession=viewSessionEpoch
   creationAllowsBlank.value=allowBlank; reuseOpen.value=true
@@ -192,16 +208,53 @@ function reviseBom(): void {
 }
 async function editProduct(): Promise<void> {
   if (!detail.value || productUnavailable.value || !store.can('catalog.manage')) return
+  cancelSeriesEdit(true)
   detailsOpen.value=false
   await store.startProduct('edit',detail.value.id)
 }
+// 每个明确的弹窗入口都先撤销旧系列读取，避免迟到资料在新窗口上方再次弹出。
+function openProductDetails(): void {
+  if (!detail.value || productUnavailable.value || !store.can('inventory.view')) return
+  cancelSeriesEdit(true); detailsOpen.value=true
+}
+function openVersionList(): void {
+  if (productUnavailable.value || !store.can('production.view') || !productBomRecords.value.length) return
+  cancelSeriesEdit(true); versionsOpen.value=true
+}
+function openBomDetails(id:number): void {
+  if (productUnavailable.value || !store.can('production.view') || !Number.isSafeInteger(id) || id<=0) return
+  cancelSeriesEdit(true); void store.openBomDetail(id)
+}
+function requestSeriesDelete(model:ProductModel): void {
+  if (busy.value || connectionLost.value || !store.can('catalog.manage')) return
+  const current=models.value.find(row=>row.id===model.id)
+  if (!current) return
+  cancelSeriesEdit(true); modelToDelete.value=current
+}
 function newSeries(): void {
   if (!store.can('catalog.manage') || busy.value || connectionLost.value) return
+  cancelSeriesEdit()
   // 显式新建系列才退出原编辑模式，新建失败的同一份草稿继续保留。
   if (productModelForm.value.id) productModelForm.value={id:0,version:0,code:'',name:'',notes:'',reason:''}
   productModelChanges.value=[]; createSeriesOnly.value=true; modelsOpen.value=true
 }
+async function editSeries(id:number): Promise<void> {
+  if (!store.can('catalog.manage') || busy.value || connectionLost.value || !models.value.some(row=>row.id===id)) return
+  modelsOpen.value=false; cancelSeriesEdit()
+  createSeriesOnly.value=false
+  // 同一系列收起再打开沿用草稿；换系列才读取详情与审计，失败不会展示旧表单。
+  if (productModelForm.value.id===id) {modelsOpen.value=true; return}
+  const intent=++seriesEditIntent, session=viewSessionEpoch
+  pendingSeriesId=id
+  const row=await store.editProductModel(id)
+  if (intent!==seriesEditIntent) return
+  pendingSeriesId=0
+  if (!row || session!==viewSessionEpoch || !store.can('catalog.manage') || busy.value || connectionLost.value
+    || !models.value.some(model=>model.id===id) || productModelForm.value.id!==id) return
+  modelsOpen.value=true
+}
 function newModel(mode:'new'|'existing'='new'): Promise<void> {
+  if (store.can('catalog.manage') && !busy.value && !connectionLost.value) {cancelSeriesEdit(); modelsOpen.value=false}
   // null 明确表示未归组，不能回退到右侧旧产品的系列。
   return store.startProduct(mode,0,false,currentSeriesId.value)
 }
@@ -239,7 +292,7 @@ function sameModel(): void {
       :loading="productsLoading" :error="productsError" :busy="busy" :disconnected="connectionLost" :can-manage="store.can('catalog.manage')"
       :loading-more="productsLoadingMore" :more-error="productsMoreError"
       @series="selectSeries" @select="selectProduct" @new-series="newSeries" @new-model="newModel()" @include="newModel('existing')"
-      @delete="modelToDelete=$event" @manage="createSeriesOnly=false;modelsOpen=true" @load-more="store.loadMoreProducts()" @reset="reset" @retry="store.queryProducts()" />
+      @delete="requestSeriesDelete" @edit="editSeries" @load-more="store.loadMoreProducts()" @reset="reset" @retry="store.queryProducts()" />
     <div class="product-main">
     <section v-if="productDetailId" class="product-bom-panel" aria-label="选中产品的 BOM">
       <header v-if="detail" class="product-bom-heading">
@@ -249,7 +302,7 @@ function sameModel(): void {
           <p v-if="detail.material.spec_summary || detail.material.specification" class="muted">{{ detail.material.spec_summary || detail.material.specification }}</p>
         </div>
         <div class="product-toolbar">
-          <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-detail',$event)" @click="detailsOpen = true">产品资料</AppButton>
+          <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-detail',$event)" @click="openProductDetails">产品资料</AppButton>
           <AppButton v-if="store.can('catalog.manage')" size="small" :disabled="productUnavailable" @click="editProduct">编辑产品</AppButton>
           <NDropdown v-if="store.can('catalog.manage')" trigger="click" :options="lifecycleOptions" :disabled="productUnavailable" @select="selectLifecycle">
             <AppButton size="small" :disabled="productUnavailable" aria-haspopup="menu" @click.capture="captureDialogOrigin('product-lifecycle',$event)">子机型操作</AppButton>
@@ -268,11 +321,11 @@ function sameModel(): void {
               <AppStatusTag :label="bomStatuses[selectedBom.status].label" :tone="bomStatuses[selectedBom.status].tone" />
             </div>
             <div class="product-toolbar"><AppButton v-if="store.can('bom.create')" size="small" tone="primary" :disabled="productUnavailable || selectedBom.status==='cancelled'" @click.capture="captureDialogOrigin('ProductionBomsView:form',$event)" @click="reviseBom">修订 BOM</AppButton>
-              <AppButton size="small" :disabled="productUnavailable" @click="store.openBomDetail(selectedBom.id)">版本详情</AppButton>
-              <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-bom-versions',$event)" @click="versionsOpen=true">版本管理 · {{ productBomRecords.length }}</AppButton></div>
+              <AppButton size="small" :disabled="productUnavailable" @click="openBomDetails(selectedBom.id)">版本详情</AppButton>
+              <AppButton size="small" :disabled="productUnavailable" @click.capture="captureDialogOrigin('product-bom-versions',$event)" @click="openVersionList">版本管理 · {{ productBomRecords.length }}</AppButton></div>
           </div>
-          <div v-if="selectedBom.source_bom" class="bom-source muted">复制来源：<AppButton variant="text" size="small" :disabled="productUnavailable" @click="store.openBomDetail(selectedBom.source_bom.id)">{{ selectedBom.source_bom.product_name }} · V{{ selectedBom.source_bom.version }}</AppButton></div>
-          <ProductBomStructure :bom="selectedBom" :catalog="boms" :disabled="productUnavailable" @open="store.openBomDetail" @material="openCompositionMaterial" />
+          <div v-if="selectedBom.source_bom" class="bom-source muted">复制来源：<AppButton variant="text" size="small" :disabled="productUnavailable" @click="openBomDetails(selectedBom.source_bom.id)">{{ selectedBom.source_bom.product_name }} · V{{ selectedBom.source_bom.version }}</AppButton></div>
+          <ProductBomStructure :bom="selectedBom" :catalog="boms" :disabled="productUnavailable" @open="openBomDetails" @material="openCompositionMaterial" />
         </template>
         <!-- 首次配方直接编辑，物料选择、数量校验和保存仍与升版弹窗共用。 -->
         <BomEditor v-else-if="detail && store.can('bom.create')" :key="detail.material_id" inline :show="true"
@@ -284,7 +337,7 @@ function sameModel(): void {
     <section v-else class="bom-workspace-empty"><h3>BOM 工作区</h3><p class="muted">{{ productsLoading ? '正在读取子机型…' : productsError ? '左侧目录查询失败，请重试。' : `在左侧选择子机型，或在「${seriesName}」中新建子机型，再配置 BOM。` }}</p></section>
     </div>
     <ProductEditor v-if="!bomOpen && productEditorOpen" entity-label="子机型" @saved="productSaved" />
-    <ProductModelsDialog v-model:show="modelsOpen" :create-only="createSeriesOnly" @saved="seriesSaved" @delete="modelToDelete=$event" />
+    <ProductModelsDialog v-model:show="modelsOpen" :create-only="createSeriesOnly" form-only @saved="seriesSaved" @delete="requestSeriesDelete" />
     <ProductModelDeleteDialog :model="modelToDelete" @close="modelToDelete=null" />
     <ProductLifecycleDialog :product="lifecycleTarget" :action="lifecycleAction" @close="lifecycleTarget=null" />
     <ProductBomReuseDialog :show="reuseOpen && store.can('bom.create')" :allow-blank="creationAllowsBlank"
@@ -300,7 +353,7 @@ function sameModel(): void {
         <div class="document-detail-field"><span>版本规则</span><strong>同一产品仅允许一个启用版本</strong></div></template>
       <template #cell-version="{row}"><strong>V{{ row.version }}</strong><small class="muted"> · #{{ row.id }}</small></template>
       <template #cell-status="{row}"><AppStatusTag :label="bomStatuses[row.status].label" :tone="bomStatuses[row.status].tone" /></template>
-      <template #cell-source="{row}"><AppButton v-if="row.source_bom" variant="text" size="small" :disabled="productUnavailable" @click="store.openBomDetail(row.source_bom.id)">{{ row.source_bom.product_name }} · V{{ row.source_bom.version }}</AppButton><span v-else class="muted">独立创建</span></template>
+      <template #cell-source="{row}"><AppButton v-if="row.source_bom" variant="text" size="small" :disabled="productUnavailable" @click="openBomDetails(row.source_bom.id)">{{ row.source_bom.product_name }} · V{{ row.source_bom.version }}</AppButton><span v-else class="muted">独立创建</span></template>
       <template #cell-actions="{row}"><div class="form-actions">
         <AppButton size="small" :disabled="productUnavailable" @click="viewComposition(row.id)">{{ selectedBom?.id === row.id ? '当前组成' : '查看组成' }}</AppButton>
         <AppButton v-if="row.status !== 'cancelled' && store.can('bom.create')" size="small" :disabled="productUnavailable" @click="startBom(row)">复制派生</AppButton>
@@ -325,7 +378,7 @@ function sameModel(): void {
           <dl><div v-for="fact in technicalFacts" :key="fact.key"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl>
         </AppCollapseItem></NCollapse>
         <div class="form-actions product-section-actions">
-          <AppButton v-if="store.can('catalog.manage')" :disabled="busy || connectionLost" @click="store.startProduct('edit',detail.id)">编辑子机型</AppButton>
+          <AppButton v-if="store.can('catalog.manage')" :disabled="busy || connectionLost" @click="editProduct">编辑子机型</AppButton>
           <AppButton v-if="detail.model_id" :disabled="busy" @click="sameModel">查看同系列产品</AppButton>
           <AppButton v-if="store.can('bom.create')" :disabled="busy || connectionLost" @click="startBom()">新建 BOM</AppButton>
         </div>

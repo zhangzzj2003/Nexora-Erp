@@ -21,7 +21,7 @@ const settleProductView=async()=>{await new Promise(done=>setImmediate(done));aw
 
 // 保留产品页、共享 BOM 编辑器与详情真实组件，仅替换需要 DOM 的绘制控件。
 async function fixture(t) {
- const liveModules=['views/workspace/catalog/ProductsView.vue','components/workspace/WorkspaceDocumentDialog.vue','views/workspace/catalog/ProductBomStructure.vue'].map(file=>{
+ const liveModules=['views/workspace/catalog/ProductsView.vue','components/workspace/WorkspaceDocumentDialog.vue','views/workspace/catalog/ProductBomStructure.vue','views/workspace/catalog/ProductModelsDialog.vue'].map(file=>{
   const filename=resolve('src/renderer/src',file)
   const content=compileScript(parse(readFileSync(filename,'utf8'),{filename}).descriptor,{id:file,inlineTemplate:true}).content
    .replace("import { NCollapse, NDropdown } from 'naive-ui'","import { NCollapse, NDropdown } from 'virtual:products-live-collapse'")
@@ -36,6 +36,7 @@ async function fixture(t) {
    if(importer?.endsWith('.vue.client.ts')){
     if(id.endsWith('/WorkspaceDocumentDialog.vue'))return liveModules[1][0]
     if(id.endsWith('/ProductBomStructure.vue'))return liveModules[2][0]
+    if(id.endsWith('/ProductModelsDialog.vue'))return liveModules[3][0]
     if(id.endsWith('/InventoryDetailDialogs.vue'))return '\0products-inventory-details'
     if(id.endsWith('/ProductTreeSidebar.vue'))return '\0products-live-tree'
     if(id.endsWith('/AppCollapseItem.vue'))return '\0products-live-collapse-item'
@@ -60,7 +61,7 @@ async function fixture(t) {
    if(id==='\0products-live-collapse')return `import {h} from 'vue';const Fold={setup:(p,{slots})=>()=>h('section',slots.default?.())};export const NCollapse=Fold,NDropdown=Fold`
    if(id==='\0products-live-collapse-item')return `import {h} from 'vue';export default {props:['title'],setup:(p,{slots})=>()=>h('section',[h('h4',p.title),slots.default?.()])}`
    if(id==='\0products-live-status')return `import {h} from 'vue';export default {props:['label'],setup:p=>()=>h('span',p.label)}`
-   if(id==='\0products-live-tree')return `import {h} from 'vue';export default {props:['rows'],emits:['select'],setup:(p,{emit})=>()=>h('nav',p.rows.map(row=>h('button',{onClick:()=>emit('select',row.id)},'选择产品 '+row.material.name)))}`
+   if(id==='\0products-live-tree')return `import {h} from 'vue';export default {props:['rows','models'],emits:['select','edit','newSeries'],setup:(p,{emit})=>()=>h('nav',[h('button',{onClick:()=>emit('newSeries')},'新建系列'),...p.models.map(model=>h('button',{onClick:()=>emit('edit',model.id)},'编辑产品系列 '+model.name)),...p.rows.map(row=>h('button',{onClick:()=>emit('select',row.id)},'选择产品 '+row.material.name))])}`
    // 图标仅替换绘制层，系列折叠、删除事件与可访问文案继续由真实组件提供。
    if(id==='\0products-icon')return `import {h} from 'vue';export default {render:()=>h('svg',{'aria-hidden':'true'})}`
    if(id==='\0products-empty')return 'export default {render:()=>null}'
@@ -346,7 +347,8 @@ test('侧栏固定搜索在新建之前，滚动目录与维护按钮分开且�
  const scroll=html.indexOf('class="tree-scroll"'), footer=html.indexOf('<footer')
  assert.ok(search>=0 && create>search && scroll>create && footer>scroll)
  assert.ok(html.indexOf('搜索子机型')<html.indexOf('新建系列'))
- assert.ok(html.indexOf('系列管理')>html.indexOf('</nav>'))
+ assert.doesNotMatch(html,/系列管理/)
+ assert.ok(html.indexOf('纳入已有物料')>html.indexOf('</nav>'))
  assert.doesNotMatch(html,/data-product-pagination|20\s*\/\s*页/)
  assert.equal(f.paginations.length,0)
 })
@@ -429,10 +431,10 @@ test('末页去重后条数不足时提示目录更新，刷新走首次查询�
  assert.deepEqual(f.treeEvents,['retry'])
  f.components.ProductTreeSidebar.requestMore(true)
  assert.deepEqual(f.treeEvents,['retry'])
- // 条数一致时才显示实际加载的全量数量，也无需额外刷新提示。
+ // 条数一致时正常结束，不再重复报数，也不留空的加载状态容器。
  const last={...rows[20],id:22,material_id:32,material:{...rows[20].material,id:32,sku:'EL-PC-32'}}
  html=await f.renderTree({rows:[...rows,last],page:{...page,items:[rows[20],last]}})
- assert.match(html,/已显示全部 22 个子机型/)
+ assert.doesNotMatch(html,/已显示全部|class="tree-load-state"/)
  assert.doesNotMatch(html,/目录有更新/)
  assert.equal(f.buttons.some(row=>row.label==='刷新目录'),false)
 })
@@ -1464,4 +1466,140 @@ test('组成物料入口在权限失效后拒绝旧事件，不能借已缓存 B
  assert.deepEqual(entries,[])
  assert.equal(f.store.ledgerMaterialTarget,null)
  assert.equal(f.calls.some(([action])=>['materialDetail','inventoryLedger'].includes(action)),false)
+})
+
+// 真正点击树项编辑，绘制共享表单并从表单事件保存，避免只检查父级变量就漏掉重复目录或失效提交。
+test('系列树项打开聚焦编辑表单，保留原因审计且保存关闭，右侧 BOM 不被替换',async t=>{
+ const f=await fixture(t),model=f.store.productModels[0],seriesCalls=[]
+ let saved=null
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(['productModelDetail','productModelChanges','updateProductModel'].includes(action))seriesCalls.push([action,payload])
+  if(action==='productModelDetail')return model
+  if(action==='productModelChanges')return [{id:1,before:null,after:model,reason:'原系列建立记录',changed_by_name:'管理员',created_at:'2026-10-16'}]
+  if(action==='updateProductModel')return saved={...model,name:payload.name,notes:payload.notes,version:model.version+1}
+  if(action==='productModels'&&saved)return [saved]
+  return previous(action,payload)
+ }
+ const live=await f.mountRenderedView(),originalQuery=JSON.stringify(f.store.productQuery)
+ assert.deepEqual(seriesCalls,[])
+ live.press(live.button('编辑产品系列 机型A'));await settleProductView()
+ const modal=()=>live.nodes().find(node=>node.props['data-modal']==='编辑产品系列')
+ assert.ok(modal());assert.equal(live.nodes().filter(node=>node.props['data-modal']==='编辑产品系列').length,1)
+ assert.match(live.nodeText(modal()),/修改原因/);assert.match(live.nodeText(modal()),/原系列建立记录/)
+ assert.doesNotMatch(live.nodeText(modal()),/产品系列目录|新增另一产品系列/)
+ assert.equal(f.tables.some(table=>table.title==='产品系列目录'),false)
+ assert.equal(live.bomVisible(),true);assert.equal(f.store.productDetailId,1);assert.equal(f.store.productBomRecords[0].id,7)
+ assert.equal(JSON.stringify(f.store.productQuery),originalQuery)
+ assert.deepEqual(seriesCalls.map(([action])=>action),['productModelDetail','productModelChanges'])
+ const submit=()=>live.nodes().find(node=>node.tag==='form').props.onSubmit({preventDefault(){},stopPropagation(){}})
+ submit();await settleProductView()
+ assert.equal(seriesCalls.some(([action])=>action==='updateProductModel'),false,'编辑必须填写修改原因')
+ const field=label=>live.nodes().find(node=>node.tag==='label'&&live.nodeText(node).startsWith(label)).children.find(node=>node.tag==='input')
+ field('产品系列名称').props['onUpdate:modelValue']('机型A新名称')
+ field('修改原因').props['onUpdate:modelValue']('统一系列命名')
+ await settleProductView();submit();await settleProductView()
+ assert.equal(seriesCalls.filter(([action])=>action==='updateProductModel').length,1)
+ assert.equal(seriesCalls.find(([action])=>action==='updateProductModel')[1].reason,'统一系列命名')
+ assert.equal(modal(),undefined)
+ assert.equal(f.store.productModels[0].name,'机型A新名称')
+ assert.equal(live.bomVisible(),true);assert.equal(f.store.productDetailId,1)
+ live.press(live.button('新建系列'));await settleProductView()
+ const create=live.nodes().find(node=>node.props['data-modal']==='新建产品系列')
+ assert.ok(create);assert.doesNotMatch(live.nodeText(create),/产品系列目录|修改原因/)
+})
+
+test('系列编辑失败不展示旧草稿，同系列收起重开保留输入，维护权限与当前目录约束入口',async t=>{
+ const f=await fixture(t),model=f.store.productModels[0],second={...model,id:2,code:'B200',name:'第二系列'}
+ let fail=false,reads=0
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='productModels')return [model,second]
+  if(action==='productModelDetail'){reads++;if(fail)throw Error('系列详情暂不可用');return payload.id===1?model:second}
+  if(action==='productModelChanges')return []
+  return previous(action,payload)
+ }
+ const live=await f.mountView()
+ await live.editSeries(1)
+ assert.equal(live.modelsOpen,true);assert.equal(f.store.productModelForm.id,1)
+ f.store.productModelForm.notes='未保存的说明';f.store.productModelForm.reason='未保存的修改原因'
+ live.modelsOpen=false;await live.editSeries(1)
+ assert.equal(reads,1);assert.equal(f.store.productModelForm.notes,'未保存的说明')
+ assert.equal(f.store.productModelForm.reason,'未保存的修改原因')
+ fail=true;await live.editSeries(2)
+ assert.equal(live.modelsOpen,false);assert.equal(f.store.productModelForm.id,1)
+ assert.equal(f.store.productModelForm.notes,'未保存的说明');assert.match(f.store.error,/系列详情暂不可用/)
+ const before=reads
+ await live.editSeries(999);f.store.busy=true;await live.editSeries(1);f.store.busy=false
+ f.store.connectionLost=true;await live.editSeries(1);f.store.connectionLost=false
+ f.store.user={...f.store.user,permissions:['inventory.view','production.view']};await live.editSeries(1)
+ assert.equal(reads,before);assert.equal(live.modelsOpen,false)
+})
+
+test('系列读取在途改为新建或换编辑目标时旧结果失效，切用户与卸载也不重新开窗',async t=>{
+ const f=await fixture(t),model=f.store.productModels[0],second={...model,id:2,code:'B200',name:'第二系列'},jobs=[]
+ const previous=globalThis.window.nexora.callApi
+ globalThis.window.nexora.callApi=async(action,payload)=>{
+  if(action==='productModels')return [model,second]
+  if(['productModelDetail','productModelChanges'].includes(action))return new Promise(resolve=>jobs.push({action,payload,resolve}))
+  return previous(action,payload)
+ }
+ const live=await f.mountView()
+ const first=live.editSeries(1)
+ assert.equal(live.modelsOpen,false)
+ live.newSeries();f.store.productModelForm.name='新的系列草稿'
+ jobs.splice(0).forEach(job=>job.resolve(job.action==='productModelDetail'?model:[]))
+ await first
+ assert.equal(live.modelsOpen,true);assert.equal(live.createSeriesOnly,true)
+ assert.equal(f.store.productModelForm.id,0);assert.equal(f.store.productModelForm.name,'新的系列草稿')
+ const old=live.editSeries(1),latest=live.editSeries(2)
+ jobs[2].resolve(second);jobs[3].resolve([]);await latest
+ jobs[0].resolve(model);jobs[1].resolve([]);await old;jobs.length=0
+ assert.equal(live.modelsOpen,true);assert.equal(f.store.productModelForm.id,2)
+ const stale=live.editSeries(1)
+ f.store.user={...f.store.user,id:2}
+ jobs.splice(0).forEach(job=>job.resolve(job.action==='productModelDetail'?model:[]))
+ await stale;await settleProductView()
+ assert.equal(live.modelsOpen,false);assert.equal(f.store.productModelForm.id,0)
+ // 新页面在读取中卸载，原 action 和页面的打开意图一起撤销。
+ const rendered=await f.mountRenderedView()
+ rendered.press(rendered.button('编辑产品系列 机型A'));await settleProductView()
+ rendered.unmount()
+ jobs.splice(0).forEach(job=>job.resolve(job.action==='productModelDetail'?model:[]))
+ await settleProductView()
+ assert.equal(f.store.productModelForm.id,0)
+})
+
+// 系列读取未完成时用户仍可使用其他入口；明确的新弹窗意图必须撤销旧系列回执，不能叠加窗口。
+test('其他弹窗意图取消在途系列读取，删除资料BOM生命周期及产品编辑不会被旧系列窗覆盖',async t=>{
+ for(const target of ['delete','details','create-bom','revise-bom','bom-details','versions','lifecycle','material','edit-product'])await t.test(target,async t=>{
+  const f=await fixture(t),model=f.store.productModels[0]
+  let resolve
+  const pending=new Promise(done=>{resolve=done}),previous=globalThis.window.nexora.callApi
+  globalThis.window.nexora.callApi=async(action,payload)=>action==='productModelDetail'?pending:
+   action==='productModelChanges'?[]:previous(action,payload)
+  const live=await f.mountView(),editing=live.editSeries(model.id)
+  assert.equal(live.modelsOpen,false)
+  if(target==='delete')live.requestSeriesDelete(model)
+  else if(target==='details')live.openProductDetails()
+  else if(target==='create-bom')live.openBomCreation()
+  else if(target==='revise-bom')live.reviseBom()
+  else if(target==='bom-details')live.openBomDetails(f.source.id)
+  else if(target==='versions')live.openVersionList()
+  else if(target==='lifecycle')live.selectLifecycle('disable')
+  else if(target==='material')live.openCompositionMaterial({key:'7/1',materialId:22,sku:'EL-IC-22',name:'主芯片'})
+  else await live.editProduct()
+  resolve(model);await editing;await settleProductView()
+  assert.equal(live.modelsOpen,false,'旧系列回执不能在新弹窗意图之后重新开窗')
+  assert.equal(f.store.productModelForm.id,0,'旧系列资料不能回填编辑草稿')
+  if(target==='delete')assert.equal(live.modelToDelete.id,model.id)
+  else if(target==='details')assert.equal(live.detailsOpen,true)
+  else if(target==='create-bom')assert.equal(live.reuseOpen,true)
+  else if(target==='revise-bom')assert.equal(live.bomOpen,true)
+  else if(target==='bom-details')assert.equal(f.store.bomDetailRecord.id,f.source.id)
+  else if(target==='versions')assert.equal(live.versionsOpen,true)
+  else if(target==='lifecycle')assert.equal(live.lifecycleTarget.id,f.product.id)
+  else if(target==='material')assert.equal(f.store.ledgerMaterialTarget.material_id,22)
+  else assert.equal(f.store.productEditorOpen,true)
+ })
 })
