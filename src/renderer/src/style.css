@@ -137,7 +137,7 @@ button.sidebar-account-card { position: relative; isolation: isolate; display: f
 /* 渐变放在独立图层，只改变透明度，悬停与焦点不会突然闪出整块背景。 */
 button.sidebar-account-card::before { content: ''; position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: linear-gradient(105deg, #244e66, #1d304f 75%); opacity: 0; transition: opacity .26s ease; }
 button.sidebar-account-card:hover::before, button.sidebar-account-card:focus-visible::before, button.sidebar-account-card[aria-expanded="true"]::before { opacity: 1; }
-/* 头像以主题主色承载白色轮廓，保持六组配色的可读性，不再固定青绿渐变。 */
+/* 头像以主题主色承载白色轮廓，保持各组配色的可读性，不再固定青绿渐变。 */
 .sidebar-account-avatar { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border: 1px solid var(--workspace-field-accent); border-radius: 50%; background: linear-gradient(145deg, var(--app-button-primary), var(--app-button-primary-pressed)); color: #fff; }
 .sidebar-account-avatar svg { width: 20px; height: 20px; }
 .sidebar-account-identity { display: grid; min-width: 0; flex: 1; gap: 3px; }

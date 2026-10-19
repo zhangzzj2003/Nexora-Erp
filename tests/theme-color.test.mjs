@@ -7,7 +7,10 @@ import { appThemeOverrides } from '../src/renderer/src/utils/app-theme.ts'
 import { workspaceSelectTheme } from '../src/renderer/src/utils/workspace-select.ts'
 
 test('固定预设支持独立存取，损坏或被阻止的偏好回退默认青绿', () => {
-  assert.equal(new Set(themeColorPresets.map(preset => preset.key)).size, 6)
+  // 固定完整名单，同时锁定旧键兼容和新增颜色可用，避免仅校验数量而遗漏原有偏好。
+  const keys = ['teal', 'green', 'cyan', 'blue', 'indigo', 'violet', 'fuchsia', 'rose', 'red', 'orange', 'amber', 'slate']
+  assert.deepEqual(themeColorPresets.map(preset => preset.key), keys)
+  assert.equal(new Set(keys).size, 12)
   for (const value of [null, '', 'invalid', '#ff0000', 'url(test)', {}, undefined]) {
     assert.equal(isThemeColor(value), false)
     assert.equal(readThemeColor({ getItem: () => value }), 'teal')
@@ -20,6 +23,22 @@ test('固定预设支持独立存取，损坏或被阻止的偏好回退默认�
     saveThemeColor(storage, preset.key)
     assert.equal(readThemeColor(storage), preset.key)
     assert.equal(values.size, 1)
+  }
+})
+
+test('扩展色卡保留原有六种颜色的存储键和明暗色值', () => {
+  // 已保存的主题无需迁移；旧键恢复后也不能悄悄变成其他色调。
+  const previous = [
+    ['teal', '#237d7a', '#78d6cd'], ['blue', '#2563eb', '#93c5fd'],
+    ['indigo', '#4f46e5', '#a5b4fc'], ['violet', '#7c3aed', '#c4b5fd'],
+    ['amber', '#b45309', '#fcd34d'], ['rose', '#be185d', '#f9a8d4']
+  ]
+  for (const [key, primary, darkAccent] of previous) {
+    const preset = themeColorPresets.find(item => item.key === key)
+    assert.ok(preset, key)
+    assert.equal(preset.primary, primary)
+    assert.equal(preset.darkAccent, darkAccent)
+    assert.equal(readThemeColor({ getItem: () => key }), key)
   }
 })
 

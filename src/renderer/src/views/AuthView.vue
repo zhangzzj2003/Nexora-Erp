@@ -93,7 +93,7 @@ const {
 </template>
 
 <style scoped>
-/* 登录页只维护自身排版，颜色沿用公共变量，兼容用户的六组主题色。 */
+/* 登录页只维护自身排版，颜色沿用公共变量，兼容用户选择的各组主题色。 */
 .auth-stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 440px);

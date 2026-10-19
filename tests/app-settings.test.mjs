@@ -108,6 +108,32 @@ test('真实设置侧栏使用向右收起图标，中英文按钮文案与方�
   }
 })
 
+test('真实设置侧栏完整展示十二种中英文色卡，新增颜色保持唯一选中状态', async () => {
+  const { default: SettingsDrawer } = await server.ssrLoadModule('/src/renderer/src/components/app/AppSettingsDrawer.vue')
+  const labels = {
+    'zh-CN': ['青绿', '森林绿', '青蓝', '海蓝', '靛蓝', '紫罗兰', '品红', '玫红', '朱红', '暖橙', '琥珀', '岩灰'],
+    'en-US': ['Teal', 'Forest', 'Cyan', 'Blue', 'Indigo', 'Violet', 'Fuchsia', 'Rose', 'Red', 'Orange', 'Amber', 'Slate']
+  }
+  for (const locale of ['zh-CN', 'en-US']) {
+    const pinia = createPinia(), settings = useSettingsStore(pinia), theme = useThemeStore(pinia)
+    settings.setLocale(locale); settings.openSettings(); theme.setThemeColor('fuchsia')
+    const app = createSSRApp({ render: () => h(SettingsDrawer) }).use(pinia)
+    setupSsrStyles(app)
+    const context = {}
+    await renderToString(app, context)
+    // 从真实 Teleport 抽屉读取按钮，覆盖动态文案漏译和新增预设未接入模板的风险。
+    const content = Object.values(context.teleports ?? {}).join('')
+    const buttons = [...content.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)]
+      .map(([button]) => button).filter(button => /\bclass="[^"]*\bcolor-choice\b/.test(button))
+    assert.equal(buttons.length, 12)
+    assert.deepEqual(buttons.map(button => button.replace(/<[^>]*>/g, '').trim()), labels[locale])
+    const selected = buttons.filter(button => /\baria-pressed="true"/.test(button))
+    assert.equal(selected.length, 1)
+    assert.ok(selected[0].includes(labels[locale][6]))
+    for (const button of buttons) assert.match(button, /\btype="button"/)
+  }
+})
+
 test('设置浮层的不可拖动样式作用于真实面板，覆盖与标题栏重叠的按钮区域', async () => {
   const source = readFileSync(new URL('../src/renderer/src/components/app/AppSettingsDrawer.vue', import.meta.url), 'utf8')
   const { descriptor } = parse(source)
@@ -294,6 +320,17 @@ test('颜色切换同步根变量，保留语言和抽屉状态，重启恢复�
   theme.setDarkTheme(false); await nextTick()
   assert.equal(styles.get('--workspace-field-accent'), theme.colorPalette.accent)
   assert.equal(theme.themeColor, 'violet')
+  // 扩展色使用同一套真实 store：即时生效、切换明暗后保留，并在新窗口恢复。
+  theme.setThemeColor('fuchsia'); await nextTick()
+  assert.equal(styles.get('--app-button-primary'), '#a21caf')
+  assert.equal(globalThis.document.documentElement.dataset.themeColor, 'fuchsia')
+  assert.equal(values.get('nexora-theme-color'), 'fuchsia')
+  theme.setDarkTheme(true); await nextTick()
+  assert.equal(theme.themeColor, 'fuchsia')
+  assert.equal(styles.get('--workspace-field-accent'), '#f0abfc')
+  const restoredNewColor = useThemeStore(createPinia())
+  assert.equal(restoredNewColor.themeColor, 'fuchsia')
+  assert.equal(restoredNewColor.themeMode, 'dark')
   // 存储拒绝写入时主题仍生效，不能让隐私模式阻断操作。
   globalThis.window.localStorage.setItem = () => { throw new Error('blocked') }
   theme.setThemeColor('rose'); await nextTick()

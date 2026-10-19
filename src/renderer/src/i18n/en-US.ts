@@ -38,6 +38,7 @@ export const englishCopy: Readonly<Record<string, string>> = {
   '外观': 'Appearance', '选择你喜欢的主题': 'Choose your preferred theme',
   '主题色': 'Accent color', '为按钮和导航选择强调色': 'Choose an accent for buttons and navigation',
   '青绿': 'Teal', '海蓝': 'Blue', '靛蓝': 'Indigo', '紫罗兰': 'Violet', '琥珀': 'Amber', '玫红': 'Rose',
+  '森林绿': 'Forest', '青蓝': 'Cyan', '品红': 'Fuchsia', '朱红': 'Red', '暖橙': 'Orange', '岩灰': 'Slate',
   '浅色': 'Light', '深色': 'Dark', '语言': 'Language', '选择界面显示语言': 'Choose your display language',
   '语言应用于设置、登录、引导和公共导航，业务表单暂保留中文。': 'Language applies to settings, sign-in, setup and navigation. Business forms currently use Chinese.',
   '更改即时生效，并自动保存在本机': 'Changes apply immediately and are saved on this device',

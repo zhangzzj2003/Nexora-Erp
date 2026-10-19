@@ -1,11 +1,18 @@
 // 只允许固定预设进入主题，避免损坏的本机偏好注入任意 CSS 值。
 export const themeColorPresets = [
+  // 相近色系集中排列；青绿继续放在首位，保持缺省配色与旧偏好兼容。
   { key: 'teal', label: '青绿', primary: '#237d7a', darkAccent: '#78d6cd' },
+  { key: 'green', label: '森林绿', primary: '#15803d', darkAccent: '#86efac' },
+  { key: 'cyan', label: '青蓝', primary: '#0e7490', darkAccent: '#67e8f9' },
   { key: 'blue', label: '海蓝', primary: '#2563eb', darkAccent: '#93c5fd' },
   { key: 'indigo', label: '靛蓝', primary: '#4f46e5', darkAccent: '#a5b4fc' },
   { key: 'violet', label: '紫罗兰', primary: '#7c3aed', darkAccent: '#c4b5fd' },
+  { key: 'fuchsia', label: '品红', primary: '#a21caf', darkAccent: '#f0abfc' },
+  { key: 'rose', label: '玫红', primary: '#be185d', darkAccent: '#f9a8d4' },
+  { key: 'red', label: '朱红', primary: '#b91c1c', darkAccent: '#fca5a5' },
+  { key: 'orange', label: '暖橙', primary: '#c2410c', darkAccent: '#fdba74' },
   { key: 'amber', label: '琥珀', primary: '#b45309', darkAccent: '#fcd34d' },
-  { key: 'rose', label: '玫红', primary: '#be185d', darkAccent: '#f9a8d4' }
+  { key: 'slate', label: '岩灰', primary: '#475569', darkAccent: '#cbd5e1' }
 ] as const
 export type ThemeColor = typeof themeColorPresets[number]['key']
 export const themeColorStorageKey = 'nexora-theme-color'
@@ -39,7 +46,7 @@ export function themeColorPalette(color: ThemeColor, dark: boolean) {
   const preset = themeColorPresets.find((item) => item.key === color) ?? themeColorPresets[0]
   const accent = dark ? preset.darkAccent : mix(preset.primary, '#000000', .84)
   const surface = dark ? '#16253a' : '#ffffff'
-  // 深色模式提升强调文字亮度；主按钮保持深色底和白字，确保六组配色都可读。
+  // 深色模式提升强调文字亮度；主按钮保持深色底和白字，所有预设统一验证对比度。
   return {
     primary: preset.primary,
     hover: mix(preset.primary, '#000000', .88),

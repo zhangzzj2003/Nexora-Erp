@@ -103,17 +103,21 @@ const drawerStyle = typeof window !== 'undefined' && window.nexora?.platform ===
 .settings-choice-label { display: flex; align-items: center; gap: 7px; width: 100%; font-size: 13px; }
 .settings-choice-label svg, .language-choice svg, .settings-saved svg { width: 16px; height: 16px; flex: none; }
 .settings-check { margin-left: auto; color: var(--workspace-field-accent); }
-/* 三列色卡保持紧凑；文字和色块都能通过键盘所在按钮选择。 */
-.settings-colors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
-.color-choice { min-width: 0; height: 78px; padding: 10px 4px; }
-.color-choice :deep(.n-button__content) { flex-direction: column; gap: 8px; font-size: 12px; }
-.color-swatch { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; }
+/* 十二组色卡四列展示，保留文字和选中标记，整张按钮均可点击或用键盘选择。 */
+.settings-colors { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+.color-choice { min-width: 0; height: 72px; padding: 8px 4px; }
+.color-choice :deep(.n-button__content) { flex-direction: column; gap: 6px; font-size: 12px; }
+.color-swatch { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: #fff; }
 .color-swatch svg { width: 17px; height: 17px; }
 .language-choice { min-width: 0; }
 .language-choice :deep(.n-button__content) { gap: 8px; }
 .settings-section .settings-language-note { margin-top: 14px; }
 .settings-saved { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; line-height: 1.7; color: var(--workspace-field-muted); }
 .settings-saved svg { color: var(--workspace-field-accent); }
+@media (max-width: 360px) {
+  /* 窄窗口恢复三列，为中英文色名与键盘焦点留出空间，长内容沿用抽屉内部滚动。 */
+  .settings-colors { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 @media (prefers-reduced-motion: reduce) {
   /* 系统减少动态效果时抽屉直接显隐，与现有主题降级行为一致。 */
   :global(.n-drawer), :global(.n-drawer-mask) { transition-duration: .01ms !important; }
