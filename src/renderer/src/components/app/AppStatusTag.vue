@@ -33,7 +33,8 @@ withDefaults(defineProps<{ label: string; tone?: AppStatusTone }>(), { tone: 'ne
 .app-status-tag--ready { --app-status-tag-color: #087684; }
 .app-status-tag--danger { --app-status-tag-color: #bb3650; }
 .app-status-tag--neutral { --app-status-tag-color: #626d7e; }
-.app-status-tag--reversed { --app-status-tag-color: #7851ad; }
+/* 冲销使用红色表达已撤销的业务结果，并与概览统计保持一致。 */
+.app-status-tag--reversed { --app-status-tag-color: #bb3650; }
 /* 深色主题提升文字亮度，底色与边框仍由同一状态色生成，保证两种主题语义一致。 */
 :root[data-theme='dark'] .app-status-tag--success { --app-status-tag-color: #69d8aa; }
 :root[data-theme='dark'] .app-status-tag--pending { --app-status-tag-color: #efc16a; }
@@ -41,5 +42,5 @@ withDefaults(defineProps<{ label: string; tone?: AppStatusTone }>(), { tone: 'ne
 :root[data-theme='dark'] .app-status-tag--ready { --app-status-tag-color: #75d3df; }
 :root[data-theme='dark'] .app-status-tag--danger { --app-status-tag-color: #ff9baf; }
 :root[data-theme='dark'] .app-status-tag--neutral { --app-status-tag-color: #b1bccd; }
-:root[data-theme='dark'] .app-status-tag--reversed { --app-status-tag-color: #c2a4ef; }
+:root[data-theme='dark'] .app-status-tag--reversed { --app-status-tag-color: #ff9baf; }
 </style>

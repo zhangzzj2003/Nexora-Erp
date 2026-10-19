@@ -1,9 +1,36 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
+import { parse } from '@vue/compiler-sfc'
+import postcss from 'postcss'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
+
+test('冲销标签与统计在明暗主题均使用红色，取消仍使用中性色', () => {
+  // 同时检查两个真实组件的主题声明，防止只修列表或漏掉深色主题。
+  for (const [path, selector, property] of [
+    ['app/AppStatusTag.vue', '.app-status-tag', '--app-status-tag-color'],
+    ['workspace/WorkspaceSummaryFilters.vue', '.summary-filter', '--summary-tone'],
+  ]) {
+    const source = readFileSync(new URL(`../src/renderer/src/components/${path}`, import.meta.url), 'utf8')
+    const { descriptor } = parse(source)
+    const styles = postcss.parse(descriptor.styles.map(style => style.content).join('\n'))
+    for (const [prefix, reversed, neutral] of [
+      ['', '#bb3650', '#626d7e'],
+      [":root[data-theme='dark'] ", '#ff9baf', '#b1bccd'],
+    ]) {
+      for (const [tone, expected] of [['reversed', reversed], ['neutral', neutral]]) {
+        let actual
+        styles.walkRules(`${prefix}${selector}--${tone}`, rule => {
+          rule.walkDecls(property, declaration => { actual = declaration.value })
+        })
+        assert.equal(actual, expected, `${path}: ${prefix}${tone}`)
+      }
+    }
+  }
+})
 
 // 使用真实组件验证公共接口；业务终态优先级由其他入库页面回归测试负责。
 test('公共状态标签保留完整文字、默认中性色和不可交互的装饰圆点', async t => {

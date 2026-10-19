@@ -55,7 +55,8 @@ function select(key: TKey): void {
 .summary-filter--danger { --summary-tone: #bd414a; }
 .summary-filter--success { --summary-tone: #16734d; }
 .summary-filter--neutral { --summary-tone: #626d7e; }
-.summary-filter--reversed { --summary-tone: #7851ad; }
+/* 冲销数量与公共状态标签使用相同红色，避免列表与统计表达不一致。 */
+.summary-filter--reversed { --summary-tone: #bb3650; }
 .summary-filter:is(:hover, :focus-visible), .summary-filter.is-selected { border-color: var(--workspace-field-accent); background: color-mix(in srgb, var(--workspace-field-accent) 12%, var(--workspace-field-background)); }
 .summary-filter.is-selected .summary-filter-label { color: var(--workspace-field-accent); font-weight: 650; }
 .summary-filter:focus-visible { outline: 2px solid var(--workspace-field-accent); outline-offset: 2px; }
@@ -64,7 +65,7 @@ function select(key: TKey): void {
 :root[data-theme='dark'] .summary-filter--danger { --summary-tone: #ffaaa2; }
 :root[data-theme='dark'] .summary-filter--success { --summary-tone: #69d8aa; }
 :root[data-theme='dark'] .summary-filter--neutral { --summary-tone: #b1bccd; }
-:root[data-theme='dark'] .summary-filter--reversed { --summary-tone: #c2a4ef; }
+:root[data-theme='dark'] .summary-filter--reversed { --summary-tone: #ff9baf; }
 /* 列数跟随统计项数量，其他页面只传数据即可复用；根据标题右侧实际可用空间换行，不依赖整窗宽度。 */
 @container (max-width: 520px) { .workspace-summary-filters { grid-template-columns: repeat(var(--summary-columns-compact), minmax(0, 1fr)); } }
 @container (max-width: 340px) { .workspace-summary-filters { grid-template-columns: repeat(var(--summary-columns-narrow), minmax(0, 1fr)); } }
