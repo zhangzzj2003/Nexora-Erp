@@ -43,6 +43,7 @@ import { scrollActiveTabIntoView } from '../utils/workspace-tab-strip'
 
 import { createAppState } from './state'
 import { createDataLoader } from './data-loader'
+import { createBusinessOperation } from './business-operation'
 import { createWorkspaceRefresh } from './workspace-refresh'
 import { createConnectionActions } from './connection-actions'
 import { createCatalogActions } from './modules/catalog-actions'
@@ -227,6 +228,7 @@ function createAppStore() {
     reloadData: async () => {
       error.value = ''
       notice.value = ''
+      state.warning.value = ''
       await refreshData()
     },
     remountPage: async () => {
@@ -273,30 +275,7 @@ function createAppStore() {
   const connectionActions = createConnectionActions(state, refreshData)
   const { checkConnection, stopScan, monitorConnection } = connectionActions
 
-  async function perform(
-    action: () => Promise<unknown>,
-    success: string
-  ): Promise<void> {
-    if (busy.value) return
-    if (connectionLost.value) {
-      error.value = '服务端连接已中断，恢复连接后才能保存更改。'
-      return
-    }
-    busy.value = true
-    error.value = ''
-    notice.value = ''
-    // 固定本次写入所属的详情；成功、冲突或网络异常后均重读审批，不能留下旧执行状态。
-    const refreshApproval = documentApprovalActions.captureDocumentApprovalRefresh()
-    try {
-      await action()
-      await refreshData()
-      notice.value = success
-    } catch (cause) {
-      error.value = displayError(cause)
-    } finally {
-      try { await refreshApproval() } finally { busy.value = false }
-    }
-  }
+  const perform = createBusinessOperation(state, refreshData, () => documentApprovalActions.captureDocumentApprovalRefresh())
 
   const productActions = createProductActions(state)
   const catalogActions = createCatalogActions(state, perform)

@@ -185,7 +185,10 @@ test('列表刷新失败仍重新核对审批，关闭后重开同号单据不�
   })
   await store.openDocumentApproval(target)
   await store.confirmPurchaseOrder(7)
-  assert.match(store.error, /列表刷新失败/)
+  // 单据已经确认，刷新异常只作告警；真实审批回执仍须更新为已执行。
+  assert.equal(store.error, '')
+  assert.match(store.notice, /已确认/)
+  assert.match(store.warning, /操作已完成.*列表刷新失败/)
   assert.equal(store.documentApprovalRecord.status, 'executed')
   assert.equal(store.busy, false)
   const oldRefresh = store.captureDocumentApprovalRefresh()

@@ -44,8 +44,17 @@ test('全应用提供右上角通知，工作台不再渲染整行成功与失�
   assert.match(provider, /<NMessageProvider placement="top-right"/)
   assert.doesNotMatch(provider, /:max=/)
   assert.match(provider, /<AppMessageBridge \/>/)
-  assert.match(bridge, /observeAppMessageFeedback\(\{ notice, error \}/)
+  assert.match(bridge, /observeAppMessageFeedback\(\{ notice, error, warning \}/)
   assert.doesNotMatch(shell, /class="message (?:success|error)"/)
+})
+
+test('保存后的刷新告警使用 warning 通知，销毁桥接后不再发送', () => {
+  const notice = ref(''), error = ref(''), warning = ref(''), shown = []
+  const stop = observeAppMessageFeedback({ notice, error, warning }, (tone, content) => shown.push({ tone, content }))
+  notice.value = '订单已保存。'; warning.value = '操作已完成，请刷新查看。'
+  assert.deepEqual(shown.map(item => item.tone), ['success', 'warning'])
+  assert.equal(error.value, '')
+  stop(); warning.value = '后续告警'; assert.equal(shown.length, 2)
 })
 
 test('真实通知提供器在 Mac 和 Windows 避开顶部栏，保留关闭与悬停行为', async t => {

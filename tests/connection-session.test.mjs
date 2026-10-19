@@ -75,3 +75,23 @@ test('业务数据读取失败仍保留已核验账号并显示错误', async (t
   assert.equal(state.screen.value, 'app')
   assert.equal(state.error.value, '数据读取失败')
 })
+
+// 启动恢复也必须服从显式退出，不能被迟到的身份回执重新登录。
+test('退出后迟到的启动身份响应不能恢复登录或业务列表', async t => {
+  const previousWindow = globalThis.window
+  t.after(() => { globalThis.window = previousWindow })
+  let resolveIdentity, identityStarted
+  const started = new Promise(resolve => { identityStarted = resolve })
+  const pending = new Promise(resolve => { resolveIdentity = resolve })
+  globalThis.window = { nexora: {
+    async startup() { return { status: 'connected', server: profile } },
+    async callApi(action) { if (action === 'me') { identityStarted(); return pending } if (action === 'logout') return; throw Error('不应读取新业务') },
+    async recentServers() { return [profile] }, async hostStatus() { return {} }
+  } }
+  const state = createAppState(); let reads = 0
+  const actions = createConnectionActions(state, async () => { reads++ })
+  const startup = actions.checkConnection(); await started
+  await actions.logout(); resolveIdentity(admin); await startup
+  assert.equal(state.user.value, null); assert.equal(state.screen.value, 'login'); assert.equal(reads, 0)
+  assert.equal(state.error.value, ''); assert.equal(state.busy.value, false)
+})
