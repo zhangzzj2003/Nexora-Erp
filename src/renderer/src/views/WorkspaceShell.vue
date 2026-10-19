@@ -140,7 +140,7 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
 @media (max-width: 420px) { .numbering-account { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
 .workspace-browser-toolbar { display: flex; align-items: center; gap: 12px; flex: none; height: 48px; padding: 0 12px; border-bottom: 1px solid var(--workspace-field-border); }
 /* 上下对称的页面留白用于居中；无融合标题栏时单独为设置按钮留出空间。 */
-.content-body.auth-screen { padding: 32px 24px; background-image: radial-gradient(ellipse at 65% 45%, var(--app-accent-tint), transparent 70%); }
+.content-body.auth-screen { padding: 32px 24px; }
 .auth-session-bar { display: flex; justify-content: flex-end; align-items: center; flex: none; gap: 4px; margin: -12px -4px 20px; }
 @media (max-width: 480px) { .content-body.auth-screen { padding: 24px 16px; } }
 /* 标签栏脱离内容区的内边距布局，首个标签贴近侧栏边缘。 */

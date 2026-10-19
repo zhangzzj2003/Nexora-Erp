@@ -157,7 +157,7 @@ button.sidebar-account-card:hover::before, button.sidebar-account-card:focus-vis
 .content-body { min-height: 0; flex: 1; overflow-y: auto; padding: 35px clamp(25px, 4vw, 62px) 32px; }
 /* 品牌介绍和表单共用居中分栏；禁止收缩，矮窗口从顶部滚动而不挤走底栏。 */
 .content-body.auth-screen { display: flex; flex-direction: column; }
-.auth-screen .auth-stage { flex: none; width: min(100%, 1040px); margin: auto; }
+.auth-screen .auth-stage { flex: none; width: min(100%, 1000px); margin: auto; }
 /* 页面栏仍贴合内容区边缘，仅让首个标签向右留出 6px，横向滚动行为不变。 */
 .workspace-tabs { display: flex; align-items: end; gap: 5px; min-width: 0; min-height: 45px; overflow-x: auto; margin: -35px calc(0px - clamp(25px, 4vw, 62px)) 29px; padding: 7px clamp(25px, 4vw, 62px) 0 6px; border-bottom: 1px solid #dfe6ed; background: #fff; scrollbar-width: none; }
 /* macOS 的覆盖式滚动条会压住标签文字；只隐藏滚动条，保留横向滚动和自动跟随。 */

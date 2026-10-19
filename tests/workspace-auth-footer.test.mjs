@@ -59,12 +59,12 @@ test('登录页占满窗口，进入工作台后侧栏与底栏同步过渡', ()
   assert.match(css, /\.app-shell\.has-sidebar \{ grid-template-columns: 238px minmax\(0, 1fr\); \}/)
   assert.match(css, /\.content \{ grid-column: 2;/)
   // 禁止卡片收缩，让矮窗口通过内容区滚动而不是挤压表单；自动外边距只在空间足够时居中。
-  assert.match(css, /\.auth-screen \.auth-stage \{[^}]*flex: none;[^}]*width: min\(100%, 1040px\);[^}]*margin: auto;/)
+  assert.match(css, /\.auth-screen \.auth-stage \{[^}]*flex: none;[^}]*width: min\(100%, 1000px\);[^}]*margin: auto;/)
   assert.match(css, /\.sidebar-slide-enter-from, \.sidebar-slide-leave-to \{ transform: translateX\(-100%\); \}/)
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.app-shell, \.sidebar-slide-enter-active, \.sidebar-slide-leave-active,[^}]*\{ transition: none;/)
 })
 
-test('登录页桌面左右分栏，窄屏收起说明但保留品牌和同一份表单', () => {
+test('登录页面板统一承载左右区域，窄屏收起说明但保留品牌和同一份表单', () => {
   const auth = readFileSync(new URL('../src/renderer/src/views/AuthView.vue', import.meta.url), 'utf8')
   const { descriptor } = parse(auth)
   // 编译页面真实局部样式，断言响应式规则不会因作用域转换丢失。
@@ -73,13 +73,23 @@ test('登录页桌面左右分栏，窄屏收起说明但保留品牌和同一�
   const stageRule = code.match(/\.auth-stage\[data-v-auth-layout-test\] \{([^}]+)\}/)?.[1] ?? ''
   assert.match(stageRule, /display: grid;/)
   assert.match(stageRule, /grid-template-columns: minmax\(0, 1fr\) minmax\(0, 440px\);/)
+  // 两栏共用一套面板边界，防止表单重新出现独立卡片的圆角与阴影。
+  assert.match(stageRule, /\bborder: 1px solid/)
+  assert.match(stageRule, /border-radius: 22px;/)
+  assert.match(stageRule, /box-shadow: (?!none)[^;]+;/)
+  const stylesheet = postcss.parse(code)
+  stylesheet.walkRules(rule => {
+    if (rule.selector === '.auth-card[data-v-auth-layout-test]')
+      assert.doesNotMatch(rule.toString(), /\b(?:border(?:-[\w-]+)?|box-shadow)\s*:/)
+  })
   // 使用 CSS 解析树读取整个媒体规则，避免编译器换行或内部花括号影响断言。
-  const responsive = postcss.parse(code).nodes.filter(node => node.type === 'atrule' && node.name === 'media')
+  const responsive = stylesheet.nodes.filter(node => node.type === 'atrule' && node.name === 'media')
   const singleColumn = responsive.find(node => node.params === '(max-width: 860px)')?.toString() ?? ''
-  assert.match(singleColumn, /\.auth-stage\[data-v-auth-layout-test\] \{[^}]*grid-template-columns: minmax\(0, 440px\);/)
-  assert.match(singleColumn, /\.auth-intro-copy\[data-v-auth-layout-test\], \.auth-workflow\[data-v-auth-layout-test\] \{\s*display: none;\s*\}/)
+  assert.match(singleColumn, /\.auth-stage\[data-v-auth-layout-test\] \{[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*max-width: 440px;/)
+  assert.match(singleColumn, /\.auth-intro-copy\[data-v-auth-layout-test\], \.auth-domains\[data-v-auth-layout-test\] \{\s*display: none;\s*\}/)
   assert.doesNotMatch(singleColumn, /\.auth-(?:brand|card)\[data-v-auth-layout-test\] \{[^}]*display: none;/)
   const narrow = responsive.find(node => node.params === '(max-width: 480px)')?.toString() ?? ''
+  assert.match(narrow, /\.auth-stage\[data-v-auth-layout-test\] \{[^}]*border-radius: 18px;/)
   assert.match(narrow, /\.auth-card\[data-v-auth-layout-test\] \{[^}]*padding: 28px 24px 0;/)
   // 响应布局复用同一凭据表单，避免缩放窗口时切换实例而清空输入。
   assert.equal((descriptor.template.content.match(/<form\b/g) ?? []).length, 1)
