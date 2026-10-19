@@ -42,7 +42,8 @@ const documentColumns = [{ key: 'label', title: '物料编号 / 名称', width: 
   <AppModal :show="!!materialTarget" origin-key="inventory-material" :ready="materialReady" :load-error="materialLoadError" @update:show="value => { if (!value) store.closeLedgerMaterial() }" preset="card"
     :title="`物料详情 · ${materialTarget?.sku ?? ''}`" :style="{ width: 'min(1280px, calc(100vw - 32px))' }">
     <div class="ledger-material-content">
-      <InventoryMaterialFacts compact />
+      <!-- 独立物料详情直接展示完整参数；仅单据名称列默认使用摘要。 -->
+      <InventoryMaterialFacts />
       <section v-if="stockMaterialMode" class="stock-distribution" aria-label="各仓库库存">
         <div class="stock-distribution-heading"><h3>各仓库库存</h3>
           <span v-if="stockMaterialSnapshot">全仓合计 <strong>{{ stockMaterialSnapshot.total_quantity }} {{ stockMaterialSnapshot.unit }}</strong></span>

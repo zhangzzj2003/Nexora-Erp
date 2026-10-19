@@ -109,7 +109,9 @@ function table(html,title='物料明细') {
 const rows=html=>[...html.matchAll(/<tr data-test-row="\d+">([\s\S]*?)<\/tr>/g)].map(match=>match[1])
 const cell=(row,key)=>row.match(new RegExp(`<td data-test-cell="${key}">([\\s\\S]*?)<\\/td>`))?.[1]
 function assertParameters(html) {
-  for(const value of ['当前档案参数','FR-4 1.6mm','双层板','板厚','0mm','含铅','否','表面工艺','沉金'])assert.ok(text(html).includes(value),value)
+  // 所有真实单据入口默认只显示摘要，完整技术参数由公共组件交互测试覆盖。
+  for(const value of ['查看资料','FR-4 1.6mm','双层板'])assert.ok(text(html).includes(value),value)
+  assert.doesNotMatch(text(html),/当前档案参数|板厚|含铅|表面工艺|沉金/)
   assert.doesNotMatch(text(html),/当前档案名称|CURRENT-PCB|未填写/,'当前参数不能覆盖历史单据身份或铺满空字段')
 }
 

@@ -198,14 +198,14 @@ test('同一行身份更新后拒绝旧回调，物料编号、名称和分支�
 })
 
 // 参数使用当前真实物料资料；展开不同层级时不借用父项或同名物料，也不覆盖原 BOM 的数量单位。
-test('组成名称下直接显示参数，嵌套行独立取料，旧响应按身份缓存回退且响应式更新', async t => {
+test('组成名称下显示参数摘要，嵌套行独立取料，旧响应按身份缓存回退且响应式更新', async t => {
   const f = await fixture(t)
   const material = (id, specification, extra = {}) => ({ id, sku: `NEW-${id}`, name: '档案新名称', unit: '新单位', specification, ...extra })
   f.props.bom.lines[0].material = material(20, '控制板规格', { spec_values: [{ field_id: 1, name: '层数', value: '2', unit: '层', status: 'filled', historical: false }] })
   f.props.materials = [material(40, '旧服务回退外壳规格'), material(30, '板内电阻参数'), material(999, '同名错误资料')]
   await settle()
-  assert.match(f.text(f.cell('1/11', 'component')), /控制板规格.*层数2层/)
-  assert.match(f.text(f.cell('1/11', 'component')), /当前档案参数/)
+  assert.match(f.text(f.cell('1/11', 'component')), /控制板规格.*查看资料/)
+  assert.doesNotMatch(f.text(f.cell('1/11', 'component')), /当前档案参数|层数2层/)
   assert.doesNotMatch(f.text(f.cell('1/11', 'component')), /档案新名称|新单位|同名错误资料|板内电阻参数/)
   assert.equal(f.text(f.cell('1/11', 'unit')), '件')
   assert.equal(f.text(f.cell('1/11', 'quantity')), '1.000')

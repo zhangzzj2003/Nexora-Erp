@@ -53,6 +53,11 @@ export interface MaterialSelectOption<T extends number | null> extends Workspace
   description: string
   searchText: string
 }
+// 选料器与只读名称列共用一行摘要，技术参数和备注留给按需展开的资料卡。
+export function materialChoiceSummary(item: MaterialChoice): string {
+  return [item.spec_summary, item.specification, item.package, item.brand, item.manufacturer_part_number]
+    .filter(value => value?.trim()).join(' · ') || (hasMaterialDetails(item) ? '规格、封装、品牌和料号未填写' : '详细资料暂不可用')
+}
 export function materialSelectOptions<T extends number | null>(options: readonly WorkspaceSelectOption<T>[],
   materials: readonly MaterialChoice[], categories: readonly MaterialCategory[]): MaterialSelectOption<T>[] {
   const indexed = new Map(materials.map(item => [item.id, item]))
@@ -61,8 +66,7 @@ export function materialSelectOptions<T extends number | null>(options: readonly
     const item = option.value === null ? undefined : indexed.get(option.value)
     return { ...option,
       label: item ? `${item.sku} · ${item.name}` : option.label,
-      description: item ? [item.spec_summary, item.specification, item.package, item.brand, item.manufacturer_part_number]
-        .filter(value => value?.trim()).join(' · ') || (hasMaterialDetails(item) ? '规格、封装、品牌和料号未填写' : '详细资料暂不可用') : '',
+      description: item ? materialChoiceSummary(item) : '',
       searchText: [option.label, item?.sku, item?.name, item?.unit,
         ...(item ? [item.spec_summary, ...(item.spec_values ?? []).flatMap(entry => [entry.name, entry.value, entry.unit]), ...(item.extra_attributes ?? []).flatMap(entry => [entry.name, entry.value, entry.unit]), materialChoiceCategory(item, categories), ...detailKeys.map(key => item[key])] : [])]
         .filter(value => typeof value === 'string').join(' ').toLowerCase()
