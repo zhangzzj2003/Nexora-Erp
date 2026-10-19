@@ -3,6 +3,76 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { parse, compileStyle } from '@vue/compiler-sfc'
 import postcss from 'postcss'
+import { windowOverlayTheme } from '../src/shared/window-chrome.ts'
+
+test('顶栏与底栏在明暗主题共用背景、分隔线和原生安全区高度', () => {
+  const base = postcss.parse(readFileSync(new URL('../src/renderer/src/style.css', import.meta.url), 'utf8'))
+  const dark = postcss.parse(readFileSync(new URL('../src/renderer/src/dark-theme.css', import.meta.url), 'utf8'))
+  const light = postcss.parse(readFileSync(new URL('../src/renderer/src/light-theme.css', import.meta.url), 'utf8'))
+  const { descriptor } = parse(readFileSync(new URL('../src/renderer/src/components/app/AppTitleBar.vue', import.meta.url), 'utf8'))
+  const { code, errors } = compileStyle({ source: descriptor.styles[0].content, filename: 'AppTitleBar.vue', id: 'data-v-window-bar-test', scoped: true })
+  assert.deepEqual(errors, [])
+  const title = postcss.parse(code)
+  const values = (sheet, selector) => {
+    const declarations = {}
+    sheet.walkRules(rule => {
+      if (rule.selectors.includes(selector)) rule.walkDecls(decl => { declarations[decl.prop] = decl.value })
+    })
+    return declarations
+  }
+  const header = values(title, '.app-titlebar[data-v-window-bar-test]')
+  const footer = values(base, '.onboard-footer')
+  assert.equal(header.height, 'var(--app-window-bar-height)')
+  assert.equal(footer.height, header.height)
+  assert.equal(header.background, 'var(--app-window-bar-background)')
+  assert.equal(footer.background, header.background)
+  assert.equal(header['border-bottom'], '1px solid var(--app-window-bar-border)')
+  assert.equal(footer['border-top'], header['border-bottom'])
+  assert.equal(values(base, ':root')['--app-window-bar-height'], `${windowOverlayTheme('light').height}px`)
+  // 禁止主题或响应式规则重新覆盖单侧表面，防止深色模式与窄窗口退回旧色块。
+  for (const sheet of [base, light, dark, title]) {
+    sheet.walkRules(rule => {
+      if (!rule.selectors.some(selector => /\.(?:app-titlebar|onboard-footer|app-status-footer)(?:\[|$)/.test(selector))) return
+      rule.walkDecls(decl => {
+        if (/^(?:height|background(?:-color)?|border(?:-(?:top|bottom|color))?)$/.test(decl.prop)) {
+          assert.match(decl.value, /var\(--app-window-bar-(?:height|background|border)\)/)
+        }
+      })
+    })
+  }
+  assert.equal(values(base, ':root')['--app-window-bar-background'], '#fff')
+  assert.equal(values(dark, ":root[data-theme='dark']")['--app-window-bar-background'], '#111d32')
+  assert.equal(values(base, ':root')['--app-window-bar-border'], '#dfe6ed')
+  assert.equal(values(dark, ":root[data-theme='dark']")['--app-window-bar-border'], '#33445f')
+})
+
+test('底栏等高后仍容纳两行长提示，窄窗口只收缩水平留白', () => {
+  const sheet = postcss.parse(readFileSync(new URL('../src/renderer/src/style.css', import.meta.url), 'utf8'))
+  const declarations = selector => {
+    const result = {}
+    sheet.walkRules(rule => {
+      if (rule.selector === selector) rule.walkDecls(decl => { result[decl.prop] = decl.value })
+    })
+    return result
+  }
+  const footer = declarations('.onboard-footer')
+  const status = declarations('.onboard-footer-status')
+  const text = declarations('.onboard-footer-status-text')
+  // 两行正文、上下留白和分隔线之和不能超过栏高，长错误继续在正文内滚动。
+  const twoLines = Number.parseFloat(status['font-size']) * Number(status['line-height']) * 2
+  assert.ok(twoLines + Number.parseFloat(footer.padding) * 2 + 1 <= windowOverlayTheme('light').height)
+  assert.equal(text['max-height'], '3em')
+  assert.equal(text['overflow-y'], 'auto')
+  assert.equal(text['overflow-wrap'], 'anywhere')
+  sheet.walkAtRules('media', media => {
+    media.walkRules('.app-status-footer', rule => {
+      rule.walkDecls(decl => assert.ok(!['height', 'padding', 'padding-block', 'padding-top', 'padding-bottom'].includes(decl.prop)))
+    })
+  })
+  const transitions = readFileSync(new URL('../src/renderer/src/theme-transitions.css', import.meta.url), 'utf8')
+  // 正常切换和减少动态效果都同时覆盖上下栏，避免只有底栏缓慢变色。
+  assert.equal((transitions.match(/\.app-titlebar, \.onboard-footer/g) ?? []).length, 2)
+})
 
 test('登录和工作台共用连接底栏，业务反馈交由通知层展示', () => {
   const shell = readFileSync(new URL('../src/renderer/src/views/WorkspaceShell.vue', import.meta.url), 'utf8')

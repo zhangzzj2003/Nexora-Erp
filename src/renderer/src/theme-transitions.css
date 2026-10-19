@@ -9,7 +9,7 @@
   .account small, .text-button, .card, .metric, .metric span,
   th, td, label, legend, input, select, .primary, .secondary,
   .empty-state button, .receipt-lines span, .pill, .message,
-  .onboard-footer, .app-footer-server, .onboard-footer-status,
+  .app-titlebar, .onboard-footer, .app-footer-server, .onboard-footer-status,
   .onboarding, .onboard-top, .onboard-logo small, .onboard-kicker,
   .onboard-top-note, .onboard-hero p, .onboard-panel, .choice-card,
   .panel-heading p, .trust-panel p, .ready-primary p, .offline-panel p,
@@ -62,7 +62,7 @@
     .account small, .text-button, .card, .metric, .metric span,
     th, td, label, legend, input, select, .primary, .secondary,
     .empty-state button, .receipt-lines span, .pill, .message,
-    .onboard-footer, .app-footer-server, .onboard-footer-status,
+    .app-titlebar, .onboard-footer, .app-footer-server, .onboard-footer-status,
     .onboarding, .onboard-top, .onboard-logo small, .onboard-kicker,
     .onboard-top-note, .onboard-hero p, .onboard-panel, .choice-card,
     .summary-note, .fingerprint, .trust-icon, .panel-icon, .choice-symbol

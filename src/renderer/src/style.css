@@ -5,6 +5,10 @@
 
 /* 工作台以清晰的资料层级为主，所有操作保留可见焦点和禁用状态。 */
 :root {
+  /* 顶栏与底栏共用窗口边框外观；高度与 Electron 原生控件的 48px 安全区一致。 */
+  --app-window-bar-height: 48px;
+  --app-window-bar-background: #fff;
+  --app-window-bar-border: #dfe6ed;
   /* Naive UI 表单输入复用工作台表单色，主题切换时由根变量立即更新。 */
   --workspace-field-background: #fff;
   --workspace-field-disabled: #f3f6f9;
@@ -362,9 +366,9 @@ button.server-row small { margin-top: 5px; color: #7893b3; font-size: 12px; }
 .offline-panel p { color: #748ba7; font-size: 13px; line-height: 1.6; }
 .offline-symbol { width: 64px; height: 64px; display: grid; place-items: center; margin: 0 auto 20px; border-radius: 50%; background: #fff2db; color: #c68319; font-size: 36px; font-weight: 700; }
 .offline-symbol svg { width: 32px; height: 32px; }
-/* 各阶段共用服务端身份与连接状态底栏。 */
-.onboard-footer { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); align-items: center; gap: 12px; border-top: 1px solid #d8e7f6; padding: 17px clamp(24px, 4vw, 68px); background: #ffffff8c; color: #8ea6c3; font-size: 11px; }
-.app-status-footer { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); background: #f8fafc; }
+/* 各阶段底栏与顶栏等高、同色；上下各留 5px，长连接提示仍可显示两行并在内部滚动。 */
+.onboard-footer { flex: none; height: var(--app-window-bar-height); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); align-items: center; gap: 12px; border-top: 1px solid var(--app-window-bar-border); padding: 5px clamp(24px, 4vw, 68px); background: var(--app-window-bar-background); color: #8ea6c3; font-size: 11px; }
+.app-status-footer { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .app-footer-server { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #637c9b; font-size: 12px; font-weight: 600; }
 .onboard-footer-status { grid-column: 2 / 4; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 7px; color: #177456; font-size: 12px; font-weight: 600; line-height: 1.5; text-align: right; }
 .app-status-footer .onboard-footer-status { grid-column: 2; }
@@ -421,7 +425,7 @@ button.server-row small { margin-top: 5px; color: #7893b3; font-size: 12px; }
   .scan-panel { grid-template-columns: 1fr; text-align: center; }
   .scan-visual { margin: 25px 0; }
   /* 窄窗口仍保留左右两侧身份与状态，长文本各自在自己的区域截断或滚动。 */
-  .app-status-footer { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 10px 17px; }
+  .app-status-footer { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-inline: 17px; }
 }
 @media (max-width: 560px) {
   /* 窄窗口优先完整显示放大后的品牌标识，避免右侧说明与它重叠。 */
