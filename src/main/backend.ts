@@ -1020,6 +1020,9 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'updateSupplier': return { method: 'PUT', path: `/api/v1/suppliers/${positiveId(payload, 'id')}`, body: supplierBody(payload, true) }
     case 'deleteSupplier': return { method: 'DELETE', path: `/api/v1/suppliers/${positiveId(payload, 'id')}?version=${positiveId(payload, 'version')}` }
     case 'warehouseDetail': return { method: 'GET', path: `/api/v1/warehouses/${positiveId(payload, 'id')}` }
+    // 预览仅允许固定接口与有效名称，不接收渲染层提供的任意地址。
+    case 'previewWarehouseCode': return { method: 'POST', path: '/api/v1/warehouse-code-preview',
+      body: { name: equipmentEvidence((payload as { name?: unknown } | null)?.name, '仓库名称', 80) } }
     case 'warehouseChanges': return { method: 'GET', path: `/api/v1/warehouses/${positiveId(payload, 'id')}/changes` }
     case 'recentWarehouseChanges': return { method: 'GET', path: `/api/v1/warehouse-changes${payload && typeof payload==='object' && 'before_id' in payload ? '?before_id='+positiveId(payload,'before_id') : ''}` }
     case 'updateWarehouse': return { method: 'PUT', path: `/api/v1/warehouses/${positiveId(payload, 'id')}`, body: masterDataEdit(payload, true) }
@@ -1135,7 +1138,16 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       const fields = payload as ErpOperations['reverseStockAdjustment']['input']
       return { method: 'POST', path: `/api/v1/stock-adjustments/${adjustmentId}/reverse`, body: { reason: fields.reason } }
     }
-    case 'createWarehouse': return { method: 'POST', path: '/api/v1/warehouses', body: payload }
+    case 'createWarehouse': {
+      // 新建可省略编码，兼容旧调用的显式编码；只转发经校验的名称和编码。
+      const row = payload as { name?: unknown; code?: unknown } | null
+      const name = equipmentEvidence(row?.name, '仓库名称', 80)
+      if (row?.code !== undefined && (typeof row.code !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(row.code))) {
+        throw new Error('仓库编码无效')
+      }
+      return { method: 'POST', path: '/api/v1/warehouses',
+        body: { name, ...(row?.code === undefined ? {} : { code: row.code }) } }
+    }
     case 'receipts': return { method: 'GET', path: '/api/v1/receipts' }
     case 'goodsReceipts': return { method: 'GET', path: '/api/v1/purchase-goods-receipts' }
     case 'createGoodsReceipt': return { method: 'POST', path: '/api/v1/purchase-goods-receipts', body: payload }
@@ -1934,6 +1946,16 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
   validateDocumentMaterialResult(action, data)
   validateMaterialUnitResult(action, data)
   validateProductResult(action, data)
+  // 新增字段必须在 IPC 返回前校验；旧服务缺少种数仍保留“未知”，不能补成零。
+  if (action === 'previewWarehouseCode' && (!data || typeof data !== 'object' || Array.isArray(data)
+    || !('code' in data) || typeof data.code !== 'string' || !/^[A-Z0-9-]{1,40}$/.test(data.code))) {
+    throw new Error('仓库编码预览响应无效')
+  }
+  if (action === 'warehouses' && (!Array.isArray(data) || data.some(row => !row || typeof row !== 'object'
+    || Array.isArray(row) || (row.material_count !== undefined
+      && (!Number.isSafeInteger(row.material_count) || row.material_count < 0))))) {
+    throw new Error('仓库物料种数响应无效')
+  }
   if (action === 'materialDetail' && (payload as ErpOperations['materialDetail']['input']).include_suppliers
     && !Array.isArray((data as Record<string, unknown>).supplier_ids)) {
     // 旧服务忽略查询标记时拒绝打开编辑器，避免把“未知绑定”误当作空绑定提交。

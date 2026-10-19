@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/desktop-api'
 import { displayError } from '../utils/formatters.ts'
 import type { Screen } from './types'
+import { captureSession } from './session-state.ts'
 
 // 连接、发现、主机控制与身份状态在同一生命周期内管理，退出时会释放扫描订阅。
 export function createConnectionActions(
@@ -38,6 +39,8 @@ export function createConnectionActions(
   let scanTimer: ReturnType<typeof setInterval> | null = null
   let checkingHealth = false
   let unsubscribeDiscovery: (() => void) | null = null
+  // 退出或切换连接会取消仍在途的登录恢复，避免旧身份响应重新打开工作台。
+  let authenticationRevision = 0
 
   async function checkConnection(): Promise<void> {
     if (!window.nexora) {
@@ -46,19 +49,26 @@ export function createConnectionActions(
       return
     }
     busy.value = true
+    const ticket = ++authenticationRevision
     error.value = ''
     try {
       const startupState = await window.nexora.startup()
+      if (ticket !== authenticationRevision) return
       connectionLost.value = false
       connectionNotice.value = ''
       if (startupState.status === 'connected') {
         server.value = startupState.server
         try {
           // Pinia 在页面刷新后重新创建；从服务端核验主进程会话再恢复账号和权限。
-          user.value = await window.nexora.callApi('me', undefined)
-          state.documentNumbering.value = await window.nexora.callApi('documentNumbering', undefined)
+          const account = await window.nexora.callApi('me', undefined)
+          if (ticket !== authenticationRevision) return
+          user.value = account
+          const numbering = await window.nexora.callApi('documentNumbering', undefined)
+          if (ticket !== authenticationRevision) return
+          state.documentNumbering.value = numbering
           screen.value = !state.documentNumbering.value.configured && user.value.roles.includes('admin') ? 'numbering' : 'app'
         } catch (cause) {
+          if (ticket !== authenticationRevision) return
           // 主进程没有令牌或服务端已撤销会话时，不展示旧账号的数据。
           user.value = null
           screen.value = 'login'
@@ -70,7 +80,7 @@ export function createConnectionActions(
           try {
             await refreshData()
           } catch (cause) {
-            error.value = displayError(cause)
+            if (ticket === authenticationRevision) error.value = displayError(cause)
           }
         }
       } else if (startupState.status === 'needs_setup') {
@@ -86,6 +96,7 @@ export function createConnectionActions(
       recentServers.value = await window.nexora.recentServers()
       host.value = await window.nexora.hostStatus()
     } catch (cause) {
+      if (ticket !== authenticationRevision) return
       screen.value = 'offline'
       error.value = displayError(cause)
     } finally {
@@ -96,6 +107,7 @@ export function createConnectionActions(
   function clearMessage(): void {
     error.value = ''
     notice.value = ''
+    state.warning.value = ''
     connectionNotice.value = ''
   }
 
@@ -107,6 +119,7 @@ export function createConnectionActions(
 
   async function switchServer(): Promise<void> {
     if (!window.nexora) return
+    authenticationRevision++
     if (user.value) {
       try {
         await window.nexora.callApi('logout', undefined)
@@ -315,6 +328,7 @@ export function createConnectionActions(
 
   async function authenticate(): Promise<void> {
     if (!window.nexora || busy.value) return
+    const ticket = ++authenticationRevision
     busy.value = true
     error.value = ''
     try {
@@ -325,12 +339,16 @@ export function createConnectionActions(
         password.value = ''
         return
       }
-      user.value = await window.nexora.callApi('login', {
+      const account = await window.nexora.callApi('login', {
         username: username.value,
         password: password.value
       })
+      if (ticket !== authenticationRevision) return
+      user.value = account
       password.value = ''
-      state.documentNumbering.value = await window.nexora.callApi('documentNumbering', undefined)
+      const numbering = await window.nexora.callApi('documentNumbering', undefined)
+      if (ticket !== authenticationRevision) return
+      state.documentNumbering.value = numbering
       if (!state.documentNumbering.value.configured && user.value.roles.includes('admin')) {
         screen.value = 'numbering'
         return
@@ -339,7 +357,7 @@ export function createConnectionActions(
       connectionNotice.value = ''
       await refreshData()
     } catch (cause) {
-      error.value = displayError(cause)
+      if (ticket === authenticationRevision) error.value = displayError(cause)
     } finally {
       busy.value = false
     }
@@ -370,6 +388,7 @@ export function createConnectionActions(
 
   async function logout(): Promise<void> {
     if (!window.nexora) return
+    authenticationRevision++
     try {
       await window.nexora.callApi('logout', undefined)
     } catch {
@@ -390,14 +409,20 @@ export function createConnectionActions(
     )
       return
     checkingHealth = true
+    const current = captureSession(state)
     try {
       let health = await window.nexora.getBackendHealth()
+      if (!current()) return
       if (!health.connected && connectionLost.value && server.value && !server.value.isLocal) {
         try {
           // 固定地址持续不可用时，主进程只会用原证书身份尝试发现新地址；恢复后重新读取业务数据。
-          server.value = await window.nexora.activateSaved(server.value.id)
+          const restored = await window.nexora.activateSaved(server.value.id)
+          if (!current()) return
+          server.value = restored
           health = await window.nexora.getBackendHealth()
+          if (!current()) return
         } catch (cause) {
+          if (!current()) return
           const message = displayError(cause)
           if (message.includes('证书已变化')) error.value = message
         }
@@ -412,13 +437,16 @@ export function createConnectionActions(
       connectionLost.value = false
       error.value = ''
       if (screen.value === 'numbering') {
-        state.documentNumbering.value = await window.nexora.callApi('documentNumbering', undefined)
+        const numbering = await window.nexora.callApi('documentNumbering', undefined)
+        if (!current()) return
+        state.documentNumbering.value = numbering
         if (state.documentNumbering.value.configured) { screen.value = 'app'; await refreshData() }
       }
       if (screen.value === 'app') {
         try {
           await refreshData()
         } catch {
+          if (!current()) return
           user.value = null
           screen.value = 'login'
           connectionNotice.value = '连接已恢复，请重新登录后查看最新数据。'
@@ -427,6 +455,7 @@ export function createConnectionActions(
       }
       connectionNotice.value = '服务端连接已恢复，数据已更新。'
     } catch {
+      if (!current()) return
       connectionLost.value = true
       connectionNotice.value = ''
     } finally {

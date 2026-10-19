@@ -13,7 +13,8 @@ export function selectBackendPython(cwd, platform = process.platform, env = proc
 
 export function checkBackendBuildEnvironment(python, platform = process.platform,
   run = spawnSync) {
-  const modules = ['fastapi', 'uvicorn', 'cryptography', 'zeroconf', 'ifaddr', 'reportlab', 'PyInstaller']
+  // 名称自动编码也在服务启动时导入，缺少词典依赖必须在打包前报错。
+  const modules = ['fastapi', 'uvicorn', 'cryptography', 'zeroconf', 'ifaddr', 'reportlab', 'pypinyin', 'PyInstaller']
   if (platform === 'win32') modules.push('servicemanager', 'win32service', 'win32serviceutil')
   // 逐个实际导入运行依赖，PyInstaller 的成功退出本身不能证明隐藏依赖已被打入包内。
   const probe = `import importlib, sys\nif sys.version_info < (3, 11):\n raise RuntimeError('Python 3.11+ required')\nfor name in ${JSON.stringify(modules)}:\n importlib.import_module(name)`

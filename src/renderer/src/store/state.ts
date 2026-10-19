@@ -1,5 +1,6 @@
 import type { ProductionPlan, ProductionPlanDetail, ProductionPlanInput, ProductionPlanOptions } from '../../../shared/production-plan-api'
 import { createProductState } from './product-state.ts'
+import { initializeSessionState } from './session-state.ts'
 import { newPurchasePriceLine } from '../utils/purchase-pricing.ts'
 import type { PurchasePriceDraft } from '../utils/purchase-pricing.ts'
 import type {MaterialSupplyRow} from '../../../shared/material-supply-api'
@@ -218,6 +219,8 @@ export function createAppState() {
   const expandedGroupKey = ref<WorkspaceRouteGroupKey | null>(null)
   const version = ref('')
   const notice = ref('')
+  // 已完成写入后的刷新异常单独提示，不能冒充保存失败。
+  const warning = ref('')
   const error = ref('')
   const busy = ref(false)
   const user = ref<User | null>(null)
@@ -644,7 +647,7 @@ export function createAppState() {
     materialCategoryDraft.value = {code: '', parent_code: null, name: '', enabled: true, sort_order: 0, notes: '', reason: ''}
     materialFieldDraft.value = {code: '', name: '', kind: 'text', unit: '', options: [], allow_custom: false, required: false, enabled: true, sort_order: 0, version: 0, reason: ''}
   }, {flush: 'sync'})
-  return {
+  const state = {
     ...productState,
     documentNumbering,
     productionAssociationTarget, productionAssociationRecord, productionAssociationLoading, productionAssociationError,
@@ -666,6 +669,7 @@ export function createAppState() {
     expandedGroupKey,
     version,
     notice,
+    warning,
     error,
     busy,
     user,
@@ -884,6 +888,8 @@ export function createAppState() {
     selectedReturnIssue,
     selectedCompletionOrder
   }
+  initializeSessionState(state)
+  return state
 }
 
 export type AppState = ReturnType<typeof createAppState>

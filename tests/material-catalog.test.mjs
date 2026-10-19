@@ -122,5 +122,6 @@ test('重新打开编辑器读取当前资料，失败和退出后的迟到结�
   state.user.value=null
   resolve({...row,version:5,notes:'退出后的旧响应'})
   assert.equal(await loading,undefined)
-  assert.equal(state.materials.value[0].version,4)
+  // 退出后整个目录已清空，迟到响应不能恢复之前账号的任何版本。
+  assert.deepEqual(state.materials.value,[])
 })

@@ -65,7 +65,11 @@ export interface CustomerImportPreview {
 export interface CustomerImportResult {
   batch_reference: string; created: Customer[]
 }
-export interface Warehouse { id: number; code: string; name: string; version: number }
+export interface Warehouse {
+  id: number; code: string; name: string; version: number
+  // 列表返回当前有库存的物料种数；历史审计和旧服务响应没有此字段。
+  material_count?: number
+}
 export interface MasterDataChange<T> {
   id: number; action: 'create' | 'update' | 'delete'; before: T | null; after: T | null
   reason: string; changed_by: number; changed_by_name: string; created_at: string
@@ -1480,6 +1484,7 @@ export interface ErpOperations extends ProductionPlanOperations, MaterialFlowOpe
   updateSupplier: { input: SupplierInput & { id: number; version: number; reason: string }; output: Supplier }
   deleteSupplier: { input: { id: number; version: number }; output: void }
   warehouseDetail: { input: { id: number }; output: Warehouse }
+  previewWarehouseCode: { input: { name: string }; output: { code: string } }
   warehouseChanges: { input: { id: number }; output: WarehouseChange[] }
   recentWarehouseChanges: { input: { before_id?: number }; output: WarehouseChange[] }
   updateWarehouse: { input: { id: number; code: string; name: string; version: number; reason: string }; output: Warehouse }
@@ -1531,7 +1536,7 @@ export interface ErpOperations extends ProductionPlanOperations, MaterialFlowOpe
   availableAdjustmentLots: {input: {adjustmentId: number}; output: AdjustmentLotOptions}
   postStockAdjustment: { input: { adjustmentId: number; lines?: AdjustmentLotLineInput[] }; output: StockAdjustment }
   reverseStockAdjustment: { input: { adjustmentId: number; reason: string }; output: StockAdjustment }
-  createWarehouse: { input: { code: string; name: string }; output: Warehouse }
+  createWarehouse: { input: { code?: string; name: string }; output: Warehouse }
   receipts: { input: undefined; output: Receipt[] }
   goodsReceipts: { input: undefined; output: GoodsReceipt[] }
   createGoodsReceipt: { input: { purchase_order_id: number; warehouse_id: number; reference: string; lines: { purchase_order_line_id: number; accepted_quantity: string; rejected_quantity: string; rejection_reason: string }[] }; output: GoodsReceipt }

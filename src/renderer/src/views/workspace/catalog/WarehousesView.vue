@@ -17,11 +17,13 @@ import './catalog.css'
 
 const store = usePiniaAppStore()
 const { busy, connectionLost, warehouses } = storeToRefs(store)
-const { can, saveWarehouse, deleteWarehouse, localTime } = store
+const { can, saveWarehouse, previewWarehouseCode, deleteWarehouse, localTime } = store
 const query = ref('')
 const editingId = ref<number | undefined>()
 const showForm = ref(false)
 const form = reactive({ code: '', name: '', version: 0, reason: '' })
+const codeLoading = ref(false)
+const codeError = ref('')
 const detailLoading = ref(false)
 const detailError = ref('')
 const auditOpen = ref(false)
@@ -38,12 +40,35 @@ const filtered = computed(() =>
 const columns = [
   { key: 'code', title: '仓库编码' },
   { key: 'name', title: '仓库名称' },
+  { key: 'material_count', title: '物料种数' },
   { key: 'actions', title: '操作' }
 ]
 // 等待期间只保留打开意图；取消与切页递增代次，迟到结果不能重开弹窗。
 let formRead = 0
 let auditRead = 0
 const dialogSession = computed(() => `${store.server?.id}:${store.server?.fingerprint}:${store.user?.id}:${store.user?.permissions.join('|')}`)
+// 名称停顿后查询同一服务端编码规则；改名、关闭、断线和换会话均丢弃迟到预览。
+watch([() => form.name, editingId, showForm, connectionLost, dialogSession],
+  ([name, id, open, disconnected], _, onCleanup) => {
+    codeLoading.value = false
+    codeError.value = ''
+    if (id) return
+    form.code = ''
+    if (!open || disconnected || !name.trim()) return
+    let active = true
+    codeLoading.value = true
+    const timer = setTimeout(async () => {
+      try {
+        const code = await previewWarehouseCode(name.trim())
+        if (active) form.code = code
+      } catch (cause) {
+        if (active) codeError.value = displayError(cause)
+      } finally {
+        if (active) codeLoading.value = false
+      }
+    }, 250)
+    onCleanup(() => { active = false; clearTimeout(timer) })
+  }, { flush: 'sync' })
 watch(showForm, value => { if (!value) { formRead++; detailLoading.value = false } }, { flush: 'sync' })
 watch(auditOpen, value => { if (!value) { auditRead++; auditLoading.value = false } }, { flush: 'sync' })
 watch(dialogSession, () => { formRead++; auditRead++; showForm.value = false; auditOpen.value = false }, { flush: 'sync' })
@@ -109,7 +134,7 @@ function openAudit(): void {
       :data="filtered"
       title="仓库列表"
       :columns="columns"
-      :min-table-width="440"
+      :min-table-width="620"
     >
       <template #actions>
         <AppButton
@@ -134,6 +159,7 @@ function openAudit(): void {
         <AppModal :busy="busy" origin-key="WarehousesView:form" @invalidated="showForm = false" :ready="!detailLoading" :load-error="detailError"
           v-model:show="showForm"
           preset="card"
+          :title="editingId ? '编辑仓库' : '新增仓库'"
           :mask-closable="!busy"
           :style="{
             width: 'min(900px, calc(100vw - 32px))',
@@ -143,31 +169,34 @@ function openAudit(): void {
         >
           <form
             v-if="showForm && can('warehouse.manage')"
-            class="catalog-editor"
+            class="catalog-editor warehouse-editor"
             @submit.prevent="save"
           >
-            <h3>{{ editingId ? '编辑仓库' : '新增仓库' }}</h3>
+            <!-- 标题交给公共弹窗标题栏；先填写名称，再查看自动编码。 -->
             <div class="form-grid">
+              <label>仓库名称<AppInput v-model.trim="form.name" required maxlength="80" /></label>
               <label
                 >仓库编码<AppInput
-                  v-model.trim="form.code"
-                  required
-                  maxlength="40"
-                  pattern="[A-Za-z0-9_-]+"
-              /></label>
-              <label>仓库名称<AppInput v-model.trim="form.name" required maxlength="80" /></label>
+                  :model-value="form.code"
+                  readonly
+                  :placeholder="codeLoading ? '正在生成编码…' : '填写名称后自动生成'"
+                />
+                <span class="material-hint">{{ editingId ? '已有编码保持不变。' : '按名称拼音首字母生成，重码自动加序号，以保存结果为准。' }}</span>
+                <span v-if="codeError" class="material-hint" role="alert">编码预览失败：{{ codeError }}</span>
+              </label>
               <label v-if="editingId">修改原因<AppInput v-model.trim="form.reason" required maxlength="500" /></label>
             </div>
-            <div class="form-actions">
-              <AppButton :disabled="busy || connectionLost" variant="primary" type="submit"
-                >保存</AppButton
-              ><AppButton
+            <!-- 操作集中在右侧，取消在前、保存为最右侧主操作。 -->
+            <div class="form-actions warehouse-editor-actions">
+              <AppButton
                 type="button"
                 :disabled="busy"
                 @click="showForm = false"
                 variant="secondary"
                 >取消</AppButton
               >
+              <AppButton :disabled="busy || connectionLost || !form.name.trim()" variant="primary" type="submit"
+                >保存</AppButton>
             </div>
           </form>
         </AppModal>
@@ -190,13 +219,17 @@ function openAudit(): void {
       </template>
       <template #cell-code="{ row: item }">{{ item.code }}</template>
       <template #cell-name="{ row: item }">{{ item.name }}</template>
+      <template #cell-material_count="{ row: item }">
+        <span :title="item.material_count === undefined ? '请升级服务端后查看物料种数' : '当前库存大于零的不同物料数量'">{{ item.material_count ?? '—' }}</span>
+      </template>
       <template #cell-actions="{ row: item }"
         ><div class="catalog-actions">
           <template v-if="can('warehouse.manage')">
             <AppButton
               :disabled="busy || connectionLost || detailLoading"
               @click.capture="captureDialogOrigin('WarehousesView:form', $event)" @click="edit(item)"
-              variant="text"
+              variant="secondary"
+              size="small"
               type="button"
               >编辑</AppButton
             >
@@ -208,7 +241,9 @@ function openAudit(): void {
               <template #trigger
                 ><AppButton
                   :disabled="busy || connectionLost || item.id === 1"
-                  variant="text"
+                  variant="secondary"
+                  size="small"
+                  tone="error"
                   type="button"
                   >删除</AppButton
                 ></template

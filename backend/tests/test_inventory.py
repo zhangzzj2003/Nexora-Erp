@@ -65,6 +65,8 @@ def test_multi_warehouse_transfer_and_audit(monkeypatch, tmp_path):
         assert client.get(f"{base}/stock?warehouse_id=1", headers=view).json()[0]["quantity"] == "0.001"
         assert client.get(f"{base}/stock?warehouse_id=2", headers=view).json()[0]["quantity"] == "2.124"
         assert client.get(f"{base}/stock", headers=view).json()[0]["quantity"] == "2.125"
+        # 列表种数随真实入库与跨仓调拨变化，同一物料在两个有结存的仓库分别计数。
+        assert {row['id']: row['material_count'] for row in client.get(f"{base}/warehouses", headers=view).json()} == {1: 1, 2: 1}
         assert client.get(f"{base}/stock?warehouse_id=999", headers=view).status_code == 422
         movements = client.get(f"{base}/movements", headers=view).json()
         assert [item["source_type"] for item in movements] == ["transfer_in", "transfer_out", "receipt"]
@@ -144,3 +146,5 @@ def test_transfer_reversal_is_linked_atomic_and_checks_target_stock(monkeypatch,
         assert len([item for item in movements if item["transfer_id"] == draft]) == 4
         assert [item["quantity"] for item in client.get(f"{base}/stock?warehouse_id=1", headers=view).json()] == ["5.000", "5.000"]
         assert [item["quantity"] for item in client.get(f"{base}/stock?warehouse_id={second}", headers=view).json()] == ["0.000", "0.000"]
+        # 调拨冲销后目标仓归零，历史仍有流水也不能继续计作在库物料。
+        assert next(row for row in client.get(f"{base}/warehouses", headers=view).json() if row['id'] == second)['material_count'] == 0

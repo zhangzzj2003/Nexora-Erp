@@ -340,10 +340,16 @@ export function createWarehouseActions(
         if (!data.version || !data.reason?.trim()) throw new Error('请重新读取仓库版本并填写修改原因。')
         await window.nexora!.callApi('updateWarehouse', { code: data.code, name: data.name,
           version: data.version, reason: data.reason, id })
-      } else await window.nexora!.callApi('createWarehouse', { code: data.code, name: data.name })
+      // 新增由服务端按名称分配最终编码，不能把可能已被占用的预览编码写回。
+      } else await window.nexora!.callApi('createWarehouse', { name: data.name })
       saved = true
     }, '仓库已保存。')
     return saved
+  }
+
+  async function previewWarehouseCode(name: string): Promise<string> {
+    if (!window.nexora || state.connectionLost.value) throw new Error('连接已断开，无法预览仓库编码。')
+    return (await window.nexora.callApi('previewWarehouseCode', { name })).code
   }
 
   async function deleteWarehouse(id: number, version: number): Promise<void> {
@@ -372,6 +378,7 @@ export function createWarehouseActions(
     cancelOtherOutbound,
     reverseOtherOutbound,
     saveWarehouse,
+    previewWarehouseCode,
     deleteWarehouse,
     createWarehouse,
     createTransfer,
