@@ -53,7 +53,9 @@ def test_crud_validation_and_conflicts(client, resource, original, updated):
         other = create(client, resource, original)
         assert client.put(f"/api/v1/{resource}/{other}",
                           json={**updated, "version": 1, "reason": "重复资料"}).status_code == 409
-    assert expected in client.get(f"/api/v1/{resource}").json()
+    # 仓库列表额外返回动态种数；编辑响应和历史档案仍保持原字段，空仓必须明确返回零。
+    listed = {**expected, 'material_count': 0} if resource == 'warehouses' else expected
+    assert listed in client.get(f"/api/v1/{resource}").json()
     delete_path = path if resource == 'materials' else f'{path}?version=2'
     assert client.delete(delete_path).status_code == 204
     assert client.delete(delete_path).status_code == 404
