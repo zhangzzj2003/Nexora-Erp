@@ -17,6 +17,8 @@ try {
 }
 const result = spawnSync(python, ['-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir',
   '--collect-all', 'tzdata',
+  // 仓库自动编码依赖拼音词典，独立服务包必须与开发环境使用相同数据。
+  '--collect-all', 'pypinyin',
   '--name', 'nexora-server', '--distpath', 'build', '--workpath', 'build/pyinstaller',
   '--add-data', `${quoteFontSource}${dataSeparator}app/sales/fonts`,
   '--specpath', 'build/pyinstaller', 'backend/launcher.py'], {

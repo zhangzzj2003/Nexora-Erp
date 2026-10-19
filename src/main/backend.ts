@@ -1020,6 +1020,9 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     case 'updateSupplier': return { method: 'PUT', path: `/api/v1/suppliers/${positiveId(payload, 'id')}`, body: supplierBody(payload, true) }
     case 'deleteSupplier': return { method: 'DELETE', path: `/api/v1/suppliers/${positiveId(payload, 'id')}?version=${positiveId(payload, 'version')}` }
     case 'warehouseDetail': return { method: 'GET', path: `/api/v1/warehouses/${positiveId(payload, 'id')}` }
+    // 预览仅允许固定接口与有效名称，不接收渲染层提供的任意地址。
+    case 'previewWarehouseCode': return { method: 'POST', path: '/api/v1/warehouse-code-preview',
+      body: { name: equipmentEvidence((payload as { name?: unknown } | null)?.name, '仓库名称', 80) } }
     case 'warehouseChanges': return { method: 'GET', path: `/api/v1/warehouses/${positiveId(payload, 'id')}/changes` }
     case 'recentWarehouseChanges': return { method: 'GET', path: `/api/v1/warehouse-changes${payload && typeof payload==='object' && 'before_id' in payload ? '?before_id='+positiveId(payload,'before_id') : ''}` }
     case 'updateWarehouse': return { method: 'PUT', path: `/api/v1/warehouses/${positiveId(payload, 'id')}`, body: masterDataEdit(payload, true) }

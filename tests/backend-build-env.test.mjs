@@ -28,6 +28,8 @@ test('缺少运行依赖时在打包前明确失败，Windows 同时检查服务
   assert.match(calls[0].args[1], /importlib\.import_module\(name\)/)
   assert.match(calls[0].args[1], /win32serviceutil/)
   assert.match(calls[0].args[1], /ifaddr/)
+  // 防止仓库自动编码依赖仅存在于开发环境，打包却遗漏启动所需模块。
+  assert.match(calls[0].args[1], /pypinyin/)
 })
 
 test('依赖齐全时允许继续打包，解释器启动失败也给出诊断', () => {

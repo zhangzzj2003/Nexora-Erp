@@ -17,6 +17,7 @@ from app.core.orm import orm_session, add_model
 from app.core.models import Material, PhysicalLot, PhysicalLotAllocation, StockMovement, Transfer, TransferLine, TransferReversal, User, Warehouse, WarehouseChange
 from app.access.security import require
 from app.inventory.physical_lots import LotPart, lot_balance, post_lot_movement
+from app.inventory.warehouse_catalog import next_warehouse_code, warehouse_material_counts
 
 UserRu = aliased(User)
 UserU = aliased(User)
@@ -26,16 +27,8 @@ WarehouseSrc = aliased(Warehouse)
 router = APIRouter(route_class=NumberedRoute, prefix="/api/v1")
 
 
-class WarehouseInput(BaseModel):
-    code: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
+class WarehouseNameInput(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    version: int | None = Field(default=None, ge=1, strict=True)
-    reason: str = Field(default="", max_length=500)
-
-    @field_validator("code")
-    @classmethod
-    def normalize_code(cls, value: str) -> str:
-        return value.upper()
 
     @field_validator("name")
     @classmethod
@@ -44,10 +37,26 @@ class WarehouseInput(BaseModel):
             raise ValueError("仓库名称不能为空")
         return value.strip()
 
+
+class WarehouseInput(WarehouseNameInput):
+    code: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
+    version: int | None = Field(default=None, ge=1, strict=True)
+    reason: str = Field(default="", max_length=500)
+
+    @field_validator("code")
+    @classmethod
+    def normalize_code(cls, value: str | None) -> str | None:
+        return value.upper() if value is not None else None
+
     @field_validator("reason")
     @classmethod
     def trim_reason(cls, value: str) -> str:
         return value.strip()
+
+
+class WarehouseCreateInput(WarehouseInput):
+    # 新客户端只提供名称；保留旧客户端显式编码，历史资料与编辑契约不变。
+    code: str | None = Field(default=None, min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 def warehouse_data(row: Warehouse) -> dict:
@@ -219,7 +228,17 @@ def transfer_data(db: Session, transfer_id: int) -> dict:
 @router.get("/warehouses")
 def list_warehouses(_: dict = Depends(require("inventory.view"))) -> list[dict]:
     with orm_session() as db:
-        return [warehouse_data(row) for row in db.scalars(select(Warehouse).order_by(Warehouse.id))]
+        counts = warehouse_material_counts(db)
+        return [{**warehouse_data(row), 'material_count': counts.get(row.id, 0)}
+                for row in db.scalars(select(Warehouse).order_by(Warehouse.id))]
+
+
+@router.post("/warehouse-code-preview")
+def preview_warehouse_code(payload: WarehouseNameInput,
+                           _: dict = Depends(require("warehouse.manage"))) -> dict:
+    # 预览仅查询；保存时重新分配，以处理其他客户端在预览后占用编码的情况。
+    with orm_session() as db:
+        return {'code': next_warehouse_code(db, payload.name)}
 
 
 @router.get("/warehouses/{warehouse_id}")
@@ -254,10 +273,11 @@ def warehouse_changes(warehouse_id: int, _: dict = Depends(require("inventory.vi
 
 
 @router.post("/warehouses", status_code=201)
-def create_warehouse(payload: WarehouseInput, actor: dict = Depends(require("warehouse.manage"))) -> dict:
+def create_warehouse(payload: WarehouseCreateInput, actor: dict = Depends(require("warehouse.manage"))) -> dict:
     with orm_session(write=True) as db:
+        code = payload.code or next_warehouse_code(db, payload.name)
         try:
-            row = add_model(db, Warehouse(code=payload.code, name=payload.name, version=1))
+            row = add_model(db, Warehouse(code=code, name=payload.name, version=1))
         except IntegrityError:
             raise HTTPException(409, "仓库编码或名称已存在") from None
         record_warehouse_change(db, row, 'create', None, actor, payload.reason or '新增仓库')
