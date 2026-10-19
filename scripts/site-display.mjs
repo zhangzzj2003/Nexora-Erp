@@ -12,6 +12,11 @@ export function displayStyles() {
     const root=postcss.parse(source)
     // 响应式由官网镜头处理，不复制应用断点、深色主题、过渡或 Tailwind 全局指令。
     for(const node of root.nodes) if(node.type==='rule') {
+      // 顶栏改用共享变量后，静态展示也需带上其浅色依赖，避免高度与背景失效。
+      if(node.selector===':root') {
+        const tokens=node.nodes.filter(item=>item.type==='decl'&&item.prop.startsWith('--app-window-bar-'))
+        if(tokens.length) output.append(postcss.rule({selector:'.erp-display',nodes:tokens.map(item=>item.clone())}))
+      }
       const selectors=node.selectors.filter(selector=>classes.test(selector)&&!selector.includes("data-theme='dark'")).map(selector=>{
         const clean=selector.replace(/:deep\(([^)]+)\)/g,'$1')
         return clean.includes(':root') ? clean.replace(/:root/g,'.erp-display') : '.erp-display '+clean

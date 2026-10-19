@@ -37,6 +37,11 @@ test('工作台、浅色主题和表格样式复用项目规则，任何选择�
   assert.match(css,/background: #edf1f5/)
   assert.match(css,/--vxe-ui-table-border-color: #e5edf1/)
   assert.match(css,/font-size:19\.5px/)
+  // 静态官网不会加载应用根样式，共享顶栏变量必须随规则导出并继续限制在展示作用域。
+  const tokens={}
+  root.walkRules('.erp-display',rule=>rule.walkDecls(/^--app-window-bar-/,decl=>{tokens[decl.prop]=decl.value}))
+  assert.deepEqual(tokens,{'--app-window-bar-height':'48px','--app-window-bar-background':'#fff','--app-window-bar-border':'#dfe6ed'})
+  assert.match(css,/height: var\(--app-window-bar-height\)/)
   // 明细锚点贴合文字，手机移动的终点不能是单元格的空白末端。
   assert.match(css,/workspace-record-lines>span\{[^}]*width:max-content;max-width:100%/)
   assert.doesNotMatch(css,/@import|data-theme='dark'|100vw|100svh/)

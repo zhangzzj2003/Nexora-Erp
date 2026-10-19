@@ -1,5 +1,8 @@
 /* 深色主题集中覆盖旧页面的固定浅色值，账号图标与 Naive UI 主题共用 html 标记。 */
 :root[data-theme='dark'] {
+  /* 只切换共用表面变量，避免顶栏与底栏在深色模式出现两个色块。 */
+  --app-window-bar-background: #111d32;
+  --app-window-bar-border: #33445f;
   color: #e6edf8;
   background: #0c1526;
 }
@@ -52,7 +55,7 @@
 
 /* 公共底栏在登录页和工作台共用，避免切换主题后留下浅色横条。 */
 :root[data-theme='dark'] .onboard-footer,
-:root[data-theme='dark'] .app-status-footer { border-color: #2d3e57; background: #101c30; color: #a3b4cc; }
+:root[data-theme='dark'] .app-status-footer { color: #a3b4cc; }
 :root[data-theme='dark'] .app-footer-server,
 :root[data-theme='dark'] .onboard-footer-status.is-pending,
 :root[data-theme='dark'] .onboard-footer-status.is-idle { color: #a3b4cc; }

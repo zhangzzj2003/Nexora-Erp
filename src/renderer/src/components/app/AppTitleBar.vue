@@ -39,7 +39,7 @@ watch(themeMode, syncWindowTheme)
 
 <style scoped>
 /* 原生控件安全区由 Electron 提供，系统缩放、全屏和按钮位置变化时自动更新。 */
-.app-titlebar { flex: none; height: 48px; background: #fff; color: #17213b; border-bottom: 1px solid #dfe6ed; -webkit-app-region: drag; user-select: none; }
+.app-titlebar { flex: none; height: var(--app-window-bar-height); background: var(--app-window-bar-background); color: #17213b; border-bottom: 1px solid var(--app-window-bar-border); -webkit-app-region: drag; user-select: none; }
 .app-titlebar-safe-area { margin-left: env(titlebar-area-x, 0px); width: env(titlebar-area-width, calc(100% - 138px)); height: 100%; display: flex; align-items: center; gap: 16px; padding: 0 12px; }
 .app-titlebar--mac .app-titlebar-safe-area { margin-left: env(titlebar-area-x, 88px); width: env(titlebar-area-width, calc(100% - 88px)); }
 .app-titlebar-brand { display: flex; flex: none; align-items: center; gap: 9px; white-space: nowrap; font-size: 13px; letter-spacing: .05em; }
@@ -49,7 +49,7 @@ watch(themeMode, syncWindowTheme)
 /* 主题按钮不参与拖动；页面标签另占内容区的第二行。 */
 .app-titlebar-actions { -webkit-app-region: no-drag; }
 .app-titlebar-actions { flex: none; display: flex; align-items: center; }
-:root[data-theme='dark'] .app-titlebar { background: #111d32; color: #e6edf8; border-color: #33445f; }
+:root[data-theme='dark'] .app-titlebar { color: #e6edf8; }
 :root[data-theme='dark'] .app-titlebar-brand span { color: var(--workspace-field-accent); }
 @media (max-width: 900px) {
   .app-titlebar-safe-area { gap: 10px; }
