@@ -17,7 +17,6 @@ import { usesIntegratedTitleBar } from '../../../shared/window-chrome'
 import AppStatusFooter from '../components/app/AppStatusFooter.vue'
 import AuthView from './AuthView.vue'
 import DocumentNumberingSettings from '../components/workspace/DocumentNumberingSettings.vue'
-import { nexoraLogo } from '../assets/brand'
 import { accountRoleText } from '../utils/account-role'
 import { workspacePageDescriptions } from '../utils/workspace-page-copy'
 
@@ -69,11 +68,7 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
       <!-- 标签独占标题栏下方、侧栏右侧的一行，不随业务内容滚动。 -->
       <WorkspaceTabs v-if="screen === 'app'" class="workspace-page-tabs" />
       <div class="content-body" :class="{ 'auth-screen': isAuthScreen, 'numbering-onboarding': isNumberingScreen, 'product-catalog-screen': isProductWorkspace }">
-        <header v-if="!isNumberingScreen" class="topbar" :class="{ 'topbar--compact': isProductWorkspace }">
-          <!-- 登录标题沿用侧栏的品牌图形，保持未登录和工作台的视觉识别一致。 -->
-          <span v-if="isAuthScreen" class="auth-header-mark" aria-hidden="true">
-            <img :src="nexoraLogo" alt="" />
-          </span>
+        <header v-if="!isNumberingScreen && !isAuthScreen" class="topbar" :class="{ 'topbar--compact': isProductWorkspace }">
           <div class="workspace-page-title">
             <p class="eyebrow">NEXORA WORKSPACE</p>
             <h1>
@@ -99,8 +94,11 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
               >{{ user.username }}<small>{{ accountRole }}</small></span
             ><AppButton type="button" :disabled="busy" @click="logout" variant="text">{{ t("退出登录") }}</AppButton>
           </div>
-          <!-- 浏览器和 Linux 登录页没有融合顶部栏，仍保留右上角设置入口。 -->
-          <div v-if="(isAuthScreen || screen === 'numbering') && !integratedTitleBar" class="auth-settings-actions"><ThemeToggle /><AppSettingsButton /></div>
+        </header>
+
+        <!-- 登录品牌与表单独立分栏，浏览器和 Linux 的设置入口仍留在右上方。 -->
+        <header v-if="isAuthScreen && !integratedTitleBar" class="auth-session-bar">
+          <ThemeToggle /><AppSettingsButton />
         </header>
 
         <!-- 首次编号设置的标题随卡片居中，退出和全局设置留在独立的顶部操作区。 -->
@@ -141,7 +139,10 @@ const accountRole = computed(() => accountRoleText(user.value?.roles ?? [], role
 .numbering-onboarding > .numbering-settings { flex: none; margin: auto; }
 @media (max-width: 420px) { .numbering-account { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
 .workspace-browser-toolbar { display: flex; align-items: center; gap: 12px; flex: none; height: 48px; padding: 0 12px; border-bottom: 1px solid var(--workspace-field-border); }
-.auth-settings-actions { display: flex; align-items: center; margin-left: auto; }
+/* 上下对称的页面留白用于居中；无融合标题栏时单独为设置按钮留出空间。 */
+.content-body.auth-screen { padding: 32px 24px; background-image: radial-gradient(ellipse at 65% 45%, var(--app-accent-tint), transparent 70%); }
+.auth-session-bar { display: flex; justify-content: flex-end; align-items: center; flex: none; gap: 4px; margin: -12px -4px 20px; }
+@media (max-width: 480px) { .content-body.auth-screen { padding: 24px 16px; } }
 /* 标签栏脱离内容区的内边距布局，首个标签贴近侧栏边缘。 */
 .workspace-page-tabs {
   flex: none;

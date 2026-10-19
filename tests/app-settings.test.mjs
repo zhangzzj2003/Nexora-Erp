@@ -231,6 +231,45 @@ test('真实登录和管理员表单按语言渲染，保留草稿、密码约�
   assert.equal(store.username, 'draft-admin')
 })
 
+test('登录品牌与表单完整渲染，长服务端名称和等待状态不改变凭据语义', async () => {
+  const { default: AuthView } = await server.ssrLoadModule('/src/renderer/src/views/AuthView.vue')
+  const { usePiniaAppStore } = await server.ssrLoadModule('/src/renderer/src/store/app-store.ts')
+  const pinia = createPinia(), store = usePiniaAppStore(pinia)
+  store.screen = 'login'; store.username = 'draft-admin'; store.password = 'draft-password'
+  store.server = { id: 'long-server', name: '华东区域生产采购库存协同工作台服务端（长名称回归样例）', version: '0.1.0', fingerprint: 'sample-only' }
+  async function render() {
+    const app = createSSRApp({ render: () => h(AuthView) }).use(pinia)
+    setupSsrStyles(app)
+    return renderToString(app)
+  }
+  const initial = await render()
+  assert.match(initial, /class="auth-stage"/)
+  assert.match(initial, /<h1[^>]*>开始使用联光 ERP<\/h1>/)
+  assert.match(initial, /class="auth-brand-mark"/)
+  assert.ok(initial.includes(store.server.name), '长服务端名称应由真实模板完整转义并渲染')
+  assert.match(initial, /autocomplete="username"/)
+  assert.match(initial, /autocomplete="current-password"/)
+  // 仅通过真实按钮属性判断提交保护，避免状态用例只断言源码表达式。
+  for (const [busy, connectionLost] of [[false, false], [true, false], [false, true]]) {
+    store.busy = busy; store.connectionLost = connectionLost
+    const html = await render()
+    const submit = html.match(/<button\b(?=[^>]*\btype="submit")[^>]*>/)?.[0]
+    assert.ok(submit, '必须保留原生表单提交按钮')
+    assert.equal(/\bdisabled(?:\s|=|>)/.test(submit), busy || connectionLost)
+    const switchButton = [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)]
+      .map(([button]) => button).find(button => button.includes('切换服务端'))
+    assert.ok(switchButton, '切换服务端入口不能随忙碌或断线状态丢失')
+    assert.match(switchButton, /\btype="button"/)
+    assert.equal(store.username, 'draft-admin')
+    assert.equal(store.password, 'draft-password')
+  }
+  // setup 与 login 继续共用输入组件，仅初始化阶段切为新密码语义。
+  store.screen = 'setup'; store.busy = false; store.connectionLost = false
+  const setup = await render()
+  assert.match(setup, /autocomplete="new-password"/)
+  assert.doesNotMatch(setup, /autocomplete="current-password"/)
+})
+
 // 执行真实主题 store，覆盖恢复、非法值和明暗独立性；DOM 只记录同步结果。
 test('颜色切换同步根变量，保留语言和抽屉状态，重启恢复颜色且不影响明暗偏好', async t => {
   const values = new Map(), styles = new Map()

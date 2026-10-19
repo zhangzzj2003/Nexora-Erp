@@ -50,7 +50,10 @@ test('统计放入标题右侧公共目标，切换页面时由路由页面卸�
   const shell=readFileSync(new URL('../src/renderer/src/views/WorkspaceShell.vue',import.meta.url),'utf8')
   const view=readFileSync(new URL('../src/renderer/src/views/workspace/warehouse/OtherInboundsView.vue',import.meta.url),'utf8')
   const target=shell.indexOf('id="workspace-page-summary"')
-  assert.ok(target>shell.indexOf('<header v-if="!isNumberingScreen"'))
-  assert.ok(target<shell.indexOf('</header>',shell.indexOf('<header v-if="!isNumberingScreen"')))
+  // 登录使用独立品牌区后，统计目标仍须完整位于业务页标题栏内。
+  const businessHeader=shell.indexOf('<header v-if="!isNumberingScreen && !isAuthScreen"')
+  assert.ok(businessHeader>=0, '业务页标题栏不能被登录布局替换')
+  assert.ok(target>businessHeader)
+  assert.ok(target<shell.indexOf('</header>',businessHeader))
   assert.match(view,/<Teleport defer to="#workspace-page-summary">\s*<WorkspaceSummaryFilters\s+v-model="statusFilter"\s+:options="summaryOptions"/)
 })

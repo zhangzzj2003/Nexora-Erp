@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { parse, compileStyle } from '@vue/compiler-sfc'
+import postcss from 'postcss'
 
 test('登录和工作台共用连接底栏，业务反馈交由通知层展示', () => {
   const shell = readFileSync(new URL('../src/renderer/src/views/WorkspaceShell.vue', import.meta.url), 'utf8')
@@ -35,6 +37,7 @@ test('页面内容滚动时，公共底栏仍固定在视口底部', () => {
 
 test('登录页占满窗口，进入工作台后侧栏与底栏同步过渡', () => {
   const shell = readFileSync(new URL('../src/renderer/src/views/WorkspaceShell.vue', import.meta.url), 'utf8')
+  const auth = readFileSync(new URL('../src/renderer/src/views/AuthView.vue', import.meta.url), 'utf8')
   const css = readFileSync(new URL('../src/renderer/src/style.css', import.meta.url), 'utf8')
 
   // 未登录时不挂载侧栏，内容始终占第二列；同一个底栏随列宽变化移动。
@@ -43,15 +46,43 @@ test('登录页占满窗口，进入工作台后侧栏与底栏同步过渡', ()
   // 产品目录新增专属布局，但登录和编号引导必须继续使用各自的原有条件。
   assert.match(shell, /:class="\{ 'auth-screen': isAuthScreen, 'numbering-onboarding': isNumberingScreen, 'product-catalog-screen': isProductWorkspace \}"/)
   assert.match(shell, /const isProductWorkspace = computed\(\(\) => screen\.value === 'app' && activeTab\.value === 'products'\)/)
-  assert.match(shell, /import \{ nexoraLogo \} from '\.\.\/assets\/brand'/)
-  assert.match(shell, /<span v-if="isAuthScreen" class="auth-header-mark" aria-hidden="true">\s*<img :src="nexoraLogo" alt="" \/>/)
+  // 品牌与凭据卡片作为一组居中，工作台标题不再在登录时占据左上角。
+  assert.match(shell, /v-if="!isNumberingScreen && !isAuthScreen" class="topbar"/)
+  assert.doesNotMatch(shell, /auth-header-mark/)
+  assert.match(auth, /import \{ nexoraLogo \} from '\.\.\/assets\/brand'/)
+  assert.match(auth, /class="auth-stage"[\s\S]*class="auth-brand"[\s\S]*class="auth-brand-mark"[\s\S]*<img :src="nexoraLogo" alt="" \/>/)
+  assert.match(auth, /NEXORA WORKSPACE/)
+  assert.match(auth, /<h1\b[^>]*>\{\{ t\('开始使用联光 ERP'\) \}\}<\/h1>/)
+  // 浏览器与 Linux 没有融合标题栏，设置入口仍独立保留在登录内容上方。
+  assert.match(shell, /v-if="isAuthScreen && !integratedTitleBar" class="auth-session-bar"[\s\S]*?<ThemeToggle \/>[\s\S]*?<AppSettingsButton \/>/)
   assert.match(css, /\.app-shell \{[^}]*grid-template-columns: 0px minmax\(0, 1fr\);[^}]*transition: grid-template-columns/)
   assert.match(css, /\.app-shell\.has-sidebar \{ grid-template-columns: 238px minmax\(0, 1fr\); \}/)
   assert.match(css, /\.content \{ grid-column: 2;/)
-  assert.match(css, /\.auth-screen \.auth-card \{ margin: auto; \}/)
-  assert.match(css, /\.auth-header-mark \{ width: 52px; height: 52px;/)
+  // 禁止卡片收缩，让矮窗口通过内容区滚动而不是挤压表单；自动外边距只在空间足够时居中。
+  assert.match(css, /\.auth-screen \.auth-stage \{[^}]*flex: none;[^}]*width: min\(100%, 1040px\);[^}]*margin: auto;/)
   assert.match(css, /\.sidebar-slide-enter-from, \.sidebar-slide-leave-to \{ transform: translateX\(-100%\); \}/)
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.app-shell, \.sidebar-slide-enter-active, \.sidebar-slide-leave-active,[^}]*\{ transition: none;/)
+})
+
+test('登录页桌面左右分栏，窄屏收起说明但保留品牌和同一份表单', () => {
+  const auth = readFileSync(new URL('../src/renderer/src/views/AuthView.vue', import.meta.url), 'utf8')
+  const { descriptor } = parse(auth)
+  // 编译页面真实局部样式，断言响应式规则不会因作用域转换丢失。
+  const { code, errors } = compileStyle({ source: descriptor.styles[0].content, filename: 'AuthView.vue', id: 'data-v-auth-layout-test', scoped: true })
+  assert.deepEqual(errors, [])
+  const stageRule = code.match(/\.auth-stage\[data-v-auth-layout-test\] \{([^}]+)\}/)?.[1] ?? ''
+  assert.match(stageRule, /display: grid;/)
+  assert.match(stageRule, /grid-template-columns: minmax\(0, 1fr\) minmax\(0, 440px\);/)
+  // 使用 CSS 解析树读取整个媒体规则，避免编译器换行或内部花括号影响断言。
+  const responsive = postcss.parse(code).nodes.filter(node => node.type === 'atrule' && node.name === 'media')
+  const singleColumn = responsive.find(node => node.params === '(max-width: 860px)')?.toString() ?? ''
+  assert.match(singleColumn, /\.auth-stage\[data-v-auth-layout-test\] \{[^}]*grid-template-columns: minmax\(0, 440px\);/)
+  assert.match(singleColumn, /\.auth-intro-copy\[data-v-auth-layout-test\], \.auth-workflow\[data-v-auth-layout-test\] \{\s*display: none;\s*\}/)
+  assert.doesNotMatch(singleColumn, /\.auth-(?:brand|card)\[data-v-auth-layout-test\] \{[^}]*display: none;/)
+  const narrow = responsive.find(node => node.params === '(max-width: 480px)')?.toString() ?? ''
+  assert.match(narrow, /\.auth-card\[data-v-auth-layout-test\] \{[^}]*padding: 28px 24px 0;/)
+  // 响应布局复用同一凭据表单，避免缩放窗口时切换实例而清空输入。
+  assert.equal((descriptor.template.content.match(/<form\b/g) ?? []).length, 1)
 })
 
 test('侧栏底部显示当前用户、角色和退出，服务端身份交给公共底栏', () => {
