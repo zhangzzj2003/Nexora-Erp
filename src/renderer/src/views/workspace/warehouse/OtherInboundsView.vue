@@ -13,8 +13,8 @@ import AppStatusTag, {
 // 下拉选择统一使用工作台组件，业务值与切换回调保持原有类型。
 import WorkspaceSelect from "../../../components/workspace/WorkspaceSelect.vue";
 import WorkspaceMaterialSelect from "../../../components/workspace/WorkspaceMaterialSelect.vue";
-import WorkspaceMaterialParameters from "../../../components/workspace/WorkspaceMaterialParameters.vue";
-import { materialParameterIndex, materialParameterSource } from '../../../utils/material-parameter-source';
+import WorkspaceMaterialName from "../../../components/workspace/WorkspaceMaterialName.vue";
+import { materialParameterIndex } from '../../../utils/material-parameter-source';
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import type { ComponentPublicInstance } from "vue";
 import { storeToRefs } from "pinia";
@@ -1065,7 +1065,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       <template v-if="detailInbound" #cell-sku="{ row }"
         ><strong>{{ row.sku }}</strong></template
       >
-      <template v-if="detailInbound" #cell-name="{ row }"><strong>{{ row.material_name }}</strong><WorkspaceMaterialParameters :material="materialParameterSource(row.material_id,row.material,materialById)" :categories="materialCategories" current-reference /></template>
+      <template v-if="detailInbound" #cell-name="{ row }"><WorkspaceMaterialName :name="row.material_name" :material-id="row.material_id" :material="row.material" :cached-materials="materialById" :categories="materialCategories" /></template>
       <template v-if="detailInbound" #cell-quantity="{ row }">{{ row.quantity }}</template>
       <template v-if="detailInbound" #cell-received="{ row }">{{
         inboundReceived(row, detailInbound.status)

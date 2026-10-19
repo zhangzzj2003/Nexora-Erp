@@ -18,17 +18,18 @@ async function fixture(t) {
   const filename = resolve('src/renderer/src/views/workspace/catalog/ProductBomStructure.vue')
   const moduleId = normalizePath(filename) + '.material-detail.client.ts'
   // 持续挂载使用客户端编译，避免将 SSR 专用上下文误用于交互渲染器。
-  const parametersFile = resolve('src/renderer/src/components/workspace/WorkspaceMaterialParameters.vue')
-  const parametersId = normalizePath(parametersFile) + '.material-detail.client.ts'
-  const parametersContent = compileScript(parse(readFileSync(parametersFile, 'utf8'), { filename: parametersFile }).descriptor,
-    { id: 'bom-parameters-test', inlineTemplate: true }).content
+  const materialModules = ['WorkspaceMaterialName', 'WorkspaceMaterialInfo'].map(name => {
+    const filename = resolve('src/renderer/src/components/workspace/' + name + '.vue')
+    return [name, normalizePath(filename) + '.material-detail.client.ts',
+      compileScript(parse(readFileSync(filename, 'utf8'), { filename }).descriptor, { id: name, inlineTemplate: true }).content]
+  })
   const content = compileScript(parse(readFileSync(filename, 'utf8'), { filename }).descriptor,
     { id: 'bom-material-details-test', inlineTemplate: true }).content
     .replace(/from (['"])naive-ui\1/g, "from 'virtual:bom-material-naive'")
   const server = await createServer({ configFile: false, plugins: [{ name: 'bom-material-details-test', enforce: 'pre',
     resolveId(id) {
       if (id === moduleId) return id
-      if (id.endsWith('/WorkspaceMaterialParameters.vue')) return parametersId
+      for (const [name, moduleId] of materialModules) if (id.endsWith('/' + name + '.vue')) return moduleId
       if (id === 'virtual:bom-material-naive') return '\0bom-material-naive'
       if (id.startsWith('~icons/')) return '\0bom-material-icon'
       if (id.endsWith('/utils/dialog-origin')) return '\0bom-material-origin'
@@ -38,7 +39,7 @@ async function fixture(t) {
     },
     load(id) {
       if (id === moduleId) return content
-      if (id === parametersId) return parametersContent
+      for (const [, moduleId, content] of materialModules) if (id === moduleId) return content
       if (id === '\0bom-material-naive') return `import {h} from 'vue';export const NCollapse={setup:(p,{slots})=>()=>h('section',slots.default?.())}`
       if (id === '\0bom-material-icon') return `import {h} from 'vue';export default {render:()=>h('svg',{'aria-hidden':'true'})}`
       if (id === '\0bom-material-origin') return `export const origins=[];export function captureDialogOrigin(key,event){origins.push({key,event})}`

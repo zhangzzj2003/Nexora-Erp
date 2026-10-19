@@ -69,9 +69,13 @@
 
 选中后默认显示分类、规格型号、封装、品牌、制造商料号与单位；展开后查看标称参数、公差、电压、功率、温度范围、合规信息和备注。空字段显示“未填写”；旧接口没有提供详细字段时显示“详细资料暂不可用”。资料卡是当前档案的只读展示，不承诺历史单据固定了这些参数，也不执行参数解析、替代料判断或单位换算。
 
-单据详情中的只读物料名称列复用 `WorkspaceMaterialParameters`：默认只显示名称下的一行资料摘要，摘要过长时省略，旁边常驻“查看资料”。点击后显示与选料器一致的两列资料卡（分类、规格型号、封装、品牌、制造商料号、单位）；技术参数、结构化规格、扩展属性和备注通过“展开详情”按需阅读，可分别“收起详情”或“收起资料”。“当前档案参数”标记在展开的资料卡内显示；原单据名称、数量、单位及审批快照不变，不额外读取物料或扩大权限。独立物料详情的完整模式仍直接显示全部参数。
+单据详情中的只读物料名称列统一复用 `WorkspaceMaterialName`，该组件同时负责原名称、辅助信息、资料摘要和展开状态：默认只显示名称下的一行资料摘要，摘要过长时省略，旁边常驻“查看资料”。点击后显示与选料器一致的两列资料卡（分类、规格型号、封装、品牌、制造商料号、单位）；技术参数、结构化规格、扩展属性和备注通过“展开详情”按需阅读，可分别“收起详情”或“收起资料”。“当前档案参数”标记在展开的资料卡内显示；原单据名称、数量、单位及审批快照不变，不额外读取物料或扩大权限。独立物料详情的完整模式仍直接显示全部参数。
 
-展示回归：`node --experimental-strip-types --test tests/material-parameters.test.mjs tests/material-parameter-views.test.mjs tests/material-selection.test.mjs tests/inventory-detail-views.test.mjs tests/product-bom-material-details.test.mjs`。真实浏览器验收运行 `NEXORA_PLAYWRIGHT_MODULE=<已安装的 playwright/index.mjs 绝对路径> node tests/material-parameters-browser.mjs`，默认使用本机 Chrome，覆盖公共弹窗、表格、省略摘要、两级展开收起、键盘焦点与明暗主题窄屏；可通过 `NEXORA_BROWSER_EVIDENCE_DIR` 指定截图目录。
+`WorkspaceMaterialName` 与 `WorkspaceMaterialSelect` 共用 `WorkspaceMaterialInfo` 的摘要、两列资料卡、两级展开和焦点处理，页面不得复制资料卡模板。`WorkspaceMaterialParameters` 保留独立完整参数展示及兼容入口，名称列不再单独拼接它。共享名称组件用原单名称显示身份，按真实 `materialId` 校验内嵌物料或调用方传入的已授权缓存；无资料时保留原名称并提示不可用，不向服务器逐行补查。
+
+已统一接入审批与原送审摘要、库存来源详情、其他入库、生产发领换退详情、工单材料核对、生产关联、BOM 版本与递归组成，以及报价、售后、质检、设备耗材、MRP 计划详情，共 14 个入口组件。采购、销售等复用审批详情的单据同步生效。历史变更记录仍按原审计正文显示；MRP 只用该计划保存的参数快照，并关闭“当前档案参数”标记，避免与当前目录混淆。
+
+展示回归：`node --experimental-strip-types --test tests/material-name-contract.test.mjs tests/material-parameters.test.mjs tests/material-parameter-views.test.mjs tests/material-selection.test.mjs tests/inventory-detail-views.test.mjs tests/product-bom-material-details.test.mjs`。真实浏览器验收运行 `NEXORA_PLAYWRIGHT_MODULE=<已安装的 playwright/index.mjs 绝对路径> node tests/material-parameters-browser.mjs`，默认使用本机 Chrome，覆盖公共弹窗、表格、省略摘要、两级展开收起、键盘焦点、明暗主题窄屏及真实选择器共用资料卡；可通过 `NEXORA_BROWSER_EVIDENCE_DIR` 指定截图目录。
 
 报价、售后、设备维护、质检及库存预警的原业务读取接口附带统一的物料辨认字段及中文分类名称，沿用原接口权限，不额外调用库存物料管理接口。新增字段在主进程统一校验类型与长度，兼容只有编码、名称及单位的旧简要响应；不增加数据库迁移。
 

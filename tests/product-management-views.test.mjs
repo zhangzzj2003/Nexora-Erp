@@ -21,7 +21,7 @@ const settleProductView=async()=>{await new Promise(done=>setImmediate(done));aw
 
 // 保留产品页、共享 BOM 编辑器与详情真实组件，仅替换需要 DOM 的绘制控件。
 async function fixture(t) {
- const liveModules=['views/workspace/catalog/ProductsView.vue','components/workspace/WorkspaceDocumentDialog.vue','views/workspace/catalog/ProductBomStructure.vue','views/workspace/catalog/ProductModelsDialog.vue','components/workspace/WorkspaceMaterialParameters.vue'].map(file=>{
+ const liveModules=['views/workspace/catalog/ProductsView.vue','components/workspace/WorkspaceDocumentDialog.vue','views/workspace/catalog/ProductBomStructure.vue','views/workspace/catalog/ProductModelsDialog.vue','components/workspace/WorkspaceMaterialParameters.vue','components/workspace/WorkspaceMaterialName.vue','components/workspace/WorkspaceMaterialInfo.vue'].map(file=>{
   const filename=resolve('src/renderer/src',file)
   const content=compileScript(parse(readFileSync(filename,'utf8'),{filename}).descriptor,{id:file,inlineTemplate:true}).content
    .replace("import { NCollapse, NDropdown } from 'naive-ui'","import { NCollapse, NDropdown } from 'virtual:products-live-collapse'")
@@ -38,6 +38,8 @@ async function fixture(t) {
     if(id.endsWith('/ProductBomStructure.vue'))return liveModules[2][0]
     if(id.endsWith('/ProductModelsDialog.vue'))return liveModules[3][0]
     if(id.endsWith('/WorkspaceMaterialParameters.vue'))return liveModules[4][0]
+    if(id.endsWith('/WorkspaceMaterialName.vue'))return liveModules[5][0]
+    if(id.endsWith('/WorkspaceMaterialInfo.vue'))return liveModules[6][0]
     if(id.endsWith('/InventoryDetailDialogs.vue'))return '\0products-inventory-details'
     if(id.endsWith('/ProductTreeSidebar.vue'))return '\0products-live-tree'
     if(id.endsWith('/AppCollapseItem.vue'))return '\0products-live-collapse-item'

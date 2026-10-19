@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 详情中的物料身份与摘要统一绘制，参数只取本领域已经授权读取的资料。
+import WorkspaceMaterialName from '../../../components/workspace/WorkspaceMaterialName.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import {computed} from 'vue'
@@ -56,7 +58,7 @@ function changeLabel(action:string):string{return maintenanceCommand[action as k
         <div v-if="job.downtime"><dt>登记停机</dt><dd>{{ store.localTime(job.downtime.started_at) }} 至 {{ job.downtime.ended_at?store.localTime(job.downtime.ended_at):'尚未结束' }}<br>{{ downtimeLabel(job.downtime) }}<template v-if="job.downtime.close_reason"><br>结束依据：{{ job.downtime.close_reason }}</template></dd></div>
         <div v-if="job.parts_outbound_id"><dt>耗材出库</dt><dd>{{ relatedDocumentLabel(job, 'parts_outbound') }} · {{ job.parts_status?partsStatus[job.parts_status]:'未读取' }}<br><RouterLink v-if="store.can('other_outbound.view')" to="/workspace/warehouse-outbounds">前往仓库确认或更正</RouterLink></dd></div>
       </dl>
-      <ul v-if="job.parts.length"><li v-for="part in job.parts" :key="part.material_id">物料 #{{ part.material_id }} · {{ material(part.material_id)?.name || '按原编号核对' }} · {{ part.quantity }} {{ material(part.material_id)?.unit }}</li></ul>
+      <ul v-if="job.parts.length"><li v-for="part in job.parts" :key="part.material_id"><WorkspaceMaterialName :name="`物料 #${part.material_id} · ${material(part.material_id)?.name || '按原编号核对'}`" :material-id="part.material_id" :material="material(part.material_id)" /> · {{ part.quantity }} {{ material(part.material_id)?.unit }}</li></ul>
       <p v-else>未登记耗材，不产生维护出库。</p>
       <template v-if="store.can('purchase_request.view') && job.purchase_requests.length">
         <h4>备件采购来源与到货</h4>

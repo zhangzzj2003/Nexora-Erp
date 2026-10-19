@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 详情中的物料身份与摘要统一绘制，参数只取本领域已经授权读取的资料。
+import WorkspaceMaterialName from '../../../components/workspace/WorkspaceMaterialName.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed, ref, watch } from 'vue'
@@ -43,7 +45,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
       </AppCollapseItem></NCollapse>
     </div>
     <WorkspaceTable material-supply title="采购与生产建议" :columns="suggestions" :data="item.snapshot.suggestions" :min-table-width="1050">
-      <template #cell-material="{ row }">{{ row.sku }} · {{ row.name }}<span class="muted mrp-line">{{ mrpMode[row.supply_mode] }} · {{ row.unit }}<template v-if="row.bom_id"> · BOM #{{ row.bom_id }} v{{ row.bom_version }}</template></span></template>
+      <template #cell-material="{ row }"><WorkspaceMaterialName :name="`${row.sku} · ${row.name}`" :material-id="row.material_id" :material="item.snapshot.sources.materials.find(material => material.id === row.material_id)" :current-reference="false" /><span class="muted mrp-line">{{ mrpMode[row.supply_mode] }} · {{ row.unit }}<template v-if="row.bom_id"> · BOM #{{ row.bom_id }} v{{ row.bom_version }}</template></span></template>
       <template #cell-release="{ row }">{{ row.release_date }}<span v-if="row.late" class="mrp-line">提前期不足：应在 {{ row.required_release_date }} 投放</span></template>
       <template #cell-actions="{ row }">
         <template v-if="conversions(row.key)"><span>{{ conversions(row.key)!.purchase_request_id ? '采购申请' : '工单' }} {{ relatedDocumentLabel(conversions(row.key)!, conversions(row.key)!.purchase_request_id ? 'purchase_request' : 'work_order') }} · {{ conversions(row.key)!.target_reference }}</span>
@@ -57,7 +59,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
     </WorkspaceTable>
     <WorkspaceTable material-supply title="日期净需求" :columns="columns" :data="rows" :min-table-width="1050">
       <template #filters><label>搜索物料 / 日期<AppInput v-model="query" placeholder="编码、名称或 YYYY-MM-DD" /></label></template>
-      <template #cell-material="{ row }">{{ row.sku }} · {{ row.name }}<span class="muted mrp-line">{{ row.date }} · {{ row.unit }} · 低层码 {{ row.level }}</span></template>
+      <template #cell-material="{ row }"><WorkspaceMaterialName :name="`${row.sku} · ${row.name}`" :material-id="row.material_id" :material="item.snapshot.sources.materials.find(material => material.id === row.material_id)" :current-reference="false" /><span class="muted mrp-line">{{ row.date }} · {{ row.unit }} · 低层码 {{ row.level }}</span></template>
       <template #cell-actions="{ row }"><AppButton size="small" @click="source=row">来源核对</AppButton></template>
       <template #empty>{{ query ? '没有匹配的日期行。' : '没有需求、供给或安全库存补足任务。' }}</template>
     </WorkspaceTable>
@@ -69,7 +71,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
         <li v-for="row in source.supply_sources" :key="row.key">供给 {{ mrpSourceLabel(row) }} · {{ row.quantity }} · 安排日 {{ row.scheduled_date }}</li></ul>
       <h4>计算时参数与 BOM</h4><p v-if="materialPolicy">{{ mrpMode[materialPolicy.supply_mode] }} · 参数 v{{ materialPolicy.version }} · 提前期 {{ materialPolicy.lead_time_days }} 日 · 安全库存 {{ materialPolicy.safety_stock }} · 最小批量 {{ materialPolicy.minimum_quantity }} · 倍数 {{ materialPolicy.multiple_quantity }}</p>
       <p v-if="materialBom">BOM {{ documentLabel(materialBom) }} v{{ materialBom.version }} · 基数 {{ materialBom.base_quantity }}</p>
-      <ul v-if="materialBom"><li v-for="line in materialBom.lines" :key="line.id">{{ item.snapshot.sources.materials.find(row=>row.id===line.component_material_id)?.name }} · {{ line.quantity }}</li></ul>
+      <ul v-if="materialBom"><li v-for="line in materialBom.lines" :key="line.id"><WorkspaceMaterialName :name="item.snapshot.sources.materials.find(row=>row.id===line.component_material_id)?.name ?? `物料 #${line.component_material_id}`" :material-id="line.component_material_id" :material="item.snapshot.sources.materials.find(row=>row.id===line.component_material_id)" :current-reference="false" /> · {{ line.quantity }}</li></ul>
       <WorkspaceTable title="计算时库存流水（全部仓库）" :columns="[{key:'id',title:'流水'}, {key:'warehouse_id',title:'仓库编号'}, {key:'quantity',title:'数量'}, {key:'source_type',title:'来源类型'}, {key:'source_id',title:'原单编号'}, {key:'created_at',title:'记入时间'}]" :data="movements" :min-table-width="800">
         <template #cell-source_type="{ row }">{{ movementTypeLabel(row.source_type) }}</template>
         <template #cell-created_at="{ row }">{{ store.localTime(row.created_at) }}</template>

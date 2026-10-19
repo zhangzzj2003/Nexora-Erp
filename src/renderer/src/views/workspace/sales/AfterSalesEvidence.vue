@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 详情中的物料身份与摘要统一绘制，参数只取本领域已经授权读取的资料。
+import WorkspaceMaterialName from '../../../components/workspace/WorkspaceMaterialName.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import {NCollapse} from 'naive-ui'
@@ -14,7 +16,7 @@ const store=usePiniaAppStore()
     <h3>{{ documentLabel(row) }} · {{ row.reference }} · {{ afterSalesStatus[row.status] }} · v{{ row.version }}</h3>
     <dl class="after-facts">
       <div><dt>客户与原单</dt><dd>{{ row.frozen_source.customer_name }} · 销售订单 {{ relatedDocumentLabel(row, 'sales_order', row.frozen_source) }} · 出库 {{ relatedDocumentLabel(row, 'shipment', row.frozen_source) }} / 明细 #{{ row.shipment_line_id }}</dd></div>
-      <div><dt>物品与本次数量</dt><dd>{{ row.frozen_source.sku }} · {{ row.frozen_source.material_name }} · {{ afterSalesKind[row.kind] }} {{ row.quantity }} {{ row.frozen_source.unit }}</dd></div>
+      <div><dt>物品与本次数量</dt><dd><WorkspaceMaterialName :name="`${row.frozen_source.sku} · ${row.frozen_source.material_name}`" :material-id="row.frozen_source.material_id" :material="store.afterSalesOverview?.materials.find(item => item.id === row.frozen_source.material_id)" /> · {{ afterSalesKind[row.kind] }} {{ row.quantity }} {{ row.frozen_source.unit }}</dd></div>
       <div><dt>客户诉求</dt><dd>{{ row.complaint }}</dd></div><div><dt>办理方案</dt><dd>{{ row.solution }}</dd></div>
       <div><dt>客户同意依据</dt><dd>{{ row.customer_acceptance }}</dd></div><div><dt>原出库效力</dt><dd>{{ row.current_source_valid?'当前有效':'当前来源已更正，请核对历史' }}</dd></div>
       <div><dt>保修期限核对</dt><dd v-if="row.warranty_days!==null">出库日 {{ row.frozen_source.posted_at.slice(0,10) }} · {{ row.warranty_days }} 天 · 截止 {{ row.warranty_expires_on }}；申请日 {{ row.warranty_applied_on }} · {{ row.warranty_status==='within_period'?'期限内':row.warranty_status==='expired'?'已过期':'日期待核对' }}</dd><dd v-else>未确认保修条款</dd></div>
@@ -24,7 +26,7 @@ const store=usePiniaAppStore()
     <p>期限核对不自动认定保修责任；人工责任核定也不自动改变本单收费方案，请核对合同、故障与客户同意依据。</p>
     <ul v-if="!compact&&row.responsibilities.length"><li v-for="item in row.responsibilities" :key="item.id">责任核定 {{ documentLabel(item) }} · {{ afterSalesResponsibility[item.outcome] }} · {{ item.assessed_by_name }} · {{ store.localTime(item.created_at) }}<p>原因：{{ item.reason }}；依据：{{ item.basis }}</p></li></ul>
     <template v-if="row.kind==='exchange'">
-      <p>{{ row.frozen_source.replacement?.sku }} · {{ row.frozen_source.replacement?.material_name }} · 换货 {{ row.replacement_quantity }} {{ row.frozen_source.replacement?.unit }} · 单价 {{ row.replacement_unit_price }} 元。原退货与换货分别核对，不自动抵销价差。</p>
+      <p><WorkspaceMaterialName v-if="row.frozen_source.replacement" :name="`${row.frozen_source.replacement.sku} · ${row.frozen_source.replacement.material_name}`" :material-id="row.frozen_source.replacement.material_id" :material="store.afterSalesOverview?.materials.find(item => item.id === row.frozen_source.replacement?.material_id)" /> · 换货 {{ row.replacement_quantity }} {{ row.frozen_source.replacement?.unit }} · 单价 {{ row.replacement_unit_price }} 元。原退货与换货分别核对，不自动抵销价差。</p>
     </template>
     <template v-if="row.kind==='repair'">
       <p>{{ row.charge_mode==='free'?'明确免费维修':`整单维修服务费 ${row.fee_amount} 元` }}；{{ repairFeeState(row) }}。</p>
@@ -34,7 +36,7 @@ const store=usePiniaAppStore()
         {{ documentLabel(entry) }} · {{ entry.action==='record'?'登记':'更正' }} {{ entry.hours }} 小时<span v-if="entry.original_id"> · 原记录 #{{ entry.original_id }}</span>
         · {{ entry.created_by_name }} · {{ store.localTime(entry.created_at) }}<p>{{ entry.reason }}；依据：{{ entry.evidence }}</p>
       </li></ul>
-      <ul v-if="row.parts.length"><li v-for="part in row.parts" :key="part.material_id">{{ part.sku }} · {{ part.material_name }} · 公司耗材 {{ part.quantity }} {{ part.unit }}</li></ul>
+      <ul v-if="row.parts.length"><li v-for="part in row.parts" :key="part.material_id"><WorkspaceMaterialName :name="`${part.sku} · ${part.material_name}`" :material-id="part.material_id" :material="store.afterSalesOverview?.materials.find(item => item.id === part.material_id)" /> · 公司耗材 {{ part.quantity }} {{ part.unit }}</li></ul>
       <p v-else>不使用公司耗材。</p>
       <p v-if="row.parts_outbound_id">耗材出库 {{ relatedDocumentLabel(row, 'parts_outbound') }} · {{ ({draft:'待确认',posted:'已确认',cancelled:'已取消',reversed:'已冲销'})[row.parts_status!] }}</p>
       <ul v-if="row.custody.length"><li v-for="event in row.custody" :key="event.id">{{ event.action==='receive'?'客户物品收件':'交还客户物品' }} {{ event.quantity }} {{ row.frozen_source.unit }} · {{ event.created_by_name }} · {{ store.localTime(event.created_at) }}<p>{{ event.evidence }}</p></li></ul>

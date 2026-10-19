@@ -182,7 +182,7 @@ test('真实选择器显示只读核心资料，空值、历史来源与无详�
   assert.ok(compact.includes('10kΩ · 0603 · 示例品牌 · RC0603-10K'))
   assert.doesNotMatch(compact,/当前物料资料|展开详情|规格型号/)
   assert.doesNotMatch(ready,/收起资料|查看资料/)
-  assert.match(await render(1,[resistor],undefined,{compact:false}),/当前物料资料.*收起资料/s)
+  assert.match(await render(1,[resistor],undefined,{compact:false}),/物料资料.*收起资料/s)
   assert.match(await render(1,[{id:1,sku:'OLD',name:'旧料',unit:'个'}],undefined,{compact:true}),/详细资料暂不可用/)
   assert.doesNotMatch(await render(0,[resistor],undefined,{compact:true}),/查看资料|物料资料摘要/)
 })

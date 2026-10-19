@@ -5,8 +5,8 @@ import { useRouter } from 'vue-router'
 import { usePiniaAppStore } from '../../../store/app-store'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import AppButton from '../../../components/app/AppButton.vue'
-import WorkspaceMaterialParameters from '../../../components/workspace/WorkspaceMaterialParameters.vue'
-import { materialParameterIndex, materialParameterSource } from '../../../utils/material-parameter-source'
+import WorkspaceMaterialName from '../../../components/workspace/WorkspaceMaterialName.vue'
+import { materialParameterIndex } from '../../../utils/material-parameter-source'
 const store = usePiniaAppStore(), router = useRouter()
 const {bomDetailRecord: record, bomDetailLoading, bomDetailError, busy, connectionLost, materials, materialCategories} = storeToRefs(store)
 const materialById = computed(() => materialParameterIndex(materials.value))
@@ -32,7 +32,7 @@ async function createOrder(): Promise<void> {
         <AppButton v-if="record?.source_bom" :disabled="busy || connectionLost" @click="store.openBomDetail(record.source_bom.id)">{{ record.source_bom.product_name }} · V{{ record.source_bom.version }}</AppButton><strong v-else>独立创建</strong>
       </div>
     </template>
-    <template #cell-sku="{row}">{{ row.sku }}</template><template #cell-name="{row}"><strong>{{ row.material_name }}</strong><WorkspaceMaterialParameters :material="materialParameterSource(row.component_material_id,row.material,materialById)" :categories="materialCategories" current-reference /></template>
+    <template #cell-sku="{row}">{{ row.sku }}</template><template #cell-name="{row}"><WorkspaceMaterialName :name="row.material_name" :material-id="row.component_material_id" :material="row.material" :cached-materials="materialById" :categories="materialCategories" /></template>
     <template #cell-quantity="{row}">{{ row.quantity }}</template><template #cell-unit="{row}">{{ row.unit }}</template>
     <template #cell-recipe="{row}"><AppButton v-if="row.component_bom_id" size="small" :disabled="busy || connectionLost" @click="store.openBomDetail(row.component_bom_id)">固定 V{{ row.component_bom_version }}</AppButton><span v-else>按物料领用</span></template>
     <template #footer><div class="form-actions">

@@ -6,8 +6,8 @@ import type { Bom } from '../../../../../shared/erp-api'
 import type { MaterialCategory, MaterialChoice } from '../../../../../shared/material-api'
 import AppButton from '../../../components/app/AppButton.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
-import WorkspaceMaterialParameters from '../../../components/workspace/WorkspaceMaterialParameters.vue'
-import { materialParameterIndex, materialParameterSource } from '../../../utils/material-parameter-source'
+import WorkspaceMaterialName from '../../../components/workspace/WorkspaceMaterialName.vue'
+import { materialParameterIndex } from '../../../utils/material-parameter-source'
 import IconArrowRightSLine from '~icons/ri/arrow-right-s-line'
 import IconPushpinLine from '~icons/ri/pushpin-line'
 import IconGitBranchLine from '~icons/ri/git-branch-line'
@@ -51,7 +51,7 @@ const columns = computed(() => [{key:'sku',title:'物料编号',width:String(200
       <span v-else class="structure-leaf" aria-hidden="true"><span /></span>
       <AppButton variant="text" class="structure-sku" size="small" :disabled="disabled" :aria-label="`查看物料 ${row.sku} 的详情`" @click="openMaterial(row,$event)">{{ row.sku }}</AppButton>
     </div></template>
-    <template #cell-component="{row}"><div class="structure-material" :class="{'is-assembly':!!row.childBom}"><strong>{{ row.name }}</strong><WorkspaceMaterialParameters :material="materialParameterSource(row.materialId,row.material,materialById)" :categories="categories" current-reference /><p v-if="row.issue" role="status">{{ row.issue }}</p></div></template>
+    <template #cell-component="{row}"><div class="structure-material" :class="{'is-assembly':!!row.childBom}"><WorkspaceMaterialName :name="row.name" :material-id="row.materialId" :material="row.material" :cached-materials="materialById" :categories="categories" /><p v-if="row.issue" role="status">{{ row.issue }}</p></div></template>
     <template #cell-quantity="{row}"><span class="structure-quantity">{{ row.quantity }}</span></template><template #cell-unit="{row}">{{ row.unit }}</template>
     <template #cell-recipe="{row}">
       <!-- 固定配方与当前参考保留完整语义和原详情入口，仅通过轻量样式区分绑定方式。 -->
@@ -78,8 +78,9 @@ const columns = computed(() => [{key:'sku',title:'物料编号',width:String(200
 .structure-tree { position:relative; display:grid; grid-template-columns:26px minmax(0,1fr); align-items:center; gap:6px; min-height:26px; padding-left:var(--structure-indent); }
 .structure-tree.is-nested::before { content:''; position:absolute; left:calc(var(--structure-indent) - 12px); top:2px; width:9px; height:18px; border-left:1px solid var(--workspace-field-border); border-bottom:1px solid var(--workspace-field-border); border-bottom-left-radius:4px; }
 .structure-material { min-width:0; }
-.structure-material strong { font-size:13px; font-weight:600; overflow-wrap:anywhere; }
-.structure-material.is-assembly>strong { color:var(--workspace-field-accent); }
+/* 名称由共享组件绘制，装配项通过继承变量保留原强调色。 */
+.structure-material { font-size:13px; }
+.structure-material.is-assembly { --workspace-material-name-color:var(--workspace-field-accent); }
 /* 按钮默认居中；显式靠左才能让不同长度的编号都紧邻树形入口。 */
 .structure-sku { justify-self:start; justify-content:flex-start; max-width:100%; font-size:12px; font-weight:500; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; text-align:left; }
 .structure-material p { margin:5px 0 0; color:var(--structure-warning-color); font-size:12px; }

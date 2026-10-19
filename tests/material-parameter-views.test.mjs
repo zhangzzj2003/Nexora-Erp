@@ -40,7 +40,7 @@ async function fixture(t) {
       if(id.endsWith('/DocumentApprovalProgress.vue'))return '\0parameter-view-progress'
       if(['/WorkspaceSearchFilters.vue','/WorkspaceSummaryFilters.vue','/WorkspaceMaterialSelect.vue','/WorkspaceSelect.vue',
         '/WorkspaceLotDialog.vue','/WorkspaceInboundLotTable.vue','/OtherInboundReopenTrace.vue',
-        '/InventoryMaterialFacts.vue','/InventoryMaterialLedger.vue'].some(name=>id.endsWith(name)))return '\0parameter-view-empty'
+        '/InventoryMaterialFacts.vue','/InventoryMaterialLedger.vue','/CrmQuoteAttachments.vue','/CrmRecordAttachments.vue'].some(name=>id.endsWith(name)))return '\0parameter-view-empty'
     },load(id){
       if(id==='\0parameter-view-store')return `import {defineStore} from 'pinia';import {ref} from 'vue';
         import {createAppState} from '/src/renderer/src/store/state.ts';export const calls=[];
@@ -83,7 +83,12 @@ async function fixture(t) {
     inventory:'/src/renderer/src/components/workspace/InventoryDetailDialogs.vue',
     bom:'/src/renderer/src/views/workspace/catalog/BomDetailDialog.vue',
     association:'/src/renderer/src/components/workspace/ProductionAssociationDialog.vue',
-    workOrder:'/src/renderer/src/components/workspace/WorkOrderMaterialFlowPanel.vue'}
+    workOrder:'/src/renderer/src/components/workspace/WorkOrderMaterialFlowPanel.vue',
+    quote:'/src/renderer/src/views/workspace/sales/CrmEvidence.vue',
+    afterSales:'/src/renderer/src/views/workspace/sales/AfterSalesEvidence.vue',
+    quality:'/src/renderer/src/views/workspace/production/QualityEvidence.vue',
+    equipment:'/src/renderer/src/views/workspace/production/EquipmentEvidence.vue',
+    mrp:'/src/renderer/src/views/workspace/production/MrpEvidence.vue'}
   const views={}
   async function render(name,props) {
     views[name]??=(await server.ssrLoadModule(paths[name])).default
@@ -264,4 +269,48 @@ test('工单材料核对使用原工单读取附带参数，保留需求数量�
   assert.equal(JSON.stringify(flow.orders),before)
   assert.deepEqual(f.calls,[['loadOrder',7]],'仅允许面板原有工单读取，不新增逐行 HTTP')
   assert.equal(f.store.can('inventory.view'),false)
+})
+
+// 本领域详情只能利用已经授权的缓存；资料展示不能读全局库存或改写原始业务身份。
+test('报价、售后、质检和设备详情统一名称摘要，缺缓存仍保留原数量及名称且不额外读取',async t=>{
+  const f=await fixture(t)
+  f.store.crmOptions={materials:[structuredClone(material)]}
+  f.store.crmDetail={kind:'quote',record:{id:7,reference:'QUOTE-7',version:1,status:'draft',party:{customer_name:'原客户'},
+    review_blocked:[],lines:[{...structuredClone(line),unit_price:'12.50',line_total:'26.56'}]}}
+  let html=await f.render('quote'),body=rows(table(html,'固定报价明细'))[0]
+  assertParameters(cell(body,'material'));assert.match(text(body),/OLD-PCB · 历史物料名称/)
+  assert.equal(text(cell(body,'quantity')),'2.125');assert.equal(text(cell(body,'unit_price')),'12.50')
+  f.store.crmOptions=null;html=await f.render('quote')
+  assert.match(text(html),/历史物料名称|详细资料暂不可用/);assert.doesNotMatch(text(html),/FR-4/)
+  const source={material_id:1,sku:'OLD-PCB',material_name:'售后原物料名称',unit:'块',posted_at:'2026-10-17'}
+  const after={id:7,reference:'AFTER-7',version:1,status:'approved',kind:'repair',quantity:'2.125',frozen_source:source,
+    warranty_days:null,responsibilities:[],parts:[{...source,quantity:'0.500'}],labor:[],custody:[],changes:[],charge_mode:'free'}
+  f.store.afterSalesOverview={materials:[structuredClone(material)]}
+  html=await f.render('afterSales',{row:after,compact:true});assertParameters(html)
+  assert.match(text(html),/售后原物料名称/);assert.match(text(html),/2\.125/);assert.match(text(html),/0\.500/)
+  f.store.qualityOverview={materials:[structuredClone(material)]}
+  html=await f.render('quality',{row:{id:7,reference:'Q-7',status:'draft',version:1,kind:'rework',quantity:'2.125',
+    frozen_source:{product_material_id:1,product_sku:'OLD-PCB',product_name:'原质检成品'},
+    materials:[{...source,quantity:'0.500'}],changes:[]},compact:true})
+  assertParameters(html);assert.match(text(html),/原质检成品/);assert.match(text(html),/0\.500/)
+  f.store.equipmentOverview={materials:[structuredClone(material)]}
+  html=await f.render('equipment',{detail:{kind:'job',row:{id:7,reference:'M-7',version:1,status:'draft',kind:'corrective',
+    equipment_snapshot:{code:'EQ-1',name:'设备'},plan_roll:{reversal_effect:'none'},parts:[{material_id:1,quantity:'0.500'}],changes:[],purchase_requests:[]}}})
+  assert.match(text(html),/查看资料|0\.500/);assert.match(html,/workspace-material-name/)
+  assert.deepEqual(f.calls,[])
+})
+
+test('MRP 名称组件只展示已保存的计划参数，不借当前缓存覆盖历史名称或冒充当前档案',async t=>{
+  const f=await fixture(t)
+  const row={material_id:1,sku:'MRP-OLD',name:'计划原物料名称',unit:'块',date:'2026-10-19',level:0,supply_mode:'buy',
+    opening_quantity:'1',gross_quantity:'2.125',scheduled_quantity:'0',safety_stock:'0',net_quantity:'1.125',planned_quantity:'1.125',
+    closing_quantity:'0',demand_sources:[],supply_sources:[]}
+  f.store.materials=[{...structuredClone(material),specification:'不得混入的当前库存档案'}]
+  f.store.mrpDetail={id:7,reference:'MRP-7',status:'draft',version:1,conversions:[],author_ids:[],snapshot:{warnings:[],assumptions:[],
+    suggestions:[],rows:[row],sources:{materials:[{...structuredClone(material),specification:'计划保存参数'}],policies:[],boms:[],movements:[]}}}
+  const before=JSON.stringify(f.store.mrpDetail),html=await f.render('mrp'),body=rows(table(html,'日期净需求'))[0]
+  assert.match(text(cell(body,'material')),/MRP-OLD · 计划原物料名称/)
+  assert.match(text(body),/计划保存参数|查看资料/)
+  assert.doesNotMatch(text(body),/当前档案参数|不得混入的当前库存档案|沉金/)
+  assert.equal(JSON.stringify(f.store.mrpDetail),before);assert.deepEqual(f.calls,[])
 })

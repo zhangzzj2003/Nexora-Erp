@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 详情中的物料身份与摘要统一绘制，参数只取本领域已经授权读取的资料。
+import WorkspaceMaterialName from '../../../components/workspace/WorkspaceMaterialName.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import { computed } from 'vue'
@@ -42,7 +44,7 @@ function auditLines(source:Record<string,unknown>): {material_name:string; quant
       <dl v-else class="crm-facts"><template v-for="row in snapshot" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></template></dl>
     </section>
     <WorkspaceTable v-if="quote" title="固定报价明细" :data="quote.lines" :min-table-width="750" :columns="[{key:'material',title:'物料'},{key:'quantity',title:'数量'},{key:'unit_price',title:'单价（元）'},{key:'line_total',title:'金额（元）'}]">
-      <template #cell-material="{row}">{{ row.sku }} · {{ row.material_name }}<span class="crm-secondary muted">{{ row.unit }}</span></template>
+      <template #cell-material="{row}"><WorkspaceMaterialName :name="`${row.sku} · ${row.material_name}`" :secondary="row.unit" :material-id="row.material_id" :material="store.crmOptions?.materials.find(item => item.id === row.material_id)" /></template>
     </WorkspaceTable>
     <CrmQuoteAttachments v-if="quote" :quote-id="quote.id" />
     <CrmRecordAttachments v-if="recordAttachmentKind" :kind="recordAttachmentKind" :record-id="detail.record.id" :record-version="detail.record.version" />

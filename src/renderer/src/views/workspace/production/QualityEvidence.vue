@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 详情中的物料身份与摘要统一绘制，参数只取本领域已经授权读取的资料。
+import WorkspaceMaterialName from '../../../components/workspace/WorkspaceMaterialName.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
 import type { QualityEvidence } from '../../../../../shared/quality-api'
@@ -14,7 +16,7 @@ const store=usePiniaAppStore()
     <h3>{{ documentLabel(row) }} · {{ row.reference }} · {{ qualityStatus[row.status] }} · v{{ row.version }}</h3>
     <dl class="quality-facts">
       <div><dt>原质检与工单</dt><dd>完工单 {{ relatedDocumentLabel(row, 'completion') }} · 工单 {{ relatedDocumentLabel(row, 'work_order', row.frozen_source) }}</dd></div>
-      <div><dt>成品</dt><dd>{{ row.frozen_source.product_sku }} · {{ row.frozen_source.product_name }}</dd></div>
+      <div><dt>成品</dt><dd><WorkspaceMaterialName :name="`${row.frozen_source.product_sku} · ${row.frozen_source.product_name}`" :material-id="row.frozen_source.product_material_id" :material="store.qualityOverview?.materials.find(item => item.id === row.frozen_source.product_material_id)" /></dd></div>
       <div><dt>原检验结果</dt><dd>报工 {{ row.frozen_source.reported_quantity }} · 合格 {{ row.frozen_source.accepted_quantity }} · 不合格 {{ row.frozen_source.rejected_quantity }} {{ row.frozen_source.product_unit }}</dd></div>
       <div><dt>本次处置</dt><dd>{{ row.kind==='scrap'?'报废':'返工' }} {{ row.quantity }} {{ row.frozen_source.product_unit }}</dd></div>
       <div><dt>成本处理</dt><dd>{{ qualityTreatment[row.loss_treatment] }}</dd></div>
@@ -23,7 +25,7 @@ const store=usePiniaAppStore()
     </dl>
     <template v-if="row.kind==='rework'">
       <h4>返工追加材料</h4>
-      <ul v-if="row.materials.length"><li v-for="line in row.materials" :key="line.material_id">{{ line.sku }} · {{ line.material_name }} · {{ line.quantity }} {{ line.unit }}</li></ul>
+      <ul v-if="row.materials.length"><li v-for="line in row.materials" :key="line.material_id"><WorkspaceMaterialName :name="`${line.sku} · ${line.material_name}`" :material-id="line.material_id" :material="store.qualityOverview?.materials.find(item => item.id === line.material_id)" /> · {{ line.quantity }} {{ line.unit }}</li></ul>
       <p v-else>无追加材料；下达后可登记人工、制造费用并重新报工检验。</p>
       <p>返工目标仓库 #{{ row.warehouse_id }}。原不合格品不会增加可用库存，合格品按返工工单重新检验入库。</p>
       <p v-if="row.rework_order_id">已关联返工工单 {{ relatedDocumentLabel(row, 'rework_order') }}。<RouterLink v-if="store.can('production.view')" to="/workspace/work-orders">查看生产工单</RouterLink></p>

@@ -20,8 +20,8 @@ const material={...summary,category_code:'EL-PC',specification:'FR-4',package:'�
   spec_summary:'板厚：0mm；含铅：否；阻抗：未知',extra_attributes:[{name:'表面工艺',value:'沉金',unit:''}]}
 
 // 编译并挂载真实只读展示及库存资料组件，仅替换按钮绘制；参数格式化仍走同一公共 helper。
-async function fixture(t,inventory=false,initial={}) {
-  const files=['components/workspace/WorkspaceMaterialParameters.vue','components/workspace/InventoryMaterialFacts.vue']
+async function fixture(t,inventory=false,initial={},nameView=false) {
+  const files=['components/workspace/WorkspaceMaterialParameters.vue','components/workspace/InventoryMaterialFacts.vue','components/workspace/WorkspaceMaterialInfo.vue','components/workspace/WorkspaceMaterialName.vue']
   const modules=files.map(file=>{
     const filename=resolve('src/renderer/src',file)
     return [normalizePath(filename)+'.client.ts',compileScript(parse(readFileSync(filename,'utf8'),{filename}).descriptor,
@@ -32,6 +32,8 @@ async function fixture(t,inventory=false,initial={}) {
     resolveId(id){
       if(sources.has(id))return id
       if(id.endsWith('/WorkspaceMaterialParameters.vue'))return modules[0][0]
+      if(id.endsWith('/WorkspaceMaterialInfo.vue'))return modules[2][0]
+      if(id.endsWith('/WorkspaceMaterialName.vue'))return modules[3][0]
       if(id.endsWith('/AppButton.vue'))return '\0parameter-button'
       if(id.endsWith('/store/app-store'))return '\0parameter-store'
     },load(id){
@@ -40,7 +42,7 @@ async function fixture(t,inventory=false,initial={}) {
       if(id==='\0parameter-store')return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';export const calls=[];export const usePiniaAppStore=defineStore('parameter-facts',()=>({...createAppState(),loadLedgerMaterial(){calls.push('retry')}}))`
     }},vue()],optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'})
   t.after(()=>server.close())
-  const {default:View}=await server.ssrLoadModule(modules[inventory?1:0][0])
+  const {default:View}=await server.ssrLoadModule(modules[nameView?3:inventory?1:0][0])
   const {usePiniaAppStore,calls}=await server.ssrLoadModule('\0parameter-store')
   const pinia=createPinia(),store=usePiniaAppStore(pinia)
   const props=reactive({material:structuredClone(material),categories,...initial})
@@ -82,7 +84,7 @@ test('摘要或扩展属性单独提供仍可辨认，明确空详情与旧简�
 
 test('名称列默认与选料器共用一行摘要，点击查看才出现资料卡和当前档案标记',async t=>{
   const f=await fixture(t,false,{currentReference:true})
-  const summaryNode=f.nodes().find(node=>node.props.class==='material-parameters-summary-text')
+  const summaryNode=f.nodes().find(node=>node.props.class==='workspace-material-summary__text')
   assert.equal(summaryNode.text,materialChoiceSummary(material))
   assert.doesNotMatch(f.text(),/装配前检查|表面工艺|沉金|当前档案参数|PCB-1|控制板/)
   assert.equal(f.nodes().filter(node=>node.tag==='dl').length,0,'默认不渲染参数列表，避免撑高名称列')
@@ -156,4 +158,25 @@ test('库存详情保留身份而将技术参数与扩展属性直接展示，�
   assert.match(f.text(),/资料暂不可用/);assert.doesNotMatch(f.text(),/沉金/)
   f.press(f.button('重新读取物料'));assert.deepEqual(f.calls,['retry'])
   f.store.connectionLost=true;await nextTick();assert.equal(f.button('重新读取物料').props.disabled,true)
+})
+
+// 名称组件必须锁住原单身份，不能因资料刷新或同名资料而覆盖名称、串料。
+test('共享名称组件保留原单名称并核验真实物料 ID，换料收起且授权缓存可回退',async t=>{
+  const f=await fixture(t,false,{name:'原单名称 · OLD-PCB',materialId:1},true)
+  assert.match(f.text(),/原单名称 · OLD-PCB/);assert.doesNotMatch(f.text(),/控制板/)
+  f.press(f.button('查看资料'));await nextTick()
+  assert.match(f.text(),/FR-4/)
+  f.props.material={...f.props.material,id:99,specification:'错误物料参数'};await nextTick()
+  assert.match(f.text(),/原单名称 · OLD-PCB/);assert.doesNotMatch(f.text(),/错误物料参数/)
+  assert.match(f.text(),/详细资料暂不可用/)
+  f.props.cachedMaterials=new Map([[1,structuredClone(material)]]);await nextTick()
+  assert.match(f.text(),/FR-4/)
+  f.props.materialId=2;await nextTick()
+  assert.doesNotMatch(f.text(),/FR-4/);assert.match(f.text(),/详细资料暂不可用/)
+  f.props.material={...structuredClone(material),id:2};await nextTick()
+  assert.ok(f.button('查看资料'))
+  f.press(f.button('查看资料'));await nextTick();f.press(f.button('展开详情'));await nextTick()
+  assert.match(f.text(),/沉金/)
+  f.props.materialId=1;await nextTick();assert.ok(f.button('查看资料'))
+  assert.deepEqual(f.calls,[])
 })

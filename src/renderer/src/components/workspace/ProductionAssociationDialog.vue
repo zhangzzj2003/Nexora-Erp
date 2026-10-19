@@ -4,8 +4,7 @@ import { storeToRefs } from 'pinia'
 import { usePiniaAppStore } from '../../store/app-store'
 import WorkspaceDocumentDialog from './WorkspaceDocumentDialog.vue'
 import AppButton from '../app/AppButton.vue'
-import WorkspaceMaterialParameters from './WorkspaceMaterialParameters.vue'
-import { materialParameterSource } from '../../utils/material-parameter-source'
+import WorkspaceMaterialName from './WorkspaceMaterialName.vue'
 import { documentLabel } from '../../../../shared/document-numbering'
 
 // 共用单据表格弹窗只读展示关联，不提供领料、补证或批准等写入动作。
@@ -48,7 +47,7 @@ const labels: Record<string,string> = {draft:'草稿',inspected:'已质检',post
           @click="store.loadProductionAssociations(true)">查看同物料采购参考</AppButton>
       </div>
     </template>
-    <template #cell-material="{row}"><strong>{{row.name}}</strong><p class="muted">{{row.sku}} · {{row.unit}}</p><WorkspaceMaterialParameters :material="materialParameterSource(row.material_id,row.material)" current-reference /></template>
+    <template #cell-material="{row}"><WorkspaceMaterialName :name="row.name" :secondary="`${row.sku} · ${row.unit}`" :material-id="row.material_id" :material="row.material" /></template>
     <template #cell-quantity="{row}">需求 {{row.required_quantity}}<br>有效净领 {{row.net_issued_quantity}}<p class="muted">净领不等于单台产品实际耗用。</p></template>
     <template #cell-documents="{row}">
       <div v-for="issue in row.issues" :key="issue.line_id" class="association-entry">
