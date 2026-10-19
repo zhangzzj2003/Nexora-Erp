@@ -1,3 +1,4 @@
+import type { ProductionPlan, ProductionPlanDetail, ProductionPlanInput, ProductionPlanOptions } from '../../../shared/production-plan-api'
 import { createProductState } from './product-state.ts'
 import { newPurchasePriceLine } from '../utils/purchase-pricing.ts'
 import type { PurchasePriceDraft } from '../utils/purchase-pricing.ts'
@@ -182,6 +183,13 @@ export function createAppState() {
   const qualityEdit = ref<{id:number;version:number} | null>(null)
   const qualityForm = ref<QualityDraft>({completion_id:0,reference:'',kind:'scrap',quantity:'1',loss_treatment:'',
     defect:'',action_note:'',warehouse_id:1,materials:[],reason:''})
+  const productionPlans = ref<ProductionPlan[]>([])
+  const productionPlanOptions = ref<ProductionPlanOptions | null>(null)
+  const productionPlanDetail = ref<ProductionPlanDetail | null>(null)
+  const productionPlanForm = ref<ProductionPlanInput>({ reference: '', note: '', reason: '', lines: [] })
+  const productionPlanEdit = ref<{ id: number; version: number } | null>(null)
+  const productionPlanLoading = ref(false)
+  const productionPlanError = ref('')
   const mrpPlans = ref<MrpPlan[]>([])
   const crmOptions = ref<CrmOptions | null>(null)
   const crmOverview = ref<CrmOverview | null>(null)
@@ -650,6 +658,7 @@ export function createAppState() {
     warningOverview,warningDetail,warningEvents,warningEventsLoading,warningEventsError,
     warningAlert,warningLoading,warningError,warningWarehouseId,warningEditing,warningForm,
     equipmentOverview,equipmentDetail,equipmentLoading,equipmentError,equipmentEdit,equipmentForms,
+    productionPlans, productionPlanOptions, productionPlanDetail, productionPlanForm, productionPlanEdit, productionPlanLoading, productionPlanError,
     mrpPlans, mrpOptions, mrpDetail, mrpCheck, mrpChanges, mrpPolicyChanges, mrpForm, mrpLoading, mrpError,
     crmOptions, crmOverview, crmForecast, crmDetail, crmChanges, crmOwnerChanges, crmForms, crmEdit, crmLoading, crmError,
     screen,

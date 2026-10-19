@@ -6,7 +6,7 @@ export const documentApprovalTypes = [
   'WarehouseInbound', 'WarehouseOutbound', 'Transfer', 'Stocktake', 'StockAdjustment',
   'CrmQuote', 'SalesOrder', 'Shipment', 'SalesReturn', 'AfterSalesCase',
   'WorkOrder', 'MaterialIssue', 'MaterialReturn', 'MaterialDispatch', 'MaterialReceipt', 'MaterialExchange', 'ProductionMaterialReturn', 'ProductionCompletion', 'QualityDisposition',
-  'MrpPlan', 'ProductionCostSettlement', 'MaintenanceJob', 'Journal', 'OpeningBalance',
+  'ProductionPlan', 'MrpPlan', 'ProductionCostSettlement', 'MaintenanceJob', 'Journal', 'OpeningBalance',
   'SubledgerOpening', 'PaymentRecord', 'SubledgerPayment', 'OrderSettlementTransfer', 'SubledgerSettlement', 'SubledgerOrderSettlement', 'ControlBalanceTransfer'
 ] as const
 export type DocumentApprovalType = typeof documentApprovalTypes[number]

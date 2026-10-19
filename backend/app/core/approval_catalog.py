@@ -56,6 +56,7 @@ _RULES = (
     ('ProductionCompletion', '生产完工', 'production.view', 'production_completion.create', 'production_completion.review', 'production_completion.post', False),
     ('QualityDisposition', '不合格品处置', 'quality.view', 'quality.submit', 'quality.review', 'quality.post', True),
     ('MrpPlan', '物料需求计划', 'mrp.view', 'mrp.submit', 'mrp.review', 'mrp.convert', True),
+    ('ProductionPlan', '生产计划', 'production_plan.view', 'production_plan.submit', 'production_plan.review', 'production_plan.release', False),
     ('ProductionCostSettlement', '生产成本结算', 'production_cost.view', 'production_cost.settle', 'production_cost.review', 'production_cost.settle', False),
     ('MaintenanceJob', '设备维护工单', 'equipment.view', 'equipment.submit', 'equipment.review', 'equipment.execute', True),
     ('Journal', '总账凭证', 'journal.view', 'journal.submit', 'journal.review', 'journal.post', True),

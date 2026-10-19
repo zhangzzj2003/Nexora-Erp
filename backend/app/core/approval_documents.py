@@ -448,8 +448,13 @@ def work_order_snapshot(db: Session, identifier: int) -> dict:
                            .order_by(MrpPlan.id)))
     dispositions = list(db.scalars(select(QualityDisposition).where(QualityDisposition.rework_order_id == identifier)
                                   .order_by(QualityDisposition.id)))
+    from app.production.plan_sources import work_order_schedule
+    schedule = work_order_schedule(db, identifier)
     # 派生草稿恢复原编制审计；审批人不因批准上游而自动获得下游批准结果。
     authors = {row.created_by for row in [*plans, *dispositions, *conversions]}
+    if schedule:
+        from app.production.plan_rules import approval_snapshot
+        authors.update(approval_snapshot(db, schedule['production_plan_id'])['source_author_ids'])
     authors.update(row.submitted_by for row in [*plans, *dispositions] if row.submitted_by is not None)
     authors.update(db.scalars(select(MrpPlanChange.changed_by).where(
         MrpPlanChange.plan_id.in_([row.id for row in plans]),
@@ -458,7 +463,7 @@ def work_order_snapshot(db: Session, identifier: int) -> dict:
     authors.update(db.scalars(select(QualityDispositionChange.changed_by).where(
         QualityDispositionChange.disposition_id.in_([row.id for row in dispositions]),
         QualityDispositionChange.action.in_(('create', 'edit', 'submit', 'post')))))
-    return {'bom_id': bom.id, 'bom_version': bom.version, 'bom_base_quantity': bom.base_quantity,
+    return {**({'production_plan_source': schedule} if schedule else {}), 'bom_id': bom.id, 'bom_version': bom.version, 'bom_base_quantity': bom.base_quantity,
             'product_material_id': bom.product_material_id, 'warehouse_id': source.warehouse_id,
             'target_quantity': source.target_quantity, 'reference': source.reference, 'note': source.note,
             'source_author_ids': sorted(authors),
@@ -835,6 +840,13 @@ _SNAPSHOTS = {'ControlBalanceTransfer': control_transfer_snapshot, 'SubledgerSet
               'SalesOrder': sales_order_snapshot, 'Shipment': shipment_snapshot, 'SalesReturn': sales_return_snapshot,
               'WorkOrder': work_order_snapshot, 'MaterialIssue': material_issue_snapshot,
               'MaterialReturn': material_return_snapshot, 'ProductionCompletion': completion_snapshot}
+# 生产计划使用独立正文，历史单据快照不增加空字段。
+def production_plan_snapshot(db: Session, identifier: int) -> dict:
+    from app.production.plan_rules import approval_snapshot
+    return approval_snapshot(db, identifier)
+
+
+_SNAPSHOTS['ProductionPlan'] = production_plan_snapshot
 _SNAPSHOTS.update({name:(lambda db,identifier,kind=kind:material_flow_snapshot(db,identifier,kind)) for name,kind in _FLOW_TYPES.items()})
 
 _REVERSE = {'ProductionCostSettlement': (ProductionSettlementReversal, 'settlement_id', 'production_cost.reopen'), 'MaterialIssue': (MaterialIssueReversal, 'material_issue_id', 'material_issue.reverse'),
@@ -867,6 +879,15 @@ def current_snapshot(db: Session, document_type: str, identifier: int) -> dict:
 
 def document_pending(db: Session, document_type: str, identifier: int, intent: str):
     source = document_source(db, document_type, identifier)
+    if document_type == 'ProductionPlan':
+        from app.core.document_approval import find_case
+        case = find_case(db, document_type, identifier)
+        # 首次下达后原计划不能撤回重审，剩余数量沿固定批准继续办理。
+        if intent != 'execute':
+            raise HTTPException(422, '生产计划不直接记库存，不支持库存冲销')
+        if source.status == 'cancelled' or case and case.status == 'executed':
+            raise HTTPException(409, '生产计划已取消或已下达，不能撤回或重新送审')
+        return source
     if document_type in _FLOW_TYPES:
         from app.production.material_flow_actions import execution_snapshot
         kind=_FLOW_TYPES[document_type]
@@ -1194,6 +1215,22 @@ def _document_summary(db: Session, document_type: str, content: dict) -> list[di
             + ('（已撤销）' if item['reversal_id'] else '')} for item in content['attachments'][:10])
         summary.append({'label': '附件核对', 'value': f"固定附件共 {len(content['attachments'])} 份；此处最多展示前十份，完整指纹均参与审批校验。"})
         return summary
+    if document_type == 'ProductionPlan':
+        import json
+        summary = [{'label': label, 'value': content[key] or '—'} for label, key in
+            [('计划名称', 'reference'), ('编制依据', 'reason'), ('备注', 'note')]]
+        for line in content['lines']:
+            bom = json.loads(line['bom_json'])
+            warehouse = db.get(Warehouse, line['warehouse_id'])
+            priority = {'normal': '普通', 'high': '优先', 'urgent': '紧急'}[line['priority']]
+            value = f"{bom['sku']} · {bom['name']} × {line['quantity']} {bom['unit']}；BOM V{bom['version']}；{line['start_date']} 至 {line['end_date']}；{warehouse.name}；{priority}"
+            if line['sales_order_line_id']:
+                sale = db.get(SalesOrderLine, line['sales_order_line_id'])
+                order = db.get(SalesOrder, sale.sales_order_id)
+                value += f"；销售来源 {order.document_no or '#' + str(order.id)}"
+            # 每行完整安排合为一项，使一百行计划也符合公共审批 110 项上限，不截断日期或来源。
+            summary.append({'label': '计划产品', 'material_id': bom['material_id'], 'value': value})
+        return summary
     if document_type == 'MrpPlan':
         import json
         inputs, snapshot = json.loads(content['input_json']), json.loads(content['snapshot_json'])
@@ -1298,6 +1335,10 @@ def _document_summary(db: Session, document_type: str, content: dict) -> list[di
             job = db.get(MaintenanceJob, identifier)
             summary.append({'label': '维护工单', 'value': job.document_no or f'#{job.id}'})
     if document_type == 'WorkOrder':
+        if content.get('production_plan_source'):
+            schedule = content['production_plan_source']
+            summary.append({'label': '生产计划与排期', 'value':
+                f"{schedule.get('production_plan_document_no') or '#' + str(schedule['production_plan_id'])}；{schedule['start_date']} 至 {schedule['end_date']}"})
         product = materials[content['product_material_id']]
         summary.extend([{'label': '成品目标', 'value': f"{product.sku} · {product.name} × {content['target_quantity']} {product.unit}",
                             'material_id':product.id},

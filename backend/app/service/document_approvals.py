@@ -283,6 +283,15 @@ def act_document_approval(document_type: str, identifier: int,
             if action in ('submit','approve') and payload.intent == 'execute':
                 from app.production.settlements import validate_settlement
                 validate_settlement(db,source)
+        if document_type == 'ProductionPlan' and action in ('submit', 'approve'):
+            # 再核对当前 BOM 与销售来源，避免草稿保存后来源变更仍被批准。
+            from app.production.plan_rules import validate_plan
+            if action == 'approve':
+                workflow.require_review_actor(db, document_type, row, user['id'])
+            else:
+                workflow.actor(db, user['id'], rule.submit_permission)
+            workflow.check_version(row.version if row else 0, payload.version)
+            validate_plan(db, source)
         native = native_review_evidence(db, document_type, identifier)
         prior = native if row is None and payload.intent == 'execute' else None
         before = None

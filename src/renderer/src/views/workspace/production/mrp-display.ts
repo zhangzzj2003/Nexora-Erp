@@ -37,6 +37,6 @@ export function mrpDraftError(form: MrpPlanInput, today: string): string {
 }
 export function mrpSourceLabel(row: MrpSource): string {
   const kind = { sales_order:'销售订单', purchase_order:'采购订单', purchase_request:'采购申请', work_order:'工单',
-    work_order_requirement:'工单待领', planned_work_order:'建议工单', manual:'手工需求' }[row.kind] ?? row.kind
+    production_plan:'生产计划预计产出', production_plan_requirement:'生产计划需料', work_order_requirement:'工单待领', planned_work_order:'建议工单', manual:'手工需求' }[row.kind] ?? row.kind
   return `${kind} ${row.reference || (row.source_id ? '#' + row.source_id : row.parent_key || row.key)}${row.party_name ? ' · ' + row.party_name : ''}`
 }

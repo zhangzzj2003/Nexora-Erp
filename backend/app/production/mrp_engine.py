@@ -58,7 +58,8 @@ def calculate(snapshot: dict, start_date: str, demand_dates: dict[str, str], sup
     for index, source in enumerate(manual_demands, 1):
         demands[source['material_id']][source['due_date']].append({**source, 'key': f'manual:{index}', 'kind': 'manual'})
     for source in snapshot['reservations']:
-        demands[source['material_id']][start_date].append(source)
+        # 新计划及其工单按保存的开工日需料；历史工单继续按本次起日计算。
+        demands[source['material_id']][max(start_date, source.get('due_date') or start_date)].append(source)
     rows, suggestions, warnings = [], [], []
     for source in snapshot['supplies']:
         due = source.get('due_date') or supply_dates[source['key']]

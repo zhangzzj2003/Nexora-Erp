@@ -84,7 +84,7 @@ test('所有业务菜单使用对应类型分类，分类及入口顺序符合�
       ['功能类', ['ledgerAccounts', 'accountingPeriods']]
     ],
     production: [
-      ['计划类', ['materialPlanning']],
+      ['计划类', ['productionPlans', 'materialPlanning']],
       ['生产类', ['workOrders', 'materialIssues', 'materialReturns']],
       ['质量类', ['productionCompletions', 'qualityDisposition']],
       ['功能类', ['productionCosts', 'equipmentMaintenance']]

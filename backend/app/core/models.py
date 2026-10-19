@@ -160,6 +160,65 @@ class CrmChange(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
 
+class ProductionPlan(Base):
+    """生产计划正文独立保存；审批和执行进度由关联事实投影，不覆盖历史工单。"""
+    __tablename__ = 'production_plans'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_no: Mapped[str | None] = mapped_column(Text, unique=True)
+    reference: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default='draft')
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    cancelled_at: Mapped[str | None] = mapped_column(Text)
+
+
+class ProductionPlanLine(Base):
+    __tablename__ = 'production_plan_lines'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey('production_plans.id'), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    bom_id: Mapped[int] = mapped_column(ForeignKey('boms.id'), nullable=False)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey('warehouses.id'), nullable=False)
+    sales_order_line_id: Mapped[int | None] = mapped_column(ForeignKey('sales_order_lines.id'))
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    start_date: Mapped[str] = mapped_column(Text, nullable=False)
+    end_date: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[str] = mapped_column(Text, nullable=False)
+    # 固定产品身份、BOM 版本及组件用量，资料改名不改写已批准的生产依据。
+    bom_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ProductionPlanRelease(Base):
+    __tablename__ = 'production_plan_releases'
+    __table_args__ = (UniqueConstraint('plan_id', 'request_id'),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey('production_plans.id'), nullable=False)
+    line_id: Mapped[int] = mapped_column(ForeignKey('production_plan_lines.id'), nullable=False)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey('work_orders.id'), unique=True, nullable=False)
+    request_id: Mapped[str] = mapped_column(Text, nullable=False)
+    request_digest: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class ProductionPlanChange(Base):
+    __tablename__ = 'production_plan_changes'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey('production_plans.id'), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class MrpPolicy(Base):
     __tablename__ = 'mrp_policies'
     material_id: Mapped[int] = mapped_column(Integer, ForeignKey('materials.id'), primary_key=True)

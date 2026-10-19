@@ -305,7 +305,7 @@ def mark_executed(db: Session, row: DocumentApprovalCase, user_id: int,
 def require_conversion_approved(db: Session, document_type: str, document_id: int,
                                 snapshot: Mapping, user_id: int) -> DocumentApprovalCase:
     # 申请和物料计划可拆成多张原单；只对此类需求授权允许重复转换，不能放宽库存或资金的单次执行边界。
-    if document_type not in ('PurchaseRequest', 'MrpPlan'):
+    if document_type not in ('PurchaseRequest', 'MrpPlan', 'ProductionPlan'):
         raise HTTPException(422, '此类单据不支持分批转换授权')
     write_transaction(db)
     actor(db, user_id, approval_type(document_type).execute_permission)

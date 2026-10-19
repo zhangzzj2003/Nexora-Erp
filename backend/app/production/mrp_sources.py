@@ -95,13 +95,15 @@ def collect(db: Session, exclude_plan_id: int | None = None) -> dict:
             .where(WorkOrder.status.in_(('draft', 'released', 'in_progress'))).order_by(WorkOrder.id)):
         if order.id in own_orders:
             continue
+        from app.production.plan_sources import work_order_schedule
+        schedule = work_order_schedule(db, order.id)
         reported, _, _ = posted_completion_totals(db, order.id)
         remaining = Decimal(order.target_quantity) - reported
         if remaining > 0:
             supplies.append({'key': f'work_order:{order.id}', 'kind': 'work_order', 'source_id': order.id,
                 'reference': order.reference, 'status': order.status, 'material_id': bom.product_material_id,
                 'quantity': quantity(remaining), 'warehouse_id': order.warehouse_id, 'bom_id': order.bom_id,
-                'due_date': work_dates.get(order.id)})
+                'due_date': schedule['end_date'] if schedule else work_dates.get(order.id)})
             for line in db.scalars(select(WorkOrderLine).where(WorkOrderLine.work_order_id == order.id).order_by(WorkOrderLine.id)):
                 from app.production.material_flow_rules import flow_quantities
                 # 已发未签已离开原料仓，不能在需求计划中再次作为尚未发出的需求占用库存。
@@ -110,11 +112,17 @@ def collect(db: Session, exclude_plan_id: int | None = None) -> dict:
                 if needed > 0:
                     reservations.append({'key': f'work_order_line:{line.id}', 'kind': 'work_order_requirement',
                         'source_id': order.id, 'source_line_id': line.id, 'reference': order.reference,
-                        'status': order.status, 'material_id': line.component_material_id, 'quantity': quantity(needed)})
+                        'status': order.status, 'material_id': line.component_material_id, 'quantity': quantity(needed),
+                        **({'due_date': schedule['start_date']} if schedule else {})})
+    from app.production.plan_sources import append_plan_sources
+    production_plans = append_plan_sources(db, supplies, reservations)
     if len(demands) > 2000 or len(supplies) > 2000 or len(reservations) > 5000:
         raise HTTPException(422, '未执行需求或供给超过当前计划容量，请先整理单据')
     result = {'materials': materials, 'policies': policies, 'boms': boms, 'movements': movements,
         'demands': demands, 'supplies': supplies, 'reservations': reservations}
+    # 没有新计划时不新增空键，保留旧 MRP 来源指纹的兼容性。
+    if production_plans:
+        result['production_plans'] = production_plans
     # 用途禁用会使未执行计划失效，迁移默认全开时不改变旧批准计划指纹。
     restrictions = [{'material_id': row.material_id, 'can_purchase': row.can_purchase, 'can_produce': row.can_produce}
         for row in db.scalars(select(ProductProfile).order_by(ProductProfile.id))

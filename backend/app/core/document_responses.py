@@ -22,6 +22,7 @@ PATH_TYPES = {
     'material-returns': 'MaterialReturn', 'production-completions': 'ProductionCompletion',
     'crm/quotes': 'CrmQuote', 'crm/records/quote': 'CrmQuote',
     'after-sales/cases': 'AfterSalesCase', 'production-quality/dispositions': 'QualityDisposition',
+    'production/plans': 'ProductionPlan',
     'production/mrp/plans': 'MrpPlan', 'production-costs/settlements': 'ProductionCostSettlement',
     'equipment/jobs': 'MaintenanceJob', 'finance/journals': 'Journal',
     'finance/opening-balances': 'OpeningBalance', 'finance/subledger-openings': 'SubledgerOpening',
@@ -39,6 +40,7 @@ COLLECTION_TYPES = {
 # 表名集合和单据类型同源；嵌套的自动建单结果也按各自主单编号展示。
 COLLECTION_TYPES.update({table: name for name, table, _, _ in DOCUMENT_TYPES})
 RELATION_TYPES = {
+    'production_plan': 'ProductionPlan',
     'purchase_request': 'PurchaseRequest', 'purchase_order': 'PurchaseOrder',
     'goods_receipt': 'PurchaseGoodsReceipt', 'inbound_receipt': 'Receipt', 'receipt': 'Receipt',
     'purchase_return': 'PurchaseReturn', 'outbound': 'WarehouseOutbound',
@@ -62,6 +64,7 @@ SOURCE_TYPES = {
     # 新流程冲销流水沿用原主单 ID；没有独立冲销主表，不套用旧领退料的冲销 ID 转换。
     'material_dispatch': 'MaterialDispatch', 'production_material_return': 'ProductionMaterialReturn',
     'material_handover_return': 'MaterialReceipt',
+    'production_plan': 'ProductionPlan', 'production_plan_requirement': 'ProductionPlan',
     'production_completion': 'ProductionCompletion', 'work_order': 'WorkOrder',
     'after_sales_repair': 'AfterSalesCase', 'purchase_order': 'PurchaseOrder', 'sales_order': 'SalesOrder', 'purchase_request': 'PurchaseRequest',
 }

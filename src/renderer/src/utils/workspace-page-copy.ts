@@ -56,6 +56,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   bankBalance: '绑定银行账户与已确认总账期初，迁入并核销期初未达项，分组勾对流水和已过账分录，编制并独立复核余额调节表。',
   financeSources: '查看已确认出入库和退货产生的金额来源，追溯单据、物料与操作人。',
   productionCosts: '材料沿用领料时的库存平均成本，缺价或返工来源未结算时不能结算。全部报工及处置后，按合格、损失和返工规则分摊并保留来源；更正前先冲销下游及原结算。',
+  productionPlans: '安排产品、产量及开完工日期，审批后分批生成工单，并跟踪执行进度与延期。',
   materialPlanning: '按日期汇总需求和预计供给，合并共享组件并扣库存，固定计算结果，独立审核后转采购申请或工单草稿。',
   qualityDisposition: '按原质检数量安排报废或返工，明确成本处理，独立审核后确认。返工沿用来源成本，重新检验合格后才入可用库存。',
   equipmentMaintenance: '维护设备台账与周期计划，独立审核后由指定人员执行、登记停机与报工，再独立验收。耗材由仓库确认，外委费用为声明记录。',

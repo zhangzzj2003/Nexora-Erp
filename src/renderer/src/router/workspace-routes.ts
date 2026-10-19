@@ -394,6 +394,7 @@ export const workspaceRouteGroups = [
         permission: 'production_cost.view',
         icon: 'file'
       },
+      { key: 'productionPlans', path: '/workspace/production-plans', label: '生产计划', section: 'plans', permission: 'production_plan.view', icon: 'file' },
       { key: 'materialPlanning', path: '/workspace/material-planning', label: '物料需求计划', section: 'plans', permission: 'mrp.view', icon: 'file' },
       { key: 'qualityDisposition', path: '/workspace/production-quality', label: '不合格品处置与返工', section: 'quality', permission: 'quality.view', icon: 'file' },
       { key: 'equipmentMaintenance', path: '/workspace/equipment-maintenance', label: '设备维护', section: 'tools', permission: 'equipment.view', icon: 'file' }

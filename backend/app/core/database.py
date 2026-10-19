@@ -204,10 +204,76 @@ def _migrate_product_boms(db: sqlite3.Connection) -> None:
                 db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
 
 
+def _migrate_production_plans(db: sqlite3.Connection) -> None:
+    # 结构迁移允许底层 DDL，业务查询与写入统一使用 ORM。
+    # SQLite 的 DDL 不会隐式开启事务；失败时必须同时回滚新表、权限和版本号。
+    if not db.in_transaction:
+        db.execute('BEGIN IMMEDIATE')
+    statements = [
+        '''CREATE TABLE IF NOT EXISTS production_plans (
+            id INTEGER PRIMARY KEY, document_no TEXT UNIQUE, reference TEXT NOT NULL,
+            note TEXT NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft'
+            CHECK(status IN ('draft','cancelled')), version INTEGER NOT NULL DEFAULT 1 CHECK(version>0),
+            created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            cancelled_by INTEGER REFERENCES users(id), cancelled_at TEXT)''',
+        '''CREATE TABLE IF NOT EXISTS production_plan_lines (
+            id INTEGER PRIMARY KEY, plan_id INTEGER NOT NULL REFERENCES production_plans(id),
+            position INTEGER NOT NULL, bom_id INTEGER NOT NULL REFERENCES boms(id),
+            warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+            sales_order_line_id INTEGER REFERENCES sales_order_lines(id), quantity TEXT NOT NULL,
+            start_date TEXT NOT NULL, end_date TEXT NOT NULL, priority TEXT NOT NULL
+            CHECK(priority IN ('normal','high','urgent')), bom_json TEXT NOT NULL)''',
+        '''CREATE TABLE IF NOT EXISTS production_plan_releases (
+            id INTEGER PRIMARY KEY, plan_id INTEGER NOT NULL REFERENCES production_plans(id),
+            line_id INTEGER NOT NULL REFERENCES production_plan_lines(id),
+            work_order_id INTEGER NOT NULL UNIQUE REFERENCES work_orders(id), request_id TEXT NOT NULL,
+            request_digest TEXT NOT NULL, quantity TEXT NOT NULL, reason TEXT NOT NULL,
+            created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(plan_id,request_id))''',
+        '''CREATE TABLE IF NOT EXISTS production_plan_changes (
+            id INTEGER PRIMARY KEY, plan_id INTEGER NOT NULL REFERENCES production_plans(id),
+            action TEXT NOT NULL, before_json TEXT, after_json TEXT NOT NULL, reason TEXT NOT NULL,
+            changed_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''',
+        'CREATE INDEX IF NOT EXISTS production_plan_line_plan ON production_plan_lines(plan_id,position)',
+        'CREATE INDEX IF NOT EXISTS production_plan_line_sales ON production_plan_lines(sales_order_line_id)',
+        'CREATE INDEX IF NOT EXISTS production_plan_release_line ON production_plan_releases(line_id)',
+    ]
+    for statement in statements:
+        db.execute(statement)
+    for table in ('production_plan_releases', 'production_plan_changes'):
+        for operation in ('UPDATE', 'DELETE'):
+            db.execute(f'''CREATE TRIGGER IF NOT EXISTS {table}_no_{operation.lower()}
+                BEFORE {operation} ON {table} BEGIN
+                SELECT RAISE(ABORT, '生产计划执行与更正记录不可改写'); END''')
+    db.execute('''CREATE TRIGGER IF NOT EXISTS production_plan_number_immutable
+        BEFORE UPDATE OF document_no ON production_plans
+        WHEN OLD.document_no IS NOT NULL AND NEW.document_no IS NOT OLD.document_no
+        BEGIN SELECT RAISE(ABORT, '业务单号不可修改'); END''')
+    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    # 最小诊断夹具可能只有部分权限表；不为缺失的旧业务结构伪造账号或分组。
+    if {'permissions', 'role_permissions', 'permission_groups', 'roles'} <= tables:
+        if db.execute("SELECT 1 FROM permission_groups WHERE code='production'").fetchone():
+            db.execute("""INSERT OR IGNORE INTO permission_groups(code,label,parent_code,sort_order)
+                VALUES ('production.plan','生产计划','production',4)""")
+            for action, label in (('view','查看生产计划与来源'), ('create','编制生产计划'),
+                    ('submit','提交生产计划'), ('review','审核生产计划'), ('verify','核准生产计划'),
+                    ('approve','批准生产计划'), ('release','分批下达生产计划'), ('cancel','取消生产计划')):
+                code = 'production_plan.' + action
+                db.execute('INSERT OR IGNORE INTO permissions(code,label,group_code) VALUES (?,?,?)',
+                           (code, label, 'production.plan'))
+                roles = ('admin',) if action in ('review', 'verify', 'approve') else ('admin', 'planner')
+                for role in roles:
+                    db.execute('''INSERT OR IGNORE INTO role_permissions(role_code,permission_code)
+                        SELECT code,? FROM roles WHERE code=?''', (code, role))
+    if 'document_approval_policies' in tables:
+        db.execute('''INSERT OR IGNORE INTO document_approval_policies(document_type,version,steps_json)
+            VALUES ('ProductionPlan',1,'[{"name":"批准","role":null}]')''')
+
+
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 106:
+        if version > 107:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -3259,3 +3325,7 @@ def migrate() -> None:
                     if name not in columns:
                         db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
             db.execute('PRAGMA user_version = 106')
+
+        if version < 107:
+            _migrate_production_plans(db)
+            db.execute('PRAGMA user_version = 107')

@@ -1,3 +1,4 @@
+import type { ProductionPlanOperations } from './production-plan-api'
 import type { ProductProfile, ProductPage, ProductQuery, ProductInput, ProductUpdate, ProductModel, ProductModelInput, ProductChange } from './product-api'
 import type { MaterialFlowOperations } from './material-flow-api'
 import type { MaterialSupplyOperations } from './material-supply-api'
@@ -909,6 +910,8 @@ export interface WorkOrderLine {
 }
 // 工单组件需求在建单时固定，旧 BOM 停用也不会改变已下达工单。
 export interface WorkOrder extends NumberedDocument {
+  // 仅新生产计划生成的工单带排期来源，历史工单不补造计划。
+  production_schedule?: { production_plan_id: number; production_plan_document_no: string | null; plan_line_id: number; start_date: string; end_date: string; priority: string }
   // 本单独立审批；旧响应缺失时界面不允许执行。
   approval?: DocumentApprovalState
   id: number
@@ -1446,7 +1449,7 @@ export interface InventoryReportResult extends Omit<ReportResult, 'csv'> {
   page_size: number
 }
 
-export interface ErpOperations extends MaterialFlowOperations, MaterialSupplyOperations, ProductionAssociationOperations, DocumentApprovalOperations, DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations, ControlBalanceOperations {
+export interface ErpOperations extends ProductionPlanOperations, MaterialFlowOperations, MaterialSupplyOperations, ProductionAssociationOperations, DocumentApprovalOperations, DocumentNumberingOperations, MrpOperations, CrmOperations, QualityOperations, AfterSalesOperations, DashboardOperations, EquipmentOperations, InventoryWarningOperations, PhysicalLotOperations, ControlBalanceOperations {
   setupStatus: { input: undefined; output: { needs_setup: boolean } }
   bootstrap: { input: { username: string; password: string }; output: User }
   login: { input: { username: string; password: string }; output: User }

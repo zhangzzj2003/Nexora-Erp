@@ -217,12 +217,15 @@ def work_order_data(db: Session, order_id: int) -> dict:
                 "damaged_quantity": str(progress["damaged"]),
             }
         )
+    from app.production.plan_sources import work_order_schedule
+    schedule = work_order_schedule(db, order_id)
     reported, accepted, rejected = posted_completion_totals(db, order_id)
     rework = db.scalar(select(QualityDisposition).where(QualityDisposition.rework_order_id == order_id))
     return {
         **dict(row),
         "approval": approval.case_data(approval.find_case(db, "WorkOrder", order_id)),
         "lines": details,
+        **({"production_schedule": schedule} if schedule else {}),
         "reported_quantity": str(reported),
         "accepted_quantity": str(accepted),
         "rejected_quantity": str(rejected),

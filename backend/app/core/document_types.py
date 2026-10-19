@@ -27,6 +27,7 @@ DOCUMENT_TYPES = (
     ('ProductionCompletion', 'production_completions', 'WGD', 'CMP'),
     ('QualityDisposition', 'quality_dispositions', 'BHGCZ', 'QDS'),
     ('MrpPlan', 'mrp_plans', 'WLXQ', 'MRP'),
+    ('ProductionPlan', 'production_plans', 'SCJH', 'PP'),
     ('ProductionCostSettlement', 'production_cost_settlements', 'CBJS', 'PCS'),
     ('MaintenanceJob', 'maintenance_jobs', 'WHGD', 'MNT'),
     ('Journal', 'journals', 'PZ', 'JV'),

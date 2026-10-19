@@ -1,3 +1,5 @@
+import { productionPlanBody, productionPlanCommand, productionPlanId, validateProductionPlanResult } from '../shared/production-plan-api.ts'
+import type { ProductionPlanOperations } from '../shared/production-plan-api'
 import { productBody, productModelBody, productModelDeleteBody, productQueryBody, productBomBody, validateProductResult } from '../shared/product-api.ts'
 import { materialFlowRequest, validateMaterialFlowResult } from '../shared/material-flow-api.ts'
 import { materialSupplyBody, validateMaterialSupply } from '../shared/material-supply-api.ts'
@@ -931,6 +933,15 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       const resource = action==='closeCrmActivity' ? 'activities' : action==='reopenCrmOpportunity' ? 'opportunities' : 'quotes'
       return { method:'POST',path:`/api/v1/crm/${resource}/${positiveId(payload,'id')}/${command}`,body }
     }
+    case 'productionPlans': return { method: 'GET', path: '/api/v1/production/plans' }
+    case 'productionPlanOptions': return { method: 'GET', path: '/api/v1/production/plans/options' }
+    case 'productionPlanDetail': return { method: 'GET', path: `/api/v1/production/plans/${positiveId(payload, 'id')}` }
+    case 'createProductionPlan': return { method: 'POST', path: '/api/v1/production/plans', body: productionPlanBody(payload) }
+    case 'updateProductionPlan': return { method: 'PUT', path: `/api/v1/production/plans/${positiveId(payload, 'id')}`,
+      body: { ...productionPlanBody(payload), version: productionPlanId((payload as { version: unknown }).version) } }
+    case 'cancelProductionPlan':
+    case 'releaseProductionPlan': return { method: 'POST', path: `/api/v1/production/plans/${positiveId(payload, 'id')}/${action === 'cancelProductionPlan' ? 'cancel' : 'release'}`,
+      body: productionPlanCommand(payload, action === 'releaseProductionPlan') }
     case 'mrpOptions': return { method: 'GET', path: '/api/v1/production/mrp/options' }
     case 'mrpPlans': return { method: 'GET', path: '/api/v1/production/mrp/plans' }
     case 'mrpDetail': return { method: 'GET', path: `/api/v1/production/mrp/plans/${positiveId(payload, 'id')}` }
@@ -1786,6 +1797,11 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
       throw new Error('服务端未找到此功能（HTTP 404）。请确认桌面端与服务端版本一致。')
     }
     throw new Error(typeof detail === 'string' ? detail : `请求失败（HTTP ${response.status}）`)
+  }
+  if (['productionPlans', 'productionPlanOptions', 'productionPlanDetail', 'createProductionPlan',
+    'updateProductionPlan', 'cancelProductionPlan', 'releaseProductionPlan'].includes(action)) {
+    validateProductionPlanResult(action as keyof ProductionPlanOperations, data,
+      ['productionPlanDetail', 'updateProductionPlan', 'cancelProductionPlan', 'releaseProductionPlan'].includes(action) ? positiveId(payload, 'id') : undefined)
   }
   validateDocumentNumbers(data)
   // 业务列表与执行响应同样校验审批状态，避免格式错误直接开放确认按钮。

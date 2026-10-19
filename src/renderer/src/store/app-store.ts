@@ -1,3 +1,4 @@
+import { createProductionPlanActions } from './modules/production-plan-actions'
 import { createProductActions } from './modules/product-actions'
 import {createMaterialSupplyActions} from './modules/material-supply-actions'
 import { createProductionAssociationActions } from './modules/production-association-actions'
@@ -321,6 +322,7 @@ function createAppStore() {
   const subledgerAttachmentActions = createSubledgerAttachmentActions(state)
   const subledgerOrderActions = createSubledgerOrderActions(state, perform, subledgerActions.refreshSubledgerApproval)
   const controlBalanceActions = createControlBalanceActions(state, perform, subledgerActions.refreshSubledgerApproval)
+  const productionPlanActions = createProductionPlanActions(state, perform)
   const mrpActions = createMrpActions(state, perform)
   const crmActions = createCrmActions(state, perform)
   const qualityActions = createQualityActions(state, perform)
@@ -340,6 +342,7 @@ function createAppStore() {
         && state.user.value?.permissions.includes('control_transfer.view')) await controlBalanceActions.loadControlBalances()
       if (target.document_type === 'Journal' && state.controlBalanceJournal.value?.id === target.document_id)
         await controlBalanceActions.loadControlBalanceJournal(target.document_id)
+      if (target.document_type === 'ProductionPlan') await productionPlanActions.refreshProductionPlanApproval(target.document_id)
       if (target.document_type === 'MrpPlan') await mrpActions.refreshMrpApproval(target.document_id)
       if (target.document_type === 'QualityDisposition') await qualityActions.refreshQualityApproval(target.document_id)
     }, () => workspaceRouter.currentRoute.value.path) }
@@ -427,6 +430,7 @@ function createAppStore() {
     ...subledgerAttachmentActions,
     ...subledgerOrderActions,
     ...controlBalanceActions,
+    ...productionPlanActions,
     ...mrpActions,
     ...crmActions,
     ...qualityActions,
