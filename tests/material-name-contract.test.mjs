@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { test } from 'node:test'
 import { parse } from '@vue/compiler-sfc'
 
@@ -34,8 +34,9 @@ test('十四个详情名称入口统一使用名称组件，新增参数直铺�
     assert.doesNotMatch(template(file), /<WorkspaceMaterialParameters\b/, file)
   }
   // 完整参数只允许留在独立物料详情及产品参数区，不能重新落入单据名称列。
+  // 将系统路径分隔符统一为清单格式，避免 Windows 反斜杠导致相同文件被误判。
   const fullParameterViews = vueFiles(root).filter(file => /<WorkspaceMaterialParameters\b/.test(readFileSync(file, 'utf8')))
-    .map(file => relative(root, file)).sort()
+    .map(file => relative(root, file).split(sep).join('/')).sort()
   assert.deepEqual(fullParameterViews, ['components/workspace/InventoryMaterialFacts.vue', 'views/workspace/catalog/ProductsView.vue'])
 })
 
