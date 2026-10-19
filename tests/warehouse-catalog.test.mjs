@@ -24,6 +24,36 @@ test('仓库编码预览限定名称和固定接口', async t => {
   assert.equal(calls.length, count)
 })
 
+// 服务端异常响应不能把负数、字符串或残缺编码带入表单和列表。
+test('仓库新增参数及编码、种数响应在主进程校验', async t => {
+  const original = process.env.NEXORA_API_URL
+  t.after(() => { if (original === undefined) delete process.env.NEXORA_API_URL; else process.env.NEXORA_API_URL = original })
+  process.env.NEXORA_API_URL = 'http://127.0.0.1:8123'
+  let output, sent
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    sent = JSON.parse(options.body ?? '{}')
+    return Response.json(url.pathname.endsWith('/login') ? { token: 'fixture', user: { id: 1 } } : output)
+  })
+  await callBackend('login', {})
+  output = { id: 2, name: '东仓', code: 'DC', version: 1 }
+  await callBackend('createWarehouse', { name: ' 东仓 ', extra: '不转发' })
+  assert.deepEqual(sent, { name: '东仓' })
+  await assert.rejects(callBackend('createWarehouse', { name: '东仓', code: '中文' }), /仓库编码无效/)
+  await assert.rejects(callBackend('createWarehouse', { name: ' ' }), /仓库名称无效/)
+  for (const bad of [null, {}, { code: 42 }, { code: '中文' }, { code: 'A'.repeat(41) }]) {
+    output = bad
+    await assert.rejects(callBackend('previewWarehouseCode', { name: '东仓' }), /预览响应无效/)
+  }
+  for (const bad of [-1, 0.5, '2', null, Number.MAX_SAFE_INTEGER + 1]) {
+    output = [{ material_count: bad }]
+    await assert.rejects(callBackend('warehouses'), /物料种数响应无效/)
+  }
+  for (const row of [{}, { material_count: 0 }, { material_count: 2 }]) {
+    output = [row]
+    assert.deepEqual(await callBackend('warehouses'), output)
+  }
+})
+
 // 新建不能提交预览值，编辑保留原编码；写入失败应保留表单并返回失败。
 test('仓库写入以服务端编码为准，失败保留草稿，断线不请求预览', async t => {
   const original = globalThis.window
