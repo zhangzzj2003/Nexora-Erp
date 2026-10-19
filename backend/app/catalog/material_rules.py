@@ -4,11 +4,12 @@ import json
 import re
 
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
 from app.catalog.specifications import specification_data
 from app.catalog.categories import category_directory
 
-from app.core.models import Material, MaterialCategory, MaterialCodeSequence, MaterialChange
+from app.core.models import ProductProfile, Material, MaterialCategory, MaterialCodeSequence, MaterialChange
 
 
 # 分类代码同时作为编码前缀；名称可以调整，已分配的编码不会随分类改动。
@@ -63,6 +64,18 @@ def material_choice_data(material: Material) -> dict:
     result['category_name'] = f"{parent['name']} / {child['name']}" if child and parent else '未分类'
     result.update(specification_data(material))
     return result
+
+
+def material_choices(db: Session, *, full: bool = False) -> list[dict]:
+    # 用途随授权物料目录批量读取，不依赖产品分页，也不逐条查询产品档案。
+    rows = db.execute(select(Material, ProductProfile).outerjoin(
+        ProductProfile, ProductProfile.material_id == Material.id).order_by(Material.sku))
+    return [{**(material_data(material) if full else {}), **material_choice_data(material),
+             'can_sell': profile is None or profile.can_sell,
+             'can_purchase': profile is None or profile.can_purchase,
+             # 软删除仅关闭新生产；采购、销售继续遵守各自独立用途。
+             'can_produce': profile is None or (profile.deleted_at is None and profile.can_produce)}
+            for material, profile in rows]
 
 
 def allocate_material_code(db: Session, category: str) -> str:

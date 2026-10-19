@@ -1,3 +1,4 @@
+import { materialUseIssue } from '../../utils/material-use.ts'
 import { validateDocumentApprovalRecord } from '../../../../shared/document-approval-api.ts'
 import {watch} from 'vue'
 import type {AfterSalesAction,AfterSalesAttachment,AfterSalesAttachmentList,AfterSalesDraft,AfterSalesEvidence,AfterSalesInput,AfterSalesLaborCostSummary,AfterSalesRepairMargin,AfterSalesResponsibilityOutcome} from '../../../../shared/after-sales-api'
@@ -81,6 +82,11 @@ export function createAfterSalesActions(state:AppState,perform:(run:()=>Promise<
   }
   async function saveAfterSalesCase():Promise<boolean>{
     const form=state.afterSalesForm.value,edit=state.afterSalesEdit.value,session=owner
+    // 换货新选销售品与维修领用耗材的用途不同，耗材不要求可销售。
+    if (form.kind === 'exchange' && form.replacement_material_id) {
+      const issue = materialUseIssue([{material_id: form.replacement_material_id}], state.afterSalesOverview.value?.materials ?? [], 'can_sell')
+      if (issue) { state.error.value = issue; return false }
+    }
     if(form.kind==='repair' && !['free','charge'].includes(form.charge_mode)){
       state.error.value='请明确选择免费或收费维修，并填写客户同意依据。';return false
     }

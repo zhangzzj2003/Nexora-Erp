@@ -1,3 +1,4 @@
+import type { MaterialUses } from './material-uses'
 // 历史单据保留简要契约；业务选料可以附带当前档案的只读资料。
 export interface MaterialSummary { id: number; sku: string; name: string; unit: string }
 export interface MaterialDetails {
@@ -15,14 +16,14 @@ export interface MaterialDetails {
   notes: string
 }
 // 可选字段兼容旧业务接口的简要响应，不把未提供的详情当成已填写资料。
-export interface MaterialChoice extends MaterialSummary, Partial<MaterialDetails> {
+export interface MaterialChoice extends MaterialSummary, Partial<MaterialDetails>, MaterialUses {
   category_name?: string
   spec_values?: MaterialSpecValue[]
   spec_summary?: string
   extra_attributes?: MaterialExtraAttribute[]
   spec_template_version?: number
 }
-export interface Material extends MaterialSummary, MaterialDetails {
+export interface Material extends MaterialSummary, MaterialDetails, MaterialUses {
   category_name?: string
   spec_values?: MaterialSpecValue[]
   spec_summary?: string

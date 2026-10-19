@@ -1,4 +1,6 @@
 <script setup lang="ts" generic="T extends number | null">
+import type { MaterialUse } from '../../../../shared/material-uses'
+import { materialUseOptions } from '../../utils/material-use'
 import { computed, h, ref } from 'vue'
 import type { SelectOption } from 'naive-ui'
 import type { MaterialCategory, MaterialChoice } from '../../../../shared/material-api'
@@ -14,6 +16,8 @@ const props = withDefaults(defineProps<{
   modelValue: T
   options?: readonly WorkspaceSelectOption<T>[]
   materials: readonly MaterialChoice[]
+  // 新建业务显式指定用途；库存、历史单据及生产耗料不套用销售或生产资格。
+  use?: MaterialUse
   categories?: readonly MaterialCategory[]
   disabled?: boolean
   required?: boolean
@@ -26,7 +30,9 @@ const emit = defineEmits<{ 'update:modelValue': [value: T]; change: [value: T]; 
 const source = computed(() => props.materials)
 const directory = computed(() => props.categories ?? [])
 const options = computed(() => props.options ?? source.value.map(item => ({ value: item.id as T, label: `${item.sku} · ${item.name}` })))
-const enriched = computed(() => materialSelectOptions(options.value, source.value, directory.value))
+// 名称补全后再加用途提示，防止资料格式化覆盖不可用原因。
+const enriched = computed(() => materialUseOptions(materialSelectOptions(options.value, source.value, directory.value),
+  source.value, props.use, props.modelValue))
 const selected = computed(() => options.value.some(option => Object.is(option.value, props.modelValue))
   ? source.value.find(item => item.id === props.modelValue) : undefined)
 const hasSelection = computed(() => typeof props.modelValue === 'number' && props.modelValue > 0)

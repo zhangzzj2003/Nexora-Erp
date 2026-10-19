@@ -16,7 +16,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.access.security import require
-from app.catalog.material_rules import material_choice_data
+from app.catalog.product_rules import require_product_use
+from app.catalog.material_rules import material_choices
 from app.core.models import (Material, MrpConversion, MrpPlan, MrpPlanChange, MrpPolicy,
     MrpPolicyChange, PurchaseRequest, User, Warehouse, WorkOrder)
 from app.core.orm import model_data, orm_session
@@ -226,7 +227,7 @@ def options(_: dict = Depends(require('mrp.view'))) -> dict:
     with orm_session() as db:
         source = collect(db)
         # 分类名称只丰富选料响应，不写入计算来源或改变历史快照指纹。
-        choices = {row.id: material_choice_data(row) for row in db.scalars(select(Material))}
+        choices = {row['id']: row for row in material_choices(db)}
         return {key: source[key] for key in ('materials','policies','boms','demands','supplies','reservations')} | {
             'materials': [{**row, **choices[row['id']]} for row in source['materials']],
             'fingerprint': fingerprint(source), 'today': today(),
@@ -238,6 +239,9 @@ def save_policy(payload: PolicyInput, material_id: int = Path(gt=0), user: dict 
     with orm_session(write=True) as db:
         if db.get(Material, material_id) is None:
             raise HTTPException(422, '物料不存在')
+        # 显式指定供给方式时即校验；自动方式仍在实际缺料计算时按用途检查。
+        if payload.supply_mode in ('buy', 'make'):
+            require_product_use(db, material_id, 'can_purchase' if payload.supply_mode == 'buy' else 'can_produce')
         record = db.get(MrpPolicy, material_id)
         if payload.version != (record.version if record else 0):
             raise HTTPException(409, '计划参数已变化，请刷新后再保存')

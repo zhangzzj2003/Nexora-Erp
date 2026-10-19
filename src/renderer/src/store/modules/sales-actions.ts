@@ -1,3 +1,4 @@
+import { materialUseIssue } from '../../utils/material-use.ts'
 import type { AppState } from '../state'
 import type {ShipmentLotLineInput,ShipmentLotOptions} from '../../../../shared/shipment-lot-api'
 import type {SalesReturnLotLineInput,SalesReturnLotOptions} from '../../../../shared/sales-return-lot-api'
@@ -59,6 +60,8 @@ export function createSalesActions(
   async function createSalesOrder(): Promise<void> {
     if (!window.nexora) return
     await perform(async () => {
+      const issue = materialUseIssue(salesForm.value.lines, state.materials.value, 'can_sell')
+      if (issue) throw new Error(issue)
       // 销售单价和数量只从表单读取，服务端独立计算订单金额与出库进度。
       await window.nexora!.callApi('createSalesOrder', {
         customer_id: salesForm.value.customer_id,

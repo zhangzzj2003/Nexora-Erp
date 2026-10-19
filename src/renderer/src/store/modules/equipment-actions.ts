@@ -1,3 +1,4 @@
+import { materialUseIssue } from '../../utils/material-use.ts'
 import {watch} from 'vue'
 import type {AppState} from '../state'
 import type {EquipmentEntity,EquipmentForms,EquipmentDetail,EquipmentMeterInput,MaintenanceCommand,
@@ -139,6 +140,9 @@ export function createEquipmentActions(state:AppState,perform:(run:()=>Promise<u
   }
   function createMaintenancePurchaseRequest(input:MaintenancePurchaseInput):Promise<boolean>{
     if(!can('purchase_request.view'))return Promise.resolve(false)
+    // 工单耗材可继续领用，但新增采购申请须单独校验采购用途。
+    const issue = materialUseIssue(input.parts, state.equipmentOverview.value?.materials ?? [], 'can_purchase')
+    if (issue) { state.error.value = issue; return Promise.resolve(false) }
     return write('job','purchase_request.create',()=>window.nexora!.callApi('createMaintenancePurchaseRequest',input),
       '已从维护工单创建采购申请草稿，仍须按采购流程提交、审核和转单。')
   }

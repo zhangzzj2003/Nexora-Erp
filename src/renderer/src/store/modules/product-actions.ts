@@ -217,6 +217,23 @@ export function createProductActions(state: AppState) {
     } catch (cause) {if (ownedWrite === ticket && epoch === editTicket && identity() === session) state.error.value = displayError(cause)}
     finally {if (ownedWrite === ticket) {ownedWrite = null; state.busy.value = false}}
   }
+  function syncProductUses(row: ProductProfile): void {
+    // 保存回执已确认当前用途；立即同步已打开业务的授权缓存，不等待产品分页或手动刷新。
+    const uses = {can_sell: row.can_sell ?? true, can_purchase: row.can_purchase ?? true,
+      can_produce: !row.deleted_at && row.can_produce !== false}
+    state.materials.value = state.materials.value.map(item => item.id === row.material_id ? {...item, ...uses} : item)
+    for (const cache of [state.crmOptions, state.afterSalesOverview, state.equipmentOverview,
+      state.mrpOptions, state.productionPlanOptions]) {
+      if (cache.value) cache.value.materials = cache.value.materials.map(item => item.id === row.material_id ? {...item, ...uses} : item)
+    }
+    const updateBoms = (rows: Bom[]): Bom[] => rows.map(bom => bom.product_material_id === row.material_id
+      ? {...bom, product_can_produce: uses.can_produce} : bom)
+    state.boms.value = updateBoms(state.boms.value)
+    state.productBomRecords.value = updateBoms(state.productBomRecords.value)
+    if (state.bomDetailRecord.value?.product_material_id === row.material_id)
+      state.bomDetailRecord.value = {...state.bomDetailRecord.value, product_can_produce: uses.can_produce}
+  }
+
   async function saveProduct(): Promise<ProductProfile | undefined> {
       return await write(async () => {
       const form = state.productForm.value
@@ -235,6 +252,7 @@ export function createProductActions(state: AppState) {
       // 快捷创建只带回产出物料，已经填写的 BOM 基准数和组件逐行保留。
       if (state.productReturnToBom.value) state.bomForm.value.product_material_id = row.material_id
       state.materials.value = [...state.materials.value.filter(item => item.id !== row.material_id), row.material]
+      syncProductUses(row)
       state.productEditorOpen.value = false; state.productReturnToBom.value = false
       state.productForm.value = {id: 0, version: 0, mode: 'new', material_id: 0, kind: 'finished', model_id: null, configuration_name: '', can_sell: true, can_purchase: true, can_produce: true, reason: ''}
       state.productMaterialForm.value = materialDraft(); state.notice.value = '产品档案已保存。'
@@ -302,13 +320,7 @@ export function createProductActions(state: AppState) {
     })
     if (!row || identity()!==session || epoch!==editTicket || state.user.value?.permissions.slice().sort().join('|')!==permissions || !allowed('catalog.manage')) return false
     const enabled = !row.deleted_at && row.can_produce !== false
-    // 立即同步可生产性，旧工单草稿及 BOM 详情不能继续显示一个可用的建单入口。
-    const updateBoms = (rows: Bom[]): Bom[] => rows.map(bom => bom.product_material_id === row.material_id
-      ? {...bom,product_can_produce:enabled} : bom)
-    state.boms.value = updateBoms(state.boms.value)
-    state.productBomRecords.value = updateBoms(state.productBomRecords.value)
-    if (state.bomDetailRecord.value?.product_material_id === row.material_id)
-      state.bomDetailRecord.value = {...state.bomDetailRecord.value,product_can_produce:enabled}
+    syncProductUses(row)
     if (action === 'delete') {
       if (state.productDetailId.value === row.id) {
         closeProduct(); state.productDetailRecord.value=null; state.productBomRecords.value=[]; state.productChangeRecords.value=[]

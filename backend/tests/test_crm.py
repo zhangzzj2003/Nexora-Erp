@@ -183,6 +183,27 @@ def approved(seed,data):
     return action(client,reviewer,quote,'approve')
 
 
+def test_sales_use_blocks_quote_create_edit_and_conversion_without_rewriting_approved_quote(seeded):
+    client, admin, _, _, _, _, _, materials = seeded
+    _, opportunity, data = base_records(seeded)
+    quote = approved(seeded, data)
+    draft = client.post(C+'/quotes', headers=admin, json={**data, 'reference': 'DRAFT-USES'}).json()
+    response = client.post(B+'/products', headers=admin, json={'material_id': materials[0],
+        'kind': 'finished', 'can_sell': False, 'can_purchase': True, 'can_produce': True})
+    assert response.status_code == 201, response.text
+    for method, path, body in [
+        ('POST', C+'/quotes', {**data, 'reference': 'BLOCKED-USES'}),
+        ('PUT', C+f'/quotes/{draft["id"]}', {**data, 'reference': 'DRAFT-USES', 'version': draft['version'], 'reason': '用途变更后重存'})
+    ]:
+        blocked = client.request(method, path, headers=admin, json=body)
+        assert blocked.status_code == 409 and '未允许销售' in blocked.json()['detail']
+    blocked = action(client, admin, quote, 'convert', status=409, acceptance_reference='接受报价',
+        opportunity_version=opportunity['version'])
+    assert '未允许销售' in blocked['detail']
+    assert client.get(B+'/sales-orders', headers=admin).json() == []
+    assert client.get(C+f'/records/quote/{quote["id"]}', headers=admin).json()['lines'] == quote['lines']
+
+
 def pdf_text(content: bytes) -> tuple[PdfReader, str]:
     reader = PdfReader(BytesIO(content))
     return reader, '\n'.join(page.extract_text() for page in reader.pages)

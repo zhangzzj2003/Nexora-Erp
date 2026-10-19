@@ -838,3 +838,27 @@ test('系列表单回填触发同步换账号时停止补入旧审计，保存�
  assert.equal(f.state.productModelForm.value.name,'新目标草稿')
  assert.equal(f.state.productModelForm.value.notes,'不能被旧保存清空')
 })
+
+
+// 用途保存后立即影响已打开业务，不清除其他页面草稿，也不依赖重新加载产品目录。
+test('保存产品同步全部授权候选及 BOM 用途，其他物料和草稿保持不变', async t => {
+  const row = {...product(), can_sell:false, can_purchase:false, can_produce:false}
+  const f = fixture(t, async action => action === 'productModels' ? [model] : action === 'createProduct' ? row : page())
+  const item = material(row.material_id), other = material(999)
+  f.state.materials.value = [item, other]
+  for (const key of ['crmOptions','afterSalesOverview','equipmentOverview','mrpOptions','productionPlanOptions']) {
+    f.state[key].value = {materials:[item,other]}
+  }
+  f.state.boms.value = [{id:5, product_material_id:row.material_id, status:'active', product_can_produce:true}]
+  const draft = f.state.purchaseRequestForm.value
+  f.state.productForm.value = {...f.state.productForm.value, mode:'existing', material_id:row.material_id}
+  await f.actions.saveProduct()
+  for (const rows of [f.state.materials.value, ...['crmOptions','afterSalesOverview','equipmentOverview','mrpOptions','productionPlanOptions'].map(key => f.state[key].value.materials)]) {
+    const current = rows.find(value => value.id === row.material_id)
+    assert.equal(current.can_sell, false);assert.equal(current.can_purchase, false);assert.equal(current.can_produce, false)
+    assert.equal(rows.find(value => value.id === 999).can_purchase, undefined)
+  }
+  assert.equal(f.state.boms.value[0].product_can_produce, false)
+  assert.equal(f.state.boms.value[0].status, 'active')
+  assert.equal(f.state.purchaseRequestForm.value, draft)
+})

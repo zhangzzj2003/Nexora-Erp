@@ -1,3 +1,4 @@
+import { materialUseIssue } from '../../utils/material-use.ts'
 // 价格草稿只提交当前计价依据，失败时保留原行及用户输入。
 import { newPurchasePriceLine, purchasePricePayload, restorePurchasePrice, proratePurchaseTotal } from '../../utils/purchase-pricing.ts'
 import type { AppState } from '../state'
@@ -74,6 +75,8 @@ export function createPurchaseActions(
     if (!window.nexora) return
     const { requestId, reference, note, lines } = purchaseRequestForm.value
     await perform(async () => {
+      const issue = materialUseIssue(lines, state.materials.value, 'can_purchase')
+      if (issue) throw new Error(issue)
       const payload = { reference, note, lines: lines.map((line) => ({ material_id: line.material_id, quantity: line.quantity, ...purchasePricePayload(line) })) }
       if (requestId) await window.nexora!.callApi('updatePurchaseRequest', { requestId, ...payload })
       else await window.nexora!.callApi('createPurchaseRequest', payload)
@@ -128,6 +131,8 @@ export function createPurchaseActions(
     const lines = form.lines.filter((line) => Number(line.quantity) > 0)
     if (!form.requestId || !lines.length) return
     await perform(async () => {
+      const issue = materialUseIssue(lines, state.materials.value, 'can_purchase')
+      if (issue) throw new Error(issue)
       await window.nexora!.callApi('createPurchaseOrder', {
         purchase_request_id: form.requestId,
         supplier_id: form.supplier_id,
@@ -193,6 +198,8 @@ export function createPurchaseActions(
   async function createPurchaseOrder(): Promise<void> {
     if (!window.nexora) return
     await perform(async () => {
+      const issue = materialUseIssue(purchaseForm.value.lines, state.materials.value, 'can_purchase')
+      if (issue) throw new Error(issue)
       await window.nexora!.callApi('createPurchaseOrder', {
         supplier_id: purchaseForm.value.supplier_id,
         reference: purchaseForm.value.reference,

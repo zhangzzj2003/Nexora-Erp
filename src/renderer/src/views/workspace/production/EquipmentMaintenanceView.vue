@@ -155,7 +155,8 @@ onMounted(()=>{void store.loadEquipment()});onUnmounted(()=>store.clearEquipment
           <p>按已批准的耗材数量填写本次采购量。创建后进入采购申请草稿，仍须提交、审核、转采购订单和收货入库；取消的申请不占用数量。</p>
           <div v-for="part in purchaseJob.parts" :key="part.material_id" class="equipment-facts">
             <label>{{ overview?.materials.find(item=>item.id===part.material_id)?.name || '物料 #'+part.material_id }} · 计划 {{ part.quantity }}
-              <AppInput v-model="purchaseParts[part.material_id]" type="number" min="0.001" max="1000000" step="0.001" placeholder="留空表示本次不采购" :disabled="disabled" />
+              <AppInput v-model="purchaseParts[part.material_id]" type="number" min="0.001" max="1000000" step="0.001" placeholder="留空表示本次不采购" :disabled="disabled || overview?.materials.find(item=>item.id===part.material_id)?.can_purchase === false" />
+              <span v-if="overview?.materials.find(item=>item.id===part.material_id)?.can_purchase === false">不可采购；现有库存仍可用于维护。</span>
             </label>
           </div>
           <label>采购原因<AppInput v-model.trim="purchaseReason" maxlength="200" required :disabled="disabled" /></label>

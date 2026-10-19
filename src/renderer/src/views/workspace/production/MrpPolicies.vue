@@ -20,9 +20,13 @@ const rows = computed(() => (options.value?.policies ?? []).map(row => ({...row,
 const columns = [{key:'material',title:'物料',width:'220'}, {key:'supply_mode',title:'供给方式',width:'210'},
   {key:'lead_time_days',title:'提前期（日历日）'}, {key:'safety_stock',title:'安全库存'}, {key:'minimum_quantity',title:'最小批量'},
   {key:'multiple_quantity',title:'批量倍数'}, {key:'actions',title:'参数与审计',width:'180'}]
-const modes = (['auto','buy','make'] as const).map(value => ({value,label:mrpMode[value]}))
+// 显式供给方式同步产品用途；已有失效配置保留可见，必须重选后保存。
+const selectedMaterial = computed(() => options.value?.materials.find(row => row.id === selected.value))
+const modes = computed(() => (['auto','buy','make'] as const).map(value => ({value,label:mrpMode[value],
+  disabled: value === 'buy' ? selectedMaterial.value?.can_purchase === false
+    : value === 'make' ? selectedMaterial.value?.can_produce === false : false})))
 const disabled = computed(() => busy.value || connectionLost.value)
-const invalid = computed(() => !form.value.reason.trim() || !Number.isInteger(form.value.lead_time_days)
+const invalid = computed(() => modes.value.some(row => row.value === form.value.supply_mode && row.disabled) || !form.value.reason.trim() || !Number.isInteger(form.value.lead_time_days)
   || form.value.lead_time_days < 0 || form.value.lead_time_days > 365
   || ![form.value.safety_stock,form.value.minimum_quantity,form.value.multiple_quantity].every(mrpQuantityValid))
 const name = computed(() => options.value?.materials.find(row=>row.id===selected.value)?.name)

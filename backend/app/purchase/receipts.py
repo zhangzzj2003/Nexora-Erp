@@ -8,6 +8,7 @@ from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from decimal import Decimal
 
+from app.catalog.product_rules import require_product_use
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
@@ -217,6 +218,10 @@ def create_receipt(payload: ReceiptInput, user: dict = Depends(require("receipt.
                 .first()
             ):
                 raise HTTPException(422, "物料不存在")
+        if payload.purchase_order_id is None:
+            # 自由采购入库不能绕过用途，历史订单入库仍按原承诺执行。
+            for line in payload.lines:
+                require_product_use(db, line.material_id, 'can_purchase')
         order_line_ids = (
             order_receipt_lines(
                 db,

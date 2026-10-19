@@ -13,7 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import select
 
 from app.access.security import require
-from app.catalog.material_rules import material_choice_data
+from app.catalog.product_rules import require_product_use
+from app.catalog.material_rules import material_choices
 from app.core.models import (AfterSalesCase, AfterSalesCustody, Shipment, ShipmentLine, SalesReturn, SalesReturnLine,
     SalesReturnReversal, SalesOrder, SalesOrderLine, Material, Warehouse, WarehouseOutbound,
     WarehouseOutboundLine)
@@ -158,6 +159,7 @@ def apply_input(db, row, payload):
         replacement=db.get(Material,payload.replacement_material_id)
         if replacement is None:
             raise HTTPException(422, '替换物料不存在')
+        require_product_use(db, replacement.id, 'can_sell')
         original['replacement']=dict(material_id=replacement.id,sku=replacement.sku,material_name=replacement.name,
             unit=replacement.unit,quantity=str(payload.replacement_quantity),unit_price=str(payload.replacement_unit_price))
     parts = []
@@ -199,7 +201,7 @@ def overview(user: dict=Depends(require('after_sales.view'))):
                 Shipment.id == ShipmentLine.shipment_id).join(SalesOrder,
                 SalesOrder.id == Shipment.sales_order_id).where(
                 SalesOrder.customer_id.in_(visible_customer_ids(user))).order_by(AfterSalesCase.id.desc()))],
-            materials=[material_choice_data(row) for row in db.scalars(select(Material))],
+            materials=material_choices(db),
             warehouses=[dict(id=row.id,name=row.name) for row in db.scalars(select(Warehouse))])
 
 

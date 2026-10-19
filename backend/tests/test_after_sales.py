@@ -93,6 +93,26 @@ def approved(erp,data):
     return action(api,row,'approve',actor='reviewer')
 
 
+def test_exchange_use_is_checked_on_new_selection_but_repair_and_approved_exchange_are_preserved(erp):
+    _, api, _, _, material, part, _ = erp
+    existing = approved(erp, payload(erp, kind='exchange', reference='ALREADY-APPROVED', quantity='1'))
+    draft = api('POST', ROOT, payload(erp, kind='exchange', reference='EDIT-EXCHANGE', quantity='1'), status=201)
+    for identifier in (material, part):
+        api('POST', 'products', {'material_id': identifier, 'kind': 'finished',
+            'can_sell': False, 'can_purchase': False, 'can_produce': False}, status=201)
+    # 新换货物料必须可销售，不能绕过正常销售订单创建规则。
+    blocked = api('POST', ROOT, payload(erp, kind='exchange', reference='BLOCKED', quantity='1'), status=409)
+    assert '未允许销售' in blocked['detail']
+    blocked = api('PUT', f"{ROOT}/{draft['id']}", {**payload(erp, kind='exchange', reference='EDIT-EXCHANGE', quantity='1'),
+        'version': draft['version']}, status=409)
+    assert '未允许销售' in blocked['detail']
+    # 维修耗材属于库存领用；已经批准的换货属于历史承诺，均不按新销售限制截断。
+    api('POST', ROOT, payload(erp, reference='REPAIR-STOCK', quantity='1', warehouse_id=1,
+        parts=[{'material_id': part, 'quantity': '1'}]), status=201)
+    processed = action(api, existing, 'process')
+    assert processed['replacement_order_id'] is not None
+
+
 def test_responsibility_assessment_is_independent_append_only_and_does_not_change_fees(erp):
     _,api,_,_,_,_,_=erp
     row=api('POST',ROOT,payload(erp,charge_mode='charge',fee_amount='5.50'),status=201)

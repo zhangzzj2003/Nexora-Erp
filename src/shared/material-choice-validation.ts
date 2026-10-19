@@ -1,3 +1,4 @@
+import { validateMaterialUses } from './material-uses.ts'
 import type { MaterialChoice } from './material-api'
 import { validateMaterialSpecs } from './material-category-validation.ts'
 // 各业务仍按自己的权限读取选料资料；新增展示字段在主进程统一校验。
@@ -15,6 +16,7 @@ export function validateMaterialChoice(value: unknown): asserts value is Materia
   const row = value as Record<string, unknown>
   if (typeof row.id !== 'number' || !Number.isSafeInteger(row.id) || row.id <= 0) throw new Error('业务物料编号无效')
   validateMaterialSpecs(row)
+  validateMaterialUses(row)
   for (const [key, limit] of Object.entries(fieldLimits)) {
     // 旧接口只有基础四字段；提供的详情必须符合现有结构与长度约束。
     if (row[key] === undefined && !['sku', 'name', 'unit'].includes(key)) continue

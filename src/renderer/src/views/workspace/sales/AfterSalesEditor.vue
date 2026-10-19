@@ -47,7 +47,7 @@ async function save():Promise<void>{if(await store.saveAfterSalesCase())emit('sa
         <p class="after-wide">保修期限从原出库的 UTC 日期起算，建单日期作为申请日；没有可靠条款时两项都留空，显示“未确认”。期限判断仅供独立审核参考，不自动决定责任或收费。</p>
         <label class="after-wide">办理方案<AppInput v-model.trim="form.solution" maxlength="400" required :disabled="busy" /></label>
         <template v-if="form.kind==='exchange'">
-          <label>换货销售物料<WorkspaceMaterialSelect :materials="overview?.materials ?? []" v-model="form.replacement_material_id" :options="materials" required :disabled="busy" /></label>
+          <label>换货销售物料<WorkspaceMaterialSelect use="can_sell" :materials="overview?.materials ?? []" v-model="form.replacement_material_id" :options="materials" required :disabled="busy" /></label>
           <label>换货交付数量<AppInput v-model="form.replacement_quantity" type="number" min="0.001" step="0.001" max="1000000" required :disabled="busy" /></label>
           <label>换货销售单价（元）<AppInput v-model="form.replacement_unit_price" type="number" min="0" step="0.0001" max="1000000000" required :disabled="busy" /></label>
           <p class="after-wide">原退货沿用原销售价格；换货建立独立销售订单，以上价格须明确填写。两个订单分别核对，不自动抵销价差。</p>

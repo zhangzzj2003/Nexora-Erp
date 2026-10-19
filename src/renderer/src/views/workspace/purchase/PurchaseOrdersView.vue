@@ -156,7 +156,7 @@ const columns: readonly WorkspaceTableColumn[] = recordColumns.map(
           </template>
           <template #cell-material="{ row: { line, index } }"
             ><!-- 标题由表头统一展示，控件保留逐行无障碍名称。 -->
-            <WorkspaceMaterialSelect
+            <WorkspaceMaterialSelect use="can_purchase"
                 :aria-label="`第 ${index + 1} 行物料`"
                 :disabled="busy || connectionLost"
                 :materials="materials"

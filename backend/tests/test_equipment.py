@@ -633,3 +633,17 @@ def test_v62_hour_migration_rolls_back_on_schema_failure(erp, monkeypatch):
         assert db.execute('PRAGMA user_version').fetchone()[0] == 62
         assert db.execute("SELECT 1 FROM sqlite_master WHERE name='equipment_meter_readings'").fetchone() is None
     migrate()
+
+
+def test_maintenance_stock_parts_remain_valid_but_new_procurement_requires_purchase_use(erp):
+    _, api, _, _, _, part = erp
+    row = approved(erp, warehouse_id=1, parts=[{'material_id': part, 'quantity': '3'}])
+    api('POST', 'products', {'material_id': part, 'kind': 'semi_finished',
+        'can_purchase': False, 'can_sell': False, 'can_produce': False}, status=201)
+    choice = next(item for item in api('GET', ROOT+'/overview')['materials'] if item['id'] == part)
+    assert choice['can_purchase'] is False
+    blocked = api('POST', ROOT+f'/jobs/{row["id"]}/purchase-requests', {'version': row['version'],
+        'reason': '缺料采购', 'evidence': '设备检修记录', 'parts': [{'material_id': part, 'quantity': '1'}]}, status=409)
+    assert '未允许采购' in blocked['detail']
+    assert api('GET', ROOT+f'/jobs/{row["id"]}')['parts'] == row['parts']
+    assert api('GET', 'purchase-requests') == []

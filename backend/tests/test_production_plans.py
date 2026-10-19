@@ -421,3 +421,23 @@ def test_v106_migration_failure_rolls_back_tables_permissions_and_version(contex
         assert db.execute('PRAGMA user_version').fetchone()[0] == 106
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='production_plans'").fetchone()
         assert not db.execute("SELECT 1 FROM permissions WHERE code='production_plan.view'").fetchone()
+
+
+def test_disabling_production_removes_choices_and_blocks_new_plan_and_release_without_changing_old_plan(context):
+    client, admin, *_ = context
+    body = draft(context)
+    existing = approved(context, body)
+    bom_id = body['lines'][0]['bom_id']
+    bom = next(item for item in client.get(BASE + '/options', headers=admin).json()['boms'] if item['id'] == bom_id)
+    product = next(item for item in client.post('/api/v1/products/query', headers=admin,
+        json={'page_size': 100}).json()['items'] if item['material_id'] == bom['material_id'])
+    response = client.put(f"/api/v1/products/{product['id']}", headers=admin,
+        json={'kind': product['kind'], 'version': product['version'], 'can_produce': False, 'reason': '停止新生产'})
+    assert response.status_code == 200, response.text
+    assert all(item['id'] != bom_id for item in client.get(BASE + '/options', headers=admin).json()['boms'])
+    # 未下达计划不能生成新工单；原计划和此前形成的生产记录仍可读。
+    for path, data in [(BASE, body), (BASE + f"/{existing['id']}/release", release_input(existing))]:
+        blocked = client.post(path, headers=admin, json=data)
+        assert blocked.status_code == 409 and '未允许生产' in blocked.json()['detail']
+    current = client.get(BASE + f"/{existing['id']}", headers=admin).json()
+    assert current['lines'] == existing['lines'] and current['releases'] == []

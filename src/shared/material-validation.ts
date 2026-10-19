@@ -1,3 +1,4 @@
+import { validateMaterialUses } from './material-uses.ts'
 import { materialSpecBody, validateMaterialSpecs } from './material-category-validation.ts'
 // 输入和响应都在主进程边界核验；资料为空与响应漏字段不能混为一谈。
 const lengths: Record<string, number> = {
@@ -73,6 +74,7 @@ export function validateMaterialResult(action: string, data: unknown): void {
   for (const raw of action === 'materials' ? data as unknown[] : [data]) {
     const row = object(raw)
     validateMaterialSpecs(row)
+    validateMaterialUses(row)
     if (!positiveVersion(row.id) || !positiveVersion(row.version)) throw new Error('物料响应版本或编号无效，请升级服务端')
     // 中文分类仅用于展示，不加入可写字段白名单；旧列表没有此字段时仍兼容。
     if (row.category_name !== undefined && (typeof row.category_name !== 'string' || row.category_name.length > 200)) {
