@@ -10,7 +10,8 @@ import vue from '@vitejs/plugin-vue'
 
 // 真实产品弹窗和物料选择器参与响应式更新，仅替换依赖浏览器绘制的控件。
 async function fixture(t) {
-  const files=['views/workspace/catalog/ProductEditor.vue','components/workspace/WorkspaceMaterialSelect.vue']
+  // 选择器改为组合共享资料卡后，持续挂载测试也需编译真实子组件，不能混入 SSR 专用渲染函数。
+  const files=['views/workspace/catalog/ProductEditor.vue','components/workspace/WorkspaceMaterialSelect.vue','components/workspace/WorkspaceMaterialInfo.vue']
   const modules=files.map(file=>{
     const filename=resolve('src/renderer/src',file)
     return [normalizePath(filename)+'.client.ts',compileScript(parse(readFileSync(filename,'utf8'),{filename}).descriptor,
@@ -21,6 +22,7 @@ async function fixture(t) {
     resolveId(id){
       if(sources.has(id))return id
       if(id.endsWith('/WorkspaceMaterialSelect.vue'))return modules[1][0]
+      if(id.endsWith('/WorkspaceMaterialInfo.vue'))return modules[2][0]
       if(id.endsWith('/store/app-store'))return '\0summary-store'
       if(id.endsWith('/WorkspaceDocumentDialog.vue'))return '\0summary-dialog'
       if(id.endsWith('/WorkspaceSelect.vue'))return '\0summary-select'
