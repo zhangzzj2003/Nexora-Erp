@@ -365,7 +365,8 @@ export default defineComponent({
         class: 'app-modal-waiting', style: waitingPosition.value, role: 'status', 'aria-live': 'polite'
       }, [h('span', '正在准备详情…'), h('button', { type: 'button', onClick: cancelWaiting }, '取消')])) : null
       const refreshStatus = (refreshing.value || saving.value) && refreshTarget.value && typeof document !== 'undefined' ? h(Teleport, { to: refreshTarget.value }, h('div', {
-        class: 'app-modal-waiting', style: { visibility: 'visible', right: `${Math.max(16, window.innerWidth - (bounds?.left ?? 0) - (bounds?.width ?? 0))}px`, top: `${Math.max(12, (bounds?.top ?? 0) + 12)}px` },
+        // 处理、刷新和失败提示统一向弹窗内侧留出 16px，避免紧贴右边框。
+        class: 'app-modal-waiting', style: { visibility: 'visible', right: `${Math.max(16, window.innerWidth - (bounds?.left ?? 0) - (bounds?.width ?? 0) + 16)}px`, top: `${Math.max(12, (bounds?.top ?? 0) + 12)}px` },
         role: failure.value ? 'alert' : 'status', tabindex: props.busy ? 0 : undefined
       }, [h('span', props.busy || saving.value ? '正在处理…' : failure.value ? `${failure.value} 请关闭后重试。` : '正在读取新内容…'),
         refreshing.value ? h('button', { type: 'button', disabled: props.busy, onClick: () => requestShow(false) }, failure.value ? '关闭' : '取消等待并关闭') : null])) : null

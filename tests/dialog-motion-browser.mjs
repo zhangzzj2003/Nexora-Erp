@@ -129,6 +129,10 @@ try {
   // 写入失败不关闭时，移除只读画面并恢复唯一的实时草稿与焦点。
   await page.evaluate(async () => { window.dialogFixture.busy.value = true; await window.dialogFixture.nextTick() })
   assert.equal(await page.getByRole('status').filter({ hasText: '正在处理…' }).isVisible(), true)
+  // 核验实际边界间距，防止提示仍贴着弹窗右边缘或落在窗口之外。
+  const statusInset = await page.getByRole('status').filter({ hasText: '正在处理…' }).evaluate(el =>
+    el.closest('[data-app-modal-id]').getBoundingClientRect().right - el.getBoundingClientRect().right)
+  assert.ok(Math.abs(statusInset - 16) < 1, `处理提示应距弹窗右边框 16px，实际 ${statusInset}px`)
   assert.equal(await page.evaluate(() => document.activeElement.textContent), '正在处理…')
   await page.evaluate(() => { window.dialogFixture.busy.value = false })
   await page.waitForFunction(() => !document.querySelector('[data-dialog-exit-frame]'))
