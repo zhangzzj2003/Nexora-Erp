@@ -71,9 +71,9 @@ async function fixture(t,extra={}) {
   return {props,events,observers,nodes,button,click,nav,scroll,nodeText:text,text:()=>text(root)}
 }
 
-test('点击 A 只收起当前系列，B 和未归组 PCB 保持真实节点，展开全部不改变新建归属',async t=>{
+test('主项互斥展开，未归组同样参与，收起不改变查询和右侧产品',async t=>{
   const f=await fixture(t,{models:[{...models[0],child_count:37},models[1]]}),query=JSON.stringify(f.props.query)
-  assert.ok(f.button('A 系列整机'));assert.ok(f.button('B 系列整机'));assert.ok(f.button('PCB 半成品'))
+  assert.equal(f.button('A 系列整机'),undefined);assert.ok(f.button('B 系列整机'));assert.equal(f.button('PCB 半成品'),undefined)
   // 系列行不再绘制数量徽标，完整计数仍随原系列资料传入删除确认。
   assert.doesNotMatch(f.nodeText(f.button('系列1')),/37/)
   assert.equal(f.nodes().some(node=>node.props['aria-label']==='37 个子机型'),false)
@@ -86,25 +86,28 @@ test('点击 A 只收起当前系列，B 和未归组 PCB 保持真实节点，�
   assert.equal(remove.props.tone,'error');assert.equal(remove.props.variant,'plain')
   f.click(remove);await settle()
   assert.deepEqual(f.events,[['delete',1]])
-  assert.equal(f.button('系列1').props['aria-expanded'],true,'删除入口不能同时折叠所属系列')
-  assert.ok(f.button('A 系列整机'))
+  assert.equal(f.button('系列1').props['aria-expanded'],false,'删除入口不能展开所属系列')
+  assert.ok(f.button('B 系列整机'))
   f.events.length=0
   f.click(f.button('系列1'));await settle()
-  assert.equal(f.button('系列1').props['aria-expanded'],false)
-  assert.equal(f.button('A 系列整机'),undefined)
-  assert.ok(f.button('B 系列整机'));assert.ok(f.button('PCB 半成品'))
-  assert.equal(f.button('系列2').props['aria-expanded'],true)
+  assert.equal(f.button('系列1').props['aria-expanded'],true)
+  assert.ok(f.button('A 系列整机'))
+  assert.equal(f.button('B 系列整机'),undefined);assert.equal(f.button('PCB 半成品'),undefined)
+  assert.equal(f.button('系列2').props['aria-expanded'],false)
   assert.equal(f.props.selectedId,2)
   assert.equal(JSON.stringify(f.props.query),query)
   assert.deepEqual(f.events,[['series',1]])
-  assert.equal(f.button('展开全部').props['aria-expanded'],false)
-  f.click(f.button('展开全部'));await settle()
-  assert.equal(f.button('系列1').props['aria-expanded'],true)
-  assert.ok(f.button('A 系列整机'));assert.ok(f.button('PCB 半成品'))
-  assert.equal(f.props.activeSeriesId,1)
-  assert.deepEqual(f.events,[['series',1]],'展开全部不能派发未归组归属或查询意图')
-  assert.equal(f.button('展开全部').props['aria-expanded'],true)
-  assert.equal(f.button('展开全部').props['aria-pressed'],undefined)
+  assert.equal(f.button('展开全部'),undefined)
+  f.click(f.button('未归组产品 / 半成品'));await settle()
+  assert.equal(f.button('系列1').props['aria-expanded'],false)
+  assert.equal(f.button('A 系列整机'),undefined);assert.ok(f.button('PCB 半成品'))
+  assert.equal(f.props.activeSeriesId,null)
+  f.click(f.button('未归组产品 / 半成品'));await settle()
+  assert.equal(f.button('PCB 半成品'),undefined)
+  assert.ok(f.nodes().filter(node=>node.props.class==='tree-series').every(node=>node.props['aria-expanded']===false))
+  assert.equal(f.props.selectedId,2)
+  assert.equal(JSON.stringify(f.props.query),query)
+  assert.deepEqual(f.events,[['series',1],['series',null],['series',null]])
 })
 
 test('归组与未归组子机型隐藏产品编码，系列编码保留且仍按原产品编号选择',async t=>{
@@ -112,27 +115,31 @@ test('归组与未归组子机型隐藏产品编码，系列编码保留且仍�
   // 检查真实列表节点，隐藏的只是展示文字，选择事件继续传产品 ID 而非名称或物料编号。
   assert.doesNotMatch(f.text(),/SKU-1|SKU-2|SKU-3/)
   assert.match(f.text(),/SERIES-1/);assert.match(f.text(),/SERIES-2/)
-  assert.ok(f.button('A 系列整机'));assert.ok(f.button('PCB 半成品'))
+  f.click(f.button('系列1'));await settle()
+  assert.ok(f.button('A 系列整机'))
   f.click(f.button('A 系列整机'));await settle()
   assert.equal(f.props.selectedId,1)
   assert.equal(f.button('A 系列整机').props['aria-pressed'],true)
+  f.click(f.button('未归组产品 / 半成品'));await settle()
   f.click(f.button('PCB 半成品'));await settle()
   assert.equal(f.props.selectedId,3)
   assert.equal(f.button('PCB 半成品').props['aria-pressed'],true)
-  assert.deepEqual(f.events,[['select',1],['select',3]])
+  assert.deepEqual(f.events,[['series',1],['select',1],['series',null],['select',3]])
   assert.doesNotMatch(f.text(),/SKU-1|SKU-2|SKU-3/)
 })
 
 test('翻页追加不推翻手动折叠，选中不同机型或显式定位才展开祖先',async t=>{
   const f=await fixture(t)
   f.click(f.button('系列1'));await settle()
+  f.click(f.button('系列1'));await settle()
   const fresh=product(4,1,'A 新追加机型')
   f.props.rows=[...f.props.rows,fresh];f.props.page={items:[fresh],page:2,page_size:20,total:60};await settle()
   assert.equal(f.button('系列1').props['aria-expanded'],false)
   assert.equal(f.button('A 新追加机型'),undefined)
-  assert.ok(f.button('PCB 半成品'))
+  assert.equal(f.button('PCB 半成品'),undefined)
   f.props.selectedId=4;f.props.selected=fresh;await settle()
   assert.equal(f.button('系列1').props['aria-expanded'],true)
+  assert.equal(f.button('系列2').props['aria-expanded'],false)
   assert.ok(f.button('A 新追加机型'))
   assert.equal(f.button('A 新追加机型').props['aria-pressed'],true)
   f.click(f.button('系列1'));await settle()
@@ -149,13 +156,14 @@ test('翻页追加不推翻手动折叠，选中不同机型或显式定位才�
   const moved={...fresh,model_id:2}
   f.props.rows=f.props.rows.map(row=>row.id===moved.id?moved:row);f.props.selected=moved;await settle()
   assert.equal(f.button('系列2').props['aria-expanded'],true,'同一产品真实改归属后应展开新祖先')
+  assert.equal(f.button('系列1').props['aria-expanded'],false)
   assert.ok(f.button('A 新追加机型'))
 })
 
 test('收起压低目录高度不自动追页，上移夹紧不算下滚，用户下滚和加载按钮仍可继续',async t=>{
   const f=await fixture(t)
   f.scroll(300)
-  f.click(f.button('系列1'));await settle()
+  f.click(f.button('系列2'));await settle()
   f.nav().scrollHeight=450
   f.scroll(50)
   f.observers[0].resize();await settle()
@@ -174,6 +182,7 @@ test('收起压低目录高度不自动追页，上移夹紧不算下滚，用�
 test('没有未归组机型时根节点仍常驻，区分未加载和真正无匹配',async t=>{
   const assigned=structuredClone(rows.slice(0,2)),f=await fixture(t,{rows:assigned,page:{items:assigned,page:1,page_size:20,total:60}})
   assert.ok(f.button('未归组产品 / 半成品'))
+  f.click(f.button('未归组产品 / 半成品'));await settle()
   assert.match(f.text(),/子机型尚未加载，可继续加载目录/)
   f.props.page={items:assigned,page:1,page_size:20,total:2};await settle()
   assert.ok(f.button('未归组产品 / 半成品'))
@@ -183,22 +192,22 @@ test('没有未归组机型时根节点仍常驻，区分未加载和真正无�
 })
 
 test('忙碌与断线阻断旧按钮事件，查看账号可展开但不能借旧维护按钮写入',async t=>{
-  const f=await fixture(t),series=f.button('系列1'),child=f.button('A 系列整机'),create=f.button('新建子机型'),edit=f.button('编辑产品系列 系列1'),remove=f.button('删除'),more=f.button('加载更多')
+  const f=await fixture(t),series=f.button('系列2'),child=f.button('B 系列整机'),create=f.button('新建子机型'),edit=f.button('编辑产品系列 系列1'),remove=f.button('删除'),more=f.button('加载更多')
   for(const field of ['busy','disconnected']){
     f.props[field]=true;await settle()
     assert.equal(f.button('系列1').props.disabled,true)
     for(const node of [series,child,create,edit,remove,more])f.click(node)
     await settle()
     assert.deepEqual(f.events,[])
-    assert.equal(f.button('系列1').props['aria-expanded'],true)
+    assert.equal(f.button('系列2').props['aria-expanded'],true)
     f.props[field]=false;await settle()
   }
   f.props.canManage=false;await settle()
   assert.equal(f.button('新建子机型'),undefined);assert.equal(f.button('删除'),undefined);assert.equal(f.button('编辑产品系列'),undefined)
   f.click(create);f.click(edit);f.click(remove);assert.deepEqual(f.events,[])
-  f.click(f.button('系列1'));await settle()
-  assert.equal(f.button('系列1').props['aria-expanded'],false)
-  assert.deepEqual(f.events,[['series',1]])
+  f.click(f.button('系列2'));await settle()
+  assert.equal(f.button('系列2').props['aria-expanded'],false)
+  assert.deepEqual(f.events,[['series',2]])
 })
 
 // 编辑是系列自己的动作；不能复用整行点击，从而误折叠或选走右侧产品。
@@ -210,8 +219,8 @@ test('系列树项独立编辑入口保留身份、折叠和选择，底部不�
  assert.equal(f.button('系列管理'),undefined);assert.ok(f.button('纳入已有物料'))
  f.click(edit);await settle()
  assert.deepEqual(f.events,[['edit',1]])
- assert.equal(f.button('系列1').props['aria-expanded'],true)
- assert.ok(f.button('A 系列整机'));assert.ok(f.button('B 系列整机'));assert.ok(f.button('PCB 半成品'))
+ assert.equal(f.button('系列1').props['aria-expanded'],false)
+ assert.equal(f.button('A 系列整机'),undefined);assert.ok(f.button('B 系列整机'));assert.equal(f.button('PCB 半成品'),undefined)
  assert.equal(JSON.stringify([f.props.query,f.props.selectedId,f.props.activeSeriesId]),before)
  // 系列已从目录移除后，保留的旧图标事件也不能发送失效身份。
  f.props.models=f.props.models.filter(row=>row.id!==1);await settle()
@@ -232,4 +241,20 @@ test('正常末页不再显示完成提示及空状态容器，真实目录数�
  f.props.rows=[];f.props.page={...f.props.page,items:[],total:0};f.props.selected=null;f.props.selectedId=0;await settle()
  assert.equal(f.nodes().some(node=>node.props.class==='tree-load-state'),false)
  assert.doesNotMatch(f.text(),/已显示全部|目录有更新/)
+})
+
+// 显式定位和目录更新同样不能绕过单项展开，null 与全部收起必须分开处理。
+test('显式定位未归组与删除当前系列始终只保留一个或零个展开主项',async t=>{
+ const f=await fixture(t)
+ f.props.activeSeriesId=null;f.props.revealSeriesKey++;await settle()
+ assert.equal(f.button('系列2').props['aria-expanded'],false)
+ assert.equal(f.button('未归组产品 / 半成品').props['aria-expanded'],true)
+ f.props.models=[...f.props.models,{id:4,code:'NEW',name:'新系列',child_count:0}];await settle()
+ assert.equal(f.button('新系列').props['aria-expanded'],false,'新增目录节点不能默认展开')
+ f.click(f.button('新系列'));await settle()
+ assert.equal(f.button('未归组产品 / 半成品').props['aria-expanded'],false)
+ assert.equal(f.button('新系列').props['aria-expanded'],true)
+ f.props.models=f.props.models.filter(row=>row.id!==4);await settle()
+ assert.ok(f.nodes().filter(node=>node.props.class==='tree-series').every(node=>node.props['aria-expanded']===false))
+ assert.equal(f.props.selectedId,2,'删除目录节点不擅自更改当前产品')
 })

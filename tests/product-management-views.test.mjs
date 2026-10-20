@@ -773,7 +773,11 @@ test('点击系列保留全目录与未归组 PCB，右侧产品和历史 BOM �
  }
  live.selectSeries(2)
  const html=await f.renderTree({models:f.store.productModels,rows,page:f.store.productResult,activeSeriesId:live.currentSeriesId,selectedId:1,selected})
- assert.match(html,/B200 系列/);assert.match(html,/未归组产品 \/ 半成品/);assert.match(html,/未归组 PCB 板/)
+ // 收起只隐藏子项，全部根节点及未归组数据仍保留，初始化仅展开所选产品的主项。
+ assert.match(html,/B200 系列/);assert.match(html,/未归组产品 \/ 半成品/)
+ assert.doesNotMatch(html,/未归组 PCB 板/)
+ assert.equal((html.match(/class="tree-series" aria-expanded="true"/g)??[]).length,1)
+ assert.ok(f.components.ProductTreeSidebar.children.some(row=>row.id===pcb.id))
  assert.doesNotMatch(html,/EL-PC-11|EL-PC-33|PCB-44/)
 })
 
@@ -816,7 +820,10 @@ test('保存子机型后全目录刷新不收窄，第一页之外的回执仍�
  assert.equal(f.store.productDetailId,saved.id);assert.equal(f.store.productDetailRecord.id,saved.id)
  assert.equal(live.currentSeriesId,saved.model_id)
  const html=await f.renderTree({models:f.store.productModels,rows:f.store.productDirectoryRows,page:f.store.productResult,activeSeriesId:live.currentSeriesId,selectedId:saved.id,selected:f.store.productDetailRecord})
- assert.match(html,/未归组 PCB/);assert.match(html,/新保存的子机型/)
+ // 保存定位只展开回执所在系列，未归组记录留在目录缓存中而不是同时绘制。
+ assert.match(html,/未归组产品 \/ 半成品/);assert.doesNotMatch(html,/未归组 PCB/)
+ assert.match(html,/新保存的子机型/)
+ assert.equal((html.match(/class="tree-series" aria-expanded="true"/g)??[]).length,1)
  assert.doesNotMatch(html,/EL-PC-11|EL-PC-33|PCB-44/)
  assert.equal(f.components.ProductTreeSidebar.children.filter(row=>row.id===saved.id).length,1)
 })

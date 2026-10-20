@@ -21,26 +21,18 @@ const emit = defineEmits<{
 const filterOpen=ref(false)
 const scrollEl=ref<HTMLElement|null>(null)
 const hasMore=computed(() => !!props.page && props.page.page * props.page.page_size < props.page.total)
-// null 代表常驻的未归组节点；折叠只改变本地视图，不参与服务端查询。
-const collapsedSeriesIds=ref(new Set<number|null>())
-const isExpanded=(id:number|null):boolean => !collapsedSeriesIds.value.has(id)
+// 单一展开身份保证主项互斥；null 是未归组，undefined 才是全部收起，不参与服务端筛选。
+const expandedSeriesId=ref<number|null|undefined>(props.activeSeriesId)
+const isExpanded=(id:number|null):boolean => expandedSeriesId.value===id
 const canInteract=():boolean => !props.busy && !props.disconnected
 function interact(action:()=>void):void {if (canInteract()) action()}
 function revealSeries(id:number|null):void {
-  const next=new Set(collapsedSeriesIds.value)
-  if (next.delete(id)) collapsedSeriesIds.value=next
+  expandedSeriesId.value=id
 }
 function toggleSeries(id:number|null):void {
   if (!canInteract() || (id!==null && !props.models.some(model=>model.id===id))) return
-  const next=new Set(collapsedSeriesIds.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  collapsedSeriesIds.value=next
+  expandedSeriesId.value=isExpanded(id)?undefined:id
   emit('series',id)
-}
-function showAll():void {
-  if (!canInteract()) return
-  collapsedSeriesIds.value=new Set()
 }
 function selectProduct(id:number):void {
   if (canInteract() && children.value.some(row=>row.id===id)) emit('select',id)
@@ -107,7 +99,7 @@ const children = computed(() => {
   return rows
 })
 const members = (id:number|null):ProductProfile[] => children.value.filter(row=>row.model_id===id)
-const hasHiddenChildren=computed(() => children.value.some(row=>collapsedSeriesIds.value.has(row.model_id)))
+const hasHiddenChildren=computed(() => children.value.some(row=>!isExpanded(row.model_id)))
 // 完整末页无需重复报数；只有去重后的目录与服务端总数不符才提醒刷新。
 const directoryChanged=computed(() => !!props.page && !hasMore.value && !!props.rows.length && props.rows.length!==props.page.total)
 const showLoadState=computed(() => !props.loading && !props.error && !!props.page
@@ -131,11 +123,10 @@ watch(() => [props.selectedId,props.selected?.id,props.selected?.model_id], () =
 }, {immediate:true})
 // 新建系列和“所在系列”属于显式定位；当前归属变化本身不强制展开，避免点击收起后立即反弹。
 watch(() => props.revealSeriesKey, () => revealSeries(props.activeSeriesId))
-// 已删除的系列不保留折叠身份，未归组节点则始终作为独立根节点存在。
+// 删除当前展开系列后收起目录，不意外展开别的主项；未归组始终是独立根节点。
 watch(() => props.models.map(model=>model.id).join(','), () => {
-  const live=new Set(props.models.map(model=>model.id))
-  const next=new Set([...collapsedSeriesIds.value].filter(id=>id===null || live.has(id)))
-  if (next.size!==collapsedSeriesIds.value.size) collapsedSeriesIds.value=next
+  const id=expandedSeriesId.value
+  if (id!==null && id!==undefined && !props.models.some(model=>model.id===id)) expandedSeriesId.value=undefined
 })
 </script>
 <template>
@@ -152,7 +143,6 @@ watch(() => props.models.map(model=>model.id).join(','), () => {
       <AppButton size="small" variant="primary" :disabled="busy || disconnected" @click="maintain('newModel')">新建子机型</AppButton>
     </div>
     <nav ref="scrollEl" class="tree-scroll" aria-label="选择系列与子机型" tabindex="0" :aria-busy="loading || loadingMore" @scroll.passive="onScroll">
-      <AppButton variant="plain" class="tree-all" :aria-expanded="collapsedSeriesIds.size===0" :disabled="busy || disconnected" @click="showAll">展开全部</AppButton>
       <p v-if="loading" role="status" class="muted">正在读取子机型…</p>
       <div v-else-if="error" role="alert"><p>{{ error }}</p><AppButton :disabled="busy || disconnected" @click="interact(()=>emit('retry'))">重试</AppButton></div>
       <ul v-if="!loading && !error" class="tree-roots">
@@ -219,7 +209,7 @@ header h3 { margin:0; font-size:14px; }
 .tree-scroll::-webkit-scrollbar-thumb { background:var(--workspace-field-border); border-radius:4px; }
 .tree-roots,.tree-children { list-style:none; padding:0; margin:0; }
 .tree-roots>li { margin-top:8px; }
-.tree-all,.tree-series,.tree-model { width:100%; min-width:0; padding:8px 10px; border-radius:8px; text-align:left; white-space:normal; }
+.tree-series,.tree-model { width:100%; min-width:0; padding:8px 10px; border-radius:8px; text-align:left; white-space:normal; }
 /* 系列只展示名称和编码，图标操作留在独立网格列，不挤压名称。 */
 .tree-series-row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:4px; padding:2px; border:1px solid transparent; border-radius:10px; }
 .tree-series { display:grid; grid-template-columns:12px 16px minmax(0,1fr); align-items:center; justify-content:initial; gap:8px; min-height:44px; padding:6px; }
@@ -241,10 +231,10 @@ header h3 { margin:0; font-size:14px; }
 .tree-kind { padding:1px 5px; border-radius:4px; background:var(--app-accent-tint); color:var(--workspace-field-accent); }
 small,.tree-product-meta { color:var(--workspace-field-muted); font-size:11px; overflow-wrap:anywhere; }
 strong { font-size:13px; overflow-wrap:anywhere; }
-.tree-all { display:flex; justify-content:flex-start; text-align:left; color:var(--workspace-field-muted); }
 .tree-series-row.is-current { background:var(--app-accent-tint); color:var(--workspace-field-accent); }
 .tree-series-row.is-current .series-folder,.tree-series-row.is-current .series-chevron { color:inherit; }
-.tree-children { margin:4px 0 8px 15px; padding-left:10px; border-left:1px solid var(--workspace-field-border); }
+/* 主项与子项留出 10px 垂直间距，归组和未归组沿用相同缩进与层级线。 */
+.tree-children { margin:10px 0 8px 15px; padding-left:10px; border-left:1px solid var(--workspace-field-border); }
 .tree-model { margin-bottom:4px; border:1px solid transparent; }
 .tree-model.is-active { border-color:var(--workspace-field-accent); background:var(--app-accent-tint); color:var(--workspace-field-accent); }
 .tree-empty { margin:10px 12px; font-size:12px; line-height:1.7; }
