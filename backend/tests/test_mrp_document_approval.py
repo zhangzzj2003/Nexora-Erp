@@ -58,8 +58,8 @@ def test_three_steps_partial_conversion_and_independent_children(seeded):
             assert current['can_review']
     suggestions = initial['snapshot']['suggestions']
     first = convert(client, planner, row, suggestions[0])
-    child_type = 'WorkOrder' if first['work_order_id'] else 'PurchaseRequest'
-    child_id = first['work_order_id'] or first['purchase_request_id']
+    child_type = 'ProductionPlan' if first['production_plan_id'] else 'PurchaseRequest'
+    child_id = first['production_plan_id'] or first['purchase_request_id']
     child_path = BASE + f'/system/document-approvals/{child_type}/{child_id}'
     child = client.get(child_path, headers=admin).json()
     assert child['business_status'] == 'draft' and child['status'] == 'draft'

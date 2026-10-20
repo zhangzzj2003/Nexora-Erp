@@ -465,7 +465,7 @@ def test_v100_migration_rollback_retry_preserves_legacy_approval_and_source_fing
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert [tuple(row) for row in db.execute('SELECT * FROM journals')] == facts
         assert [tuple(row) for row in db.execute('SELECT id, snapshot_json, content_digest FROM document_approval_cases')] == approvals
         assert not db.execute('PRAGMA foreign_key_check').fetchone()

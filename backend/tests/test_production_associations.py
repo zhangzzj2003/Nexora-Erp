@@ -1,5 +1,7 @@
 """单据关联不推断实际耗用；跨供应商批号、权限与冲销历史保持清晰。"""
 
+from approval_test_helpers import planned_order
+
 import pytest
 from decimal import Decimal
 from app.core.orm import orm_session
@@ -39,7 +41,7 @@ def tracked(erp):
         sources.append((supplier,row,posted['lines'][0]['physical_lots'][0]['id']))
     bom=api('POST','boms',{'product_material_id':product,'base_quantity':'1','lines':[{'component_material_id':raw,'quantity':'1'}]},201)
     api('POST',f'boms/{bom["id"]}/activate')
-    work=api('POST','work-orders',{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'200'},201)
+    work=planned_order(api,{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'200'},201)
     approve_document(client,headers,'WorkOrder',work['id']);api('POST',f'work-orders/{work["id"]}/release')
     issue=api('POST','material-issues',{'work_order_id':work['id'],'warehouse_id':1,'lines':[{'work_order_line_id':work['lines'][0]['id'],'quantity':'200'}]},201)
     approve_document(client,headers,'MaterialIssue',issue['id'])

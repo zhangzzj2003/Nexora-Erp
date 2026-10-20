@@ -1,5 +1,7 @@
 """生产四类单据独立审批与质检、净领料、库存事务边界验证。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -24,7 +26,7 @@ def prepare_order(client, auth, inbound):
         'base_quantity': '1', 'lines': [{'component_material_id': inbound['lines'][0]['material_id'],
                                        'quantity': '2'}]}).json()
     assert client.post(f"/api/v1/boms/{bom['id']}/activate", headers=auth).status_code == 200
-    order = client.post('/api/v1/work-orders', headers=auth, json={'bom_id': bom['id'],
+    order = create_planned_work_order(client, headers=auth, json={'bom_id': bom['id'],
         'warehouse_id': 1, 'target_quantity': '3', 'reference': '生产独立审批'}).json()
     return order
 
@@ -157,15 +159,30 @@ def test_completion_authorized_inspector_can_review_own_result(context):
     assert client.get((path + '/approve').removesuffix('/approve'), headers=inspector, params={'intent': 'execute'}).json()['can_review']
 
 def test_mrp_generated_work_order_preserves_authors_and_button_permissions(mrp_erp):
+    from uuid import uuid4
+    from app.core.approval_documents import work_order_snapshot
     client, admin, reviewer, planner, _, materials, _ = mrp_erp
     plan = approve_mrp(client, admin, reviewer, mrp_payload(client, admin, materials))
     plan = client.get(MRP + f"/plans/{plan['id']}", headers=admin).json()
     suggestion = next(row for row in plan['snapshot']['suggestions'] if row['material_id'] == materials[0])
     converted = client.post(MRP + f"/plans/{plan['id']}/convert", headers=planner,
         json={'version': plan['version'], 'suggestion_key': suggestion['key'],
-              'warehouse_id': 1, 'reason': '已审核计划转工单'})
+              'warehouse_id': 1, 'reason': '已审核建议转生产计划'})
     assert converted.status_code == 201, converted.text
-    identifier = converted.json()['work_order_id']
+    # MRP 批准只允许转计划；计划独立审批后才能生成待审工单。
+    plan_id = converted.json()['production_plan_id']
+    assert converted.json()['work_order_id'] is None
+    approve_document(client, planner, 'ProductionPlan', plan_id, account_headers=admin)
+    production = client.get(f'/api/v1/production/plans/{plan_id}', headers=planner).json()
+    released = client.post(f'/api/v1/production/plans/{plan_id}/release', headers=planner, json={
+        'version':production['version'], 'approval_version':production['approval']['version'],
+        'line_id':production['lines'][0]['id'], 'quantity':production['lines'][0]['quantity'],
+        'reason':'按批准计划生成', 'request_id':str(uuid4())})
+    assert released.status_code == 201, released.text
+    identifier = released.json()['releases'][0]['work_order_id']
+    author_ids = {client.get('/api/v1/auth/me', headers=actor).json()['id'] for actor in (admin, planner)}
+    with orm_session() as db:
+        assert author_ids <= set(work_order_snapshot(db, identifier)['source_author_ids'])
     assert client.post(f'/api/v1/work-orders/{identifier}/release', headers=admin).status_code == 409
     path = f'/api/v1/system/document-approvals/WorkOrder/{identifier}'
     assert client.post(path + '/submit', headers=reviewer, json={'version': 0}).status_code == 200

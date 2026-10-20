@@ -29,7 +29,7 @@ const conversionPlan = ref<{ id: number; version: number } | null>(null)
 const reason = ref(''); const reference = ref(''); const warehouse = ref<number | null>(null)
 const preparing = ref(false)
 const disabled = computed(() => loading.value || busy.value || connectionLost.value || preparing.value)
-const warehouseOptions = computed(() => [{ value:null as number | null,label:'选择工单目标仓库',disabled:true },
+const warehouseOptions = computed(() => [{ value:null as number | null,label:'选择计划完工仓库',disabled:true },
   ...(options.value?.warehouses ?? []).map(row => ({value:row.id,label:`${row.code} · ${row.name}`}))])
 const filtered = computed(() => records.value.filter(row => `${documentSearch(row)} ${row.reference} ${row.created_by_name} ${row.start_date}`.toLowerCase().includes(query.value.toLowerCase().trim())))
 const columns = [{key:'reference',title:'计划编号',width:'240'}, {key:'start_date',title:'计划起日',width:'150'},
@@ -78,7 +78,7 @@ watch(connectionLost, lost => { command.value = null; conversion.value = null; i
       <!-- 编辑或查询面板仍保留原有公共读取入口。 -->
       <template v-if="mode!=='plans'"><AppButton :disabled="disabled" @click="store.loadMrp()">{{ loading ? '正在读取…' : '重新读取来源' }}</AppButton></template>
     </div>
-    <p>按日期核对销售与手工需求、现有供给和全部仓库库存，逐层展开启用 BOM。预计供给包含待执行原单；建议经独立审核后转为采购申请或工单草稿。</p>
+    <p>按日期核对销售与手工需求、现有供给和全部仓库库存，逐层展开启用 BOM。预计供给包含待执行原单；建议经独立审核后转为采购申请或生产计划草稿。</p>
     <p v-if="connectionLost" role="alert">服务端连接中断，当前来源与核对结果已失效。恢复连接后重新读取；未保存的需求输入保留。</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="mode==='plans'">
@@ -114,12 +114,12 @@ watch(connectionLost, lost => { command.value = null; conversion.value = null; i
       <form v-if="conversion" class="mrp-editor" @submit.prevent="convert">
         <p>{{ conversion.sku }} · {{ conversion.name }} · {{ conversion.quantity }} {{ conversion.unit }} · 需求日 {{ conversion.due_date }}</p>
         <p v-if="conversion.late" role="alert">提前期不足，应于 {{ conversion.required_release_date }} 投放。保存原单不保证按期交付，须另行核对可行交期。</p>
-        <p>固定建议数量不能修改。{{ conversion.supply_mode==='buy' ? '建立采购申请草稿后，由采购流程审批、转订单和收货入库。' : '建立工单草稿后，须下达、核对目标仓库并领料报工。' }} 此操作不记库存。</p>
+        <p>固定建议数量不能修改。{{ conversion.supply_mode==='buy' ? '建立采购申请草稿后，由采购流程审批、转订单和收货入库。' : '建立生产计划草稿后，须审批并分批生成工单，再独立审批下达、领料报工。' }} 此操作不记库存。</p>
         <label>原单依据编号（可空，服务端生成）<AppInput v-model.trim="reference" maxlength="100" :disabled="busy" /></label>
-        <label v-if="conversion.supply_mode==='make'">工单目标仓库<WorkspaceSelect v-model="warehouse" :options="warehouseOptions" required :disabled="busy" /></label>
+        <label v-if="conversion.supply_mode==='make'">计划完工仓库<WorkspaceSelect v-model="warehouse" :options="warehouseOptions" required :disabled="busy" /></label>
         <label>转单依据<AppInput v-model.trim="reason" required maxlength="500" :disabled="busy" /></label>
         <p v-if="operationError" role="alert">{{ operationError }}</p>
-        <AppButton type="submit" variant="primary" :disabled="disabled || !reason.trim() || !check?.matched || (conversion.supply_mode==='make' && !warehouse)">确认建立{{ conversion.supply_mode==='buy' ? '采购申请' : '生产工单' }}草稿</AppButton>
+        <AppButton type="submit" variant="primary" :disabled="disabled || !reason.trim() || !check?.matched || (conversion.supply_mode==='make' && !warehouse)">确认建立{{ conversion.supply_mode==='buy' ? '采购申请' : '生产计划' }}草稿</AppButton>
       </form>
     </AppModal>
   </section>

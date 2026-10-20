@@ -1,5 +1,7 @@
 """验证退料更正的原单来源、累计上限、库存流水与工单净领料。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from approval_test_helpers import receive_legacy_issue, approve_document
 
 from fastapi.testclient import TestClient
@@ -40,7 +42,7 @@ def test_material_return_partial_reissue_and_permissions(monkeypatch, tmp_path):
         client.post(f"{base}/boms/{bom}/activate", headers=planner)
         target_warehouse = client.post(f"{base}/warehouses", headers=admin, json={
             "code": "PROD", "name": "成品仓"}).json()["id"]
-        order = client.post(f"{base}/work-orders", headers=planner, json={
+        order = create_planned_work_order(client, account_headers=admin, headers=planner, json={
             "bom_id": bom, "warehouse_id": target_warehouse, "target_quantity": "1"}).json()
         approve_document(client, admin, 'WorkOrder', order['id'])
         client.post(f"{base}/work-orders/{order['id']}/release", headers=planner)

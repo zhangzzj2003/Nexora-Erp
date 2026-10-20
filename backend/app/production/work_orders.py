@@ -303,8 +303,8 @@ def create_work_order_in_session(db: Session, payload: WorkOrderInput, user: dic
 
 @router.post("/work-orders", status_code=201)
 def create_work_order(payload: WorkOrderInput, user: dict = Depends(require("work_order.create"))) -> dict:
-    with orm_session(write=True) as db:
-        return create_work_order_in_session(db, payload, user)
+    # 保留旧地址返回明确业务冲突，旧客户端不能绕过生产计划自行指定产品。
+    raise HTTPException(409, "普通生产工单须从已批准的生产计划分批生成，请前往生产计划")
 
 
 @router.post("/work-orders/{order_id}/release")

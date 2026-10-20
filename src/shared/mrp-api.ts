@@ -48,7 +48,8 @@ export interface MrpRow extends Pick<Material, 'sku' | 'name' | 'unit'> {
 }
 export interface MrpConversion {
   id: number; plan_id: number; suggestion_key: string; purchase_request_id: number | null
-  work_order_id: number | null; due_date: string; reason: string; created_by: number
+  // 新制造建议关联生产计划；旧服务和历史转单仍可只有工单目标。
+  production_plan_id?: number | null; work_order_id: number | null; due_date: string; reason: string; created_by: number
   created_by_name: string; created_at: string; target_status: string; target_reference: string
 }
 export interface MrpPlan extends NumberedDocument {

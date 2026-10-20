@@ -1,5 +1,7 @@
 """生产退料核对原领料批次、累计可退量与新发现批次来源。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from approval_test_helpers import receive_legacy_issue, approve_document
 
 from decimal import Decimal
@@ -39,7 +41,7 @@ def test_material_return_lots_follow_original_issue(monkeypatch, tmp_path):
             'product_material_id': product, 'base_quantity': '1',
             'lines': [{'component_material_id': material, 'quantity': '2.000'}]}).json()['id']
         client.post(f'{base}/boms/{bom}/activate', headers=auth)
-        order = client.post(f'{base}/work-orders', headers=auth, json={
+        order = create_planned_work_order(client, headers=auth, json={
             'bom_id': bom, 'warehouse_id': 1, 'target_quantity': '1'}).json()
         approve_document(client, auth, 'WorkOrder', order['id'])
         client.post(f'{base}/work-orders/{order["id"]}/release', headers=auth)

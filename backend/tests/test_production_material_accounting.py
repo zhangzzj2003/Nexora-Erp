@@ -1,5 +1,7 @@
 """四类物料流程对报工、需求计划及逐次出库成本的跨模块约束。"""
 
+from approval_test_helpers import planned_order
+
 from decimal import Decimal
 from uuid import uuid4
 
@@ -17,7 +19,7 @@ def create_order(erp, quantity='100', unit_cost='2'):
     bom = api('POST', 'boms', {'product_material_id': product, 'base_quantity': '1',
         'lines': [{'component_material_id': raw, 'quantity': '1'}]}, 201)
     api('POST', f'boms/{bom["id"]}/activate')
-    order = api('POST', 'work-orders', {'bom_id': bom['id'], 'warehouse_id': 1,
+    order = planned_order(api, {'bom_id': bom['id'], 'warehouse_id': 1,
         'target_quantity': quantity}, 201)
     approve_document(client, headers, 'WorkOrder', order['id'])
     api('POST', f'work-orders/{order["id"]}/release')

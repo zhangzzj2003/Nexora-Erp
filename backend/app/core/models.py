@@ -283,6 +283,7 @@ class MrpConversion(Base):
     suggestion_key: Mapped[str] = mapped_column(Text, nullable=False)
     purchase_request_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('purchase_requests.id'))
     work_order_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('work_orders.id'))
+    production_plan_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('production_plans.id'))
     due_date: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)

@@ -19,13 +19,13 @@ from app.access.security import require
 from app.catalog.product_rules import require_product_use
 from app.catalog.material_rules import material_choices
 from app.core.models import (Material, MrpConversion, MrpPlan, MrpPlanChange, MrpPolicy,
-    MrpPolicyChange, PurchaseRequest, User, Warehouse, WorkOrder)
+    MrpPolicyChange, PurchaseRequest, ProductionPlan, User, Warehouse, WorkOrder)
 from app.core.orm import model_data, orm_session
 from app.core import document_approval as approval
 from app.core.approval_documents import mrp_snapshot
 from app.production.mrp_engine import calculate
 from app.production.mrp_sources import collect, encode, fingerprint
-from app.production.work_orders import WorkOrderInput, create_work_order_in_session
+from app.production.plans import PlanInput as ProductionPlanInput, create_plan_in_session
 from app.purchase.requests import PurchaseRequestInput, create_purchase_request_in_session
 from app.reports.routes import csv_value
 
@@ -138,7 +138,8 @@ def get_plan(db: Session, identifier: int, version: int | None = None) -> MrpPla
 
 
 def conversion_data(db: Session, row: MrpConversion) -> dict:
-    target = db.get(PurchaseRequest, row.purchase_request_id) if row.purchase_request_id else db.get(WorkOrder, row.work_order_id)
+    target = (db.get(PurchaseRequest, row.purchase_request_id) if row.purchase_request_id else
+        db.get(ProductionPlan, row.production_plan_id) if row.production_plan_id else db.get(WorkOrder, row.work_order_id))
     return {**model_data(row), 'target_status': target.status, 'target_reference': target.reference,
         'created_by_name': db.get(User, row.created_by).username}
 
@@ -340,9 +341,9 @@ def convert(payload: ConversionInput, plan_id: int = Path(gt=0), user: dict = De
         if db.scalar(select(MrpConversion.id).where(MrpConversion.plan_id == record.id,
                 MrpConversion.suggestion_key == payload.suggestion_key)) is not None:
             raise HTTPException(409, '此建议已转入原单；取消原单后须重算新计划')
-        needed_permission = 'purchase_request.create' if suggestion['supply_mode'] == 'buy' else 'work_order.create'
+        needed_permission = 'purchase_request.create' if suggestion['supply_mode'] == 'buy' else 'production_plan.create'
         if needed_permission not in user['permissions']:
-            raise HTTPException(403, '还须拥有目标采购申请或工单的建单权限')
+            raise HTTPException(403, '还须拥有目标采购申请或生产计划的编制权限')
         before = metadata(db, record)
         reference = payload.reference.strip() or f'MRP-{record.id}-{suggestion["key"]}'
         if suggestion['supply_mode'] == 'buy':
@@ -353,11 +354,14 @@ def convert(payload: ConversionInput, plan_id: int = Path(gt=0), user: dict = De
                 due_date=suggestion['due_date'], reason=payload.reason, created_by=user['id'])
         else:
             if payload.warehouse_id is None:
-                raise HTTPException(422, '生产建议须选择工单目标仓库')
-            target = create_work_order_in_session(db, WorkOrderInput(reference=reference,
-                note=f'物料计划 #{record.id}；需求日 {suggestion["due_date"]}', bom_id=suggestion['bom_id'],
-                warehouse_id=payload.warehouse_id, target_quantity=suggestion['quantity']), user)
-            conversion = MrpConversion(plan_id=record.id, suggestion_key=suggestion['key'], work_order_id=target['id'],
+                raise HTTPException(422, '生产建议须选择计划完工仓库')
+            # 制造建议只建立待审计划；产品、数量与排期固定来自批准的 MRP 建议。
+            target = create_plan_in_session(db, ProductionPlanInput(reference=reference,
+                note=f'物料计划 #{record.id}；建议 {suggestion["key"]}', reason=payload.reason,
+                lines=[{'bom_id': suggestion['bom_id'], 'warehouse_id': payload.warehouse_id,
+                    'quantity': suggestion['quantity'], 'start_date': suggestion['release_date'],
+                    'end_date': suggestion['due_date']}]), user)
+            conversion = MrpConversion(plan_id=record.id, suggestion_key=suggestion['key'], production_plan_id=target['id'],
                 due_date=suggestion['due_date'], reason=payload.reason, created_by=user['id'])
         db.add(conversion)
         record.version += 1

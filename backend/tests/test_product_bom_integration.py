@@ -1,5 +1,7 @@
 """产品用途、多层配方约束以及半成品入库、总装和独立销售的接口闭环。"""
 
+from approval_test_helpers import planned_order
+
 from decimal import Decimal
 from uuid import uuid4
 
@@ -64,7 +66,7 @@ def test_fixed_child_recipe_does_not_follow_new_default_or_rewrite_historical_or
     parent = api('POST', 'boms', payload, 201)
     api('POST', f"boms/{parent['id']}/activate")
     order_payload = {'bom_id': parent['id'], 'warehouse_id': 1, 'target_quantity': '3'}
-    order = api('POST', 'work-orders', order_payload, 201)
+    order = planned_order(api, order_payload, 201)
     assert len(order['lines']) == 1 and order['lines'][0]['component_material_id'] == board
     assert Decimal(order['lines'][0]['required_quantity']) == 3
     before = api('GET', f"boms/{parent['id']}")
@@ -73,7 +75,7 @@ def test_fixed_child_recipe_does_not_follow_new_default_or_rewrite_historical_or
     newer = api('POST', 'boms', {'product_material_id': board, 'source_bom_id': child['id'],
         'lines': [{'component_material_id': raw, 'quantity': '3'}]}, 201)
     api('POST', f"boms/{newer['id']}/activate")
-    assert '修订上层' in api('POST', 'work-orders', order_payload, 409)['detail']
+    assert '修订上层' in planned_order(api, order_payload, 409)['detail']
     assert '修订上层' in api('GET', 'production/mrp/options', status=409)['detail']
     current = api('GET', f"boms/{parent['id']}")
     assert current['lines'][0]['component_bom_id'] == child['id']
@@ -85,7 +87,7 @@ def test_fixed_child_recipe_does_not_follow_new_default_or_rewrite_historical_or
         'lines': [{**payload['lines'][0], 'component_bom_id': newer['id']}]}, 201)
     api('POST', f"boms/{parent['id']}/retire")
     api('POST', f"boms/{revised['id']}/activate")
-    api('POST', 'work-orders', {**order_payload, 'bom_id': revised['id']}, 201)
+    planned_order(api, {**order_payload, 'bom_id': revised['id']}, 201)
     api('GET', 'production/mrp/options')
 
 
@@ -102,7 +104,7 @@ def test_board_stock_then_assembly_does_not_duplicate_material_cost_and_board_ca
 
     def produce(bom, quantity, labor):
         api('POST', f"boms/{bom['id']}/activate")
-        order = api('POST', 'work-orders', {'bom_id': bom['id'], 'warehouse_id': 1,
+        order = planned_order(api, {'bom_id': bom['id'], 'warehouse_id': 1,
             'target_quantity': quantity}, 201)
         approve_document(client, headers, 'WorkOrder', order['id'])
         api('POST', f"work-orders/{order['id']}/release")
@@ -156,7 +158,7 @@ def test_104_upgrade_adds_only_defaults_and_preserves_audits_stock_and_mrp_finge
     bom = api('POST', 'boms', {'product_material_id': board,
         'lines': [{'component_material_id': raw, 'quantity': '2'}]}, 201)
     api('POST', f"boms/{bom['id']}/activate")
-    order = api('POST', 'work-orders', {'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '3'}, 201)
+    order = planned_order(api, {'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '3'}, 201)
     profile = api('POST', 'products/query', {})['items'][0]
     audits = api('GET', f"products/{profile['id']}/changes")
     stock = api('GET', 'stock')
@@ -178,7 +180,7 @@ def test_104_upgrade_adds_only_defaults_and_preserves_audits_stock_and_mrp_finge
     with orm_session() as db:
         assert fingerprint(collect(db)) == before
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
 

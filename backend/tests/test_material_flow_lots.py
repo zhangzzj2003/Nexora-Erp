@@ -1,5 +1,7 @@
 """以真实接口验证少签批次、退换料共用来源与在制成本方向。"""
 
+from approval_test_helpers import planned_order
+
 from decimal import Decimal
 from uuid import uuid4
 
@@ -42,7 +44,7 @@ def flow_lots(monkeypatch, tmp_path):
         bom = api('POST', 'boms', {'product_material_id': product, 'base_quantity': '1',
             'lines': [{'component_material_id': raw, 'quantity': '1'}]}, 201)
         api('POST', f'boms/{bom["id"]}/activate')
-        order = api('POST', 'work-orders', {'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '100'}, 201)
+        order = planned_order(api, {'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '100'}, 201)
         approve_document(client, auth, 'WorkOrder', order['id'])
         api('POST', f'work-orders/{order["id"]}/release')
         dispatch = api('POST', 'material-dispatches', {'request_id': str(uuid4()), 'work_order_id': order['id'],
@@ -138,7 +140,7 @@ def test_late_evidence_cannot_reassign_unknown_signed_material_to_pending_handov
 @pytest.mark.parametrize('historical_direct', [False, True])
 def test_legacy_return_uses_signed_lots_and_shares_new_return_capacity(flow_lots, historical_direct):
     api, client, auth, template, _, _, _, lot_a, lot_b = flow_lots
-    order = api('POST', 'work-orders', {'bom_id': template['bom_id'], 'warehouse_id': 1,
+    order = planned_order(api, {'bom_id': template['bom_id'], 'warehouse_id': 1,
         'target_quantity': '10'}, 201)
     approve_document(client, auth, 'WorkOrder', order['id'])
     api('POST', f'work-orders/{order["id"]}/release')
@@ -186,7 +188,7 @@ def test_legacy_return_uses_signed_lots_and_shares_new_return_capacity(flow_lots
 
 def test_unallocated_legacy_return_does_not_guess_lot_for_entire_remaining_source(flow_lots):
     api, client, auth, template, _, _, _, lot_a, lot_b = flow_lots
-    order = api('POST', 'work-orders', {'bom_id': template['bom_id'], 'warehouse_id': 1,
+    order = planned_order(api, {'bom_id': template['bom_id'], 'warehouse_id': 1,
         'target_quantity': '10'}, 201)
     approve_document(client, auth, 'WorkOrder', order['id'])
     api('POST', f'work-orders/{order["id"]}/release')

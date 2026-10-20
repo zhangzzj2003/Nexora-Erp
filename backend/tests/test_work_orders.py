@@ -1,6 +1,6 @@
 """验证工单从启用 BOM 固定需料快照、状态流转和权限边界。"""
 
-from approval_test_helpers import approve_document
+from approval_test_helpers import approve_document, create_planned_work_order
 
 from fastapi.testclient import TestClient
 
@@ -50,10 +50,12 @@ def test_work_order_snapshot_permissions_and_lifecycle(monkeypatch, tmp_path):
         for bad_quantity in ("0", "0.0001", "1000001", "NaN"):
             assert client.post(f"{base}/work-orders", headers=planner, json={
                 **payload, "target_quantity": bad_quantity}).status_code == 422
-        assert client.post(f"{base}/work-orders", headers=planner, json={
+        assert client.post(f"{base}/work-orders", headers=planner, json=payload).status_code == 409
+        assert client.post(f"{base}/work-orders", headers=admin, json=payload).status_code == 409
+        assert create_planned_work_order(client, headers=planner, account_headers=admin, json={
             **payload, "warehouse_id": 999999}).status_code == 422
 
-        draft = client.post(f"{base}/work-orders", headers=planner, json=payload)
+        draft = create_planned_work_order(client, headers=planner, account_headers=admin, json=payload)
         assert draft.status_code == 201
         order_id = draft.json()["id"]
         assert draft.json()["status"] == "draft"
@@ -68,15 +70,15 @@ def test_work_order_snapshot_permissions_and_lifecycle(monkeypatch, tmp_path):
         assert client.post(f"{base}/work-orders/{order_id}/cancel", headers=planner).status_code == 409
 
         # 停用旧 BOM 后，已下达工单保留原需料；未下达草稿须按新版重建。
-        released = client.post(f"{base}/work-orders", headers=planner, json=payload).json()
+        released = create_planned_work_order(client, headers=planner, account_headers=admin, json=payload).json()
         approve_document(client, admin, 'WorkOrder', released['id'])
         assert client.post(f"{base}/work-orders/{released['id']}/release", headers=planner).status_code == 200
-        pending = client.post(f"{base}/work-orders", headers=planner, json=payload).json()
+        pending = create_planned_work_order(client, headers=planner, account_headers=admin, json=payload).json()
         assert client.post(f"{base}/boms/{first_bom}/retire", headers=planner).status_code == 200
         assert client.post(f"{base}/work-orders/{pending['id']}/release", headers=planner).status_code == 409
         second_bom = make_bom(replacement_component, "2")
         assert client.post(f"{base}/boms/{second_bom}/activate", headers=planner).status_code == 200
-        new_order = client.post(f"{base}/work-orders", headers=planner, json={
+        new_order = create_planned_work_order(client, headers=planner, account_headers=admin, json={
             **payload, "bom_id": second_bom}).json()
         assert new_order["bom_version"] == 2
         assert new_order["lines"][0]["component_material_id"] == replacement_component
@@ -103,6 +105,6 @@ def test_work_order_rejects_component_requirement_over_limit(monkeypatch, tmp_pa
             "product_material_id": product, "base_quantity": "0.001",
             "lines": [{"component_material_id": component, "quantity": "1000000"}]}).json()["id"]
         client.post(f"{base}/boms/{bom}/activate", headers=auth)
-        assert client.post(f"{base}/work-orders", headers=auth, json={
+        assert create_planned_work_order(client, headers=auth, json={
             "bom_id": bom, "warehouse_id": 1, "target_quantity": "2"}).status_code == 422
         assert client.get(f"{base}/work-orders", headers=auth).json() == []

@@ -1,5 +1,7 @@
 """实到先入库、续收检查点与部分冲销的业务回归。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
@@ -77,7 +79,7 @@ def test_partial_800_is_usable_for_production_then_remaining_200(inbound_client)
         'product_material_id': materials[1], 'base_quantity': '1',
         'lines': [{'component_material_id': materials[0], 'quantity': '800'}]}).json()
     assert client.post(f'/api/v1/boms/{bom["id"]}/activate', headers=auth).status_code == 200
-    order = client.post('/api/v1/work-orders', headers=auth, json={
+    order = create_planned_work_order(client, headers=auth, json={
         'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '1'}).json()
     approve_document(client, auth, 'WorkOrder', order['id'])
     assert client.post(f'/api/v1/work-orders/{order["id"]}/release', headers=auth).status_code == 200
@@ -205,7 +207,7 @@ def test_v98_preserves_stock_history_or_rolls_back(monkeypatch, tmp_path, invali
     with connection() as db:
         assert [tuple(row) for row in db.execute('SELECT * FROM stock_movements')] == original_rows
         assert [tuple(row) for row in db.execute('SELECT * FROM physical_lot_allocations')] == original_parts
-        assert db.execute('PRAGMA user_version').fetchone()[0] == (97 if invalid_foreign_key else 107)
+        assert db.execute('PRAGMA user_version').fetchone()[0] == (97 if invalid_foreign_key else 108)
         assert db.execute('PRAGMA foreign_keys').fetchone()[0] == 1
         assert db.execute("SELECT 1 FROM sqlite_master WHERE name='legacy_stock_time'").fetchone()
         with pytest.raises(sqlite3.IntegrityError, match='immutable'):

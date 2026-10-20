@@ -258,8 +258,6 @@ test("新增与详情只统一标题栏，基础信息、明细和原操作布�
   assert.match(source, /class="document-footer"/);
   assert.match(source, /readOnly \? '关闭' : '收起'/);
   const titles = [
-    // 工单已接入仓库公共单据外壳，标题仍由外壳唯一提供。
-    ["production/ProductionWorkOrdersView.vue", "新建生产工单", "WorkspaceDocumentDialog"],
     ["production/ProductionCompletionsView.vue", "新建完工报工单", "AppModal"],
     ["finance/PaymentRecordsView.vue", "登记收付款", "AppModal"],
     ["finance/InventoryValuationView.vue", "登记库存核价", "AppModal"],
@@ -272,4 +270,9 @@ test("新增与详情只统一标题栏，基础信息、明细和原操作布�
     assert.match(text, new RegExp(`<${component}\\b[^>]*title="${title}"`));
     assert.doesNotMatch(text, new RegExp(`<h[23]>${title}</h[23]>`));
   }
+  // 工单自由建单窗口已移除，普通生产须从上游批准计划生成。
+  const orders = await readFile(new URL(
+    "../src/renderer/src/views/workspace/production/ProductionWorkOrdersView.vue", import.meta.url), "utf8");
+  assert.doesNotMatch(orders, /title="新建生产工单"/);
+  assert.match(orders, /从生产计划生成/);
 });

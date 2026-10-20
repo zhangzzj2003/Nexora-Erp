@@ -1,6 +1,6 @@
 """验证采购、调拨、生产、销售与业务对账共用同一套物料和库存。"""
 
-from approval_test_helpers import receive_legacy_issue, execute_production_settlement, approve_document, execute_payment
+from approval_test_helpers import create_planned_work_order, receive_legacy_issue, execute_production_settlement, approve_document, execute_payment
 
 from decimal import Decimal
 
@@ -72,9 +72,9 @@ def test_procure_produce_sell_cycle(monkeypatch, tmp_path):
                                         "lines": [{"component_material_id": component,
                                                    "quantity": "2"}]})["id"]
         confirm(f"/boms/{bom}/activate", planner)
-        work_order = create("/work-orders", planner, {"bom_id": bom,
+        work_order = create_planned_work_order(client, headers=planner, account_headers=admin, json={"bom_id": bom,
                                                        "warehouse_id": production_warehouse,
-                                                       "target_quantity": "2"})
+                                                       "target_quantity": "2"}).json()
         approve_document(client, admin, 'WorkOrder', work_order['id'])
         confirm(f"/work-orders/{work_order['id']}/release", planner)
         issue = create("/material-issues", planner, {"work_order_id": work_order["id"],

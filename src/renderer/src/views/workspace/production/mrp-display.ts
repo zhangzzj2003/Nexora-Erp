@@ -20,7 +20,7 @@ export function mrpCanConvert(item: MrpPlan | null, check: MrpCheck | null, row:
   // 原生旧批准不能代替独立审批；分批转单沿用同一批准正文。
   return !!item && item.status === 'approved' && ['approved', 'executed'].includes(item.approval?.status ?? '')
     && !!check?.matched && permissions.includes('mrp.convert')
-    && permissions.includes(row.supply_mode === 'buy' ? 'purchase_request.create' : 'work_order.create')
+    && permissions.includes(row.supply_mode === 'buy' ? 'purchase_request.create' : 'production_plan.create')
     && !item.conversions.some(value => value.suggestion_key === row.key)
 }
 export const mrpQuantityValid = (value: string): boolean => /^\d{1,7}(?:\.\d{1,3})?$/.test(value) && Number(value) <= 1_000_000
@@ -37,6 +37,6 @@ export function mrpDraftError(form: MrpPlanInput, today: string): string {
 }
 export function mrpSourceLabel(row: MrpSource): string {
   const kind = { sales_order:'销售订单', purchase_order:'采购订单', purchase_request:'采购申请', work_order:'工单',
-    production_plan:'生产计划预计产出', production_plan_requirement:'生产计划需料', work_order_requirement:'工单待领', planned_work_order:'建议工单', manual:'手工需求' }[row.kind] ?? row.kind
+    production_plan:'生产计划预计产出', production_plan_requirement:'生产计划需料', work_order_requirement:'工单待领', planned_work_order:'制造建议', manual:'手工需求' }[row.kind] ?? row.kind
   return `${kind} ${row.reference || (row.source_id ? '#' + row.source_id : row.parent_key || row.key)}${row.party_name ? ' · ' + row.party_name : ''}`
 }

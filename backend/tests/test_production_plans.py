@@ -1,5 +1,7 @@
 """真实计划、审批、拆单及 MRP 闭环；验证并发与失败均不改变库存。"""
 
+from approval_test_helpers import seed_legacy_work_order
+
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from decimal import Decimal
@@ -396,7 +398,7 @@ def remove_plan_schema():
 def test_v106_migration_is_additive_idempotent_and_audit_immutable(context):
     client, admin, *_ = context
     body = draft(context)
-    legacy = client.post('/api/v1/work-orders', headers=admin, json={'bom_id': body['lines'][0]['bom_id'],
+    legacy = seed_legacy_work_order(client, headers=admin, json={'bom_id': body['lines'][0]['bom_id'],
         'warehouse_id': 1, 'target_quantity': '1'}).json()
     approve_document(client, admin, 'WorkOrder', legacy['id'])
     remove_plan_schema()
@@ -407,7 +409,7 @@ def test_v106_migration_is_additive_idempotent_and_audit_immutable(context):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert {name: db.execute(f'SELECT * FROM "{name}"').fetchall() for name in table_names} == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
@@ -461,3 +463,25 @@ def test_disabling_production_removes_choices_and_blocks_new_plan_and_release_wi
         assert blocked.status_code == 409 and '未允许生产' in blocked.json()['detail']
     current = client.get(BASE + f"/{existing['id']}", headers=admin).json()
     assert current['lines'] == existing['lines'] and current['releases'] == []
+
+
+def test_direct_work_order_creation_rejected_for_admin_and_work_order_only_role(context):
+    client, admin, *_ = context
+    body = draft(context)['lines'][0]
+    assert client.post('/api/v1/roles', headers=admin, json={
+        'code': 'execution_only', 'label': '仅生产执行', 'permissions': ['production.view', 'work_order.create']}).status_code == 201
+    assert client.post('/api/v1/users', headers=admin, json={
+        'username': 'execution_only', 'password': 'secure-pass-123', 'roles': ['execution_only']}).status_code == 201
+    login = client.post('/api/v1/auth/login', json={'username':'execution_only','password':'secure-pass-123'}).json()
+    operator = {'Authorization': 'Bearer ' + login['token']}
+    before = counts()
+    for actor in (admin, operator):
+        response = client.post('/api/v1/work-orders', headers=actor, json={
+            'bom_id': body['bom_id'], 'warehouse_id': 1, 'target_quantity': '10',
+            'production_plan_id': 999, 'reference': '伪造来源'})
+        assert response.status_code == 409, response.text
+        assert '已批准的生产计划' in response.json()['detail']
+    row = approved(context)
+    response = client.post(BASE + f'/{row["id"]}/release', headers=operator, json=release_input(row))
+    assert response.status_code == 403
+    assert counts() == before

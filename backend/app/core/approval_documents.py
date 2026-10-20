@@ -1219,6 +1219,10 @@ def _document_summary(db: Session, document_type: str, content: dict) -> list[di
         import json
         summary = [{'label': label, 'value': content[key] or '—'} for label, key in
             [('计划名称', 'reference'), ('编制依据', 'reason'), ('备注', 'note')]]
+        for conversion_id in content.get('mrp_conversion_ids', []):
+            conversion = db.get(MrpConversion, conversion_id)
+            source = db.get(MrpPlan, conversion.plan_id)
+            summary.append({'label': '来源物料需求计划', 'value': source.document_no or f'#{source.id}'})
         for line in content['lines']:
             bom = json.loads(line['bom_json'])
             warehouse = db.get(Warehouse, line['warehouse_id'])

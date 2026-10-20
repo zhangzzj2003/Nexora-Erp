@@ -95,7 +95,7 @@ async function fixture(t) {
  const {selects}=await server.ssrLoadModule('\0products-select')
  const {buttons}=await server.ssrLoadModule('\0products-button'), {tables}=await server.ssrLoadModule('\0products-table')
  const pinia=createPinia(), store=usePiniaAppStore(pinia)
- store.user={id:1,permissions:['inventory.view','catalog.manage','production.view','bom.create','bom.activate','work_order.create']}
+ store.user={id:1,permissions:['inventory.view','catalog.manage','production.view','bom.create','bom.activate','work_order.create','production_plan.view']}
  store.server={id:'test',fingerprint:'cert'}
  const material={id:11,sku:'EL-PC-11',name:'标准版',unit:'块',version:1,
   ...Object.fromEntries(['category_code','specification','package','brand','manufacturer_part_number','electrical_value','tolerance','rated_voltage','rated_power','temperature_range','compliance','notes'].map(key=>[key,'']))}
@@ -109,7 +109,7 @@ async function fixture(t) {
    action==='materialDetail'?{...material,id:payload.id,sku:'EL-IC-22',name:'主芯片'}:
    action==='inventoryLedger'?{groups:[],rows:[],total:0,page:payload.page,page_size:payload.page_size}:undefined}}}
  t.after(()=>{globalThis.window=previous})
- const router=createRouter({history:createMemoryHistory(),routes:[{path:'/workspace/products',component:View},{path:'/workspace/work-orders',component:{render:()=>null}}]})
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/workspace/products',component:View},{path:'/workspace/production-plans',component:{render:()=>null}},{path:'/workspace/work-orders',component:{render:()=>null}}]})
  await router.push('/workspace/products');await router.isReady()
  let setup;const overrides={}, beforeRender={}, components={}
  const render=async()=>{buttons.length=0;tables.length=0;paginations.length=0;selects.length=0
@@ -509,7 +509,7 @@ test('产品页仅缩紧自己的公共标题，保留说明，库存页沿用�
  assert.match(stock,/按物料查看当前库存/)
 })
 
-test('产品详情复用 BOM 编辑器派生，快捷建档保留组件，来源查看及启用版本创建工单',async t=>{
+test('产品详情复用 BOM 编辑器派生，快捷建档保留组件，来源查看及前往生产计划',async t=>{
  const f=await fixture(t)
  await f.store.openProduct(1)
  let html=await f.render()
@@ -536,9 +536,9 @@ test('产品详情复用 BOM 编辑器派生，快捷建档保留组件，来源
  f.overrides.bomOpen=false
  await f.store.openBomDetail(7)
  html=await f.render();assert.match(html,/BOM 版本详情/)
- await f.buttons.find(b=>b.label==='创建生产工单').attrs.onClick()
- assert.equal(f.router.currentRoute.value.path,'/workspace/work-orders')
- assert.equal(f.router.currentRoute.value.query.create_from_bom,'7')
+ await f.buttons.find(b=>b.label==='查看生产计划').attrs.onClick()
+ assert.equal(f.router.currentRoute.value.path,'/workspace/production-plans')
+ assert.deepEqual(f.router.currentRoute.value.query,{})
 })
 
 test('产品工作区直接编辑当前产品，编辑权限和 BOM 创建权限相互独立',async t=>{
@@ -1292,16 +1292,16 @@ test('系列删除按完整子机型数量阻断，失败保留原因，查看�
 })
 
 // 子机型停用优先于其 BOM 的 active 状态，旧详情按钮不能继续发出建单意图。
-test('停用子机型的 BOM 详情禁止建单，启用版本历史仍可查看',async t=>{
+test('停用子机型的 BOM 详情可查看计划，不能绕过计划建单',async t=>{
  const f=await fixture(t)
  f.store.bomDetailRecord={...f.source,product_can_produce:false}
  const html=await f.render()
  assert.match(html,/BOM 版本详情/);assert.match(html,/主芯片/)
- const button=f.buttons.find(row=>row.label==='创建生产工单')
- assert.equal(button.props.disabled,true)
+ const button=f.buttons.find(row=>row.label==='查看生产计划')
+ assert.equal(button.props.disabled,false)
  await button.attrs.onClick()
- assert.equal(f.router.currentRoute.value.path,'/workspace/products')
- assert.equal(f.store.bomDetailRecord.id,7)
+ assert.equal(f.router.currentRoute.value.path,'/workspace/production-plans')
+ assert.equal(f.calls.some(([action])=>action==='createWorkOrder'),false)
 })
 
 // 确认窗把停用与删除的后果分开，所有写入都要求原因，失败不丢输入。
@@ -1345,22 +1345,15 @@ test('子机型操作按当前生产状态切换，确认窗保留失败原因�
  f.setup.selectLifecycle('delete');assert.equal(f.setup.lifecycleTarget,null)
 })
 
-test('工单产品选项排除停用子机型，旧建单链接及已填草稿均不能继续生产',async t=>{
+test('旧 BOM 工单建单链接不再开放自由建单，也不因停用资料而恢复入口',async t=>{
  const f=await fixture(t)
- const blocked={...f.source,product_can_produce:false}
- const available={...f.source,id:8,product_material_id:22,product_name:'可生产主控板',product_can_produce:true}
- f.store.boms=[blocked,available]
+ f.store.boms=[{...f.source,product_can_produce:false}]
  await f.router.push({path:'/workspace/work-orders',query:{create_from_bom:'7'}})
  f.store.workOrderForm={...f.store.workOrderForm,bom_id:7,target_quantity:'1',warehouse_id:1}
- f.store.warehouses=[{id:1,name:'主仓库'}]
- await f.renderWorkOrders()
- const view=f.components.ProductionWorkOrdersView
- assert.equal(view.createOpen,false)
- assert.deepEqual(view.activeBoms.map(row=>row.id),[8])
- assert.deepEqual(view.productChoices.map(row=>row.id),[22])
- assert.match(view.productIssue,/子机型已停用或删除/)
- await view.submitCreate()
- assert.match(f.store.error,/子机型已停用或删除/)
+ const html=await f.renderWorkOrders()
+ assert.doesNotMatch(html,/新建生产工单|保存工单草稿/)
+ await f.store.createWorkOrder()
+ assert.match(f.store.error,/已批准的生产计划/)
  assert.equal(f.calls.some(([action])=>action==='createWorkOrder'),false)
 })
 

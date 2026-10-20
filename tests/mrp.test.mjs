@@ -125,3 +125,11 @@ test('审批刷新保留编排草稿并恢复当前详情，换实例丢弃排�
   next.state.mrpForm.value=structuredClone({...input,reference:'新实例草稿'});queued.resolve()
   assert.equal(await saving,false);assert.equal(count,0);assert.equal(next.state.mrpForm.value.reference,'新实例草稿')
 })
+
+test('制造建议转生产计划必须有计划编制权限，工单创建权限不再放行',()=>{
+  const item={status:'approved',approval:{status:'approved'},conversions:[]}, check={matched:true}
+  const row={key:'make-one',supply_mode:'make'}
+  assert.equal(mrpCanConvert(item,check,row,['mrp.convert','work_order.create']),false)
+  assert.equal(mrpCanConvert(item,check,row,['mrp.convert','production_plan.create']),true)
+  assert.equal(mrpCanConvert(item,check,{...row,supply_mode:'buy'},['mrp.convert','production_plan.create']),false)
+})

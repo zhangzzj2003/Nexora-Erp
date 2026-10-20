@@ -20,7 +20,6 @@ export function createProductionActions(
     materialReturns,
     productionCompletions,
     bomForm,
-    workOrderForm,
     materialIssueForm,
     materialReturnForm,
     completionForm,
@@ -107,20 +106,8 @@ export function createProductionActions(
   }
 
   async function createWorkOrder(): Promise<void> {
-    if (!window.nexora) return
-    await perform(async () => {
-      await window.nexora!.callApi('createWorkOrder', {
-        ...workOrderForm.value
-      })
-      // 成功后重置选择，避免误把下一张工单挂在旧版 BOM 上。
-      workOrderForm.value = {
-        bom_id: 0,
-        warehouse_id: 1,
-        target_quantity: '1',
-        reference: '',
-        note: ''
-      }
-    }, '生产工单草稿已创建，组件需求已固定。')
+    // 保留旧调用方兼容方法，但禁止从共享状态绕过生产计划发起自由建单。
+    state.error.value = '普通生产工单须从已批准的生产计划分批生成，请前往生产计划。'
   }
 
   async function releaseWorkOrder(orderId: number): Promise<void> {

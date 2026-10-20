@@ -1,5 +1,7 @@
 """通过新收发接口验证多仓交接、分批退换料、完工和正式结算共用同一事实链。"""
 
+from approval_test_helpers import planned_order
+
 from decimal import Decimal
 from uuid import uuid4
 
@@ -29,7 +31,7 @@ def test_new_material_flow_closes_multi_warehouse_production_and_costs(erp):
     bom = api('POST', 'boms', {'product_material_id': product, 'base_quantity': '1',
         'lines': [{'component_material_id': raw, 'quantity': '1'}]}, 201)
     api('POST', f'boms/{bom["id"]}/activate')
-    order = api('POST', 'work-orders', {'bom_id': bom['id'], 'warehouse_id': finished_store,
+    order = planned_order(api, {'bom_id': bom['id'], 'warehouse_id': finished_store,
         'target_quantity': '100'}, 201)
     approve('WorkOrder', order)
     api('POST', f'work-orders/{order["id"]}/release')

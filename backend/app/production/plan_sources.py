@@ -11,9 +11,12 @@ from app.core.models import ProductionPlan, ProductionPlanRelease, ProductionPla
 from app.production.plan_rules import plan_lines, component_quantity, qty, validate_plan
 
 
-def append_plan_sources(db, supplies: list, reservations: list) -> list[dict]:
+def append_plan_sources(db, supplies: list, reservations: list, excluded_plans: set[int] | None = None) -> list[dict]:
     evidence = []
     for plan in db.scalars(select(ProductionPlan).where(ProductionPlan.status != 'cancelled').order_by(ProductionPlan.id)):
+        # 原 MRP 的转单不改变其来源指纹；其他 MRP 仍完整计入批准计划。
+        if excluded_plans and plan.id in excluded_plans:
+            continue
         case = approval.find_case(db, 'ProductionPlan', plan.id)
         if case is None or case.status not in ('approved', 'executed'):
             continue

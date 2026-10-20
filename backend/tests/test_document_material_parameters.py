@@ -1,5 +1,7 @@
 """单据参数以真实物料身份只读附加，不改变原权限、审批依据及批量查询边界。"""
 
+from approval_test_helpers import planned_order
+
 import copy
 import json
 from uuid import uuid4
@@ -141,7 +143,7 @@ def test_current_parameters_never_change_approved_snapshot_digest_or_quantity(de
 def test_production_flow_association_and_product_target_reuse_existing_view_permissions(details):
     client, auth, api, role, raw, product, bom, _ = details
     api('POST', f'boms/{bom["id"]}/activate')
-    work = api('POST', 'work-orders', {'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '2'}, 201)
+    work = planned_order(api, {'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '2'}, 201)
     work_summary = api('GET', f'system/document-approvals/WorkOrder/{work["id"]}')['summary']
     assert next(item for item in work_summary if item['label'] == '成品目标')['material']['id'] == product['id']
     assert_material(next(item for item in work_summary if item.get('material_id') == raw['id'])['material'], raw['id'])

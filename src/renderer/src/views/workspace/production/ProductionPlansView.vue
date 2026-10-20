@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { usePiniaAppStore } from '../../../store/app-store'
 import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import AppButton from '../../../components/app/AppButton.vue'
@@ -23,7 +23,7 @@ import { mrpSourceStatus } from './mrp-display'
 import { routeByKey } from '../../../router/workspace-routes'
 
 const store = usePiniaAppStore()
-const router = useRouter()
+const router = useRouter(), route = useRoute()
 const { productionPlans: records, productionPlanDetail: detail, productionPlanOptions: options,
   productionPlanError: error, productionPlanLoading: loading, productionPlanForm: form,
   productionPlanEdit: editing,
@@ -150,6 +150,15 @@ function resetFilters(): void {
   query.value = ''; filter.value = 'all'
 }
 function resetDialogs(): void { editor.value = false; closeDetail(); command.value = null; release.value = null; reason.value = '' }
+// 工单来源和 MRP 转单可直达对应计划，异步列表加载完成后只消费一次定位。
+watch([() => route?.query.document_id, records, disabled], () => {
+  const id = Number(route?.query.document_id)
+  const row = records.value.find(item => item.id === id)
+  if (!row || disabled.value || !store.can('production_plan.view')) return
+  const { document_id: _id, ...query } = route.query
+  void router.replace({ query })
+  void openDetail(row)
+}, { immediate: true })
 onMounted(() => store.loadProductionPlans())
 onUnmounted(store.clearProductionPlanDetail)
 watch(() => `${server.value?.id}:${server.value?.fingerprint}:${user.value?.id}:${permissions.value.join('|')}`, () => {
@@ -213,7 +222,7 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
       <template #documentActions><template v-if="detail">
         <!-- 详情与列表共用审批入口，审批步骤和操作权限仍由公共审批窗口核对。 -->
         <AppButton ref="approvalButton" size="small" :disabled="disabled" @click="openApproval">单据审批</AppButton>
-        <AppButton v-if="releasableLines.length" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-command', $event)" @click="openRelease(releasableLines[0])">分批下达</AppButton>
+        <AppButton v-if="releasableLines.length" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-command', $event)" @click="openRelease(releasableLines[0])">生成生产工单</AppButton>
         <AppButton v-if="detail.can_edit && store.can('production_plan.create')" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-editor', $event)" @click="edit">编辑草稿</AppButton>
         <AppButton v-if="canCancelPlan(detail, permissions)" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-command', $event)" @click="openCancel">取消计划</AppButton>
       </template></template>

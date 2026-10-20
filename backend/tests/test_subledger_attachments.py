@@ -265,7 +265,7 @@ def test_v99_upgrade_is_atomic_retryable_and_does_not_modify_legacy_evidence(sub
         db.execute('DROP TRIGGER fail_attachment_permission')
     migrate(); migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert db.execute('SELECT snapshot_json FROM document_approval_cases WHERE document_type=\'SubledgerOpening\'').fetchone()[0] == original
         assert db.execute("SELECT count(*) FROM role_permissions WHERE permission_code='subledger_opening.attachment'").fetchone()[0] == 2
     assert len(Base.metadata.tables) == 218

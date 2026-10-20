@@ -1,5 +1,7 @@
 """验证共享组件、日期净需求、来源快照、职责分离和事务转单。"""
 
+from approval_test_helpers import seed_legacy_work_order
+
 from approval_test_helpers import approve_document
 
 from concurrent.futures import ThreadPoolExecutor
@@ -18,7 +20,7 @@ from app.core.database import migrate
 from app.core.models import Base, MrpConversion, MrpPlan, MrpPlanChange, PurchaseRequest, WorkOrder
 from app.core.orm import orm_session
 from app.main import app
-from app.production import mrp
+from app.production import mrp, plans, plan_rules
 from app.production.mrp_engine import calculate
 
 BASE = '/api/v1'
@@ -103,6 +105,8 @@ def test_cycles_missing_make_boms_and_large_component_orders_are_rejected():
 def seeded(monkeypatch, tmp_path):
     monkeypatch.setenv('NEXORA_DB_PATH', str(tmp_path / 'mrp.db'))
     monkeypatch.setattr(mrp, 'today', lambda: START)
+    monkeypatch.setattr(plans, 'today', lambda: START)
+    monkeypatch.setattr(plan_rules, 'today', lambda: START)
     with TestClient(app, client=('127.0.0.1',12000), raise_server_exceptions=False) as client:
         assert client.post(BASE+'/setup/admin', json={'username':'admin','password':'secure-pass-123'}).status_code == 201
         def login(username):
@@ -212,7 +216,7 @@ def test_existing_sales_purchases_and_work_orders_have_complete_dated_sources(se
     approve_document(client, admin, 'PurchaseOrder', purchase)
     assert client.post(BASE+f'/purchase-orders/{purchase}/confirm', headers=admin).status_code == 200
     bom = next(row for row in client.get(BASE+'/boms', headers=admin).json() if row['product_material_id'] == b)
-    work = client.post(BASE+'/work-orders', headers=admin, json={'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1'}).json()
+    work = seed_legacy_work_order(client, headers=admin, json={'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1'}).json()
     options = client.get(MRP+'/options', headers=admin).json()
     assert len(options['demands']) == 1
     assert len(options['supplies']) == 2
@@ -262,9 +266,16 @@ def test_concurrent_transfers_stale_competing_plan_and_cancelled_targets(seeded)
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(lambda _: client.post(MRP+f'/plans/{first["id"]}/convert', headers=admin, json=request), range(2)))
     assert sorted(row.status_code for row in responses) == [201,409]
-    assert not client.get(MRP+f'/plans/{second["id"]}/check', headers=admin).json()['matched']
     target = next(row.json() for row in responses if row.status_code == 201)
-    assert client.post(BASE+f'/work-orders/{target["work_order_id"]}/cancel', headers=admin).status_code == 200
+    # 草稿尚不承诺供给；批准后才使另一份 MRP 的来源过期。
+    assert client.get(MRP+f'/plans/{second["id"]}/check', headers=admin).json()['matched']
+    approve_document(client, admin, 'ProductionPlan', target['production_plan_id'], reason='核对制造建议')
+    assert not client.get(MRP+f'/plans/{second["id"]}/check', headers=admin).json()['matched']
+    path = BASE+f'/system/document-approvals/ProductionPlan/{target["production_plan_id"]}'
+    state = client.get(path, headers=admin).json()
+    assert client.post(path+'/withdraw', headers=admin, json={'version':state['version'],'reason':'终止制造'}).status_code == 200
+    plan = client.get(BASE+f'/production/plans/{target["production_plan_id"]}', headers=admin).json()
+    assert client.post(BASE+f'/production/plans/{plan["id"]}/cancel', headers=admin, json={'version':plan['version'],'reason':'终止制造'}).status_code == 200
     assert client.get(MRP+f'/plans/{first["id"]}/check', headers=admin).json()['cancelled_target']
     current = client.get(MRP+f'/plans/{first["id"]}', headers=admin).json()
     assert client.post(MRP+f'/plans/{first["id"]}/cancel', headers=admin,
@@ -314,7 +325,7 @@ def test_v48_upgrade_preserves_stock_and_is_idempotent(seeded, remove_mrp_schema
     migrate()
     migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert len(Base.metadata.tables) == 218
@@ -363,3 +374,102 @@ def test_previous_submitter_needs_current_button_permission_after_resubmission(s
     assert client.get(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}', headers=planner).json()['can_review']
     assert client.post(BASE + f'/system/document-approvals/MrpPlan/{record["id"]}/approve', headers=planner,
         json={'version':state['version'],'reason':'授权后批准'}).status_code == 200
+
+
+def test_manufacturing_suggestion_requires_plan_approval_before_work_order(seeded):
+    from uuid import uuid4
+    from app.core.models import ProductionPlan, ProductionPlanRelease
+    client, admin, reviewer, planner, viewer, materials, _ = seeded
+    record = approved(client, admin, reviewer, payload(client, admin, materials, 'PLAN-FIRST'))
+    detail = client.get(MRP+f'/plans/{record["id"]}', headers=admin).json()
+    suggestion = next(row for row in detail['snapshot']['suggestions'] if row['supply_mode'] == 'make')
+    with orm_session() as db:
+        before_orders = len(list(db.scalars(select(WorkOrder))))
+    response = client.post(MRP+f'/plans/{record["id"]}/convert', headers=planner, json={
+        'version': record['version'], 'suggestion_key': suggestion['key'], 'warehouse_id': 1, 'reason':'先编制生产安排'})
+    assert response.status_code == 201, response.text
+    target = response.json()
+    assert target['work_order_id'] is None and target['production_plan_id']
+    path = BASE+f'/production/plans/{target["production_plan_id"]}'
+    row = client.get(path, headers=planner).json()
+    line = row['lines'][0]
+    assert row['approval']['status'] == 'draft'
+    assert (line['bom_id'], line['quantity'], line['start_date'], line['end_date']) == (
+        suggestion['bom_id'], suggestion['quantity'], suggestion['release_date'], suggestion['due_date'])
+    with orm_session() as db:
+        assert len(list(db.scalars(select(WorkOrder)))) == before_orders
+        assert not list(db.scalars(select(ProductionPlanRelease)))
+    request = {'version': row['version'], 'approval_version': row['approval']['version'],
+        'line_id': line['id'], 'quantity': line['quantity'], 'reason':'按计划生成', 'request_id':str(uuid4())}
+    assert client.post(path+'/release', headers=planner, json=request).status_code in (409,422)
+    approve_document(client, planner, 'ProductionPlan', row['id'], reason='核对物料建议和排期', account_headers=admin)
+    row = client.get(path, headers=planner).json()
+    request.update(version=row['version'], approval_version=row['approval']['version'])
+    response = client.post(path+'/release', headers=planner, json=request)
+    assert response.status_code == 201, response.text
+    identifier = response.json()['releases'][0]['work_order_id']
+    order = next(row for row in client.get(BASE+'/work-orders', headers=planner).json() if row['id'] == identifier)
+    assert order['production_schedule']['production_plan_id'] == target['production_plan_id']
+    assert order['approval']['status'] == 'draft'
+    # 同一 MRP 的自身转单不污染来源指纹；新 MRP 只计算工单，不再重复算已全部下达的计划。
+    assert client.get(MRP+f'/plans/{record["id"]}/check', headers=planner).json()['matched']
+    from app.production.mrp_sources import collect
+    with orm_session() as db:
+        source = collect(db)
+        assert len([r for r in source['supplies'] if r['kind']=='work_order' and r['source_id']==identifier]) == 1
+        assert not any(r['kind']=='production_plan' and r['source_id']==target['production_plan_id'] for r in source['supplies'])
+    # 工单仍需自己的审批，计划获批不直接放行领料执行。
+    assert client.post(BASE+f'/work-orders/{identifier}/release', headers=planner).status_code == 409
+
+
+def test_make_conversion_requires_plan_creation_permission(seeded):
+    from app.core.models import ProductionPlan
+    client, admin, reviewer, planner, viewer, materials, _ = seeded
+    record = approved(client, admin, reviewer, payload(client, admin, materials, 'PERMISSION-PLAN'))
+    detail = client.get(MRP+f'/plans/{record["id"]}', headers=admin).json()
+    suggestion = next(row for row in detail['snapshot']['suggestions'] if row['supply_mode'] == 'make')
+    # 旧工单建单权限不能借 MRP 转单绕过生产计划编制权限。
+    permissions = ['mrp.view', 'mrp.convert', 'work_order.create']
+    assert client.post(BASE+'/roles', headers=admin, json={
+        'code':'mrp_executor', 'label':'只执行生产', 'permissions':permissions}).status_code == 201
+    planner_id = client.get(BASE+'/auth/me', headers=planner).json()['id']
+    assert client.put(BASE+f'/users/{planner_id}/roles', headers=admin,
+        json={'roles':['mrp_executor']}).status_code == 200
+    request = {'version':record['version'], 'suggestion_key':suggestion['key'],
+        'warehouse_id':1, 'reason':'制造建议'}
+    response = client.post(MRP+f'/plans/{record["id"]}/convert', headers=planner, json=request)
+    assert response.status_code == 403
+    assert '生产计划' in response.json()['detail']
+    with orm_session() as db:
+        assert not list(db.scalars(select(ProductionPlan)))
+        assert not list(db.scalars(select(MrpConversion)))
+        assert not list(db.scalars(select(WorkOrder)))
+        assert db.get(MrpPlan, record['id']).version == record['version']
+    # 实时授予目标编制权限后，同一建议和版本可正常转换，不被失败请求消耗。
+    assert client.put(BASE+'/roles/mrp_executor', headers=admin, json={
+        'label':'编制生产', 'permissions':permissions+['production_plan.create']}).status_code == 200
+    response = client.post(MRP+f'/plans/{record["id"]}/convert', headers=planner, json=request)
+    assert response.status_code == 201, response.text
+    assert response.json()['production_plan_id']
+
+
+def test_make_conversion_audit_failure_rolls_back_production_plan(seeded):
+    from app.core.models import ProductionPlan, ProductionPlanLine, ProductionPlanChange
+    client, admin, reviewer, planner, viewer, materials, _ = seeded
+    record = approved(client, admin, reviewer, payload(client, admin, materials, 'ROLLBACK-PLAN'))
+    detail = client.get(MRP+f'/plans/{record["id"]}', headers=admin).json()
+    suggestion = next(row for row in detail['snapshot']['suggestions'] if row['supply_mode']=='make')
+    def fail_audit(session, *_):
+        if any(isinstance(row, MrpPlanChange) and row.action == 'convert' for row in session.new):
+            raise RuntimeError('模拟转计划审计失败')
+    event.listen(Session, 'before_flush', fail_audit)
+    try:
+        response = client.post(MRP+f'/plans/{record["id"]}/convert', headers=admin, json={
+            'version':record['version'],'suggestion_key':suggestion['key'],'warehouse_id':1,'reason':'制造建议'})
+        assert response.status_code == 500
+    finally:
+        event.remove(Session, 'before_flush', fail_audit)
+    with orm_session() as db:
+        for model in (ProductionPlan, ProductionPlanLine, ProductionPlanChange, MrpConversion, WorkOrder):
+            assert not list(db.scalars(select(model)))
+        assert db.get(MrpPlan,record['id']).version == record['version']

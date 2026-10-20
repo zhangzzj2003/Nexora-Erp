@@ -1,5 +1,7 @@
 """设备维护真实流程、独立处理、库存依赖、并发与写后故障回滚。"""
 
+from approval_test_helpers import planned_order
+
 from approval_test_helpers import approve_document
 import os
 import sqlite3
@@ -360,7 +362,7 @@ def test_actor_permissions_optional_production_links_and_audit_redaction(erp):
     product=api('POST','materials',{'sku':'PRODUCT','name':'生产产品','unit':'件'},status=201)['id']
     bom=api('POST','boms',{'product_material_id':product,'lines':[{'component_material_id':part,'quantity':'1'}]},status=201)
     api('POST',f'boms/{bom["id"]}/activate')
-    order=api('POST','work-orders',{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1'},status=201)
+    order=planned_order(api,{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1'},status=201)
     row=api('POST',ROOT+'/jobs',job_input(erp,work_order_id=order['id']),status=201)
     visible=api('GET',ROOT+f'/jobs/{row["id"]}',actor='observer')
     assert visible['work_order_linked'] and visible['work_order_id'] is None and visible['work_order_snapshot'] is None
@@ -380,7 +382,7 @@ def test_recorded_work_survives_production_cancellation_and_executor_revocation(
     product=api('POST','materials',{'sku':'OUTPUT','name':'生产产品','unit':'件'},status=201)['id']
     bom=api('POST','boms',{'product_material_id':product,'lines':[{'component_material_id':part,'quantity':'1'}]},status=201)
     api('POST',f'boms/{bom["id"]}/activate')
-    order=api('POST','work-orders',{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1'},status=201)
+    order=planned_order(api,{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1'},status=201)
     row=approved(erp,work_order_id=order['id'],assigned_to=ids['planner'])
     row=action(api,row,'start',actor='planner')
     api('POST',f'work-orders/{order["id"]}/cancel')
@@ -448,7 +450,7 @@ def test_v52_upgrade_is_idempotent_and_preserves_old_business(erp,remove_equipme
         db.execute('PRAGMA user_version=52')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]== 107
+        assert db.execute('PRAGMA user_version').fetchone()[0]== 108
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'equipment.%'").fetchone()[0]==13
@@ -606,7 +608,7 @@ def test_v62_hour_migration_preserves_calendar_business_and_is_idempotent(erp):
         remove_hour_schema(db)
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert db.execute('SELECT id,status,plan_id FROM maintenance_jobs ORDER BY id').fetchall() == old_jobs
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code='equipment.meter'").fetchone()[0] == 1

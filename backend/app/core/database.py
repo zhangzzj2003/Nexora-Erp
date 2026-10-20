@@ -270,10 +270,38 @@ def _migrate_production_plans(db: sqlite3.Connection) -> None:
             VALUES ('ProductionPlan',1,'[{"name":"批准","role":null}]')''')
 
 
+def _migrate_plan_required(db: sqlite3.Connection) -> None:
+    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if 'mrp_conversions' not in tables:
+        return
+    columns = {row[1] for row in db.execute('PRAGMA table_info(mrp_conversions)')}
+    if 'production_plan_id' in columns:
+        return
+    # 旧表的二选一 CHECK 需要替换为三选一；此表没有入向外键，原 ID、唯一约束和审计数据均保留。
+    db.execute('''CREATE TABLE mrp_conversions_v108 (
+        id INTEGER PRIMARY KEY, plan_id INTEGER NOT NULL REFERENCES mrp_plans(id),
+        suggestion_key TEXT NOT NULL,
+        purchase_request_id INTEGER UNIQUE REFERENCES purchase_requests(id),
+        work_order_id INTEGER UNIQUE REFERENCES work_orders(id),
+        production_plan_id INTEGER UNIQUE REFERENCES production_plans(id),
+        due_date TEXT NOT NULL, reason TEXT NOT NULL, created_by INTEGER NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(plan_id,suggestion_key),
+        CHECK((purchase_request_id IS NOT NULL)+(work_order_id IS NOT NULL)+(production_plan_id IS NOT NULL)=1))''')
+    db.execute('''INSERT INTO mrp_conversions_v108
+        (id,plan_id,suggestion_key,purchase_request_id,work_order_id,due_date,reason,created_by,created_at)
+        SELECT id,plan_id,suggestion_key,purchase_request_id,work_order_id,due_date,reason,created_by,created_at
+        FROM mrp_conversions''')
+    db.execute('DROP TABLE mrp_conversions')
+    db.execute('ALTER TABLE mrp_conversions_v108 RENAME TO mrp_conversions')
+    # 只更新内置默认名称，保留管理员自行修改的权限展示名称。
+    db.execute("""UPDATE permissions SET label='将物料计划转为采购申请或生产计划'
+        WHERE code='mrp.convert' AND label='将物料计划转为申请或工单'""")
+
+
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 107:
+        if version > 108:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -3329,3 +3357,11 @@ def migrate() -> None:
         if version < 107:
             _migrate_production_plans(db)
             db.execute('PRAGMA user_version = 107')
+
+
+        if version < 108:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            # 转单历史原样复制；只扩展制造建议的新目标，不能把旧工单伪造为计划下达。
+            _migrate_plan_required(db)
+            db.execute('PRAGMA user_version = 108')

@@ -1,5 +1,7 @@
 """生产领料批次选择、原单证据及失败时整单回滚。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from approval_test_helpers import approve_document
 
 from decimal import Decimal
@@ -39,7 +41,7 @@ def test_material_issue_uses_selected_lots_atomically(monkeypatch, tmp_path):
             'product_material_id': product, 'base_quantity': '1',
             'lines': [{'component_material_id': material, 'quantity': '2.000'}]}).json()['id']
         assert client.post(f'{base}/boms/{bom}/activate', headers=auth).status_code == 200
-        order = client.post(f'{base}/work-orders', headers=auth, json={
+        order = create_planned_work_order(client, headers=auth, json={
             'bom_id': bom, 'warehouse_id': 1, 'target_quantity': '1'}).json()
         approve_document(client, auth, 'WorkOrder', order['id'])
         assert client.post(f'{base}/work-orders/{order["id"]}/release', headers=auth).status_code == 200

@@ -12,12 +12,11 @@ const {bomDetailRecord: record, bomDetailLoading, bomDetailError, busy, connecti
 const materialById = computed(() => materialParameterIndex(materials.value))
 const show = computed(() => !!record.value || bomDetailLoading.value || !!bomDetailError.value)
 const columns = [{key:'sku',title:'组件编码',width:'200'}, {key:'name',title:'组件名称'}, {key:'quantity',title:'基准用量',width:'150'}, {key:'unit',title:'单位',width:'80'}, {key:'recipe',title:'下层生产配方',width:'170'}]
-async function createOrder(): Promise<void> {
-  // 只传递一次性建单意图，实际保存和需求快照仍由原工单流程校验。
-  if (!record.value || record.value.status !== 'active' || record.value.product_can_produce === false || busy.value || connectionLost.value || !store.can('work_order.create')) return
-  const id = record.value.id
+async function openPlans(): Promise<void> {
+  // BOM 仅作为计划编制依据，不能再从配方绕过批准计划创建工单。
+  if (!record.value || busy.value || connectionLost.value || !store.can('production_plan.view')) return
   store.closeBomDetail(); store.closeProduct()
-  await router.push({path:'/workspace/work-orders', query:{create_from_bom:id}})
+  await router.push({path:'/workspace/production-plans'})
 }
 </script>
 <template>
@@ -36,7 +35,7 @@ async function createOrder(): Promise<void> {
     <template #cell-quantity="{row}">{{ row.quantity }}</template><template #cell-unit="{row}">{{ row.unit }}</template>
     <template #cell-recipe="{row}"><AppButton v-if="row.component_bom_id" size="small" :disabled="busy || connectionLost" @click="store.openBomDetail(row.component_bom_id)">固定 V{{ row.component_bom_version }}</AppButton><span v-else>按物料领用</span></template>
     <template #footer><div class="form-actions">
-      <AppButton v-if="record?.status === 'active' && store.can('work_order.create')" :disabled="busy || connectionLost || record?.product_can_produce === false" variant="primary" @click="createOrder">创建生产工单</AppButton>
+      <AppButton v-if="store.can('production_plan.view')" :disabled="busy || connectionLost" variant="primary" @click="openPlans">查看生产计划</AppButton>
       <AppButton :disabled="busy" @click="store.closeBomDetail">关闭</AppButton>
     </div></template>
   </WorkspaceDocumentDialog>

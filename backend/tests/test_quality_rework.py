@@ -1,5 +1,7 @@
 """从质检隔离数量到报废、返工成本、凭证来源及更正的跨模块风险。"""
 
+from approval_test_helpers import planned_order
+
 from approval_test_helpers import receive_legacy_issue, execute_production_settlement, approve_document
 
 from concurrent.futures import ThreadPoolExecutor
@@ -52,7 +54,7 @@ def quality_erp(monkeypatch, tmp_path):
             'lines':[{'component_material_id':raw,'quantity':'1'}]},201)
         api('POST',f'boms/{bom["id"]}/activate')
         def order(quantity='10', accepted='4'):
-            work = api('POST','work-orders',{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':quantity},201)
+            work = planned_order(api,{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':quantity},201)
             approve_document(client, admin, 'WorkOrder', work['id'])
             api('POST',f'work-orders/{work["id"]}/release')
             issue = api('POST','material-issues',{'work_order_id':work['id'],'warehouse_id':1,
@@ -354,7 +356,7 @@ def test_v50_upgrade_preserves_records_and_static_models(quality_erp,remove_qual
         db.execute('PRAGMA user_version=50')
     migrate(); migrate()
     with sqlite3.connect(os.environ['NEXORA_DB_PATH']) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert db.execute('SELECT * FROM work_orders').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert len(Base.metadata.tables) == 218

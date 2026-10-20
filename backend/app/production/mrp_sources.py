@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.models import (Bom, BomLine, Customer, Material, ProductProfile, MrpConversion, MrpPolicy,
     PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, SalesOrder, SalesOrderLine,
-    StockMovement, Supplier, WorkOrder, WorkOrderLine)
+    StockMovement, Supplier, WorkOrder, WorkOrderLine, ProductionPlanRelease)
 from app.core.orm import model_data
 from app.production.mrp_engine import quantity
 from app.production.work_orders import issued_quantity, posted_completion_totals
@@ -31,6 +31,8 @@ def collect(db: Session, exclude_plan_id: int | None = None) -> dict:
     conversions = list(db.scalars(select(MrpConversion).order_by(MrpConversion.id)))
     own_requests = {row.purchase_request_id for row in conversions if row.plan_id == exclude_plan_id}
     own_orders = {row.work_order_id for row in conversions if row.plan_id == exclude_plan_id}
+    own_plans = {row.production_plan_id for row in conversions if row.plan_id == exclude_plan_id and row.production_plan_id}
+    own_orders.update(db.scalars(select(ProductionPlanRelease.work_order_id).where(ProductionPlanRelease.plan_id.in_(own_plans))))
     request_dates = {row.purchase_request_id: row.due_date for row in conversions if row.purchase_request_id}
     work_dates = {row.work_order_id: row.due_date for row in conversions if row.work_order_id}
     # 规格存储列不参与旧计划的计算指纹；选项接口另行丰富当前资料，迁移不能使原批准计划失效。
@@ -115,7 +117,7 @@ def collect(db: Session, exclude_plan_id: int | None = None) -> dict:
                         'status': order.status, 'material_id': line.component_material_id, 'quantity': quantity(needed),
                         **({'due_date': schedule['start_date']} if schedule else {})})
     from app.production.plan_sources import append_plan_sources
-    production_plans = append_plan_sources(db, supplies, reservations)
+    production_plans = append_plan_sources(db, supplies, reservations, own_plans)
     if len(demands) > 2000 or len(supplies) > 2000 or len(reservations) > 5000:
         raise HTTPException(422, '未执行需求或供给超过当前计划容量，请先整理单据')
     result = {'materials': materials, 'policies': policies, 'boms': boms, 'movements': movements,

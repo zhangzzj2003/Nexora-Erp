@@ -1,5 +1,7 @@
 """验证分批领料、库存与剩余需料的事务核对，以及不可改写的流水来源。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from approval_test_helpers import receive_legacy_issue, approve_document
 
 from fastapi.testclient import TestClient
@@ -42,7 +44,7 @@ def test_material_issue_partial_post_and_permissions(monkeypatch, tmp_path):
             "lines": [{"component_material_id": component, "quantity": "2"}
                       for component in components]}).json()["id"]
         client.post(f"{base}/boms/{bom}/activate", headers=planner)
-        order = client.post(f"{base}/work-orders", headers=planner, json={
+        order = create_planned_work_order(client, account_headers=admin, headers=planner, json={
             "bom_id": bom, "warehouse_id": second_warehouse, "target_quantity": "1"}).json()
         order_id = order["id"]
         line_ids = [line["id"] for line in order["lines"]]

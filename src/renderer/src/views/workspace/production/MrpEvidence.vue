@@ -48,11 +48,11 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
       <template #cell-material="{ row }"><WorkspaceMaterialName :name="`${row.sku} · ${row.name}`" :material-id="row.material_id" :material="item.snapshot.sources.materials.find(material => material.id === row.material_id)" :current-reference="false" /><span class="muted mrp-line">{{ mrpMode[row.supply_mode] }} · {{ row.unit }}<template v-if="row.bom_id"> · BOM #{{ row.bom_id }} v{{ row.bom_version }}</template></span></template>
       <template #cell-release="{ row }">{{ row.release_date }}<span v-if="row.late" class="mrp-line">提前期不足：应在 {{ row.required_release_date }} 投放</span></template>
       <template #cell-actions="{ row }">
-        <template v-if="conversions(row.key)"><span>{{ conversions(row.key)!.purchase_request_id ? '采购申请' : '工单' }} {{ relatedDocumentLabel(conversions(row.key)!, conversions(row.key)!.purchase_request_id ? 'purchase_request' : 'work_order') }} · {{ conversions(row.key)!.target_reference }}</span>
+        <template v-if="conversions(row.key)"><span>{{ conversions(row.key)!.purchase_request_id ? '采购申请' : conversions(row.key)!.production_plan_id ? '生产计划' : '历史工单' }} {{ relatedDocumentLabel(conversions(row.key)!, conversions(row.key)!.purchase_request_id ? 'purchase_request' : conversions(row.key)!.production_plan_id ? 'production_plan' : 'work_order') }} · {{ conversions(row.key)!.target_reference }}</span>
           <span class="muted mrp-line">{{ conversions(row.key)!.target_status === 'cancelled' ? '原单已取消，须新建计划' : '已转原单，按原单流程执行' }}</span>
-          <AppButton v-if="store.can(conversions(row.key)!.purchase_request_id ? 'purchase_request.view' : 'production.view')" size="small" @click="store.navigateToRoute(conversions(row.key)!.purchase_request_id ? 'purchaseRequests' : 'workOrders')">打开原单列表</AppButton>
+          <AppButton v-if="store.can(conversions(row.key)!.purchase_request_id ? 'purchase_request.view' : conversions(row.key)!.production_plan_id ? 'production_plan.view' : 'production.view')" size="small" @click="store.navigateToRoute(conversions(row.key)!.purchase_request_id ? 'purchaseRequests' : conversions(row.key)!.production_plan_id ? 'productionPlans' : 'workOrders')">打开原单列表</AppButton>
         </template>
-        <AppButton v-else-if="canConvert(row)" size="small" variant="primary" :disabled="busy || connectionLost" @click="emit('convert',row,$event)">{{ row.supply_mode === 'buy' ? '转采购申请' : '转生产工单' }}</AppButton>
+        <AppButton v-else-if="canConvert(row)" size="small" variant="primary" :disabled="busy || connectionLost" @click="emit('convert',row,$event)">{{ row.supply_mode === 'buy' ? '转采购申请' : '转生产计划' }}</AppButton>
         <span v-else class="muted">{{ item.status !== 'approved' || !['approved', 'executed'].includes(item.approval?.status ?? '') ? '须完成本单独立审批' : !check?.matched ? '须新建重算' : '缺少计划或原单建单权限' }}</span>
       </template>
       <template #empty>没有净缺口，不需要新增采购或生产供给。</template>
@@ -83,7 +83,7 @@ const actionName = (action?: string) => ({create:'建立计划',submit:'提交�
       <NCollapse><AppCollapseItem v-for="change in changes" :key="change.id" :name="String(change.id)" :title="`${store.localTime(change.created_at)} · ${change.changed_by_name} · ${actionName(change.action)} · ${change.reason}`">
         <p>{{ change.before ? mrpStatus[change.before.status] + ' v' + change.before.version : '无原计划' }} → {{ mrpStatus[change.after.status] }} v{{ change.after.version }} · 累计转单 {{ change.after.conversions.length }} 条</p>
       </AppCollapseItem></NCollapse>
-      <p v-for="conversion in item.conversions" :key="conversion.id">{{ conversion.suggestion_key }} → {{ conversion.purchase_request_id ? '采购申请' : '工单' }} {{ relatedDocumentLabel(conversion, conversion.purchase_request_id ? 'purchase_request' : 'work_order') }} · {{ conversion.created_by_name }} · {{ store.localTime(conversion.created_at) }} · {{ conversion.reason }}</p>
+      <p v-for="conversion in item.conversions" :key="conversion.id">{{ conversion.suggestion_key }} → {{ conversion.purchase_request_id ? '采购申请' : conversion.production_plan_id ? '生产计划' : '历史工单' }} {{ relatedDocumentLabel(conversion, conversion.purchase_request_id ? 'purchase_request' : conversion.production_plan_id ? 'production_plan' : 'work_order') }} · {{ conversion.created_by_name }} · {{ store.localTime(conversion.created_at) }} · {{ conversion.reason }}</p>
     </section>
   </section>
 </template>

@@ -157,7 +157,7 @@ test('新增入口打开弹窗，失败时保留草稿', () => {
   const paths = [
     'catalog/MaterialsView.vue', 'warehouse/OtherInboundsView.vue',
     'purchase/PurchaseOrdersView.vue', 'sales/SalesOrdersView.vue',
-    'production/ProductionWorkOrdersView.vue', 'system/UserManagementView.vue'
+    'system/UserManagementView.vue'
   ]
   for (const path of paths) {
     const source = readFileSync(new URL(path, viewRoot), 'utf8')
@@ -166,6 +166,10 @@ test('新增入口打开弹窗，失败时保留草稿', () => {
     assert.match(source, /@click="(?:edit\(\)|openEditor\(\)|startCreate|showForm = true|createOpen = true|customerOpen = true)"/, path)
     assert.match(source, /submitCreateDialog\(|if \(await saveMaterial/, path)
   }
+  // 工单改为从批准计划生成，不再属于可以自由输入产品的新增弹窗。
+  const orders = readFileSync(new URL('production/ProductionWorkOrdersView.vue', viewRoot), 'utf8')
+  assert.match(orders, /@click="openPlans\(\)"/)
+  assert.doesNotMatch(orders, /createOpen = true|submitCreateDialog\(/)
 })
 
 test('公共 vxe 表格匹配工作台明暗主题与单元格高度', () => {

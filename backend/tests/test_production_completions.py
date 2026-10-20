@@ -1,8 +1,11 @@
 """验证分批报工、质检、需料下限和合格成品的入库来源。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from approval_test_helpers import receive_legacy_issue, approve_document
 
 from fastapi.testclient import TestClient
+from decimal import Decimal
 
 from app.main import app
 
@@ -40,7 +43,7 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
             "product_material_id": product, "base_quantity": "1",
             "lines": [{"component_material_id": component, "quantity": "2"}]}).json()["id"]
         client.post(f"{base}/boms/{bom}/activate", headers=planner)
-        order = client.post(f"{base}/work-orders", headers=planner, json={
+        order = create_planned_work_order(client, account_headers=admin, headers=planner, json={
             "bom_id": bom, "warehouse_id": target_warehouse, "target_quantity": "2"}).json()
         order_id, line_id = order["id"], order["lines"][0]["id"]
 
@@ -137,7 +140,8 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
         assert current["reported_quantity"] == "2"
         assert current["accepted_quantity"] == "1.5"
         assert current["rejected_quantity"] == "0.5"
-        assert current["remaining_output_quantity"] == "0"
+        # 计划生成的数量固定为三位小数，仍须验证剩余产量已归零。
+        assert Decimal(current["remaining_output_quantity"]) == 0
         assert current["completed_by"] is not None
         assert client.post(f"{base}/production-completions", headers=planner, json=payload).status_code == 409
         stock = client.get(f"{base}/stock?warehouse_id={target_warehouse}", headers=admin).json()
@@ -176,7 +180,7 @@ def test_completion_quality_gate_and_partial_stock(monkeypatch, tmp_path):
         current = client.get(f"{base}/work-orders", headers=planner).json()[0]
         assert current["status"] == "in_progress"
         assert current["reported_quantity"] == "1"
-        assert current["remaining_output_quantity"] == "1"
+        assert Decimal(current["remaining_output_quantity"]) == 1
         assert current["completed_by"] is None
         assert client.get(f"{base}/production-completions", headers=planner).json()[0]["status"] == "reversed"
         replacement = client.post(f"{base}/production-completions", headers=planner,

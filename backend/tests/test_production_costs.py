@@ -1,5 +1,7 @@
 """验证领料核价、退料净额、费用归集与冲销后的待核价状态。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from approval_test_helpers import receive_legacy_issue, approve_document
 
 from fastapi.testclient import TestClient
@@ -38,7 +40,7 @@ def test_production_cost_collection_and_reversal(monkeypatch, tmp_path):
             "product_material_id": product, "base_quantity": "1",
             "lines": [{"component_material_id": component, "quantity": "2"}]}).json()["id"]
         client.post(f"{base}/boms/{bom}/activate", headers=planner)
-        order = client.post(f"{base}/work-orders", headers=planner, json={
+        order = create_planned_work_order(client, account_headers=admin, headers=planner, json={
             "bom_id": bom, "warehouse_id": 1, "target_quantity": "1"}).json()
         order_id = order["id"]
         assert client.post(f"{base}/production-costs/charges", headers=finance, json={

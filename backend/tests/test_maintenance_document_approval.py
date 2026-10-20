@@ -1,5 +1,7 @@
 """维护统一审批与原执行证据、下游独立批准及原子回滚。"""
 
+from approval_test_helpers import planned_order
+
 import json
 import pytest
 from concurrent.futures import ThreadPoolExecutor
@@ -198,7 +200,7 @@ def test_generic_maintenance_summary_does_not_leak_production_source(erp):
     product=api('POST','materials',{'sku':'PRIVATE-PRODUCTION','name':'隐私生产资料','unit':'件'},status=201)['id']
     bom=api('POST','boms',{'product_material_id':product,'lines':[{'component_material_id':erp[5],'quantity':'1'}]},status=201)
     api('POST',f'boms/{bom["id"]}/activate')
-    order=api('POST','work-orders',{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1',
+    order=planned_order(api,{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':'1',
         'reference':'禁止设备查看者读取的生产依据'},status=201)
     row=api('POST','equipment/jobs',job_input(erp,work_order_id=order['id']),status=201)
     record=api('GET',f'system/document-approvals/MaintenanceJob/{row["id"]}',actor='observer')

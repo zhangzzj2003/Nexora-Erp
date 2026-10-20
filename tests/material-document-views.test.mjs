@@ -31,6 +31,8 @@ Object.assign(state,{busy:ref(false),connectionLost:ref(false),error:ref(''),not
  adjustmentDecisionReasons:ref({}),adjustmentReversalReasons:ref({}),otherOutboundReversalReasons:ref({}),transferReversalReasons:ref({}),stocktakeReversalReasons:ref({}),salesReturnReversalReasons:ref({}),requestRejectReasons:ref({}),
  can:()=>true,localTime:()=>'',openCustomers:()=>{},editPurchaseRequest:id=>{editLoads.push(id);state.purchaseRequestForm.value={...state.purchaseRequestForm.value,requestId:id??null,lines:[{material_id:0,quantity:'1',unit_price:'',line_total:'',pricing_mode:'unit_price'}]}}})
 state.materialCategories=ref([])
+// 未打开的公共审批窗口仍需要完整空状态，避免测试替身遗漏共享字段。
+Object.assign(state,{documentApprovalTarget:ref(null),documentApprovalRecord:ref(null),documentApprovalLoading:ref(false),documentApprovalError:ref('')})
 state.materials.value=[{id:1,sku:'EL-SR-1',name:'电阻',unit:'个'},{id:2,sku:'HW-SC-2',name:'螺钉',unit:'件'}]
 state.warehouses.value=[{id:1,name:'主仓库'}];state.suppliers.value=[{id:1,name:'供应商'}]
 state.customers=ref([{id:1,name:'客户'}])

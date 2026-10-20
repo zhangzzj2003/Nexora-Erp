@@ -1,5 +1,7 @@
 """已确认生产领料冲销保留原流水，并阻止有下游依赖时更正。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from approval_test_helpers import approve_document, receive_legacy_issue, reverse_legacy_receipt
 
 import sqlite3
@@ -52,7 +54,7 @@ def test_material_issue_reversal_restores_stock_lots_cost_and_work_order(monkeyp
             'product_material_id': product, 'base_quantity': '1',
             'lines': [{'component_material_id': material, 'quantity': '2'}]}).json()['id']
         assert client.post(f'{base}/boms/{bom}/activate', headers=admin).status_code == 200
-        order = client.post(f'{base}/work-orders', headers=admin, json={
+        order = create_planned_work_order(client, headers=admin, json={
             'bom_id': bom, 'warehouse_id': 1, 'target_quantity': '1'}).json()
         order_id, order_line_id = order['id'], order['lines'][0]['id']
         approve_document(client, admin, 'WorkOrder', order_id)
@@ -153,7 +155,7 @@ def test_material_issue_reversal_blocks_return_and_completion(monkeypatch, tmp_p
             'product_material_id': product, 'base_quantity': '1',
             'lines': [{'component_material_id': material, 'quantity': '1'}]}).json()['id']
         client.post(f'{base}/boms/{bom}/activate', headers=auth)
-        order = client.post(f'{base}/work-orders', headers=auth, json={
+        order = create_planned_work_order(client, headers=auth, json={
             'bom_id': bom, 'warehouse_id': 1, 'target_quantity': '1'}).json()
         order_id, order_line_id = order['id'], order['lines'][0]['id']
         approve_document(client, auth, 'WorkOrder', order_id)
@@ -216,7 +218,7 @@ def test_v65_upgrade_adds_reversal_permission_without_touching_users(monkeypatch
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert db.execute('SELECT id, username, password_hash FROM users').fetchall() == before
         assert db.execute("SELECT role_code FROM role_permissions WHERE permission_code='material_issue.reverse'").fetchall() == [('admin',)]
         assert db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='material_issue_reversals'").fetchone() is not None

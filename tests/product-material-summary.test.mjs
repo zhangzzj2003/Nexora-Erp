@@ -60,7 +60,11 @@ async function fixture(t) {
   const app=renderer.createApp({render:()=>h(Editor)}).use(pinia)
   app.mixin({created(){if(this.$options.__name==='WorkspaceMaterialSelect')material=this.$
     if(this.$options.props?.includes?.('show'))dialog=this.$}})
-  app.mount(root);t.after(()=>app.unmount())
+  // 真实物料选择器监听窗口缩放；内存渲染器提供事件宿主并在卸载后恢复。
+  const previousWindow=globalThis.window
+  globalThis.window=new EventTarget()
+  t.after(()=>{app.unmount();globalThis.window=previousWindow})
+  app.mount(root)
   const text=node=>[node.text??'',...node.children.map(text)].join(' ')
   return {store,writes,text:()=>text(root),get material(){return material},get dialog(){return dialog}}
 }

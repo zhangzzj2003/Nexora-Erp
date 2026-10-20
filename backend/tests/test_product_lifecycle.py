@@ -104,7 +104,7 @@ def test_product_soft_delete_preserves_material_stock_bom_orders_and_audit(erp):
     draft = req('POST', '/boms', {'product_material_id': row['material_id'],
         'lines': [{'component_material_id': bom['lines'][0]['component_material_id'], 'quantity': '3'}]}).json()
     order_payload = {'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '3'}
-    order_response = req('POST', '/work-orders', order_payload)
+    order_response = req.plan_work_order(order_payload)
     assert order_response.status_code == 201, order_response.text
     order = order_response.json()
     stock = req('GET', '/stock').json()
@@ -123,7 +123,7 @@ def test_product_soft_delete_preserves_material_stock_bom_orders_and_audit(erp):
     assert current_bom['status'] == bom['status'] == 'active'
     assert current_bom['lines'] == bom['lines'] and current_bom['product_can_produce'] is False
     assert next(item for item in req('GET', '/work-orders').json() if item['id'] == order['id']) == order
-    assert req('POST', '/work-orders', order_payload).status_code == 409
+    assert req.plan_work_order(order_payload).status_code == 409
     assert req('POST', '/boms', {'product_material_id': row['material_id'],
         'lines': [{'component_material_id': bom['lines'][0]['component_material_id'], 'quantity': '1'}]}).status_code == 409
     activation = req('POST', f"/boms/{draft['id']}/activate")
@@ -145,7 +145,7 @@ def test_product_production_disable_and_reenable_preserve_profile_recipe_and_old
     row = product(req, model_id=model['id'], can_sell=False, can_purchase=False)
     bom = recipe(req, row)
     payload = {'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '2'}
-    original = req('POST', '/work-orders', payload).json()
+    original = req.plan_work_order(payload).json()
     disabled = req('PUT', f"/products/{row['id']}", usage_change(row, False))
     assert disabled.status_code == 200, disabled.text
     disabled = disabled.json()
@@ -155,13 +155,13 @@ def test_product_production_disable_and_reenable_preserve_profile_recipe_and_old
     assert req('POST', '/products/query', {}).json()['total'] == 1
     assert req('GET', '/product-models').json()[0]['child_count'] == 1
     assert req('GET', f"/boms/{bom['id']}").json()['status'] == 'active'
-    blocked = req('POST', '/work-orders', payload)
+    blocked = req.plan_work_order(payload)
     assert blocked.status_code == 409 and '未允许生产' in blocked.json()['detail']
     assert next(item for item in req('GET', '/work-orders').json() if item['id'] == original['id']) == original
     resumed = req('PUT', f"/products/{row['id']}", usage_change(disabled, True))
     assert resumed.status_code == 200, resumed.text
     assert resumed.json()['can_produce'] is True and resumed.json()['version'] == 3
-    assert req('POST', '/work-orders', payload).status_code == 201
+    assert req.plan_work_order(payload).status_code == 201
     audit = req('GET', f"/products/{row['id']}/changes").json()
     assert audit[0]['before']['can_produce'] is False and audit[0]['after']['can_produce'] is True
     assert audit[1]['before']['can_produce'] is True and audit[1]['after']['can_produce'] is False
@@ -177,13 +177,13 @@ def test_disabled_child_stays_available_as_existing_inventory_component_of_paren
     assert req('POST', f"/boms/{parent_bom['id']}/activate").status_code == 200
     assert req('PUT', f"/products/{child['id']}", usage_change(child, False)).status_code == 200
     # 停用仅禁止半成品自身的新生产，上层工单仍只按第一层组件领用其现有库存。
-    parent_order = req('POST', '/work-orders', {'bom_id': parent_bom['id'], 'warehouse_id': 1, 'target_quantity': '2'})
+    parent_order = req.plan_work_order({'bom_id': parent_bom['id'], 'warehouse_id': 1, 'target_quantity': '2'})
     assert parent_order.status_code == 201, parent_order.text
     assert len(parent_order.json()['lines']) == 1
     assert parent_order.json()['lines'][0]['component_material_id'] == child['material_id']
     assert parent_order.json()['lines'][0]['required_quantity'] == '2.000'
     assert req('GET', f"/boms/{child_bom['id']}").json()['status'] == 'active'
-    assert req('POST', '/work-orders', {'bom_id': child_bom['id'], 'warehouse_id': 1, 'target_quantity': '1'}).status_code == 409
+    assert req.plan_work_order({'bom_id': child_bom['id'], 'warehouse_id': 1, 'target_quantity': '1'}).status_code == 409
 
 
 def test_active_parent_fixed_recipe_blocks_product_delete_until_parent_retired(erp):
@@ -225,7 +225,7 @@ def test_deleted_parent_recipe_does_not_block_child_cleanup_or_erase_existing_mr
     parent_bom = req('GET', f"/boms/{parent_bom['id']}").json()
     orders = []
     for bom in (child_bom, parent_bom):
-        response = req('POST', '/work-orders', {'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '2'})
+        response = req.plan_work_order({'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '2'})
         assert response.status_code == 201, response.text
         orders.append(response.json())
     source = req('GET', '/production/mrp/options')
@@ -382,7 +382,7 @@ def test_105_upgrade_adds_soft_delete_columns_without_rewriting_existing_evidenc
     model = series(req)
     row = product(req, model_id=model['id'], can_sell=False)
     bom = recipe(req, row)
-    order = req('POST', '/work-orders', {'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '2'}).json()
+    order = req.legacy_work_order({'bom_id': bom['id'], 'warehouse_id': 1, 'target_quantity': '2'}).json()
     before_stock = req('GET', '/stock').json()
     product_history = req('GET', f"/products/{row['id']}/changes").json()
     model_history = req('GET', f"/product-models/{model['id']}/changes").json()
@@ -403,6 +403,6 @@ def test_105_upgrade_adds_soft_delete_columns_without_rewriting_existing_evidenc
     assert req('GET', '/stock').json() == before_stock
     assert next(item for item in req('GET', '/work-orders').json() if item['id'] == order['id']) == order
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []

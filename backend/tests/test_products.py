@@ -1,4 +1,5 @@
 """产品档案、迁移、联合冲突及 BOM 派生的真实接口闭环。"""
+from approval_test_helpers import create_planned_work_order, seed_legacy_work_order
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
@@ -23,6 +24,10 @@ def erp(monkeypatch, tmp_path):
         client.post(base + '/users', headers=admin, json={'username':'planner','password':'secure-pass-123','roles':['planner']})
         def request(method, path, payload=None, actor=None):
             return client.request(method, base + path, headers=actor or admin, **({'json':payload} if payload is not None else {}))
+        # 调用方显式选择计划建单或历史夹具，普通 request 不拦截或改写旧 HTTP 请求。
+        request.plan_work_order = lambda payload, actor=None: create_planned_work_order(client,
+            headers=actor or admin, account_headers=admin, json=payload)
+        request.legacy_work_order = lambda payload: seed_legacy_work_order(client, headers=admin, json=payload)
         yield request, login('warehouse'), login('planner')
 
 
@@ -102,7 +107,7 @@ def test_bom_derivation_and_work_order_snapshot(erp):
     source = req('POST','/boms',bom('A','B'),planner).json()
     assert req('POST','/products/query',{}).json()['total'] == 1
     assert req('POST',f"/boms/{source['id']}/activate",actor=planner).status_code == 200
-    order = req('POST','/work-orders',{'bom_id':source['id'],'warehouse_id':1,'target_quantity':'5','reference':'产品闭环','note':''},planner).json()
+    order = req.plan_work_order({'bom_id':source['id'],'warehouse_id':1,'target_quantity':'5','reference':'产品闭环','note':''},planner).json()
     derived = req('POST','/boms',bom('C','D',source['id'],'3'),planner)
     assert derived.status_code == 201, derived.text
     derived = derived.json()
@@ -163,7 +168,7 @@ def test_model_variants_create_derived_boms_and_independent_orders(erp):
     for bom in (source,derived):
         assert req('POST',f"/boms/{bom['id']}/activate").status_code == 200
     for bom, quantity, required in ((source,'10','20.000'),(derived,'5','15.000')):
-        response = req('POST','/work-orders',{'bom_id':bom['id'],'warehouse_id':1,'target_quantity':quantity})
+        response = req.plan_work_order({'bom_id':bom['id'],'warehouse_id':1,'target_quantity':quantity})
         assert response.status_code == 201, response.text
         assert response.json()['lines'][0]['required_quantity'] == required
         assert response.json()['product_material_id'] == bom['product_material_id']

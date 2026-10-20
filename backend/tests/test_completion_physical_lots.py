@@ -1,5 +1,7 @@
 """合格完工批次、整批不合格与原分配冲销的接口验收。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from approval_test_helpers import receive_legacy_issue, approve_document
 
 from decimal import Decimal
@@ -37,7 +39,7 @@ def test_completion_lots_follow_accepted_quantity_and_original_reversal(monkeypa
             'product_material_id': product, 'base_quantity': '1',
             'lines': [{'component_material_id': component, 'quantity': '2'}]}).json()['id']
         assert client.post(f'{base}/boms/{bom}/activate', headers=auth).status_code == 200
-        order = client.post(f'{base}/work-orders', headers=auth, json={
+        order = create_planned_work_order(client, headers=auth, json={
             'bom_id': bom, 'warehouse_id': 1, 'target_quantity': '2'}).json()
         approve_document(client, auth, 'WorkOrder', order['id'])
         assert client.post(f'{base}/work-orders/{order["id"]}/release', headers=auth).status_code == 200

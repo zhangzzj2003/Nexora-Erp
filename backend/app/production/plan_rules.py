@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core import document_approval as approval
 from app.core.models import (Bom, BomLine, Material, ProductionPlan, ProductionPlanLine,
-    ProductionPlanRelease, ProductionPlanChange, SalesOrder, SalesOrderLine, WorkOrder, Warehouse)
+    ProductionPlanRelease, ProductionPlanChange, MrpConversion, MrpPlan, MrpPlanChange, SalesOrder, SalesOrderLine, WorkOrder, Warehouse)
 from app.core.orm import model_data
 from app.production.bom_dependencies import require_bom_ready
 from app.catalog.product_rules import require_product_use
@@ -134,9 +134,18 @@ def validate_plan(db: Session, plan: ProductionPlan, *, line_id: int | None = No
 def approval_snapshot(db: Session, identifier: int) -> dict:
     plan = get_plan(db, identifier)
     # 已下达数量与完工进度不属于批准正文，拆单不使剩余计划的批准失效。
+    authors = {plan.created_by, *db.scalars(select(ProductionPlanChange.changed_by).where(
+        ProductionPlanChange.plan_id == plan.id, ProductionPlanChange.action.in_(('create', 'edit'))))}
+    conversions = list(db.scalars(select(MrpConversion).where(MrpConversion.production_plan_id == identifier)))
+    # 编制与转换人员沿来源传递到计划、工单；只为新转单追加字段，旧批准正文保持不变。
+    for conversion in conversions:
+        source = db.get(MrpPlan, conversion.plan_id)
+        authors.update((source.created_by, conversion.created_by))
+        authors.update(db.scalars(select(MrpPlanChange.changed_by).where(
+            MrpPlanChange.plan_id == source.id, MrpPlanChange.action.in_(('create', 'edit', 'submit')))))
     return {'reference': plan.reference, 'note': plan.note, 'reason': plan.reason,
-        'source_author_ids': sorted({plan.created_by, *db.scalars(select(ProductionPlanChange.changed_by).where(
-            ProductionPlanChange.plan_id == plan.id, ProductionPlanChange.action.in_(('create', 'edit'))))}),
+        'source_author_ids': sorted(authors),
+        **({'mrp_conversion_ids': [row.id for row in conversions]} if conversions else {}),
         'lines': [model_data(line) for line in plan_lines(db, identifier)]}
 
 

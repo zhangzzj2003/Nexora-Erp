@@ -1,5 +1,7 @@
 """已确认退料冲销保留原单，并对库存、批次和后续领用执行原子校验。"""
 
+from approval_test_helpers import create_planned_work_order
+
 from approval_test_helpers import approve_document, receive_legacy_issue, reverse_legacy_receipt
 import sqlite3
 from decimal import Decimal
@@ -47,7 +49,7 @@ def scenario(client, *, legacy_return=False):
         'product_material_id': product, 'base_quantity': '1',
         'lines': [{'component_material_id': material, 'quantity': '2'}]}).json()['id']
     assert client.post(f'{base}/boms/{bom}/activate', headers=auth).status_code == 200
-    order = client.post(f'{base}/work-orders', headers=auth, json={
+    order = create_planned_work_order(client, headers=auth, json={
         'bom_id': bom, 'warehouse_id': 1, 'target_quantity': '1'}).json()
     approve_document(client, auth, 'WorkOrder', order['id'])
     assert client.post(f'{base}/work-orders/{order["id"]}/release', headers=auth).status_code == 200
@@ -231,7 +233,7 @@ def test_v66_upgrade_adds_return_reversal_without_user_changes(monkeypatch, tmp_
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert db.execute('SELECT id, username, password_hash FROM users').fetchall() == users
         assert db.execute("SELECT role_code FROM role_permissions WHERE permission_code='material_return.reverse'").fetchall() == [('admin',)]
         assert db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='material_return_reversals'").fetchone() is not None

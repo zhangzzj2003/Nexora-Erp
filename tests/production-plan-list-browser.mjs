@@ -107,7 +107,7 @@ const options = planOptionsFixture()`)
   // 表头下达可切换剩余产品，完成行不进入候选，提交正确行且保留已填写依据。
   await page.getByRole('button', {name:'查看生产计划 SCJH-20261020-000012 详情',exact:true}).click()
   await dialog.getByText('十月生产安排 3', {exact:true}).waitFor()
-  await dialog.getByRole('button', {name:'分批下达',exact:true}).click()
+  await dialog.getByRole('button', {name:'生成生产工单',exact:true}).click()
   const command = page.getByRole('dialog').filter({hasText:'分批下达生产计划'})
   await command.getByLabel('操作依据', {exact:true}).fill('优先交付第二款产品')
   await command.getByLabel('选择下达产品', {exact:true}).click()

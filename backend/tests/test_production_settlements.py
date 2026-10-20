@@ -1,5 +1,7 @@
 """验证库存成本传入生产、完工分摊精度、来源锁定和多级结算冲销。"""
 
+from approval_test_helpers import planned_order
+
 from approval_test_helpers import receive_legacy_issue, execute_production_settlement, approve_document
 
 from concurrent.futures import ThreadPoolExecutor
@@ -48,7 +50,7 @@ def erp(monkeypatch, tmp_path):
             bom = request('POST', 'boms', {'product_material_id': product, 'base_quantity': '1',
                 'lines': [{'component_material_id': component, 'quantity': '1'}]}, 201)
             request('POST', f'boms/{bom["id"]}/activate')
-            order = request('POST', 'work-orders', {'bom_id': bom['id'], 'warehouse_id': 1,
+            order = planned_order(request, {'bom_id': bom['id'], 'warehouse_id': 1,
                 'target_quantity': quantity}, 201)
             approve_document(client, headers, 'WorkOrder', order['id'])
             request('POST', f'work-orders/{order["id"]}/release')
@@ -269,7 +271,7 @@ def test_v38_upgrade_preserves_data_and_grants_settlement_permissions(monkeypatc
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert db.execute("SELECT name FROM materials WHERE sku = 'OLD'").fetchone()[0] == '旧物料'
         assert {row[0] for row in db.execute("SELECT role_code FROM role_permissions WHERE permission_code = 'production_cost.settle'")} == {'admin', 'finance'}
         assert db.execute('SELECT COUNT(*) FROM production_cost_settlements').fetchone()[0] == 0

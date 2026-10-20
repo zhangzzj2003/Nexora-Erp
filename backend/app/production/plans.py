@@ -152,12 +152,17 @@ def detail(identifier: int = Path(gt=0), _: dict = Depends(require('production_p
 @router.post('', status_code=201)
 def create(payload: PlanInput, user: dict = Depends(require('production_plan.create'))) -> dict:
     with orm_session(write=True) as db:
-        validate_sales(db, payload.lines)
-        plan = add_model(db, ProductionPlan(reference=payload.reference, note=payload.note,
-            reason=payload.reason, created_by=user['id']))
-        save_lines(db, plan, payload)
-        record_change(db, plan, 'create', None, payload.reason, user['id'])
-        return plan_data(db, plan, detail=True)
+        return create_plan_in_session(db, payload, user)
+
+
+def create_plan_in_session(db, payload: PlanInput, user: dict) -> dict:
+    # MRP 转计划与转单审计共用同一事务，任何失败都不能留下孤立计划。
+    validate_sales(db, payload.lines)
+    plan = add_model(db, ProductionPlan(reference=payload.reference, note=payload.note,
+        reason=payload.reason, created_by=user['id']))
+    save_lines(db, plan, payload)
+    record_change(db, plan, 'create', None, payload.reason, user['id'])
+    return plan_data(db, plan, detail=True)
 
 
 @router.put('/{identifier}')

@@ -1,5 +1,7 @@
 """第 103 版保留旧直接领料证据，旧未执行审批必须重新核对签收语义。"""
 
+from approval_test_helpers import planned_order
+
 import hashlib
 import json
 import sqlite3
@@ -32,7 +34,7 @@ def test_upgrade_preserves_historical_issue_and_requires_new_approval_for_old_dr
     raw, product = material('UPGRADE-RAW'), material('UPGRADE-PRODUCT')
     receipt(raw, '20', '2')
     posted_order, posted_issue = work_order(raw, product, '2')
-    draft_order = api('POST', 'work-orders', {'bom_id': posted_order['bom_id'], 'warehouse_id': 1, 'target_quantity': '2'}, 201)
+    draft_order = planned_order(api, {'bom_id': posted_order['bom_id'], 'warehouse_id': 1, 'target_quantity': '2'}, 201)
     approve_document(client, headers, 'WorkOrder', draft_order['id'])
     api('POST', f'work-orders/{draft_order["id"]}/release')
     pending_issue = api('POST', 'material-issues', {'work_order_id': draft_order['id'], 'warehouse_id': 1,
@@ -43,7 +45,7 @@ def test_upgrade_preserves_historical_issue_and_requires_new_approval_for_old_dr
     migrate()
     migrate()
     with sqlite3.connect(database_path()) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 107
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
         assert db.execute('SELECT historical_direct FROM material_issues WHERE id=?', (posted_issue['id'],)).fetchone()[0] == 1
         assert db.execute('SELECT historical_direct FROM material_issues WHERE id=?', (pending_issue['id'],)).fetchone()[0] == 0
         assert db.execute('SELECT COUNT(*) FROM material_receipts').fetchone()[0] == 0
