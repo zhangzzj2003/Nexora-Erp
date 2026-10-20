@@ -158,3 +158,17 @@ test('审批步骤动作严格校验并与自由名称分离', () => {
     assert.throws(() => documentApprovalPolicyBody({...input,steps:[{...input.steps[0],action}]}))
   }
 })
+
+// 新明细只允许生产计划使用，兼容缺省但拒绝残缺、越界或跨领域响应。
+test('生产计划审批分列字段校验完整数据且兼容旧摘要', () => {
+  const line = {sku:'CTRL-001',name:'送审产品',unit:'台',quantity:'1.250',bom_version:2,
+    start_date:'2030-01-05',end_date:'2030-01-10',warehouse_name:'主仓库',priority:'high',sales_source:'自主备货 / 手工计划'}
+  const record = {...draft(),document_type:'ProductionPlan',summary:[{label:'计划产品',value:'完整原文',material_id:1,production_plan_line:line}]}
+  caseApi.validateDocumentApprovalRecord(record)
+  caseApi.validateDocumentApprovalRecord({...record,summary:[{label:'计划产品',value:'旧原文',material_id:1}]})
+  for (const change of [{sku:''},{name:1},{quantity:'NaN'},{quantity:'0'},{quantity:'1000001'},
+    {bom_version:true},{priority:'unknown'},{start_date:'bad'},{end_date:'2029-01-01'},{sales_source:null}]) {
+    assert.throws(() => caseApi.validateDocumentApprovalRecord({...record,summary:[{...record.summary[0],production_plan_line:{...line,...change}}]}), /计划产品字段/)
+  }
+  assert.throws(() => caseApi.validateDocumentApprovalRecord({...record,document_type:'WarehouseInbound'}), /计划产品字段/)
+})

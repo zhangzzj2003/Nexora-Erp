@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from approval_test_helpers import approve_document, receive_legacy_issue
 from test_mrp import seeded  # 复用已通过真实接口建立的产品、BOM 和采购库存。
-from app.core.models import ProductionPlanRelease, ProductionPlanChange, StockMovement, WorkOrder
+from app.core.models import ProductionPlanLine, ProductionPlanRelease, ProductionPlanChange, StockMovement, WorkOrder
 from app.core.orm import orm_session
 from app.core.database import connection, migrate
 from app.production import plans, plan_rules
@@ -243,9 +243,29 @@ def test_maximum_plan_has_complete_summary_within_shared_dialog_limit(context):
     row = approved(context, body)
     record = client.get(f'/api/v1/system/document-approvals/ProductionPlan/{row["id"]}', headers=admin).json()
     assert len(record['summary']) == 103
+    # 一百条重复产品仍逐行分列，字段来自固定安排，不因下达而改成剩余数量。
+    first = record['summary'][3]['production_plan_line']
+    assert first['sku'] == row['lines'][0]['sku']
+    assert first['name'] == row['lines'][0]['name']
+    assert first['quantity'] == '1.000'
+    assert first['bom_version'] == row['lines'][0]['bom_version']
+    assert first['start_date'] == '2030-01-05'
+    assert first['end_date'] == '2030-01-10'
+    assert first['warehouse_name'] == row['lines'][0]['warehouse_name']
+    assert first['priority'] == 'high'
+    assert first['sales_source'] == '自主备货 / 手工计划'
+    assert all(item['production_plan_line'] == first for item in record['summary'][3:])
     assert all(len(item['value']) <= 1000 for item in record['summary'])
     assert all('2030-01-05 至 2030-01-10' in item['value'] and '优先' in item['value']
         for item in record['summary'][3:])
+    # 当前安排被改动时仍展示原送审数量，不能用实时详情偷偷覆盖待核对的审批正文。
+    with orm_session() as db:
+        db.get(ProductionPlanLine, row['lines'][0]['id']).quantity = '2.000'
+        db.commit()
+    changed = client.get(f'/api/v1/system/document-approvals/ProductionPlan/{row["id"]}', headers=admin).json()
+    assert changed['content_matches'] is False
+    assert changed['summary'][3]['production_plan_line'] == first
+
 
 
 def test_permissions_and_late_progress(context, monkeypatch):

@@ -1224,12 +1224,18 @@ def _document_summary(db: Session, document_type: str, content: dict) -> list[di
             warehouse = db.get(Warehouse, line['warehouse_id'])
             priority = {'normal': '普通', 'high': '优先', 'urgent': '紧急'}[line['priority']]
             value = f"{bom['sku']} · {bom['name']} × {line['quantity']} {bom['unit']}；BOM V{bom['version']}；{line['start_date']} 至 {line['end_date']}；{warehouse.name}；{priority}"
+            sales_source = '自主备货 / 手工计划'
             if line['sales_order_line_id']:
                 sale = db.get(SalesOrderLine, line['sales_order_line_id'])
                 order = db.get(SalesOrder, sale.sales_order_id)
-                value += f"；销售来源 {order.document_no or '#' + str(order.id)}"
-            # 每行完整安排合为一项，使一百行计划也符合公共审批 110 项上限，不截断日期或来源。
-            summary.append({'label': '计划产品', 'material_id': bom['material_id'], 'value': value})
+                sales_source = f"销售来源 {order.document_no or '#' + str(order.id)}"
+                value += f"；{sales_source}"
+            # 分列字段从同一送审快照派生，不改写原审批正文；保留文本供旧客户端完整查看。
+            summary.append({'label': '计划产品', 'material_id': bom['material_id'], 'value': value,
+                'production_plan_line': {'sku': bom['sku'], 'name': bom['name'], 'unit': bom['unit'],
+                    'quantity': line['quantity'], 'bom_version': bom['version'],
+                    'start_date': line['start_date'], 'end_date': line['end_date'],
+                    'warehouse_name': warehouse.name, 'priority': line['priority'], 'sales_source': sales_source}})
         return summary
     if document_type == 'MrpPlan':
         import json

@@ -11,6 +11,11 @@ export function documentApprovalLayout(record: DocumentApprovalRecord | null): {
   showLines: boolean
 } {
   if (!record) return { basic: [], lines: [], showLines: false }
+  if (record.document_type === 'ProductionPlan') {
+    // 保留原摘要对象及重复产品；旧服务无结构字段时仍在明细表完整展示原文。
+    return { basic: record.summary.filter(item => item.label !== '计划产品'),
+      lines: record.summary.filter(item => item.label === '计划产品'), showLines: true }
+  }
   if (record.document_type !== 'WarehouseInbound') {
     // 其他领域摘要包含金额、附件和历史依据，继续完整展示，不猜测字段含义。
     return { basic: record.summary, lines: [], showLines: false }

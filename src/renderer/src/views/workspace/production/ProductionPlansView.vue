@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { usePiniaAppStore } from '../../../store/app-store'
@@ -7,6 +7,7 @@ import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppModal from '../../../components/app/AppModal.vue'
+import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import WorkspaceSummaryFilters from '../../../components/workspace/WorkspaceSummaryFilters.vue'
 import WorkspaceSearchFilters from '../../../components/workspace/WorkspaceSearchFilters.vue'
@@ -17,7 +18,7 @@ import { documentLabel, documentSearch, relatedDocumentLabel } from '../../../..
 import type { ProductionPlan, ProductionPlanLine, ProductionPlanReleaseInput } from '../../../../../shared/production-plan-api'
 import { productionPlanQuantity } from '../../../../../shared/production-plan-api'
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
-import { canCancelPlan, canReleasePlan, planPriority, planProgress, planStatus, planStatusTone, planProgressTone } from './production-plan-display'
+import { canCancelPlan, canReleasePlan, planPriority, planPriorityTone, planProgress, planStatus, planStatusTone, planProgressTone } from './production-plan-display'
 import { mrpSourceStatus } from './mrp-display'
 import { routeByKey } from '../../../router/workspace-routes'
 
@@ -32,6 +33,7 @@ const command = ref<'release' | 'cancel' | null>(null)
 const release = ref<ProductionPlanReleaseInput | null>(null)
 const cancelTarget = ref<ProductionPlan | null>(null)
 const reason = ref('')
+const approvalButton = ref<InstanceType<typeof AppButton> | null>(null)
 const disabled = computed(() => busy.value || loading.value || connectionLost.value)
 const permissions = computed(() => user.value?.permissions ?? [])
 const counts = computed(() => [
@@ -52,11 +54,18 @@ const filtered = computed(() => records.value.filter(row => {
 }))
 // 编号与名称各占一列，编号入口和操作列共用同一详情读取流程。
 const columns = [{ key: 'plan', title: '计划编号', width: '230' }, { key: 'reference', title: '计划名称', width: '220' }, { key: 'products', title: '生产产品', width: '230' },
-  { key: 'dates', title: '计划周期', width: '190' }, { key: 'status', title: '审批 / 执行', width: '180' },
-  { key: 'actions', title: '操作', width: '230' }]
-const lineColumns = [{ key: 'product', title: '产品 / 来源', width: '240' }, { key: 'dates', title: '排期 / 优先级', width: '190' },
+  { key: 'dates', title: '计划周期', width: '190' }, { key: 'status', title: '审批状态', width: '140' }, { key: 'execution', title: '执行状态', width: '140' },
+  { key: 'actions', title: '操作', width: '130' }]
+// 只读明细按字段分列；下达操作集中在明细标题区，不再占用每一行。
+const lineColumns = [{ key: 'sku', title: '产品编号', width: '180' }, { key: 'product', title: '产品名称', width: '240' },
+  { key: 'dates', title: '排期', width: '190' }, { key: 'priority', title: '优先级', width: '110' },
   { key: 'quantity', title: '计划产量', width: '110' }, { key: 'release', title: '已下达 / 未下达', width: '160' },
-  { key: 'progress', title: '报工 / 合格 / 不合格', width: '200' }, { key: 'actions', title: '操作', width: '140' }]
+  { key: 'progress', title: '报工 / 合格 / 不合格', width: '200' }]
+// 候选仅来自当前计划且满足原有批准、权限与剩余数量约束。
+const releasableLines = computed(() => {
+  const plan = detail.value
+  return plan?.lines.filter(line => canReleasePlan(plan, line, permissions.value)) ?? []
+})
 const releaseColumns = [{ key: 'work_order', title: '生产工单', width: '230' }, { key: 'quantity', title: '下达数量', width: '130' },
   { key: 'status', title: '工单状态', width: '140' }, { key: 'reason', title: '下达依据', width: '230' }, { key: 'created_at', title: '下达时间', width: '190' }]
 const releaseProblem = computed(() => {
@@ -83,6 +92,18 @@ async function openDetail(row: ProductionPlan): Promise<void> {
   finally { pending.value = false }
 }
 function closeDetail(): void { showDetail.value = false; pending.value = false; store.clearProductionPlanDetail() }
+async function openApproval(event: MouseEvent): Promise<void> {
+  if (disabled.value || !detail.value) return
+  const id = detail.value.id
+  captureDialogOrigin('document-approval', event)
+  await store.openDocumentApproval({ document_type: 'ProductionPlan', document_id: id, intent: 'execute' })
+  await nextTick()
+  // 审批读取会刷新并重建计划详情，重新登记存活按钮，关闭子窗后仍能返回原入口。
+  if (showDetail.value && detail.value?.id === id && approvalButton.value
+      && store.documentApprovalTarget?.document_type === 'ProductionPlan' && store.documentApprovalTarget.document_id === id) {
+    captureDialogOrigin('document-approval', approvalButton.value.$el)
+  }
+}
 async function openWorkOrder(id: number): Promise<void> {
   if (disabled.value || !store.can('production.view')) return
   // 复用工单页已有的指定单据入口，按关联 ID 打开，避免再次按编号搜索。
@@ -92,11 +113,13 @@ async function openWorkOrder(id: number): Promise<void> {
 function edit(): void {
   if (detail.value && store.editProductionPlan(detail.value)) { closeDetail(); editor.value = true }
 }
-function openRelease(line: ProductionPlanLine): void {
-  if (disabled.value || !detail.value || !canReleasePlan(detail.value, line, permissions.value)) return
+function openRelease(line?: ProductionPlanLine): void {
+  if (!line || disabled.value || !detail.value || !canReleasePlan(detail.value, line, permissions.value)) return
   release.value = { id: detail.value.id, version: detail.value.version, approval_version: detail.value.approval.version,
     line_id: line.id, quantity: line.unreleased_quantity, reason: '', request_id: crypto.randomUUID() }
-  reason.value = ''; operationError.value = ''; command.value = 'release'
+  // 弹窗内切换产品刷新数量和请求编号，保留已经填写的下达依据。
+  if (command.value !== 'release') reason.value = ''
+  operationError.value = ''; command.value = 'release'
 }
 function openCancel(): void {
   if (!detail.value || !canCancelPlan(detail.value, permissions.value)) return
@@ -162,40 +185,46 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
       <template #cell-reference="{ row }">{{ row.reference }}</template>
       <template #cell-products="{ row }">{{ row.products }}<span class="plan-line muted">{{ row.line_count }} 项生产安排</span></template>
       <template #cell-dates="{ row }">{{ row.start_date }}<span class="plan-line">至 {{ row.end_date }}</span><span v-if="row.overdue_count" class="plan-overdue">{{ row.overdue_count }} 项延期</span></template>
-      <!-- 与其他入库复用圆点胶囊标签；取消优先，避免显示历史执行进度造成误解。 -->
-      <template #cell-status="{ row }"><div class="plan-status-tags">
-        <AppStatusTag :label="planStatus(row)" :tone="planStatusTone(row)" :aria-label="`审批状态：${planStatus(row)}`" />
+      <!-- 审批与执行各占一列，避免两个状态堆叠；取消后不再展示旧执行进度。 -->
+      <template #cell-status="{ row }"><AppStatusTag :label="planStatus(row)" :tone="planStatusTone(row)" :aria-label="`审批状态：${planStatus(row)}`" /></template>
+      <template #cell-execution="{ row }">
         <AppStatusTag v-if="row.status !== 'cancelled'" :label="planProgress[row.progress]" :tone="planProgressTone[row.progress]" :aria-label="`执行状态：${planProgress[row.progress]}`" />
-      </div></template>
+        <span v-else class="muted">—</span>
+      </template>
       <template #cell-actions="{ row }"><div class="plan-toolbar">
         <AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-detail', $event)" @click="openDetail(row)">计划详情</AppButton>
-        <AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="store.openDocumentApproval({ document_type: 'ProductionPlan', document_id: row.id, intent: 'execute' })">单据审批</AppButton>
       </div></template>
       <template #empty>{{ query || filter !== 'all' ? '没有匹配的生产计划。' : '尚无生产计划。新建计划，安排产品、产量及开完工日期。' }}</template>
     </WorkspaceTable>
     <ProductionPlanEditor v-model:show="editor" @saved="showDetail = true" />
     <WorkspaceDocumentDialog :show="showDetail" :ready="!pending && !!detail" :load-error="error" origin-key="production-plan-detail"
-      :title="detail ? `生产计划 · ${documentLabel(detail)}` : '生产计划详情'" :data="detail?.lines ?? []" :columns="lineColumns" :min-table-width="1110"
+      :title="detail ? `生产计划 · ${documentLabel(detail)}` : '生产计划详情'" :data="detail?.lines ?? []" :columns="lineColumns" :min-table-width="1190"
       read-only :show-add="false" :busy="busy" lines-title="产品排期与进度" @update:show="value => { if (!value) closeDetail() }" @invalidated="closeDetail">
       <template #basicInfo>
         <template v-if="detail"><div class="document-detail-field"><span>计划名称</span><strong>{{ detail.reference }}</strong></div>
-          <div class="document-detail-field"><span>审批 / 执行</span><div class="plan-status-tags">
-            <AppStatusTag :label="planStatus(detail)" :tone="planStatusTone(detail)" />
+          <div class="document-detail-field"><span>审批状态</span><AppStatusTag :label="planStatus(detail)" :tone="planStatusTone(detail)" /></div>
+          <div class="document-detail-field"><span>执行状态</span>
             <AppStatusTag v-if="detail.status !== 'cancelled'" :label="planProgress[detail.progress]" :tone="planProgressTone[detail.progress]" />
-          </div></div>
+            <strong v-else>—</strong>
+          </div>
           <div class="document-detail-field"><span>编制依据</span><strong>{{ detail.reason }}</strong></div>
           <div class="document-detail-field"><span>备注</span><strong>{{ detail.note || '—' }}</strong></div></template>
       </template>
       <template #documentActions><template v-if="detail">
+        <!-- 详情与列表共用审批入口，审批步骤和操作权限仍由公共审批窗口核对。 -->
+        <AppButton ref="approvalButton" size="small" :disabled="disabled" @click="openApproval">单据审批</AppButton>
+        <AppButton v-if="releasableLines.length" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-command', $event)" @click="openRelease(releasableLines[0])">分批下达</AppButton>
         <AppButton v-if="detail.can_edit && store.can('production_plan.create')" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-editor', $event)" @click="edit">编辑草稿</AppButton>
         <AppButton v-if="canCancelPlan(detail, permissions)" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-command', $event)" @click="openCancel">取消计划</AppButton>
       </template></template>
-      <template #cell-product="{ row }"><strong>{{ row.sku }} · {{ row.name }}</strong><span class="plan-line muted">BOM V{{ row.bom_version }} · {{ row.warehouse_name }}</span><span class="plan-line muted">{{ row.sales_order_id ? `销售来源 ${relatedDocumentLabel(row, 'sales_order')}` : '自主备货 / 手工计划' }}</span></template>
-      <template #cell-dates="{ row }">{{ row.start_date }}<span class="plan-line">至 {{ row.end_date }} · {{ planPriority[row.priority] }}</span><span v-if="row.overdue" class="plan-overdue">已延期</span></template>
+      <template #cell-sku="{ row }">{{ row.sku }}</template>
+      <template #cell-product="{ row }"><strong>{{ row.name }}</strong><span class="plan-line muted">BOM V{{ row.bom_version }} · {{ row.warehouse_name }}</span><span class="plan-line muted">{{ row.sales_order_id ? `销售来源 ${relatedDocumentLabel(row, 'sales_order')}` : '自主备货 / 手工计划' }}</span></template>
+      <template #cell-dates="{ row }">{{ row.start_date }}<span class="plan-line">至 {{ row.end_date }}</span><span v-if="row.overdue" class="plan-overdue">已延期</span></template>
+      <template #cell-priority="{ row }"><AppStatusTag :label="planPriority[row.priority]" :tone="planPriorityTone[row.priority]" /></template>
       <template #cell-quantity="{ row }">{{ row.quantity }} {{ row.unit }}</template>
       <template #cell-release="{ row }">{{ row.released_quantity }} / {{ row.unreleased_quantity }}<span v-if="detail?.status === 'cancelled' && Number(row.unreleased_quantity) > 0" class="plan-line muted">未下达部分已终止</span></template>
       <template #cell-progress="{ row }">{{ row.reported_quantity }} / {{ row.accepted_quantity }} / {{ row.rejected_quantity }}<span class="plan-line muted">未报工 {{ row.remaining_quantity }} {{ row.unit }}</span></template>
-      <template #cell-actions="{ row }"><AppButton v-if="detail && canReleasePlan(detail, row, permissions)" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-command', $event)" @click="openRelease(row)">分批下达</AppButton><span v-else class="muted">—</span></template>
+
       <template #afterLines><template v-if="detail">
         <p class="muted">批准后，未下达计划和已生成工单分别参与物料需求计算。报工完成包含不合格数量，合格入库另列核对。</p>
         <WorkspaceTable title="下达记录" :columns="releaseColumns" :data="detail.releases" :min-table-width="920">
@@ -215,6 +244,10 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
       :style="{ width: 'min(560px, calc(100vw - 32px))' }" :mask-closable="!busy" :closable="!busy" @update:show="value => { if (!value) command = null }" @invalidated="command = null">
       <form class="stack" @submit.prevent="execute">
         <p>{{ detail?.reference }}<span v-if="command === 'release'"> · 生成生产工单草稿后，继续在工单中审批、下达及领料。</span></p>
+        <!-- 原行内下达入口集中到此选择产品，多产品计划仍逐项固定下达依据。 -->
+        <label v-if="command === 'release' && release">生产产品<WorkspaceSelect :model-value="release.line_id" aria-label="选择下达产品" :disabled="disabled"
+          :options="releasableLines.map(line => ({ value: line.id, label: `${line.sku} · ${line.name} · 未下达 ${line.unreleased_quantity} ${line.unit}` }))"
+          @update:model-value="value => openRelease(releasableLines.find(line => line.id === value))" /></label>
         <p v-if="command === 'release' && releaseLine">{{ releaseLine.sku }} · {{ releaseLine.name }} · 未下达 {{ releaseLine.unreleased_quantity }} {{ releaseLine.unit }}</p>
         <p v-if="command === 'cancel'">取消后停止未下达安排，并从物料需求计划中移除这部分预计供需；已生成工单继续保留并独立执行。</p>
         <label v-if="command === 'release' && release">本批下达数量<AppInput v-model="release.quantity" type="number" hide-number-controls min="0.001" step="0.001" max="1000000" required :disabled="busy" /></label>
@@ -227,8 +260,6 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
 </template>
 <style scoped>
 /* 复用工作台色彩与公共表格，长单据由公共详情窗口负责滚动和分页。 */
-/* 两类状态保持同列分行展示，共用公共标签的明暗主题。 */
-.plan-status-tags { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .plan-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .plan-line { display: block; margin-top: 5px; font-size: 12px; }
 .plan-overdue { display: block; margin-top: 5px; color: var(--danger, #bd414a); font-size: 12px; }

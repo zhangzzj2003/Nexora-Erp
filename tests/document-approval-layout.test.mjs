@@ -24,3 +24,16 @@ test('未读到记录与无物料领域安全回退，空物料明细仍由公�
   assert.deepEqual(documentApprovalLayout({ document_type: 'Journal', summary }), { basic: summary, lines: [], showLines: false })
   assert.deepEqual(documentApprovalLayout({ document_type: 'WarehouseInbound', summary: [] }), { basic: [], lines: [], showLines: true })
 })
+
+// 计划产品只从送审摘要分组，重复产品、旧服务原文和未知摘要均不得丢失。
+test('生产计划基础信息与产品表分开，结构字段和旧原文保持不变', () => {
+  const summary = [{label:'计划名称',value:'六月计划'}, {label:'计划产品',value:'旧服务完整文字'},
+    {label:'计划产品',value:'固定新明细',production_plan_line:{sku:'OLD-001',name:'送审名称'}}, {label:'历史依据',value:'保留'}]
+  const before = structuredClone(summary)
+  const result = documentApprovalLayout({document_type:'ProductionPlan',summary})
+  assert.deepEqual(result.basic, [summary[0],summary[3]])
+  assert.deepEqual(result.lines, [summary[1],summary[2]])
+  assert.equal(result.lines[1],summary[2])
+  assert.equal(result.showLines,true)
+  assert.deepEqual(summary,before)
+})

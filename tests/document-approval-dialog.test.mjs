@@ -266,6 +266,20 @@ test('审批弹窗展示独立步骤和人员记录，驳回必填，离线禁�
   store.documentApprovalReasons['SubledgerSettlement:1:execute']='原单核对依据'
   assert.doesNotMatch(await render(),/<button[^>]*disabled[^>]*>提交审批/)
 
+  // 分列表格使用送审名称和数量，当前参数名不能覆盖历史名称；旧服务继续保留原文。
+  store.connectionLost = false
+  store.documentApprovalTarget = {document_type:'ProductionPlan',document_id:1,intent:'execute'}
+  store.documentApprovalRecord = {...savedRecord, document_type:'ProductionPlan', summary:[
+    {label:'计划名称',value:'送审生产计划'},
+    {label:'计划产品',value:'兼容旧客户端的完整原文',material_id:1,production_plan_line:{
+      sku:'FROZEN-001',name:'原送审产品名',unit:'台',quantity:'2.500',bom_version:3,
+      start_date:'2030-01-05',end_date:'2030-01-10',warehouse_name:'完工仓',priority:'urgent',sales_source:'销售来源 XS-001'}}]}
+  html = await render()
+  for (const value of ['FROZEN-001','原送审产品名','2.500 台','BOM V3','2030-01-05','完工仓','销售来源 XS-001','app-status-tag--danger']) assert.ok(html.includes(value),value)
+  assert.doesNotMatch(html,/兼容旧客户端的完整原文/)
+  delete store.documentApprovalRecord.summary[1].production_plan_line
+  assert.match(await render(),/兼容旧客户端的完整原文/)
+
   // 共享详情的溯源按钮沿用调用方自定义来源 key，并同步保留真正的点击元素。
   const { buttons } = await server.ssrLoadModule('\0approval-dialog-AppButton.vue')
   const { getDialogOrigin, clearDialogOrigins } = await server.ssrLoadModule('/src/renderer/src/utils/dialog-origin.ts')

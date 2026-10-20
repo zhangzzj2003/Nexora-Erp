@@ -2,6 +2,8 @@ import type { AppStatusTone } from '../../../components/app/AppStatusTag.vue'
 import type { ProductionPlan, ProductionPlanDetail, ProductionPlanLine } from '../../../../../shared/production-plan-api'
 
 export const planPriority = { normal: '普通', high: '优先', urgent: '紧急' }
+// 优先级共用状态标签的语义色，普通中性、优先提醒、紧急突出。
+export const planPriorityTone: Record<ProductionPlanLine['priority'], AppStatusTone> = { normal: 'neutral', high: 'pending', urgent: 'danger' }
 export const planProgress = { unreleased: '待下达', released: '已下达', in_progress: '生产中', completed: '报工完成' }
 export function planStatus(plan: ProductionPlan): string {
   if (plan.status === 'cancelled') return '已取消'

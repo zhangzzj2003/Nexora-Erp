@@ -25,13 +25,21 @@ export function productionPlanPreviewResponse(operation, payload) {
   const row = records.find(row => row.id === (payload?.id ?? payload?.document_id))
   if (!row) throw Error('此隔离样例没有对应生产计划')
   if (operation === 'productionPlanDetail') return structuredClone(row)
-  if (operation === 'documentApproval') return { ...payload, ...row.approval, document_no: row.document_no,
+  // 草稿和历史事件必须满足真实响应校验，审批预览只读，不模拟正式审批写入。
+  if (operation === 'documentApproval') {
+    const approval = row.approval.status === 'draft' ? { ...row.approval, version:0, generation:0, current_step:0,
+      steps:[], policy_version:null, submitted_by:null, submitted_at:null } : row.approval
+    return { ...payload, ...approval, document_no: row.document_no,
     business_status: row.status, content_matches: true, reversal_reason: '', can_submit: false, can_review: false, can_withdraw: false,
-    events: ['submit', 'approve'].map((action, index) => ({ id: index + 1, version: index + 1, generation: 1,
+    events: (approval.status === 'draft' ? [] : ['submit', 'approve']).map((action, index) => ({ id: index + 1, version: index + 1, generation: 1,
       action, step: 0, step_name: index ? '批准' : null, actor_id: index + 1, actor_name: index ? '示例审批人' : '示例计划员',
       reason: '示例计划审批依据', created_at: row.created_at })),
-    summary: [{ label: '计划名称', value: row.reference }, ...row.lines.map(line => ({ label: line.name,
-      value: `${line.quantity} ${line.unit}；${line.start_date} 至 ${line.end_date}；${line.warehouse_name}` }))] }
+    summary: [{ label: '计划名称', value: row.reference }, { label:'编制依据', value:row.reason }, { label:'备注', value:row.note || '—' },
+      ...row.lines.map(line => ({ label: '计划产品', material_id:line.material_id, material:{id:line.material_id,sku:line.sku,name:'当前资料名称',unit:line.unit,specification:'隔离验收规格'},
+        value: `${line.sku} · ${line.name} × ${line.quantity} ${line.unit}；BOM V${line.bom_version}；${line.start_date} 至 ${line.end_date}；${line.warehouse_name}`,
+        production_plan_line:{sku:line.sku,name:line.name,unit:line.unit,quantity:line.quantity,bom_version:line.bom_version,
+          start_date:line.start_date,end_date:line.end_date,warehouse_name:line.warehouse_name,priority:line.priority,sales_source:'自主备货 / 手工计划'} }))] }
+  }
   if (operation === 'releaseProductionPlan') {
     const line = row.lines.find(line => line.id === payload.line_id)
     line.released_quantity = (Number(line.released_quantity) + Number(payload.quantity)).toFixed(3)

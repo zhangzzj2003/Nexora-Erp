@@ -109,11 +109,17 @@ export interface DocumentApprovalEvent {
   id: number; version: number; generation: number; action: DocumentApprovalAction | 'execute'
   step: number; step_name: string | null; actor_id: number; actor_name: string; reason: string; evidence?: string; created_at: string
 }
+// 审批明细来自服务端固定快照，不能用当前计划或物料档案替换送审名称、数量和排期。
+export interface ProductionPlanApprovalLine {
+  sku: string; name: string; unit: string; quantity: string; bom_version: number
+  start_date: string; end_date: string; warehouse_name: string
+  priority: 'normal' | 'high' | 'urgent'; sales_source: string
+}
 export interface DocumentApprovalRecord extends DocumentApprovalState {
   reopen_trace?: import('./erp-api').OtherInboundReopenLink[]
   document_type: DocumentApprovalType; document_id: number; intent: DocumentApprovalIntent
   document_no: string | null; business_status: string; reversal_reason: string; reversal_evidence?: string
-  summary: { label: string; value: string; material_id?: number; material?: MaterialChoice }[]; content_matches: boolean
+  summary: { label: string; value: string; material_id?: number; material?: MaterialChoice; production_plan_line?: ProductionPlanApprovalLine }[]; content_matches: boolean
   can_submit: boolean; can_review: boolean; can_withdraw: boolean; events: DocumentApprovalEvent[]
 }
 export interface DocumentApprovalTarget {
@@ -213,6 +219,16 @@ export function validateDocumentApprovalRecord(value: unknown): asserts value is
     // 普通摘要允许没有物料身份；附带参数时必须由独立 material_id 证明所属物料。
     if (entry.material_id !== undefined && !positive(entry.material_id)) throw Error('服务端审批摘要物料编号无效')
     if (entry.material !== undefined) validateMaterialMetadata(entry.material,entry.material_id)
+    if (entry.production_plan_line !== undefined) {
+      const line = record(entry.production_plan_line)
+      // 新字段可缺省以兼容旧服务；出现时必须完整且仅属于计划产品。
+      if (row.document_type !== 'ProductionPlan' || entry.label !== '计划产品' || !positive(entry.material_id)
+          || ['sku', 'name', 'unit', 'warehouse_name', 'sales_source'].some(key => typeof line[key] !== 'string' || !String(line[key]).trim() || String(line[key]).length > 1000)
+          || !positive(line.bom_version) || !['normal', 'high', 'urgent'].includes(String(line.priority))
+          || typeof line.quantity !== 'string' || !/^\d+(\.\d{1,3})?$/.test(line.quantity) || Number(line.quantity) <= 0 || Number(line.quantity) > 1000000
+          || [line.start_date, line.end_date].some(value => typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || !date(value))
+          || String(line.start_date) > String(line.end_date)) throw Error('服务端审批计划产品字段无效')
+    }
   }
   // 服务端操作标志也必须符合进度，避免响应格式错误时显示不合时宜的审批按钮。
   if (row.can_review && (row.status !== 'submitted' || !row.content_matches)
