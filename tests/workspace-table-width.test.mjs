@@ -25,7 +25,7 @@ test('公共表格默认分配剩余宽度，同时保留窄窗最小列宽及�
     load(id) {
       // 仅替换 VXE 绘制，参数计算和列配置仍由真实 WorkspaceTable 完成。
       if (id === '\0table-width-table') return `import {defineComponent,h} from 'vue';export const captured={};
-        export default defineComponent({props:['fit','data','scrollbarConfig','columnConfig','resizableConfig'],setup(p,{slots,attrs}){
+        export default defineComponent({props:['fit','data','scrollbarConfig','columnConfig','resizableConfig','rowConfig','virtualYConfig'],setup(p,{slots,attrs}){
           Object.assign(captured,{props:p,attrs});return()=>h('section',slots.default?.())}})`
       if (id === '\0table-width-column') return `import {defineComponent,h} from 'vue';export const captured=[];
         export default defineComponent({props:['field','width','minWidth','fixed','align','headerAlign'],setup(p){
@@ -68,6 +68,16 @@ test('公共表格默认分配剩余宽度，同时保留窄窗最小列宽及�
     assert.equal(columns[1].align, 'center')
     assert.equal(columns[1].headerAlign, 'center')
     assert.deepEqual(source, before)
+  })
+
+  // 动画表格显式使用分支路径，普通单据保持库内默认身份和虚拟滚动。
+  await t.test('行身份与完整渲染仅在调用方启用时生效', async () => {
+    await render({})
+    assert.equal(table.props.rowConfig,undefined)
+    assert.equal(table.props.virtualYConfig,undefined)
+    await render({rowKey:'key',virtualRows:false,data:[{key:'1/2'}]})
+    assert.deepEqual(table.props.rowConfig,{keyField:'key',useKey:true})
+    assert.deepEqual(table.props.virtualYConfig,{enabled:false})
   })
 
   await t.test('单据两端固定，中间未指定宽度的列保留最小值供窄窗滚动', async () => {

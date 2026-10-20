@@ -37,6 +37,10 @@ const props = withDefaults(defineProps<{
   description?: string
   columns?: readonly WorkspaceTableColumn[]
   data?: TRow[]
+  // 树形明细可按分支路径固定行身份，插入或收起时不复用其他物料的 DOM。
+  rowKey?: string
+  // 行高动画需要真实内容撑开容器；其余列表继续沿用 VXE 的虚拟滚动配置。
+  virtualRows?: boolean
   emptyText?: string
   error?: string
   loading?: boolean
@@ -54,6 +58,7 @@ const props = withDefaults(defineProps<{
   materialId?: (row: TRow) => number
 }>(), {
   showTitle: true,
+  virtualRows: undefined,
   description: '',
   columns: () => [],
   data: () => [],
@@ -272,6 +277,8 @@ defineSlots<{
     <div ref="scrollContainer" class="table-wrap" :class="{ 'has-table-scroll': usesTableScroll, 'is-resizing-column': resizingColumn }" @scroll.passive="syncScrollPosition" @mousedown.capture="startColumnResize">
       <span v-if="loading" class="workspace-table-status" role="status">正在加载…</span>
       <VxeTable ref="tableRef" class="workspace-vxe-table" @scroll="syncScrollPosition" :aria-label="title" :aria-busy="loading" :data="error ? [] : data" :loading="loading" :style="usesTableScroll ? undefined : { minWidth: `${minTableWidth}px` }"
+        :row-config="rowKey ? { keyField: rowKey, useKey: true } : undefined"
+        :virtual-y-config="virtualRows === false ? { enabled: false } : undefined"
         :fit="stretchColumns || undefined" :scrollbar-config="usesTableScroll ? { x: { visible: false } } : undefined"
         :column-config="{ resizable: true }"
         :resizable-config="{ dragMode: 'auto', showDragTip: false, minWidth: MIN_TABLE_COLUMN_WIDTH, maxWidth: MAX_TABLE_COLUMN_WIDTH }"

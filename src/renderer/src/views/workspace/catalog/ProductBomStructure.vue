@@ -14,15 +14,21 @@ import IconGitBranchLine from '~icons/ri/git-branch-line'
 import { bomStructureRows } from './bom-structure'
 import type { BomStructureRow } from './bom-structure'
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import { useBomRowMotion } from './bom-row-motion'
 const props = defineProps<{bom:Bom; catalog:Bom[]; disabled:boolean; materials?:readonly MaterialChoice[]; categories?:readonly MaterialCategory[]}>()
 const emit = defineEmits<{open:[id:number]; material:[row:BomStructureRow]}>()
 const expanded = ref(new Set<string>())
 // 切换产品或版本重新收起；相同组件在不同分支独立展开。
 watch(() => props.bom.id, () => {expanded.value = new Set()})
 const rows = computed(() => bomStructureRows(props.bom, props.catalog, expanded.value))
+const composition=ref<HTMLElement|null>(null)
+const table=ref<{refreshLayout:()=>Promise<void>}|null>(null)
+const {displayed,entering}=useBomRowMotion(rows,()=>props.bom.id,()=>composition.value,async()=>{await table.value?.refreshLayout()})
 // 整个表只建一次索引，展开下层也不逐行请求物料或重复扫描缓存。
 const materialById = computed(() => materialParameterIndex(props.materials ?? []))
 function toggle(key:string): void {
+  // 离场和失效入口不能继续改变目录，也不能绕过忙碌或断线状态。
+  if(props.disabled || !rows.value.some(row=>row.key===key && row.childBom && row.issue!=='存在循环引用' && row.depth<20)) return
   const next = new Set(expanded.value)
   if (next.has(key)) next.delete(key); else next.add(key)
   expanded.value = next
@@ -34,18 +40,23 @@ function openMaterial(row:BomStructureRow, event:MouseEvent): void {
   captureDialogOrigin('inventory-material', event)
   emit('material', row)
 }
+function openRecipe(row:BomStructureRow): void {
+  // 收起中的旧行或已切换版本的入口不能打开先前配方。
+  if(props.disabled || !row.childBom || !rows.value.some(current=>current.key===row.key && current.childBom?.id===row.childBom?.id)) return
+  emit('open',row.childBom.id)
+}
 // 展开入口紧邻编号，按当前可见层级留出缩进，名称列保持对齐且无需额外的空白控制列。
-const columns = computed(() => [{key:'sku',title:'物料编号',width:String(200 + Math.max(0,...rows.value.map(row => row.depth)) * 16)},
+const columns = computed(() => [{key:'sku',title:'物料编号',width:String(200 + Math.max(0,...displayed.value.map(row => row.depth)) * 16)},
   {key:'component',title:'组件 / 多层组成',width:'280'}, {key:'quantity',title:'用量',width:'90'},
   {key:'unit',title:'单位',width:'60'}, {key:'recipe',title:'下层生产配方',width:'200'}])
 </script>
 <template>
-  <section class="bom-composition" aria-label="BOM 组成明细">
+  <section ref="composition" class="bom-composition" aria-label="BOM 组成明细">
     <header class="structure-heading"><div><h4>组成明细</h4><span class="structure-basis">基准产出 <strong>{{ bom.base_quantity }} {{ bom.product_unit }}</strong><span class="structure-count">{{ bom.lines.length }} 项直接组件</span></span></div>
       <NCollapse class="structure-help"><AppCollapseItem name="production-notes" title="领料与版本说明"><p>生产领用第一层物料；展开下层仅查看其组成，不重复扣料。同一编码库存按可互换管理。固定版本约束配方，不区分实物库存版本。</p></AppCollapseItem></NCollapse>
     </header>
-    <WorkspaceTable class="structure-table" :title="`组成明细 · V${bom.version}`" :show-title="false" :data="rows" :columns="columns" :min-table-width="895">
-    <template #cell-sku="{row}"><div class="structure-tree" :class="{'is-nested':row.depth>0}" :style="{'--structure-indent':`${row.depth * 16}px`}">
+    <WorkspaceTable ref="table" class="structure-table" row-key="key" :virtual-rows="false" :title="`组成明细 · V${bom.version}`" :show-title="false" :data="displayed" :columns="columns" :min-table-width="895">
+    <template #cell-sku="{row}"><div class="structure-tree" :data-structure-key="row.key" :data-structure-entering="entering.has(row.key)?'true':undefined" :class="{'is-nested':row.depth>0}" :style="{'--structure-indent':`${row.depth * 16}px`}">
       <!-- 树形入口与编号共用单元格但分别响应点击，展开不会打开详情，编号也不会展开分支。 -->
       <AppButton v-if="row.childBom && row.issue !== '存在循环引用' && row.depth < 20" variant="plain" class="structure-toggle" size="small" :aria-expanded="row.expanded" :aria-label="`${row.expanded ? '收起' : '展开'}${row.name}的组成`" :title="`${row.expanded ? '收起' : '展开'}下层组成`" :disabled="disabled" @click="toggle(row.key)"><IconArrowRightSLine class="structure-chevron" :class="{'is-expanded':row.expanded}" aria-hidden="true" focusable="false" /></AppButton>
       <span v-else class="structure-leaf" aria-hidden="true"><span /></span>
@@ -55,7 +66,7 @@ const columns = computed(() => [{key:'sku',title:'物料编号',width:String(200
     <template #cell-quantity="{row}"><span class="structure-quantity">{{ row.quantity }}</span></template><template #cell-unit="{row}">{{ row.unit }}</template>
     <template #cell-recipe="{row}">
       <!-- 固定配方与当前参考保留完整语义和原详情入口，仅通过轻量样式区分绑定方式。 -->
-      <AppButton v-if="row.childBom" variant="plain" class="structure-recipe" :class="row.fixed ? 'is-fixed' : 'is-reference'" size="small" :title="`查看${row.name}的${row.fixed ? '固定' : '当前启用参考'}配方 V${row.childBom.version}`" :disabled="disabled" @click="emit('open',row.childBom.id)"><IconPushpinLine v-if="row.fixed" class="structure-recipe-icon" aria-hidden="true" focusable="false" /><IconGitBranchLine v-else class="structure-recipe-icon" aria-hidden="true" focusable="false" /><span>{{ row.fixed ? '固定' : '当前启用参考' }} <strong>V{{ row.childBom.version }}</strong></span></AppButton>
+      <AppButton v-if="row.childBom" variant="plain" class="structure-recipe" :class="row.fixed ? 'is-fixed' : 'is-reference'" size="small" :title="`查看${row.name}的${row.fixed ? '固定' : '当前启用参考'}配方 V${row.childBom.version}`" :disabled="disabled" @click="openRecipe(row)"><IconPushpinLine v-if="row.fixed" class="structure-recipe-icon" aria-hidden="true" focusable="false" /><IconGitBranchLine v-else class="structure-recipe-icon" aria-hidden="true" focusable="false" /><span>{{ row.fixed ? '固定' : '当前启用参考' }} <strong>V{{ row.childBom.version }}</strong></span></AppButton>
       <span v-else class="structure-recipe-empty" :class="{'is-unavailable':row.fixed}">{{ row.fixed ? '固定版本不可用' : '按物料领用' }}</span>
     </template>
     </WorkspaceTable>
@@ -86,7 +97,7 @@ const columns = computed(() => [{key:'sku',title:'物料编号',width:String(200
 .structure-material p { margin:5px 0 0; color:var(--structure-warning-color); font-size:12px; }
 .structure-toggle { display:inline-grid; place-items:center; width:26px; height:26px; padding:0; border-radius:6px; background:var(--app-accent-tint); color:var(--workspace-field-accent); }
 .structure-toggle:hover:not(:disabled) { background:var(--app-accent-active-tint); }
-.structure-chevron { width:17px; height:17px; transition:transform 140ms ease; }
+.structure-chevron { width:17px; height:17px; transition:transform 220ms cubic-bezier(.16,1,.3,1); }
 .structure-chevron.is-expanded { transform:rotate(90deg); }
 .structure-leaf { display:grid; place-items:center; width:26px; height:26px; }
 .structure-leaf>span { width:4px; height:4px; border-radius:50%; background:var(--workspace-field-border); }
@@ -100,6 +111,14 @@ const columns = computed(() => [{key:'sku',title:'物料编号',width:String(200
 .structure-recipe-icon { width:13px; height:13px; flex:none; }
 .structure-recipe-empty { color:var(--workspace-field-muted); font-size:12px; }
 .structure-recipe-empty.is-unavailable { color:var(--structure-warning-color); }
+/* 只在组成明细的行动画期间解除 VXE 最小行高；每列共同收缩，边距也随行收回。 */
+.structure-table :deep(tr[data-bom-motion] > td > .vxe-cell),
+.structure-table :deep(tr:has([data-structure-entering]) > td > .vxe-cell) { min-height:0 !important; overflow:hidden; }
+.structure-table :deep(tr:has([data-structure-entering]) > td > .vxe-cell) { height:0; padding-block:0; opacity:0; }
+/* 自适应高度的明细没有纵向滚动，隐藏的滚动条占位不能撑住收起中的表格。 */
+.structure-table :deep(.not--scroll-y .vxe-table--scroll-y-virtual),
+.structure-table :deep(.vxe-body--y-space) { height:0 !important; }
+.structure-table :deep(tr[inert]) { pointer-events:none; }
 .bom-composition { --structure-warning-color:#946000; }
 :root[data-theme='dark'] .bom-composition { --structure-warning-color:#efc16a; }
 @media (prefers-reduced-motion:reduce) { .structure-chevron { transition:none; } }
