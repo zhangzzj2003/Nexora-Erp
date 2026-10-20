@@ -84,6 +84,8 @@ defineExpose({ focus: () => select.value?.focus() })
       @update:value="update"
     >
       <template #empty>暂无可选项</template>
+      <!-- 富信息选择器可提供固定表头，选择和键盘交互仍统一由 NSelect 管理。 -->
+      <template v-if="$slots.header" #header><slot name="header" /></template>
     </NSelect>
     <!-- Naive UI 的选择框不是原生表单元素；校验代理保留 required，禁用时不阻止提交。 -->
     <input

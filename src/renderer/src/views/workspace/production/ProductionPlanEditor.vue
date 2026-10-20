@@ -59,7 +59,8 @@ async function save(): Promise<void> {
     </template>
     <template #cell-product="{ row }">
       <div class="stack plan-product">
-        <WorkspaceMaterialSelect use="can_produce" :model-value="materialId(row)" :materials="options?.materials ?? []" :compact="true"
+        <!-- 生产产品在独立宽菜单内分列展示，避免被单据表格的产品列截断。 -->
+        <WorkspaceMaterialSelect use="can_produce" menu-layout="table" :model-value="materialId(row)" :materials="options?.materials ?? []" :compact="true"
           required placeholder="选择生产产品" aria-label="计划生产产品" :disabled="disabled" @update:model-value="selectProduct(row, $event)" />
         <WorkspaceSelect v-model="row.bom_id" required aria-label="计划 BOM 版本" :disabled="disabled || !materialId(row)"
           :options="(options?.boms ?? []).filter(bom => bom.material_id === materialId(row)).map(bom => ({ value: bom.id, label: `BOM V${bom.version} · 基准 ${bom.base_quantity} ${bom.unit}` }))" />

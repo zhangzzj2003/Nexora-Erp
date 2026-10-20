@@ -42,6 +42,18 @@ test('简要响应与未填写详情区分，中文分类来自业务接口或�
   assert.equal(materialChoiceFacts({...resistor,brand:'  '},categories).find(item=>item.key==='brand').value,'未填写')
 })
 
+test('表格编号使用原始 SKU，名称含分隔符及缺失历史资料时不猜测编号',()=>{
+  // 编号和名称允许包含相同分隔符，菜单不能靠拆分展示标签来猜测字段。
+  const material={...resistor,sku:'QA · 001',name:'控制器 · 网络版'}
+  const result=materialSelectOptions([{value:1,label:'来源标签'},{value:9,label:'历史 · 物料'},{value:null,label:'全部'}],[material],[])
+  assert.equal(result[0].sku,'QA · 001')
+  assert.equal(result[0].label,'QA · 001 · 控制器 · 网络版')
+  assert.equal(result[1].sku,'')
+  assert.equal(result[1].label,'历史 · 物料')
+  assert.equal(result[2].sku,'')
+  assert.equal(result[2].description,'')
+})
+
 test('连续新增空行、重选和删行保持真实草稿；空行提示行号并阻止保存',()=>{
   let lines=appendDocumentMaterialRow([])
   assert.deepEqual(lines,[{material_id:0,quantity:'1'}])

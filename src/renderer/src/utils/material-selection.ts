@@ -50,6 +50,8 @@ export function materialParameterFacts(item: MaterialChoice, categories: readonl
   })
 }
 export interface MaterialSelectOption<T extends number | null> extends WorkspaceSelectOption<T> {
+  // 独立保存编号供表格列展示，不从可能包含分隔符的名称中拆解业务字段。
+  sku: string
   description: string
   searchText: string
 }
@@ -65,6 +67,7 @@ export function materialSelectOptions<T extends number | null>(options: readonly
   return options.map(option => {
     const item = option.value === null ? undefined : indexed.get(option.value)
     return { ...option,
+      sku: item?.sku ?? '',
       label: item ? `${item.sku} · ${item.name}` : option.label,
       description: item ? materialChoiceSummary(item) : '',
       searchText: [option.label, item?.sku, item?.name, item?.unit,
