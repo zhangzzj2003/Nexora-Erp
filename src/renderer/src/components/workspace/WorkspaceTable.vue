@@ -8,7 +8,7 @@ VxeUI.setLanguage('zh-CN')
 </script>
 
 <script setup lang="ts" generic="TRow extends object">
-import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch, useSlots } from 'vue'
 import VxeColumn from 'vxe-table/es/column'
 import VxeTable from 'vxe-table/es/table'
 import 'vxe-table/es/table/style.css'
@@ -34,6 +34,8 @@ const props = withDefaults(defineProps<{
   amountTotal?: string | null
   // 主列表可隐藏重复标题，保留页面顶部品牌标题及表格无障碍名称。
   showTitle?: boolean
+  // 单据明细的添加按钮属于分区标题；业务列表默认使用筛选操作栏。
+  actionsPlacement?: 'toolbar' | 'heading'
   description?: string
   columns?: readonly WorkspaceTableColumn[]
   data?: TRow[]
@@ -58,6 +60,7 @@ const props = withDefaults(defineProps<{
   materialId?: (row: TRow) => number
 }>(), {
   showTitle: true,
+  actionsPlacement: 'toolbar',
   virtualRows: undefined,
   description: '',
   columns: () => [],
@@ -68,6 +71,10 @@ const props = withDefaults(defineProps<{
   minTableWidth: 580,
   stretchColumns: true, materialSupply: false, materialSupplyActive: true
 })
+
+const slots = useSlots()
+// 插槽会随页面状态变化，每次渲染读取，避免缓存旧的筛选区可见性。
+const headingActions = () => props.actionsPlacement === 'heading' && !slots.filters && !slots.filterActions
 
 const emit = defineEmits<{ pageChange: [page: number, pageSize: number] }>()
 
@@ -250,16 +257,17 @@ defineSlots<{
 
 <template>
   <section class="card workspace-table">
-    <header v-if="showTitle || description || $slots.heading" class="workspace-table-heading">
+    <header v-if="showTitle || description || $slots.heading || (headingActions() && $slots.actions)" class="workspace-table-heading">
       <div v-if="showTitle || description || $slots.heading">
         <slot name="heading">
           <h2 v-if="showTitle">{{ title }}</h2>
           <p v-if="description" class="muted">{{ description }}</p>
         </slot>
       </div>
+      <div v-if="headingActions() && $slots.actions" class="workspace-table-actions"><slot name="actions" /></div>
     </header>
     <!-- 有无筛选都使用同一操作栏，按钮位置不随页面条件数量改变。 -->
-    <div v-if="$slots.filters || $slots.filterActions || $slots.actions" class="workspace-table-toolbar">
+    <div v-if="$slots.filters || $slots.filterActions || (!headingActions() && $slots.actions)" class="workspace-table-toolbar">
       <div v-if="$slots.filters" class="workspace-table-filters">
         <slot name="filters" />
       </div>
@@ -331,6 +339,7 @@ defineSlots<{
 
 <style scoped>
 .workspace-table-heading { display: flex; justify-content: space-between; align-items: start; gap: 18px; margin-bottom: 20px; }
+.workspace-table-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-left: auto; max-width: 100%; }
 .workspace-table-heading h2 { margin: 0; }
 .workspace-table-heading .muted { margin: 0; line-height: 1.6; }
 .workspace-table-heading h2 + .muted { margin-top: 8px; }

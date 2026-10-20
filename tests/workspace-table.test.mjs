@@ -93,6 +93,14 @@ test('公共表格加载真实 vxe 组件并渲染功能区、加载和空状态
   assert.match(actionsOnly, /新增/)
   assert.match(actionsOnly, /workspace-table-toolbar/)
   assert.equal((actionsOnly.match(/>新增<\/button>/g) ?? []).length, 1)
+  // 单据明细显式保留标题操作，带筛选时仍回到统一工具栏。
+  const documentActions = await render({ showTitle: false, actionsPlacement: 'heading' }, { actions: slots.actions })
+  assert.match(documentActions, /workspace-table-heading/)
+  assert.doesNotMatch(documentActions, /workspace-table-toolbar/)
+  assert.equal((documentActions.match(/>新增<\/button>/g) ?? []).length, 1)
+  const headingWithFilters = await render({ actionsPlacement: 'heading' })
+  assert.match(headingWithFilters, /workspace-table-toolbar/)
+  assert.equal((headingWithFilters.match(/>新增<\/button>/g) ?? []).length, 1)
 
   // 页脚总数使用筛选后的总数；空页保留总数并隐藏无效的分页操作。
   const paged = await render({ pagination: { page: 2, pageSize: 20, total: 45 } })

@@ -96,7 +96,8 @@ function submit(): void {
           </section>
           <!-- 分隔线明确区分单据头与物料明细，避免两类信息混在同一张表单中。 -->
           <hr v-if="showLines" class="document-divider" />
-          <WorkspaceTable v-if="showLines" :title="linesTitle" :data="data" :columns="columns" :amount-total="amountTotal" :min-table-width="minTableWidth" stretch-columns
+          <!-- 明细新增属于当前单据分区，不占用列表查询工具栏。 -->
+          <WorkspaceTable actions-placement="heading" v-if="showLines" :title="linesTitle" :data="data" :columns="columns" :amount-total="amountTotal" :min-table-width="minTableWidth" stretch-columns
             :empty-text="readOnly ? '此单据暂无物料明细。' : emptyText" class="document-lines" :material-supply="materialSupply" :material-supply-active="show" :material-id="materialId">
             <template #heading><h3>{{ linesTitle }} <span class="document-count">{{ data.length }} 项</span></h3></template>
             <template v-if="!readOnly || $slots.documentActions" #actions>
