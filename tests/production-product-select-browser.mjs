@@ -13,6 +13,7 @@ try {
   await page.route('**/scripts/site-preview/production-plan-fixtures.mjs*', async route => {
     const response = await route.fetch()
     const body = (await response.text()).replace('export const productionPlanPreviewOperations', `
+options.boms.push({...options.boms[0],id:100,version:3})
 options.materials[0] = {...options.materials[0], sku:'CP-HYDY-000001', name:'智能控制器 · 网络版',
   specification:'FR-4 / 80 × 60 × 1.6mm / 双层 / 裸板 / 网络通信与远程控制扩展模块',
   package:'工业外壳', brand:'示例品牌', manufacturer_part_number:'NET-8890-PRO-EXTENDED-LONG-PART-NUMBER'}
@@ -50,10 +51,25 @@ export const productionPlanPreviewOperations`)
   await page.screenshot({ path: '/private/tmp/nexora-production-product-table-dark.png' })
   await first.click()
   await menu.waitFor({ state: 'hidden' })
-  assert.match(await page.locator('.plan-product').textContent(), /BOM V2/)
+  assert.match(await page.locator('.plan-bom').textContent(), /BOM V2/)
+  // 产品和 BOM 必须位于不同数据列，宽屏下配方列紧随产品列。
+  const productCell = page.locator('.plan-product').locator('xpath=ancestor::td[1]')
+  const bomCell = page.locator('.plan-bom').locator('xpath=ancestor::td[1]')
+  assert.notEqual(await productCell.getAttribute('colid'), await bomCell.getAttribute('colid'))
+  assert.ok((await bomCell.boundingBox()).x >= (await productCell.boundingBox()).x + (await productCell.boundingBox()).width - 1)
+  assert.doesNotMatch(await page.locator('.plan-product').textContent(), /BOM V/)
+
   // 选择销售来源后重选产品，应仍由原页面清空来源并切到对应 BOM。
   await page.getByRole('textbox', { name: '计划销售来源', exact: true }).click()
   await page.locator('.n-base-select-option').filter({ hasText: '客户交付批次' }).click()
+  await page.getByRole('textbox', { name: '计划 BOM 版本', exact: true }).click()
+  await page.locator('.n-base-select-option').filter({ hasText: 'BOM V3' }).click()
+  assert.match(await page.locator('.plan-bom').textContent(), /BOM V3/)
+  assert.match(await page.locator('.n-base-selection').filter({ has: page.getByRole('textbox', { name: '计划销售来源', exact: true }) }).textContent(), /客户交付批次/)
+  await page.getByText('基础信息', { exact: true }).click()
+  await page.waitForTimeout(250)
+  await page.screenshot({ path: '/private/tmp/nexora-production-plan-bom-column.png' })
+
   await open()
   await input.fill('QA-002')
   assert.equal(await menu.locator('.workspace-material-table__row').count(), 1)
@@ -62,7 +78,7 @@ export const productionPlanPreviewOperations`)
   await input.press('Enter')
   await menu.waitFor({ state: 'hidden' })
   assert.match(await page.locator('.plan-product').textContent(), /QA-002/)
-  assert.match(await page.locator('.plan-product').textContent(), /BOM V2/)
+  assert.match(await page.locator('.plan-bom').textContent(), /BOM V2/)
   assert.match(await page.locator('.n-base-selection').filter({ has: page.getByRole('textbox', { name: '计划销售来源', exact: true }) }).textContent(), /自主备货/)
   await open()
   await input.fill('不存在的候选')
@@ -78,7 +94,7 @@ export const productionPlanPreviewOperations`)
   await menu.locator('.n-scrollbar-container').evaluate(el => { el.scrollTop = el.scrollHeight })
   assert.equal((await menu.locator('.workspace-material-table__header').boundingBox()).y, headerTop)
   await menu.getByText('QA-017', { exact: true }).click()
-  assert.match(await page.locator('.plan-product').textContent(), /BOM V17/)
+  assert.match(await page.locator('.plan-bom').textContent(), /BOM V17/)
   await open()
   await page.getByText('基础信息', { exact: true }).click()
   await menu.waitFor({ state: 'hidden' })

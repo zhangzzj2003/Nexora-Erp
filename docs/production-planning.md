@@ -59,3 +59,5 @@
 产品下拉表格回归使用 `tests/production-product-select-browser.mjs`，覆盖列对齐、长详情换行、搜索及键盘选择、用途过滤、空结果、BOM 与销售来源联动、滚动、窄窗口和明暗主题。先用 `NEXORA_PREVIEW_PORT=8791 npm run docs:preview-ui` 启动隔离预览，再设置 `NEXORA_PLAYWRIGHT_MODULE` 为已安装的 Playwright 模块入口后执行该脚本；自定义地址通过 `NEXORA_PLAN_PREVIEW_URL` 传入。
 
 功能按钮区域由 `tests/production-plan-toolbar.test.mjs` 验证插槽归属、筛选重置与草稿保留、权限和离线禁用；`tests/production-plan-toolbar-browser.mjs` 沿用上述预览配置，验证实际对齐、草稿按钮换行、继续编制、清空、导航后的统计卸载及明暗主题。
+
+生产安排明细将“生产产品”和“BOM 版本”拆为相邻独立列，版本列显示版本号与基准产量。更换版本保留当前产品的销售来源；更换产品仍自动选择其可用 BOM 并清除旧销售来源。未选产品时版本列禁用，弹窗在宽屏适当加宽、窄屏沿用明细表横向滚动。`tests/production-plan-editor.test.mjs` 验证独立列与选择联动，`tests/production-product-select-browser.mjs` 验证真实单元格及版本切换。

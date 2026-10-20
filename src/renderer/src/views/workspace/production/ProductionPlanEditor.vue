@@ -18,7 +18,8 @@ const store = usePiniaAppStore()
 const { productionPlanForm: form, productionPlanOptions: options, productionPlanEdit: edit,
   productionPlanError: error, busy, connectionLost } = storeToRefs(store)
 const disabled = computed(() => busy.value || connectionLost.value || !store.can('production_plan.create'))
-const columns = [{ key: 'product', title: '生产产品 / BOM', width: '280' }, { key: 'sales', title: '销售来源', width: '220' },
+// 产品资料与配方版本分列，版本选择仍绑定同一行的 bom_id。
+const columns = [{ key: 'product', title: '生产产品', width: '280' }, { key: 'bom', title: 'BOM 版本', width: '200' }, { key: 'sales', title: '销售来源', width: '220' },
   { key: 'quantity', title: '计划产量', width: '150' }, { key: 'dates', title: '计划开工 / 完工', width: '200' },
   { key: 'warehouse', title: '完工仓库', width: '160' }, { key: 'priority', title: '优先级', width: '130' }, { key: 'actions', title: '操作', width: '80' }]
 const priorities = Object.entries(planPriority).map(([value, label]) => ({ value, label }))
@@ -45,9 +46,10 @@ async function save(): Promise<void> {
 }
 </script>
 <template>
-  <!-- 计划正文复用公共单据外壳；关闭只收起，同账号未保存输入仍保留。 -->
+  <!-- 新增 BOM 列后适当加宽计划弹窗；窄屏保留公共横向滚动，关闭仍保留输入。 -->
   <WorkspaceDocumentDialog :show="show" :ready="!!options" :load-error="error" origin-key="production-plan-editor"
-    :title="edit ? '编辑生产计划' : '新建生产计划'" :data="form.lines" :columns="columns" :min-table-width="1220"
+    :title="edit ? '编辑生产计划' : '新建生产计划'" :data="form.lines" :columns="columns" :min-table-width="1420"
+    :style="{ width: 'min(1480px, calc(100vw - 32px))' }"
     :busy="busy" :disabled="disabled" :submit-disabled="!!problem || !options" :add-disabled="form.lines.length >= 100"
     lines-title="生产安排" add-label="添加产品" empty-text="添加产品后，安排产量、开工日与完工日。"
     hint="保存草稿后通过单据审批批准，再按产品分批生成生产工单。"
@@ -62,9 +64,12 @@ async function save(): Promise<void> {
         <!-- 生产产品在独立宽菜单内分列展示，避免被单据表格的产品列截断。 -->
         <WorkspaceMaterialSelect use="can_produce" menu-layout="table" :model-value="materialId(row)" :materials="options?.materials ?? []" :compact="true"
           required placeholder="选择生产产品" aria-label="计划生产产品" :disabled="disabled" @update:model-value="selectProduct(row, $event)" />
-        <WorkspaceSelect v-model="row.bom_id" required aria-label="计划 BOM 版本" :disabled="disabled || !materialId(row)"
-          :options="(options?.boms ?? []).filter(bom => bom.material_id === materialId(row)).map(bom => ({ value: bom.id, label: `BOM V${bom.version} · 基准 ${bom.base_quantity} ${bom.unit}` }))" />
       </div>
+    </template>
+    <!-- 只展示当前产品的启用版本；未选产品时禁用，换产品沿用原有清空销售来源逻辑。 -->
+    <template #cell-bom="{ row }">
+      <WorkspaceSelect class="plan-bom" v-model="row.bom_id" required aria-label="计划 BOM 版本" :disabled="disabled || !materialId(row)"
+        :options="(options?.boms ?? []).filter(bom => bom.material_id === materialId(row)).map(bom => ({ value: bom.id, label: `BOM V${bom.version} · 基准 ${bom.base_quantity} ${bom.unit}` }))" />
     </template>
     <template #cell-sales="{ row }"><WorkspaceSelect v-model="row.sales_order_line_id" :options="salesOptions(row)" aria-label="计划销售来源" :disabled="disabled || !materialId(row)" /></template>
     <template #cell-quantity="{ row }"><AppInput v-model="row.quantity" type="number" hide-number-controls min="0.001" max="1000000" step="0.001" required aria-label="计划产量" :disabled="disabled" /></template>
@@ -84,6 +89,6 @@ async function save(): Promise<void> {
   </WorkspaceDocumentDialog>
 </template>
 <style scoped>
-/* 表格内两行日期与产品选择保持紧凑，窄窗口沿公共单据表横向滚动。 */
+/* 产品资料与两行日期保持紧凑，独立 BOM 列沿公共表格参与横向滚动。 */
 .plan-product, .plan-dates { gap: 8px; }
 </style>
