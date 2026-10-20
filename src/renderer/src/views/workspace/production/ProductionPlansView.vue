@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { usePiniaAppStore } from '../../../store/app-store'
+import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import AppButton from '../../../components/app/AppButton.vue'
 import AppInput from '../../../components/app/AppInput.vue'
 import AppModal from '../../../components/app/AppModal.vue'
@@ -16,7 +17,7 @@ import { documentLabel, documentSearch, relatedDocumentLabel } from '../../../..
 import type { ProductionPlan, ProductionPlanLine, ProductionPlanReleaseInput } from '../../../../../shared/production-plan-api'
 import { productionPlanQuantity } from '../../../../../shared/production-plan-api'
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
-import { canCancelPlan, canReleasePlan, planPriority, planProgress, planStatus } from './production-plan-display'
+import { canCancelPlan, canReleasePlan, planPriority, planProgress, planStatus, planStatusTone, planProgressTone } from './production-plan-display'
 import { mrpSourceStatus } from './mrp-display'
 import { routeByKey } from '../../../router/workspace-routes'
 
@@ -49,8 +50,9 @@ const filtered = computed(() => records.value.filter(row => {
   if (filter.value === 'active') return row.status !== 'cancelled' && ['approved', 'executed'].includes(row.approval.status) && row.progress !== 'completed'
   return true
 }))
-const columns = [{ key: 'plan', title: '计划编号 / 名称', width: '250' }, { key: 'products', title: '生产产品', width: '230' },
-  { key: 'dates', title: '计划周期', width: '190' }, { key: 'status', title: '审批 / 执行', width: '160' },
+// 编号与名称各占一列，编号入口和操作列共用同一详情读取流程。
+const columns = [{ key: 'plan', title: '计划编号', width: '230' }, { key: 'reference', title: '计划名称', width: '220' }, { key: 'products', title: '生产产品', width: '230' },
+  { key: 'dates', title: '计划周期', width: '190' }, { key: 'status', title: '审批 / 执行', width: '180' },
   { key: 'actions', title: '操作', width: '230' }]
 const lineColumns = [{ key: 'product', title: '产品 / 来源', width: '240' }, { key: 'dates', title: '排期 / 优先级', width: '190' },
   { key: 'quantity', title: '计划产量', width: '110' }, { key: 'release', title: '已下达 / 未下达', width: '160' },
@@ -74,6 +76,8 @@ function newPlan(): void {
   editor.value = true
 }
 async function openDetail(row: ProductionPlan): Promise<void> {
+  // 编号和详情按钮都遵守当前连接、忙碌和查看权限约束。
+  if (disabled.value || !store.can('production_plan.view')) return
   showDetail.value = true; pending.value = true
   try { await store.loadProductionPlanDetail(row.id) }
   finally { pending.value = false }
@@ -138,7 +142,7 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
     </Teleport>
     <p v-if="options?.unavailable_boms?.length" role="status">{{ options.unavailable_boms.length }} 个 BOM 的下层配方暂不可用，已从新计划候选中移除，请在产品与 BOM 中核对。已有计划仍可查看与处理。</p>
     <p v-if="error" role="alert">{{ error }}</p>
-    <WorkspaceTable title="生产计划" :show-title="false" :columns="columns" :data="filtered" :loading="loading" :min-table-width="1040">
+    <WorkspaceTable title="生产计划" :show-title="false" :columns="columns" :data="filtered" :loading="loading" :min-table-width="1280">
       <!-- 功能按钮统一进入表格筛选栏右侧，主操作放在末尾，窄窗口沿用公共换行布局。 -->
       <template #actions>
         <AppButton :disabled="disabled" @click="refresh">{{ loading ? '正在读取…' : '刷新计划' }}</AppButton>
@@ -151,10 +155,18 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
         <WorkspaceSearchFilters v-model:query="query" :filters="{}" search-label="搜索计划"
           search-placeholder="计划编号、名称、产品或日期" :reset-disabled="!query && filter === 'all'" @reset="resetFilters" />
       </template>
-      <template #cell-plan="{ row }"><strong>{{ documentLabel(row) }}</strong><span class="plan-line">{{ row.reference }}</span></template>
+      <template #cell-plan="{ row }">
+        <AppButton type="button" variant="text" :disabled="disabled" :aria-label="`查看生产计划 ${documentLabel(row)} 详情`"
+          @click.capture="captureDialogOrigin('production-plan-detail', $event)" @click="openDetail(row)">{{ documentLabel(row) }}</AppButton>
+      </template>
+      <template #cell-reference="{ row }">{{ row.reference }}</template>
       <template #cell-products="{ row }">{{ row.products }}<span class="plan-line muted">{{ row.line_count }} 项生产安排</span></template>
       <template #cell-dates="{ row }">{{ row.start_date }}<span class="plan-line">至 {{ row.end_date }}</span><span v-if="row.overdue_count" class="plan-overdue">{{ row.overdue_count }} 项延期</span></template>
-      <template #cell-status="{ row }">{{ planStatus(row) }}<span v-if="row.status !== 'cancelled'" class="plan-line muted">{{ planProgress[row.progress] }}</span></template>
+      <!-- 与其他入库复用圆点胶囊标签；取消优先，避免显示历史执行进度造成误解。 -->
+      <template #cell-status="{ row }"><div class="plan-status-tags">
+        <AppStatusTag :label="planStatus(row)" :tone="planStatusTone(row)" :aria-label="`审批状态：${planStatus(row)}`" />
+        <AppStatusTag v-if="row.status !== 'cancelled'" :label="planProgress[row.progress]" :tone="planProgressTone[row.progress]" :aria-label="`执行状态：${planProgress[row.progress]}`" />
+      </div></template>
       <template #cell-actions="{ row }"><div class="plan-toolbar">
         <AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-detail', $event)" @click="openDetail(row)">计划详情</AppButton>
         <AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="store.openDocumentApproval({ document_type: 'ProductionPlan', document_id: row.id, intent: 'execute' })">单据审批</AppButton>
@@ -167,7 +179,10 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
       read-only :show-add="false" :busy="busy" lines-title="产品排期与进度" @update:show="value => { if (!value) closeDetail() }" @invalidated="closeDetail">
       <template #basicInfo>
         <template v-if="detail"><div class="document-detail-field"><span>计划名称</span><strong>{{ detail.reference }}</strong></div>
-          <div class="document-detail-field"><span>审批 / 执行</span><strong>{{ planStatus(detail) }} · {{ planProgress[detail.progress] }}</strong></div>
+          <div class="document-detail-field"><span>审批 / 执行</span><div class="plan-status-tags">
+            <AppStatusTag :label="planStatus(detail)" :tone="planStatusTone(detail)" />
+            <AppStatusTag v-if="detail.status !== 'cancelled'" :label="planProgress[detail.progress]" :tone="planProgressTone[detail.progress]" />
+          </div></div>
           <div class="document-detail-field"><span>编制依据</span><strong>{{ detail.reason }}</strong></div>
           <div class="document-detail-field"><span>备注</span><strong>{{ detail.note || '—' }}</strong></div></template>
       </template>
@@ -212,6 +227,8 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
 </template>
 <style scoped>
 /* 复用工作台色彩与公共表格，长单据由公共详情窗口负责滚动和分页。 */
+/* 两类状态保持同列分行展示，共用公共标签的明暗主题。 */
+.plan-status-tags { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .plan-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .plan-line { display: block; margin-top: 5px; font-size: 12px; }
 .plan-overdue { display: block; margin-top: 5px; color: var(--danger, #bd414a); font-size: 12px; }

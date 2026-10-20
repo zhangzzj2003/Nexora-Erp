@@ -61,3 +61,7 @@
 功能按钮区域由 `tests/production-plan-toolbar.test.mjs` 验证插槽归属、筛选重置与草稿保留、权限和离线禁用；`tests/production-plan-toolbar-browser.mjs` 沿用上述预览配置，验证实际对齐、草稿按钮换行、继续编制、清空、导航后的统计卸载及明暗主题。
 
 生产安排明细将“生产产品”和“BOM 版本”拆为相邻独立列，版本列显示版本号与基准产量。更换版本保留当前产品的销售来源；更换产品仍自动选择其可用 BOM 并清除旧销售来源。未选产品时版本列禁用，弹窗在宽屏适当加宽、窄屏沿用明细表横向滚动。`tests/production-plan-editor.test.mjs` 验证独立列与选择联动，`tests/production-product-select-browser.mjs` 验证真实单元格及版本切换。
+
+生产计划列表的计划编号、计划名称独立分列，编号为可键盘操作的详情入口，与“计划详情”按钮共用读取及权限/离线约束。审批与执行进度复用其他入库的 `AppStatusTag` 圆点胶囊标签，列表和详情保持一致；已取消优先显示灰色标签并隐藏历史进度，审批已执行不等同于报工完成。
+
+列表展示回归：`tests/production-plan-toolbar.test.mjs` 验证分列、查看约束和取消状态，`tests/production-plan.test.mjs` 覆盖状态色映射；`tests/production-plan-list-browser.mjs` 使用隔离样例验证编号点击/键盘打开、回焦、读取失败恢复及明暗主题。

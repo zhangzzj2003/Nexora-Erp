@@ -21,21 +21,23 @@ test('生产计划复用筛选操作区和标题统计，重置筛选保留草�
     },
     load(id) {
       if (id === '\0toolbar-empty') return 'export default {render:()=>null}'
-      if (id === '\0toolbar-table') return `import {h} from 'vue';export default {setup:(_,{slots})=>()=>h('section',{class:'tested-table'},[
-        h('div',{class:'tested-filters'},slots.filters?.()),h('div',{class:'tested-actions'},slots.actions?.())])}`
+      if (id === '\0toolbar-table') return `import {h} from 'vue';export default {props:['columns','data'],setup:(p,{slots})=>()=>h('section',{class:'tested-table'},[
+        h('div',{class:'tested-filters'},slots.filters?.()),h('div',{class:'tested-actions'},slots.actions?.()),
+        ...p.data.flatMap(row=>p.columns.map(col=>h('div',{'data-column':col.key},[h('h3',col.title),slots['cell-'+col.key]?.({row})])))])}`
       if (id === '\0toolbar-store') return `import {defineStore} from 'pinia';import {createAppState} from '/src/renderer/src/store/state.ts';
+        export const detailReads=[];
         export const usePiniaAppStore=defineStore('toolbar-test',()=>{const s=createAppState();return {...s,
-          can:p=>s.user.value?.permissions.includes(p)??false,clearProductionPlanDetail(){},
+          can:p=>s.user.value?.permissions.includes(p)??false,clearProductionPlanDetail(){},async loadProductionPlanDetail(id){detailReads.push(id);return true},
           resetProductionPlanForm(){},navigateToRoute(){},localTime:v=>v}})`
     }
   }, vue()], optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' })
   t.after(() => server.close())
-  const { usePiniaAppStore } = await server.ssrLoadModule('\0toolbar-store')
+  const { usePiniaAppStore, detailReads } = await server.ssrLoadModule('\0toolbar-store')
   const { default: View } = await server.ssrLoadModule('/src/renderer/src/views/workspace/production/ProductionPlansView.vue')
-  async function render(permissions, offline = false) {
+  async function render(permissions, offline = false, record = planFixture()) {
     const pinia = createPinia(), store = usePiniaAppStore(pinia)
     store.user = { id: 1, roles: [], permissions }
-    store.productionPlans = [planFixture()]
+    store.productionPlans = [record]
     store.productionPlanOptions = planOptionsFixture()
     store.productionPlanForm = planInputFixture()
     store.connectionLost = offline
@@ -63,9 +65,31 @@ test('生产计划复用筛选操作区和标题统计，重置筛选保留草�
   assert.equal(JSON.stringify(full.store.productionPlanForm), draft)
   const readonly = await render(['production_plan.view'])
   assert.doesNotMatch(readonly.html, /继续编制计划|清空未保存输入|物料需求计划|>生产工单</)
+  assert.match(readonly.html, /查看生产计划 SCJH-20261019-000001 详情/)
   const offline = await render(['production_plan.view', 'production_plan.create'], true)
   const offlineCreate = [...offline.html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].map(match => match[0]).find(button => button.includes('继续编制计划'))
   assert.match(offlineCreate, /^<button[^>]*disabled/)
   offline.state.newPlan()
   assert.equal(offline.state.editor, false)
+  // 编号与名称必须出现在不同列；编号使用真实文本按钮而非不可操作的文字。
+  const numberCell = full.html.slice(full.html.indexOf('data-column="plan"'), full.html.indexOf('data-column="reference"'))
+  const nameCell = full.html.slice(full.html.indexOf('data-column="reference"'), full.html.indexOf('data-column="products"'))
+  assert.match(numberCell, /<button[^>]*aria-label="查看生产计划 SCJH-20261019-000001 详情"/)
+  assert.doesNotMatch(numberCell, /十月智能控制器备货/)
+  assert.match(nameCell, /计划名称[\s\S]*十月智能控制器备货/)
+  assert.match(full.html, /app-status-tag--ready/)
+  assert.match(full.html, /app-status-tag--pending/)
+  await readonly.state.openDetail(planFixture())
+  assert.deepEqual(detailReads, [1])
+  assert.equal(readonly.state.showDetail, true)
+  assert.equal(readonly.state.pending, false)
+  await offline.state.openDetail(planFixture())
+  readonly.store.user.permissions = []
+  await readonly.state.openDetail(planFixture())
+  assert.deepEqual(detailReads, [1])
+  const cancelled = await render(['production_plan.view'], false, { ...planFixture(), status: 'cancelled', progress: 'completed' })
+  assert.match(cancelled.html, /app-status-tag--neutral/)
+  assert.match(cancelled.html, /已取消/)
+  assert.doesNotMatch(cancelled.html, /app-status-tag--success|执行状态：报工完成/)
+
 })

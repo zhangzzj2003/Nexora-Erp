@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { createAppState } from '../src/renderer/src/store/state.ts'
 import { createProductionPlanActions } from '../src/renderer/src/store/modules/production-plan-actions.ts'
 import { productionPlanBody, productionPlanCommand, validateProductionPlanResult } from '../src/shared/production-plan-api.ts'
-import { canReleasePlan, canCancelPlan, planStatus } from '../src/renderer/src/views/workspace/production/production-plan-display.ts'
+import { canReleasePlan, canCancelPlan, planStatus, planStatusTone, planProgressTone } from '../src/renderer/src/views/workspace/production/production-plan-display.ts'
 import { routeByKey, canVisitRoute } from '../src/renderer/src/router/workspace-routes.ts'
 import { callBackend } from '../src/main/backend.ts'
 import { planFixture, planInputFixture, planOptionsFixture } from './production-plan-fixture.mjs'
@@ -102,4 +102,17 @@ test('审批刷新保留未保存输入，排队下达需重新核对工单权�
   await actions.releaseProductionPlan({id:1,version:1,approval_version:2,line_id:1,quantity:'4',request_id:'1234567890123456',reason:'拆单'})
   state.user.value={id:1,permissions:['production_plan.view','production_plan.release']}
   await queue[0]();assert.equal(calls.length,0)
+})
+
+// 审批色调沿用其他入库，完成色由报工进度决定；取消覆盖历史审批结果。
+test('计划状态标签覆盖全部审批及生产阶段，取消优先且审批执行不误报完成', () => {
+  const plan = planFixture()
+  for (const [status, tone] of Object.entries({ draft: 'pending', submitted: 'info', approved: 'ready', rejected: 'danger', withdrawn: 'neutral', executed: 'ready' })) {
+    const row = { ...plan, approval: { ...plan.approval, status } }
+    assert.equal(planStatusTone(row), tone)
+    assert.equal(planStatusTone({ ...row, status: 'cancelled' }), 'neutral')
+    assert.equal(planStatus({ ...row, status: 'cancelled' }), '已取消')
+  }
+  assert.equal(planStatusTone({ ...plan, approval: { ...plan.approval, status: 'unknown' } }), 'neutral')
+  assert.deepEqual(planProgressTone, { unreleased: 'pending', released: 'ready', in_progress: 'info', completed: 'success' })
 })
