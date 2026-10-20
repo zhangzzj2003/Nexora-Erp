@@ -117,11 +117,13 @@ onUnmounted(()=>store.clearCrmDetail())
 <template>
   <section class="stack crm-workspace">
     <div class="crm-toolbar"><AppButton v-for="kind in (['contact','activity','opportunity','quote'] as const)" :key="kind" :variant="mode===kind?'primary':'secondary'" :disabled="busy" @click="selectMode(kind)">{{ crmKindLabel[kind] }}</AppButton>
-      <AppButton :disabled="disabled" @click="store.loadCrm()">{{ loading?'正在读取…':'刷新资料' }}</AppButton>
-      <AppButton v-if="store.can('customer.assign')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('CustomerRelationsView:owner', $event)" @click="ownerModal=true">分配客户负责人</AppButton>
-      <AppButton v-if="mode==='contact' && store.can('crm_contact.manage')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('ContactImportDialog:import', $event)" @click="contactImportOpen=true">导入联系人 CSV</AppButton>
-      <AppButton v-if="mode==='opportunity' && store.can('crm_opportunity.manage')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('OpportunityImportDialog:import', $event)" @click="opportunityImportOpen=true">导入商机 CSV</AppButton>
-      <AppButton v-if="store.can(permission(mode))" :disabled="disabled || !options" @click.capture="captureDialogOrigin('CustomerRelationsView:contact', $event)" @click="newRecord(mode)">新建{{ crmKindLabel[mode] }}</AppButton></div>
+      <!-- 编辑或查询面板仍保留原有公共读取入口。 -->
+      <template v-if="editor && editor!=='contact' && store.can(permission(editor))"><AppButton :disabled="disabled" @click="store.loadCrm()">{{ loading?'正在读取…':'刷新资料' }}</AppButton>
+        <AppButton v-if="store.can('customer.assign')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('CustomerRelationsView:owner', $event)" @click="ownerModal=true">分配客户负责人</AppButton>
+        <AppButton v-if="mode==='contact' && store.can('crm_contact.manage')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('ContactImportDialog:import', $event)" @click="contactImportOpen=true">导入联系人 CSV</AppButton>
+        <AppButton v-if="mode==='opportunity' && store.can('crm_opportunity.manage')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('OpportunityImportDialog:import', $event)" @click="opportunityImportOpen=true">导入商机 CSV</AppButton>
+        <AppButton variant="primary" v-if="store.can(permission(mode))" :disabled="disabled || !options" @click.capture="captureDialogOrigin('CustomerRelationsView:contact', $event)" @click="newRecord(mode)">新建{{ crmKindLabel[mode] }}</AppButton></template>
+      </div>
     <p>按客户追踪联系人、跟进和商机；报价经独立审核后，登记客户接受依据并转销售订单草稿。</p>
     <p v-if="connectionLost" role="alert">服务端连接中断，当前资料和可执行动作已失效。未保存的输入保留，恢复连接后重新读取再保存。</p>
     <p v-if="failure" role="alert">{{ failure }} 请刷新资料后重试。</p>
@@ -134,6 +136,14 @@ onUnmounted(()=>store.clearCrmDetail())
     <CrmEditor v-if="editor && editor!=='contact' && store.can(permission(editor))" :kind="editor" @saved="editor=null" @close="closeEditor" @create-opportunity="newRecord('opportunity')" />
     <template v-else>
       <WorkspaceTable :title="crmKindLabel[mode]" :show-title="false" :columns="columns" :data="records" :min-table-width="1050" :loading="loading">
+        <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
+        <template #actions>
+          <AppButton :disabled="disabled" @click="store.loadCrm()">{{ loading?'正在读取…':'刷新资料' }}</AppButton>
+          <AppButton v-if="store.can('customer.assign')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('CustomerRelationsView:owner', $event)" @click="ownerModal=true">分配客户负责人</AppButton>
+          <AppButton v-if="mode==='contact' && store.can('crm_contact.manage')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('ContactImportDialog:import', $event)" @click="contactImportOpen=true">导入联系人 CSV</AppButton>
+          <AppButton v-if="mode==='opportunity' && store.can('crm_opportunity.manage')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('OpportunityImportDialog:import', $event)" @click="opportunityImportOpen=true">导入商机 CSV</AppButton>
+          <AppButton variant="primary" v-if="store.can(permission(mode))" :disabled="disabled || !options" @click.capture="captureDialogOrigin('CustomerRelationsView:contact', $event)" @click="newRecord(mode)">新建{{ crmKindLabel[mode] }}</AppButton>
+        </template>
         <template #filters><label>客户范围<WorkspaceSelect v-model="customer" :options="customers" :disabled="disabled" /></label><label>搜索{{ crmKindLabel[mode] }}<AppInput v-model="query" placeholder="名称、客户、负责人或阶段" /></label></template>
         <template #cell-title="{row}"><strong>{{ rowTitle(row) }}</strong><span class="crm-secondary muted">{{ documentLabel(row) }} · {{ row.created_by_name }}</span></template>
         <template #cell-context="{row}"><template v-if="mode==='contact'"><span>{{ (row as CrmContact).phone || '未填写电话' }}</span><span class="crm-secondary muted">{{ (row as CrmContact).email || '未填写邮箱' }}</span></template>

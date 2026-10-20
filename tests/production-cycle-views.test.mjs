@@ -115,7 +115,10 @@ async function fixture(t, name, query = {}, permissions = ['production.view', 'p
   return { store, state, calls, router, render: async () => {
     const preview = createSSRApp(Component).use(pinia).use(router)
     preview.mixin({ created() { if (this.$options.__name === Component.__name) this.$.setupState.createOpen = true } })
-    return renderToString(preview)
+    const context = {}
+    const html = await renderToString(preview, context)
+    // 标题概览通过门户输出，仍纳入页面可见内容验收。
+    return html + (context.teleports?.['#workspace-page-summary'] ?? '')
   } }
 }
 

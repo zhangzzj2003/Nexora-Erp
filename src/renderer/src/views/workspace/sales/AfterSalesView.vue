@@ -322,9 +322,10 @@ onUnmounted(() => store.clearAfterSalesDetail());
         :disabled="busy"
         @click="selectMode('records')"
         >售后记录</AppButton
-      ><AppButton :disabled="disabled" @click="store.loadAfterSales()">{{
+      ><!-- 编辑或查询面板仍保留原有公共读取入口。 -->
+      <template v-if="editor && store.can('after_sales.create')"><AppButton :disabled="disabled" @click="store.loadAfterSales()">{{
         loading ? "正在读取…" : "刷新来源与记录"
-      }}</AppButton>
+      }}</AppButton></template>
     </div>
     <p v-if="connectionLost" role="alert">
       服务端连接中断，旧证据及动作已失效。同账号未保存输入保留，恢复连接后刷新并核对版本。
@@ -348,12 +349,18 @@ onUnmounted(() => store.clearAfterSalesDetail());
         :min-table-width="1000"
         :loading="loading"
       >
+        <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
+        <template #actions>
+          <AppButton :disabled="disabled" @click="store.loadAfterSales()">{{
+          loading ? "正在读取…" : "刷新来源与记录"
+        }}</AppButton>
+        </template>
         <template #filters
-          ><label
-            >搜索原出库<AppInput
-              v-model="query"
-              placeholder="客户、订单、出库或物料" /></label
-        ></template>
+            ><label
+              >搜索原出库<AppInput
+                v-model="query"
+                placeholder="客户、订单、出库或物料" /></label
+          ></template>
         <template #cell-source="{ row }"
           ><strong>{{ row.customer_name }}</strong
           ><span class="after-secondary"
@@ -391,12 +398,18 @@ onUnmounted(() => store.clearAfterSalesDetail());
         :min-table-width="1100"
         :loading="loading"
       >
+        <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
+        <template #actions>
+          <AppButton :disabled="disabled" @click="store.loadAfterSales()">{{
+          loading ? "正在读取…" : "刷新来源与记录"
+        }}</AppButton>
+        </template>
         <template #filters
-          ><label
-            >搜索售后<AppInput
-              v-model="query"
-              placeholder="售后编号、客户、物料、方式或阶段" /></label
-        ></template>
+            ><label
+              >搜索售后<AppInput
+                v-model="query"
+                placeholder="售后编号、客户、物料、方式或阶段" /></label
+          ></template>
         <template #cell-source="{ row }"
           ><strong
             ><!-- 单号直接打开证据面板，与操作列「查看」并存两个入口。 -->

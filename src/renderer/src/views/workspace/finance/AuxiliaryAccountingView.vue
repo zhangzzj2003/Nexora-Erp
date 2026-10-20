@@ -115,7 +115,8 @@ function inspectJournal(id: number, event?: Event): void {
     <div class="ledger-actions" aria-label="辅助核算内容">
       <AppButton :variant="mode === 'balances' ? 'primary' : 'secondary'" @click="mode = 'balances'">辅助余额</AppButton>
       <AppButton :variant="mode === 'configuration' ? 'primary' : 'secondary'" @click="mode = 'configuration'">档案与科目规则</AppButton>
-      <AppButton variant="secondary" :disabled="loading || busy || connectionLost" @click="loadAuxiliaryOptions">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
+      <!-- 报表未显示列表时保留读取入口，档案列表使用公共操作栏。 -->
+      <AppButton v-if="mode === 'balances'" variant="secondary" :disabled="loading || busy || connectionLost" @click="loadAuxiliaryOptions">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
     </div>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="!options && !loading && !error">先读取辅助档案和科目，再查询余额或维护规则。</p>
@@ -146,7 +147,10 @@ function inspectJournal(id: number, event?: Event): void {
     </template>
     <template v-else>
       <WorkspaceTable title="部门与项目辅助档案" :columns="itemColumns" :data="items" :min-table-width="800">
-        <template #actions><AppButton v-if="can('auxiliary.manage')" variant="primary" :disabled="!options || busy || loading || connectionLost" @click.capture="captureDialogOrigin('AuxiliaryAccountingView:item', $event)" @click="editItem()">新增辅助档案</AppButton></template>
+        <template #actions>
+          <AppButton variant="secondary" :disabled="loading || busy || connectionLost" @click="loadAuxiliaryOptions">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
+          <AppButton v-if="can('auxiliary.manage')" variant="primary" :disabled="!options || busy || loading || connectionLost" @click.capture="captureDialogOrigin('AuxiliaryAccountingView:item', $event)" @click="editItem()">新增辅助档案</AppButton>
+        </template>
         <template #cell-kind="{ row }">{{ auxiliaryLabels[row.kind as AuxiliaryKind] }}</template><template #cell-is_active="{ row }">{{ row.is_active ? '启用' : '停用' }}</template>
         <template #cell-actions="{ row }"><AppButton v-if="can('auxiliary.manage')" variant="text" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('AuxiliaryAccountingView:item', $event)" @click="editItem(row)">修改 / 启停</AppButton><span v-else>只读</span></template>
         <template #empty>{{ loading ? '正在读取档案…' : '暂无部门或项目辅助档案。客户和供应商复用基础资料，不在此重复建档。' }}</template>

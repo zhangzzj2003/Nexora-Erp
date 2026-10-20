@@ -189,9 +189,8 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
       <AppButton :variant="mode === 'payments' ? 'primary' : 'secondary'" @click="mode = 'payments'">资金记录</AppButton>
       <AppButton :variant="mode === 'settlements' ? 'primary' : 'secondary'" @click="mode = 'settlements'">原单核销</AppButton>
       <AppButton v-if="can('subledger_order_settlement.view')" :variant="mode === 'orders' ? 'primary' : 'secondary'" @click="mode = 'orders'">历史与订单核销</AppButton>
-      <AppButton :disabled="disabled" @click="reload">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
+      <AppButton v-if="mode === 'balances'" :disabled="disabled" @click="reload">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
     </div>
-    <label v-if="mode !== 'balances'">搜索单据<AppInput v-model.trim="documentQuery" placeholder="单号、参考号或原 ID" /></label>
     <p v-if="connectionLost" role="status">连接已断开，查询和写入暂停；未保存的输入保留，恢复连接后请重新读取。</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="operationError && !editing && !command && !reversal && !payment && !fundCommand" role="alert">{{ operationError }}</p>
@@ -225,7 +224,12 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
     <template v-else-if="mode === 'plans'">
       <p>先确认总账期初，再逐对象及完整辅助组合核对分户。首次启用前不得已有业务往来来源、订单资金登记或已过账凭证；错误方案可取消后重建。</p>
       <WorkspaceTable class="journal-list-table" title="分户期初方案" :show-title="false" :columns="plans" :data="filteredPlans" :min-table-width="1030" :loading="loading">
-        <template #actions><AppButton v-if="can('subledger_opening.create')" variant="primary" :disabled="disabled || active || preparing" @click.capture="captureDialogOrigin('SubledgerOpeningsView:form', $event)" @click="edit()">{{ preparing ? '正在读取…' : '新增分户方案' }}</AppButton></template>
+        <!-- 查询与操作随当前列表显示，切换页签仍保留搜索词。 -->
+        <template #filters><label>搜索单据<AppInput v-model.trim="documentQuery" placeholder="单号、参考号或原 ID" /></label></template>
+        <template #actions>
+          <AppButton :disabled="disabled" @click="reload">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
+          <AppButton v-if="can('subledger_opening.create')" variant="primary" :disabled="disabled || active || preparing" @click.capture="captureDialogOrigin('SubledgerOpeningsView:form', $event)" @click="edit()">{{ preparing ? '正在读取…' : '新增分户方案' }}</AppButton>
+        </template>
         <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
         <template #cell-count="{ row }">{{ row.lines.length }}</template>
         <template #cell-status="{ row }">{{ openingStatusLabels[row.status] }} · v{{ row.version }}<small class="approval-caption">{{ approvalCaption(row) }}</small></template>
@@ -239,12 +243,26 @@ const approvalCaption = (item: SubledgerOpening) => !item.approval?.version && [
         <template #empty>暂无分户方案。请先独立审核并确认总账期初，再建立历史未结明细。</template>
       </WorkspaceTable>
     </template>
-    <SubledgerSettlements v-else-if="mode === 'settlements'" :search="documentQuery" />
-    <SubledgerOrderSettlements v-else-if="mode === 'orders' && can('subledger_order_settlement.view')" :search="documentQuery" />
+    <SubledgerSettlements v-else-if="mode === 'settlements'" :search="documentQuery">
+      <template #filters><label>搜索单据<AppInput v-model.trim="documentQuery" placeholder="单号、参考号或原 ID" /></label></template>
+      <template #actions>
+        <AppButton :disabled="disabled" @click="reload">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
+      </template>
+    </SubledgerSettlements>
+    <SubledgerOrderSettlements v-else-if="mode === 'orders' && can('subledger_order_settlement.view')" :search="documentQuery">
+      <template #filters><label>搜索单据<AppInput v-model.trim="documentQuery" placeholder="单号、参考号或原 ID" /></label></template>
+      <template #actions>
+        <AppButton :disabled="disabled" @click="reload">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
+      </template>
+    </SubledgerOrderSettlements>
     <template v-else>
       <p>历史资金草稿与反向记录全部保留；独立批准后执行才更新未结余额，时间显示为本地时间。退款为负，反向草稿关联原资金。</p>
-      <AppButton v-if="can('journal.view') && can('business_journal.view')" :disabled="disabled" @click="store.navigateToRoute('journals')">到凭证管理生成业务凭证</AppButton>
       <WorkspaceTable class="journal-list-table" title="分户资金记录" :columns="funds" :data="filteredFunds" :min-table-width="1350" :loading="loading">
+        <template #filters><label>搜索单据<AppInput v-model.trim="documentQuery" placeholder="单号、参考号或原 ID" /></label></template>
+        <template #actions>
+          <AppButton :disabled="disabled" @click="reload">{{ loading ? '正在读取…' : '重新读取' }}</AppButton>
+          <AppButton v-if="can('journal.view') && can('business_journal.view')" :disabled="disabled" @click="store.navigateToRoute('journals')">到凭证管理生成业务凭证</AppButton>
+        </template>
         <template #cell-kind="{ row }">{{ subledgerKindLabels[row.kind] }}</template>
         <template #cell-id="{ row }">{{ documentLabel(row) }}</template>
         <template #cell-action="{ row }">{{ paymentLabel(row) }}{{ row.reverses_id ? ` · 原记录 ${relatedDocumentLabel(row, 'reverses')}` : '' }}<p v-if="row.control_scope">固定科目 #{{ row.control_scope.account_id }} · {{ auxiliaryText(row.control_scope.auxiliary) }}</p></template>

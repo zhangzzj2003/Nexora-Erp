@@ -91,17 +91,22 @@ async function confirm(): Promise<void> {
 
 <template>
   <p>历史贷方可抵订单待结款，订单贷方也可抵历史待结款。双方必须为同一对象、控制科目及完整辅助组合；草稿和批准不占额度，执行才更新余额。</p>
-  <div class="ledger-actions">
-    <AppButton :disabled="disabled" @click="loadSubledgerOrders">{{ loading ? '正在核对…' : '读取最新核销依据' }}</AppButton>
-    <AppButton v-if="can('finance.record')" variant="primary" :disabled="disabled || !options?.active" @click.capture="captureDialogOrigin('SubledgerOrderSettlements:form', $event)" @click="start">新增历史与订单核销</AppButton>
-  </div>
+
   <p v-if="options && !options.active">请先确认并启用历史分户方案。</p>
   <p v-if="readError" role="alert">{{ readError }} 请重新读取核销依据。</p>
   <NCollapse v-if="blockers.length"><AppCollapseItem name="blockers" :title="`${blockers.length} 张订单暂不可核销，查看缺少的依据`">
     <p v-for="row in blockers" :key="`${row.kind}:${row.order_id}`">{{ row.order_document_no || '#' + row.order_id }} · {{ row.party_name }}：{{ row.blockers.join('；') }}。请先核对业务来源并完成凭证过账。</p>
   </AppCollapseItem></NCollapse>
   <WorkspaceTable title="历史与订单核销" :columns="columns" :data="filtered" :loading="loading" :min-table-width="1700">
-    <template #cell-id="{ row }">{{ documentLabel(row) }}<small v-if="row.reverses_id">原核销 {{ relatedDocumentLabel(row, 'reverses') }}</small></template>
+    <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
+      <!-- 父页面提供共用搜索和重新读取，核销自身操作继续在同一栏。 -->
+    <template v-if="$slots.filters" #filters><slot name="filters" /></template>
+    <template #actions>
+      <slot name="actions" />
+      <AppButton :disabled="disabled" @click="loadSubledgerOrders">{{ loading ? '正在核对…' : '读取最新核销依据' }}</AppButton>
+      <AppButton v-if="can('finance.record')" variant="primary" :disabled="disabled || !options?.active" @click.capture="captureDialogOrigin('SubledgerOrderSettlements:form', $event)" @click="start">新增历史与订单核销</AppButton>
+    </template>
+      <template #cell-id="{ row }">{{ documentLabel(row) }}<small v-if="row.reverses_id">原核销 {{ relatedDocumentLabel(row, 'reverses') }}</small></template>
     <template #cell-direction="{ row }">{{ directionLabels[row.direction as keyof typeof directionLabels] }}</template>
     <template #cell-order_id="{ row }">{{ relatedDocumentLabel(row, 'order') }}</template>
     <template #cell-executed_at="{ row }">{{ row.executed_at ? localTime(row.executed_at) : '尚未执行' }}</template>

@@ -503,7 +503,10 @@ async function returnToWorkOrder(): Promise<void> {
         </AppButton>
       </form>
     </AppModal>
-    <WorkspaceSummaryFilters v-model="recordFilters.status" :options="recordSummaries" hint="按搜索与仓库统计全部匹配单据 · 点击筛选状态" />
+    <!-- 统计统一进入页面标题右侧，与其他入库保持相同位置。 -->
+    <Teleport to="#workspace-page-summary" defer>
+      <WorkspaceSummaryFilters v-model="recordFilters.status" :options="recordSummaries" hint="按搜索与仓库统计全部匹配单据 · 点击筛选状态" />
+    </Teleport>
     <p v-if="scopeOrderId" class="muted">当前仅显示来源工单的完工记录。
       <AppButton variant="text" @click="router.push(routeByKey('productionCompletions').path)">查看全部完工记录</AppButton>
     </p>

@@ -145,9 +145,10 @@ function fieldKind(field: MaterialSpecField): string {return `${kindOptions.find
       <template #actions>
         <AppButton type="button" size="small" :disabled="filtering || !materialCategories.length" @click="expandGroups(true)">展开全部</AppButton>
         <AppButton type="button" size="small" :disabled="filtering || !materialCategories.length" @click="expandGroups(false)">收起全部</AppButton>
-        <AppButton v-if="can('catalog.manage')" variant="primary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="editCategory()">新增大类</AppButton>
         <AppButton v-if="can('catalog.manage') && form.name" variant="secondary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="showForm = true">继续类别草稿</AppButton>
         <AppButton v-if="can('catalog.manage') && fieldForm.name" variant="secondary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:field', $event)" @click="showField = true">继续规格草稿</AppButton>
+        <!-- 新建主操作统一置于辅助操作之后。 -->
+        <AppButton v-if="can('catalog.manage')" variant="primary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:form', $event)" @click="editCategory()">新增大类</AppButton>
       </template>
       <template #filters>
         <label class="catalog-search">搜索类别<AppInput v-model="query" aria-label="搜索类别" placeholder="类别名称、前缀或说明" /></label>
@@ -174,7 +175,9 @@ function fieldKind(field: MaterialSpecField): string {return `${kindOptions.find
       <template #empty>暂无匹配类别。</template>
     </WorkspaceTable>
     <WorkspaceTable v-if="selected" :title="`${selectedPath} · 规格模板 v${selected.template_version}`" :description="`所属子类：${selectedPath}（${selected.code}）`" :columns="fieldColumns" :data="selected.fields" :min-table-width="850">
-      <template #actions><AppButton v-if="can('catalog.manage')" variant="primary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:field', $event)" @click="editField()">新增规格字段</AppButton></template>
+      <template #actions>
+        <AppButton v-if="can('catalog.manage')" variant="primary" type="button" :disabled="blocked" @click.capture="captureDialogOrigin('MaterialCategoriesView:field', $event)" @click="editField()">新增规格字段</AppButton>
+      </template>
       <template #cell-kind="{row}">{{ fieldKind(row) }}</template>
       <template #cell-options="{row}">{{ row.options.join('、') || '—' }}<p v-if="row.allow_custom" class="material-hint">允许自定义值</p></template>
       <template #cell-required="{row}">{{ row.required ? '是' : '否' }}</template>

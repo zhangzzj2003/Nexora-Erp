@@ -107,41 +107,54 @@ onMounted(()=>{void store.loadEquipment()});onUnmounted(()=>store.clearEquipment
   <section class="stack equipment-workspace">
     <p v-if="!store.can('equipment.view')" role="alert">当前账号没有设备维护查看权限，请联系管理员核对授权。</p>
     <template v-else>
-      <div class="equipment-toolbar"><AppButton v-for="kind in (['job','asset','plan','hour_plan'] as const)" :key="kind" :variant="mode===kind?'primary':'secondary'" :disabled="busy || preparing" @click="selectMode(kind)">{{ entityLabel[kind] }}</AppButton><AppButton :disabled="disabled" @click="store.loadEquipment()">{{ loading?'正在读取…':'刷新维护资料' }}</AppButton></div>
+      <div class="equipment-toolbar"><AppButton v-for="kind in (['job','asset','plan','hour_plan'] as const)" :key="kind" :variant="mode===kind?'primary':'secondary'" :disabled="busy || preparing" @click="selectMode(kind)">{{ entityLabel[kind] }}</AppButton><!-- 编辑或查询面板仍保留原有公共读取入口。 -->
+      <template v-if="editor"><AppButton :disabled="disabled" @click="store.loadEquipment()">{{ loading?'正在读取…':'刷新维护资料' }}</AppButton></template></div>
       <p v-if="connectionLost" role="alert">服务端连接中断，旧证据与动作已失效。未保存正文和修订版本保留；恢复后须核对最新记录。</p>
       <p v-if="failure" role="alert">{{ failure }} 请刷新维护资料后重试。</p>
       <EquipmentEditor v-if="editor" :kind="mode" @saved="editor=false" @close="editor=false" />
       <template v-else>
         <WorkspaceTable v-if="mode==='asset'" title="设备台账" :show-title="false" :columns="assetColumns" :data="assets" :min-table-width="1000" :loading="loading">
           <template #filters><label>搜索设备<AppInput v-model="query" placeholder="设备编号、名称、序列号或位置" /></label><label>设备状态<WorkspaceSelect v-model="filter" :options="filters" /></label></template>
-          <template #actions><AppButton v-if="store.can('equipment.manage')" :disabled="disabled" @click="start('asset')">新建设备</AppButton></template>
+          <template #actions>
+            <AppButton :disabled="disabled" @click="store.loadEquipment()">{{ loading?'正在读取…':'刷新维护资料' }}</AppButton>
+            <AppButton variant="primary" v-if="store.can('equipment.manage')" :disabled="disabled" @click="start('asset')">新建设备</AppButton>
+          </template>
           <template #cell-name="{row}"><strong>{{ row.code }} · {{ row.name }}</strong><span class="equipment-secondary">{{ row.serial_number || '无序列号' }}</span></template>
           <template #cell-location="{row}">{{ row.location || '未登记' }}</template>
           <template #cell-status="{row}">{{ equipmentStatus[row.status as keyof typeof equipmentStatus] }} · v{{ row.version }}<span class="equipment-secondary">{{ row.meter_reading?`表计 ${row.meter_reading.hours} 小时`:'未登记表计' }}</span><span v-if="row.running_job_ids.length" class="equipment-secondary">工单 {{ row.running_job_ids.map((id:number)=>'#'+id).join('、') }} 执行中或待验收</span></template>
-          <template #cell-actions="{row}"><div class="equipment-toolbar"><AppButton size="small" :disabled="disabled" @click="inspect('asset',row.id)">详情与历史</AppButton><AppButton v-if="store.can('equipment.manage')" size="small" :disabled="disabled" @click="inspect('asset',row.id,true)">修订设备</AppButton><AppButton v-if="store.can('equipment.create') && row.status==='active'" size="small" :disabled="disabled" @click="start('job',row.id)">故障维修</AppButton><AppButton v-if="store.can('equipment.manage') && row.status==='active'" size="small" :disabled="disabled" @click="start('plan',row.id)">建立日历计划</AppButton><AppButton v-if="store.can('equipment.manage') && row.status==='active' && row.meter_reading" size="small" :disabled="disabled" @click="start('hour_plan',row.id)">建立小时计划</AppButton></div></template>
+          <template #cell-actions="{row}"><div class="equipment-toolbar"><AppButton size="small" :disabled="disabled" @click="inspect('asset',row.id)">详情与历史</AppButton><AppButton variant="primary" v-if="store.can('equipment.manage')" size="small" :disabled="disabled" @click="inspect('asset',row.id,true)">修订设备</AppButton><AppButton variant="primary" v-if="store.can('equipment.create') && row.status==='active'" size="small" :disabled="disabled" @click="start('job',row.id)">故障维修</AppButton><AppButton variant="primary" v-if="store.can('equipment.manage') && row.status==='active'" size="small" :disabled="disabled" @click="start('plan',row.id)">建立日历计划</AppButton><AppButton variant="primary" v-if="store.can('equipment.manage') && row.status==='active' && row.meter_reading" size="small" :disabled="disabled" @click="start('hour_plan',row.id)">建立小时计划</AppButton></div></template>
           <template #empty>{{ empty }}</template>
         </WorkspaceTable>
         <WorkspaceTable v-else-if="mode==='plan'" title="周期计划" :show-title="false" :columns="planColumns" :data="plans" :min-table-width="1000" :loading="loading">
           <template #filters><label>搜索周期计划<AppInput v-model="query" placeholder="计划依据、内容或设备" /></label><label>计划状态<WorkspaceSelect v-model="filter" :options="filters" /></label></template>
-          <template #actions><AppButton v-if="store.can('equipment.manage')" :disabled="disabled" @click="start('plan')">新建周期计划</AppButton></template>
+          <template #actions>
+            <AppButton :disabled="disabled" @click="store.loadEquipment()">{{ loading?'正在读取…':'刷新维护资料' }}</AppButton>
+            <AppButton variant="primary" v-if="store.can('equipment.manage')" :disabled="disabled" @click="start('plan')">新建周期计划</AppButton>
+          </template>
           <template #cell-name="{row}"><strong>{{ row.reference }} · {{ row.title }}</strong><span class="equipment-secondary">{{ equipmentName(row.equipment_id) }}</span></template>
           <template #cell-schedule="{row}">{{ row.next_due }}（UTC 日期）<span class="equipment-secondary">间隔 {{ row.interval_days }} 天 · v{{ row.version }}</span></template>
           <template #cell-status="{row}">{{ !row.enabled?'已停用':row.due?'已到期':'未到期' }}<span v-if="row.open_job_ids.length" class="equipment-secondary">未结束工单 {{ row.open_job_ids.map((id:number)=>'#'+id).join('、') }}</span></template>
-          <template #cell-actions="{row}"><div class="equipment-toolbar"><AppButton size="small" :disabled="disabled" @click="inspect('plan',row.id)">详情与历史</AppButton><AppButton v-if="store.can('equipment.manage') && !row.open_job_ids.length" size="small" :disabled="disabled" @click="inspect('plan',row.id,true)">修订计划</AppButton><AppButton v-if="store.can('equipment.create') && row.due && !row.open_job_ids.length" size="small" :disabled="disabled" @click="start('job',row.equipment_id,row.id)">建立周期保养</AppButton></div></template>
+          <template #cell-actions="{row}"><div class="equipment-toolbar"><AppButton size="small" :disabled="disabled" @click="inspect('plan',row.id)">详情与历史</AppButton><AppButton variant="primary" v-if="store.can('equipment.manage') && !row.open_job_ids.length" size="small" :disabled="disabled" @click="inspect('plan',row.id,true)">修订计划</AppButton><AppButton variant="primary" v-if="store.can('equipment.create') && row.due && !row.open_job_ids.length" size="small" :disabled="disabled" @click="start('job',row.equipment_id,row.id)">建立周期保养</AppButton></div></template>
           <template #empty>{{ empty }}</template>
         </WorkspaceTable>
         <WorkspaceTable v-else-if="mode==='hour_plan'" title="运行小时计划" :show-title="false" :columns="planColumns" :data="hourPlans" :min-table-width="1000" :loading="loading">
           <template #filters><label>搜索运行小时计划<AppInput v-model="query" placeholder="依据、内容、设备或阈值" /></label><label>计划状态<WorkspaceSelect v-model="filter" :options="filters" /></label></template>
-          <template #actions><AppButton v-if="store.can('equipment.manage')" :disabled="disabled" @click="start('hour_plan')">新建运行小时计划</AppButton></template>
+          <template #actions>
+            <AppButton :disabled="disabled" @click="store.loadEquipment()">{{ loading?'正在读取…':'刷新维护资料' }}</AppButton>
+            <AppButton variant="primary" v-if="store.can('equipment.manage')" :disabled="disabled" @click="start('hour_plan')">新建运行小时计划</AppButton>
+          </template>
           <template #cell-name="{row}"><strong>{{ row.reference }} · {{ row.title }}</strong><span class="equipment-secondary">{{ equipmentName(row.equipment_id) }}</span></template>
           <template #cell-schedule="{row}">阈值 {{ row.next_due_hours }} 小时<span class="equipment-secondary">当前 {{ row.current_hours??'未登记' }} 小时 · 间隔 {{ row.interval_hours }} 小时 · v{{ row.version }}</span></template>
           <template #cell-status="{row}">{{ !row.enabled?'已停用':row.due?'已到期':'未到期' }}<span v-if="row.open_job_ids.length" class="equipment-secondary">未结束工单 {{ row.open_job_ids.map((id:number)=>'#'+id).join('、') }}</span></template>
-          <template #cell-actions="{row}"><div class="equipment-toolbar"><AppButton size="small" :disabled="disabled" @click="inspect('hour_plan',row.id)">详情与历史</AppButton><AppButton v-if="store.can('equipment.manage') && !row.open_job_ids.length" size="small" :disabled="disabled" @click="inspect('hour_plan',row.id,true)">修订计划</AppButton><AppButton v-if="store.can('equipment.create') && row.due && !row.open_job_ids.length" size="small" :disabled="disabled" @click="start('job',row.equipment_id,null,row.id)">建立小时保养</AppButton></div></template>
+          <template #cell-actions="{row}"><div class="equipment-toolbar"><AppButton size="small" :disabled="disabled" @click="inspect('hour_plan',row.id)">详情与历史</AppButton><AppButton variant="primary" v-if="store.can('equipment.manage') && !row.open_job_ids.length" size="small" :disabled="disabled" @click="inspect('hour_plan',row.id,true)">修订计划</AppButton><AppButton variant="primary" v-if="store.can('equipment.create') && row.due && !row.open_job_ids.length" size="small" :disabled="disabled" @click="start('job',row.equipment_id,null,row.id)">建立小时保养</AppButton></div></template>
           <template #empty>{{ empty }}</template>
         </WorkspaceTable>
         <WorkspaceTable v-else title="维护工单" :show-title="false" :columns="jobColumns" :data="jobs" :min-table-width="1150" :loading="loading">
           <template #filters><label>搜索维护工单<AppInput v-model="query" placeholder="依据编号、设备或执行人" /></label><label>维护阶段<WorkspaceSelect v-model="filter" :options="filters" /></label></template>
-          <template #actions><AppButton v-if="store.can('equipment.create')" :disabled="disabled" @click="start('job')">新建维护工单</AppButton></template>
+          <template #actions>
+            <AppButton :disabled="disabled" @click="store.loadEquipment()">{{ loading?'正在读取…':'刷新维护资料' }}</AppButton>
+            <AppButton variant="primary" v-if="store.can('equipment.create')" :disabled="disabled" @click="start('job')">新建维护工单</AppButton>
+          </template>
           <template #cell-name="{row}"><strong>{{ documentLabel(row) }}</strong><span class="equipment-secondary">{{ row.reference }} · {{ row.equipment_snapshot.code }} · {{ row.equipment_snapshot.name }}</span></template>
           <template #cell-executor="{row}">{{ maintenanceKind[row.kind as keyof typeof maintenanceKind] }} · {{ row.assigned_to_name }}<span v-if="row.plan_due_date" class="equipment-secondary">本次到期 {{ row.plan_due_date }}</span><span v-if="row.plan_due_hours" class="equipment-secondary">本次阈值 {{ row.plan_due_hours }} 小时</span></template>
           <template #cell-status="{row}">{{ maintenanceStatus[row.status as keyof typeof maintenanceStatus] }} · v{{ row.version }}<span v-if="row.parts_outbound_id" class="equipment-secondary">出库 {{ relatedDocumentLabel(row, 'parts_outbound') }} · {{ partsStatus[row.parts_status as keyof typeof partsStatus] }}</span></template>

@@ -147,8 +147,10 @@ async function confirm(): Promise<void> {
     <div class="ledger-actions">
       <AppButton :aria-pressed="mode === 'records'" :variant="mode === 'records' ? 'primary' : 'secondary'" @click="mode = 'records'">转账记录</AppButton>
       <AppButton :aria-pressed="mode === 'balances'" :variant="mode === 'balances' ? 'primary' : 'secondary'" @click="mode = 'balances'">截止日组合余额</AppButton>
-      <AppButton :disabled="disabled" @click="loadControlBalances">{{ loading ? '正在核对…' : '读取最新依据' }}</AppButton>
-      <AppButton v-if="can('control_transfer.create')" :disabled="disabled || !options" variant="primary" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:form', $event)" @click="start">新增余额转账</AppButton>
+      <!-- 编辑或查询面板仍保留原有公共读取入口。 -->
+      <template v-if="mode!=='records'"><AppButton :disabled="disabled" @click="loadControlBalances">{{ loading ? '正在核对…' : '读取最新依据' }}</AppButton>
+        <AppButton v-if="can('control_transfer.create')" :disabled="disabled || !options" variant="primary" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:form', $event)" @click="start">新增余额转账</AppButton></template>
+
     </div>
     <p v-if="readError" role="alert">{{ readError }}</p>
     <NCollapse v-if="blockedOrigins.length"><AppCollapseItem name="blocked" :title="`${blockedOrigins.length} 个原单存在组合依据缺口`">
@@ -157,6 +159,11 @@ async function confirm(): Promise<void> {
     <WorkspaceTable v-if="mode === 'records'" title="往来余额转账" :data="filtered" :loading="loading" :min-table-width="1460" :columns="[
       { key: 'id', title: '转账单号', width: '190' }, { key: 'party', title: '往来与用途', width: '210' }, { key: 'scopes', title: '来源 / 目标原单', width: '280' },
       { key: 'amount', title: '金额（元）' }, { key: 'business_date', title: '生效日期' }, { key: 'status', title: '审批与过账', width: '230' }, { key: 'actions', title: '操作', width: '420' } ]">
+      <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
+      <template #actions>
+        <AppButton :disabled="disabled" @click="loadControlBalances">{{ loading ? '正在核对…' : '读取最新依据' }}</AppButton>
+        <AppButton v-if="can('control_transfer.create')" :disabled="disabled || !options" variant="primary" @click.capture="captureDialogOrigin('ControlBalanceTransfersView:form', $event)" @click="start">新增余额转账</AppButton>
+      </template>
       <template #filters><label class="ledger-search">搜索单号、原单或往来对象<AppInput v-model="query" /></label></template>
       <template #cell-id="{ row }">{{ documentLabel(row) }}<p v-if="row.reverses_id">反向原转账 #{{ row.reverses_id }}</p></template>
       <template #cell-party="{ row }">{{ row.evidence.source.party_name }}<p>{{ controlKindLabels[row.kind] }} · {{ controlOperationLabels[row.operation] }}</p></template>

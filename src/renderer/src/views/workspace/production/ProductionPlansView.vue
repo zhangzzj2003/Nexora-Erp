@@ -8,6 +8,7 @@ import AppInput from '../../../components/app/AppInput.vue'
 import AppModal from '../../../components/app/AppModal.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
 import WorkspaceSummaryFilters from '../../../components/workspace/WorkspaceSummaryFilters.vue'
+import WorkspaceSearchFilters from '../../../components/workspace/WorkspaceSearchFilters.vue'
 import WorkspaceDocumentDialog from '../../../components/workspace/WorkspaceDocumentDialog.vue'
 import DocumentApprovalDialog from '../../../components/workspace/DocumentApprovalDialog.vue'
 import ProductionPlanEditor from './ProductionPlanEditor.vue'
@@ -117,6 +118,10 @@ async function refresh(): Promise<void> {
   const id = showDetail.value ? detail.value?.id : undefined
   if (await store.loadProductionPlans() && id && showDetail.value) await store.loadProductionPlanDetail(id)
 }
+function resetFilters(): void {
+  // 列表重置只清除关键词和状态，不改动未保存的生产安排。
+  query.value = ''; filter.value = 'all'
+}
 function resetDialogs(): void { editor.value = false; closeDetail(); command.value = null; release.value = null; reason.value = '' }
 onMounted(() => store.loadProductionPlans())
 onUnmounted(store.clearProductionPlanDetail)
@@ -127,18 +132,25 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
 </script>
 <template>
   <section class="stack production-plans">
-    <div class="plan-toolbar">
-      <AppButton v-if="store.can('production_plan.create')" variant="primary" :disabled="disabled || !options" @click.capture="captureDialogOrigin('production-plan-editor', $event)" @click="newPlan">{{ editing ? '继续编辑草稿' : form.lines.length ? '继续编制计划' : '新建生产计划' }}</AppButton>
-      <AppButton v-if="store.can('production_plan.create') && form.lines.length" :disabled="disabled" @click="store.resetProductionPlanForm">清空未保存输入</AppButton>
-      <AppButton :disabled="disabled" @click="refresh">{{ loading ? '正在读取…' : '刷新计划' }}</AppButton>
-      <AppButton v-if="store.can('mrp.view')" @click="store.navigateToRoute('materialPlanning')">物料需求计划</AppButton>
-      <AppButton v-if="store.can('production.view')" @click="store.navigateToRoute('workOrders')">生产工单</AppButton>
-    </div>
-    <WorkspaceSummaryFilters v-model="filter" :options="counts" />
+    <!-- 与其他入库共用标题右侧统计目标，页面卸载时自动移除本页概览。 -->
+    <Teleport defer to="#workspace-page-summary">
+      <WorkspaceSummaryFilters v-model="filter" :options="counts" />
+    </Teleport>
     <p v-if="options?.unavailable_boms?.length" role="status">{{ options.unavailable_boms.length }} 个 BOM 的下层配方暂不可用，已从新计划候选中移除，请在产品与 BOM 中核对。已有计划仍可查看与处理。</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <WorkspaceTable title="生产计划" :show-title="false" :columns="columns" :data="filtered" :loading="loading" :min-table-width="1040">
-      <template #filters><label>搜索计划<AppInput v-model="query" placeholder="计划编号、名称、产品或日期" /></label></template>
+      <!-- 功能按钮统一进入表格筛选栏右侧，主操作放在末尾，窄窗口沿用公共换行布局。 -->
+      <template #actions>
+        <AppButton :disabled="disabled" @click="refresh">{{ loading ? '正在读取…' : '刷新计划' }}</AppButton>
+        <AppButton v-if="store.can('mrp.view')" @click="store.navigateToRoute('materialPlanning')">物料需求计划</AppButton>
+        <AppButton v-if="store.can('production.view')" @click="store.navigateToRoute('workOrders')">生产工单</AppButton>
+        <AppButton v-if="store.can('production_plan.create') && form.lines.length" :disabled="disabled" @click="store.resetProductionPlanForm">清空未保存输入</AppButton>
+        <AppButton v-if="store.can('production_plan.create')" variant="primary" :disabled="disabled || !options" @click.capture="captureDialogOrigin('production-plan-editor', $event)" @click="newPlan">{{ editing ? '继续编辑草稿' : form.lines.length ? '继续编制计划' : '新建生产计划' }}</AppButton>
+      </template>
+      <template #filters>
+        <WorkspaceSearchFilters v-model:query="query" :filters="{}" search-label="搜索计划"
+          search-placeholder="计划编号、名称、产品或日期" :reset-disabled="!query && filter === 'all'" @reset="resetFilters" />
+      </template>
       <template #cell-plan="{ row }"><strong>{{ documentLabel(row) }}</strong><span class="plan-line">{{ row.reference }}</span></template>
       <template #cell-products="{ row }">{{ row.products }}<span class="plan-line muted">{{ row.line_count }} 项生产安排</span></template>
       <template #cell-dates="{ row }">{{ row.start_date }}<span class="plan-line">至 {{ row.end_date }}</span><span v-if="row.overdue_count" class="plan-overdue">{{ row.overdue_count }} 项延期</span></template>

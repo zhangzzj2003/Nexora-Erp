@@ -86,8 +86,7 @@ async function generate(): Promise<void> {
 <template>
   <section class="stack business-journal-panel" aria-label="业务凭证来源">
     <div class="journal-total"><p>按已确认业务生成凭证草稿。金额和来源由服务端核对，提交后由另一账号审核。</p>
-      <div class="ledger-actions"><AppButton variant="secondary" :disabled="loading || busy || connectionLost" @click="loadBusinessJournals()">{{ loading ? '正在读取…' : '刷新来源' }}</AppButton>
-        <AppButton v-if="can('business_journal.configure')" variant="secondary" :disabled="!options || loading || busy || connectionLost" @click="editPolicy">科目配置</AppButton></div>
+
     </div>
     <p v-if="loadError" role="alert">{{ loadError }} 请重新读取来源。</p>
     <p v-else-if="options && !options.policy.version">尚未启用业务凭证。配置前先核对已有手工账务，避免重复记账。</p>
@@ -103,6 +102,11 @@ async function generate(): Promise<void> {
       <div class="form-actions"><AppButton variant="primary" type="submit" :disabled="busy || connectionLost || loading">{{ busy ? '正在保存…' : '保存配置' }}</AppButton><AppButton type="button" variant="secondary" :disabled="busy" @click="configure = false">返回来源</AppButton></div>
     </form>
     <WorkspaceTable title="业务来源" :columns="columns" :data="rows" :min-table-width="920">
+      <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
+      <template #actions>
+        <AppButton variant="secondary" :disabled="loading || busy || connectionLost" @click="loadBusinessJournals()">{{ loading ? '正在读取…' : '刷新来源' }}</AppButton>
+        <AppButton v-if="can('business_journal.configure')" variant="secondary" :disabled="!options || loading || busy || connectionLost" @click="editPolicy">科目配置</AppButton>
+      </template>
       <template #filters><label>搜索来源<AppInput v-model="query" placeholder="单据类别、来源号或凭证号" /></label><label>来源状态<WorkspaceSelect v-model="filter" :options="filterOptions" aria-label="来源状态" /></label></template>
       <template #cell-key="{ row }">{{ row.label }} {{ relatedDocumentLabel(row, 'source') }}</template><template #cell-amount="{ row }">{{ row.blockers.some((item: string) => item.includes('核价') || item.includes('单价')) ? '待核价' : `¥${businessTotal(row)}` }}</template>
       <template #cell-state="{ row }"><span v-if="row.journal_id">{{ journalStatusLabels[row.journal_status as keyof typeof journalStatusLabels] }} · {{ relatedDocumentLabel(row, 'journal') }}</span><span v-else-if="row.blockers.length">{{ row.blockers.join('；') }}</span><span v-else>{{ row.no_amount ? '分位净额为零' : '可生成草稿' }}</span></template>

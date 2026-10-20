@@ -197,9 +197,10 @@ onUnmounted(() => store.clearQualityDetail());
         :disabled="busy"
         @click="selectMode('records')"
         >处置记录</AppButton
-      ><AppButton :disabled="disabled" @click="store.loadQuality()">{{
+      ><!-- 编辑或查询面板仍保留原有公共读取入口。 -->
+      <template v-if="editor && store.can('quality.create')"><AppButton :disabled="disabled" @click="store.loadQuality()">{{
         loading ? "正在读取…" : "刷新来源与记录"
-      }}</AppButton>
+      }}</AppButton></template>
     </div>
     <p v-if="connectionLost" role="alert">
       服务端连接中断，旧证据与动作已失效。未保存输入保留，恢复连接后重新读取并核对版本。
@@ -223,12 +224,18 @@ onUnmounted(() => store.clearQualityDetail());
         :min-table-width="1000"
         :loading="loading"
       >
+        <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
+        <template #actions>
+          <AppButton :disabled="disabled" @click="store.loadQuality()">{{
+          loading ? "正在读取…" : "刷新来源与记录"
+        }}</AppButton>
+        </template>
         <template #filters
-          ><label
-            >搜索质检来源<AppInput
-              v-model="query"
-              placeholder="完工单、工单、成品或检验依据" /></label
-        ></template>
+            ><label
+              >搜索质检来源<AppInput
+                v-model="query"
+                placeholder="完工单、工单、成品或检验依据" /></label
+          ></template>
         <template #cell-source="{ row }"
           ><strong
             >完工 {{ documentLabel(row) }} · 工单
@@ -290,12 +297,18 @@ onUnmounted(() => store.clearQualityDetail());
         :min-table-width="1100"
         :loading="loading"
       >
+        <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
+        <template #actions>
+          <AppButton :disabled="disabled" @click="store.loadQuality()">{{
+          loading ? "正在读取…" : "刷新来源与记录"
+        }}</AppButton>
+        </template>
         <template #filters
-          ><label
-            >搜索处置记录<AppInput
-              v-model="query"
-              placeholder="依据编号、原质检、成品、编制人或阶段" /></label
-        ></template>
+            ><label
+              >搜索处置记录<AppInput
+                v-model="query"
+                placeholder="依据编号、原质检、成品、编制人或阶段" /></label
+          ></template>
         <template #cell-source="{ row }"
           ><strong
             ><!-- 单号直接打开证据面板，与操作列「查看」并存两个入口。 --><AppButton

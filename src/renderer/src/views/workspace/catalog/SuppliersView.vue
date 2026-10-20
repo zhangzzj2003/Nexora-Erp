@@ -204,6 +204,9 @@ async function submitBinding(): Promise<void> {
       :min-table-width="880"
     >
       <template #actions>
+        <AppButton type="button" variant="secondary" :disabled="connectionLost || auditLoading"
+          @click.capture="captureDialogOrigin('SuppliersView:audit', $event)" @click="openAudit">变更记录</AppButton>
+        <!-- 新建主操作统一置于辅助操作之后。 -->
         <AppButton
           v-if="can('catalog.manage')"
           :disabled="busy || connectionLost"
@@ -212,8 +215,6 @@ async function submitBinding(): Promise<void> {
           type="button"
           >新增供应商</AppButton
         >
-        <AppButton type="button" variant="secondary" :disabled="connectionLost || auditLoading"
-          @click.capture="captureDialogOrigin('SuppliersView:audit', $event)" @click="openAudit">变更记录</AppButton>
       </template>
       <template #filters>
         <label class="catalog-search"

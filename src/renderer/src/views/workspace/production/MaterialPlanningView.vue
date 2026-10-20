@@ -75,13 +75,18 @@ watch(connectionLost, lost => { command.value = null; conversion.value = null; i
       <AppButton :variant="mode==='plans' ? 'primary' : 'secondary'" @click="mode='plans'">固定计划</AppButton>
       <AppButton v-if="store.can('mrp.create')" :variant="mode==='input' ? 'primary' : 'secondary'" @click="mode='input'">需求编排</AppButton>
       <AppButton :variant="mode==='policies' ? 'primary' : 'secondary'" @click="mode='policies'">物料参数</AppButton>
-      <AppButton :disabled="disabled" @click="store.loadMrp()">{{ loading ? '正在读取…' : '重新读取来源' }}</AppButton>
+      <!-- 编辑或查询面板仍保留原有公共读取入口。 -->
+      <template v-if="mode!=='plans'"><AppButton :disabled="disabled" @click="store.loadMrp()">{{ loading ? '正在读取…' : '重新读取来源' }}</AppButton></template>
     </div>
     <p>按日期核对销售与手工需求、现有供给和全部仓库库存，逐层展开启用 BOM。预计供给包含待执行原单；建议经独立审核后转为采购申请或工单草稿。</p>
     <p v-if="connectionLost" role="alert">服务端连接中断，当前来源与核对结果已失效。恢复连接后重新读取；未保存的需求输入保留。</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="mode==='plans'">
       <WorkspaceTable title="固定计划" :show-title="false" :columns="columns" :data="filtered" :min-table-width="1100" :loading="loading">
+        <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
+        <template #actions>
+          <AppButton :disabled="disabled" @click="store.loadMrp()">{{ loading ? '正在读取…' : '重新读取来源' }}</AppButton>
+        </template>
         <template #filters><label>搜索计划<AppInput v-model="query" placeholder="编号、编制人或计划起日" /></label></template>
         <template #cell-reference="{ row }"><strong>{{ documentLabel(row) }} · {{ row.reference }}</strong><span class="muted mrp-line">{{ row.created_by_name }} · {{ store.localTime(row.created_at) }}</span></template>
         <template #cell-status="{ row }">{{ mrpStatus[row.status] }} · v{{ row.version }}</template>

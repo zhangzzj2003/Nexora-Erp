@@ -315,7 +315,10 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
           min="0.001" max="1000000" step="0.001" required aria-label="目标产量" :disabled="busy || connectionLost" />
       </template>
     </WorkspaceDocumentDialog>
-    <WorkspaceSummaryFilters v-model="recordFilters.status" :options="recordSummaries" hint="" />
+    <!-- 统计统一进入页面标题右侧，与其他入库保持相同位置。 -->
+    <Teleport to="#workspace-page-summary" defer>
+      <WorkspaceSummaryFilters v-model="recordFilters.status" :options="recordSummaries" hint="" />
+    </Teleport>
     <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
     <WorkspaceTable
       :show-title="false"

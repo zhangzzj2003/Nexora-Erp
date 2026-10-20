@@ -87,11 +87,12 @@ test('公共表格加载真实 vxe 组件并渲染功能区、加载和空状态
   assert.doesNotMatch(compactToolbar, /workspace-table-heading/)
   assert.ok(compactToolbar.indexOf('搜索') < compactToolbar.indexOf('查询'))
   assert.ok(compactToolbar.indexOf('查询') < compactToolbar.indexOf('新增'))
-  // 无筛选的辅助表格仍能显示原有操作，不能因为合并工具栏丢失按钮。
+  // 无筛选的列表也使用同一操作栏，且按钮只能渲染一次。
   const actionsOnly = await render({ showTitle: false }, { actions: slots.actions })
-  assert.match(actionsOnly, /workspace-table-heading/)
+  assert.doesNotMatch(actionsOnly, /workspace-table-heading/)
   assert.match(actionsOnly, /新增/)
-  assert.doesNotMatch(actionsOnly, /workspace-table-toolbar/)
+  assert.match(actionsOnly, /workspace-table-toolbar/)
+  assert.equal((actionsOnly.match(/>新增<\/button>/g) ?? []).length, 1)
 
   // 页脚总数使用筛选后的总数；空页保留总数并隐藏无效的分页操作。
   const paged = await render({ pagination: { page: 2, pageSize: 20, total: 45 } })

@@ -137,6 +137,9 @@ function openAudit(): void {
       :min-table-width="620"
     >
       <template #actions>
+        <AppButton type="button" variant="secondary" :disabled="connectionLost || auditLoading"
+          @click.capture="captureDialogOrigin('WarehousesView:audit', $event)" @click="openAudit">变更记录</AppButton>
+        <!-- 新建主操作统一置于辅助操作之后。 -->
         <AppButton
           v-if="can('warehouse.manage')"
           :disabled="busy || connectionLost"
@@ -145,8 +148,6 @@ function openAudit(): void {
           type="button"
           >新增仓库</AppButton
         >
-        <AppButton type="button" variant="secondary" :disabled="connectionLost || auditLoading"
-          @click.capture="captureDialogOrigin('WarehousesView:audit', $event)" @click="openAudit">变更记录</AppButton>
       </template>
       <template #filters>
         <label class="catalog-search"

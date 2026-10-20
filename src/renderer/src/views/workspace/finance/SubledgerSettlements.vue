@@ -86,13 +86,18 @@ async function confirm(): Promise<void> {
 
 <template>
   <p>将同一对象、同一控制科目和完整辅助组合的历史贷方余额用于另一张待结原单。草稿与批准不占用余额，执行后双方分别抵销；资金和总账金额保持原记录。</p>
-  <div class="ledger-actions">
-    <AppButton :disabled="disabled" @click="currentBalances">读取今日全部原单</AppButton>
-    <AppButton v-if="can('finance.record')" variant="primary" :disabled="disabled || !report" @click.capture="captureDialogOrigin('SubledgerSettlements:form', $event)" @click="start">新增原单核销</AppButton>
-  </div>
+
   <p v-if="report">可选原单依据截止 {{ report.to_date }} 的余额；服务端保存、审批与执行时均按最新余额校验。</p>
   <WorkspaceTable title="历史原单核销" :columns="columns" :data="filtered" :loading="loading" :min-table-width="1450">
-    <template #cell-id="{ row }">{{ documentLabel(row) }}<small v-if="row.reverses_id">原核销 {{ relatedDocumentLabel(row, 'reverses') }}</small></template>
+    <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
+      <!-- 父页面提供共用搜索和重新读取，核销自身操作继续在同一栏。 -->
+    <template v-if="$slots.filters" #filters><slot name="filters" /></template>
+    <template #actions>
+      <slot name="actions" />
+      <AppButton :disabled="disabled" @click="currentBalances">读取今日全部原单</AppButton>
+      <AppButton v-if="can('finance.record')" variant="primary" :disabled="disabled || !report" @click.capture="captureDialogOrigin('SubledgerSettlements:form', $event)" @click="start">新增原单核销</AppButton>
+    </template>
+      <template #cell-id="{ row }">{{ documentLabel(row) }}<small v-if="row.reverses_id">原核销 {{ relatedDocumentLabel(row, 'reverses') }}</small></template>
     <template #cell-executed_at="{ row }">{{ row.executed_at ? localTime(row.executed_at) : '尚未执行' }}</template>
     <template #cell-status="{ row }">{{ caption(row) }} · v{{ row.version }}</template>
     <template #cell-actions="{ row }"><div class="row-actions">
