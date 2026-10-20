@@ -192,7 +192,7 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
         <span v-else class="muted">—</span>
       </template>
       <template #cell-actions="{ row }"><div class="plan-toolbar">
-        <AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-detail', $event)" @click="openDetail(row)">计划详情</AppButton>
+        <AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('production-plan-detail', $event)" @click="openDetail(row)">查看</AppButton>
       </div></template>
       <template #empty>{{ query || filter !== 'all' ? '没有匹配的生产计划。' : '尚无生产计划。新建计划，安排产品、产量及开完工日期。' }}</template>
     </WorkspaceTable>
