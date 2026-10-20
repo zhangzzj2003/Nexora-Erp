@@ -35,7 +35,15 @@ function toggleSeries(id:number|null):void {
   emit('series',id)
 }
 function selectProduct(id:number):void {
-  if (canInteract() && children.value.some(row=>row.id===id)) emit('select',id)
+  // 收起动画期间旧节点仍可见，但不能再用旧事件选择已经关闭的主项。
+  if (canInteract() && children.value.some(row=>row.id===id && isExpanded(row.model_id))) emit('select',id)
+}
+function lockLeavingBranch(element:Element):void {
+  if (typeof HTMLElement==='undefined' || !(element instanceof HTMLElement)) return
+  // 离场即移出键盘和读屏访问范围，焦点如仍在子项则交回所属主项。
+  if (element.contains(document.activeElement)) element.previousElementSibling?.querySelector<HTMLButtonElement>('.tree-series')?.focus()
+  element.inert=true
+  element.setAttribute('aria-hidden','true')
 }
 function maintain(action:'newSeries'|'newModel'|'include'):void {
   if (!canInteract() || !props.canManage) return
@@ -158,25 +166,34 @@ watch(() => props.models.map(model=>model.id).join(','), () => {
             <AppButton v-if="canManage" class="tree-series-delete" variant="plain" tone="error" size="small" :title="`删除产品系列 ${model.name}`" :aria-label="`删除产品系列 ${model.name}`" :disabled="busy || disconnected"
               @click.capture="captureDeleteOrigin" @click="requestDelete(model)"><IconDeleteBin6Line class="series-delete-icon" aria-hidden="true" focusable="false" /></AppButton>
           </div>
-          <ul v-if="isExpanded(model.id) && members(model.id).length" class="tree-children">
+          <Transition name="tree-branch" @before-leave="lockLeavingBranch">
+          <div v-if="isExpanded(model.id)" class="tree-branch"><div class="tree-branch-content">
+          <ul v-if="members(model.id).length" class="tree-children">
             <li v-for="row in members(model.id)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="selectProduct(row.id)">
               <!-- 子项隐藏物料编号以精简目录；选择仍使用原 ID，配置有实际差异时才补充。 -->
               <strong>{{ row.material.name }}</strong><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.can_produce===false">已停用</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
             </AppButton></li>
           </ul>
-          <p v-else-if="isExpanded(model.id)" class="tree-empty muted">{{ hasMore ? '子机型尚未加载，可继续加载目录' : '此系列暂无匹配子机型' }}</p>
+          <p v-else class="tree-empty muted">{{ hasMore ? '子机型尚未加载，可继续加载目录' : '此系列暂无匹配子机型' }}</p>
+          </div></div>
+          </Transition>
         </li>
         <!-- 未归组始终占有一个根节点，不再依赖当前页是否恰好包含 PCB 等旧产品。 -->
         <li><div class="tree-series-row tree-unassigned" :class="{'is-current':activeSeriesId===null}"><AppButton variant="plain" class="tree-series" :aria-expanded="isExpanded(null)" :disabled="busy || disconnected" @click="toggleSeries(null)">
           <IconArrowDownSLine class="series-chevron" :class="{'is-collapsed':!isExpanded(null)}" aria-hidden="true" focusable="false" />
           <IconFolder3Line class="series-folder" aria-hidden="true" focusable="false" />
           <span class="series-label"><strong title="未归组产品 / 半成品">未归组产品 / 半成品</strong><small>未分配产品系列</small></span>
-        </AppButton></div><ul v-if="isExpanded(null) && members(null).length" class="tree-children">
+        </AppButton></div>
+        <Transition name="tree-branch" @before-leave="lockLeavingBranch">
+        <div v-if="isExpanded(null)" class="tree-branch"><div class="tree-branch-content">
+        <ul v-if="members(null).length" class="tree-children">
           <li v-for="row in members(null)" :key="row.id"><AppButton variant="plain" class="tree-model" :class="{'is-active':selectedId===row.id}" :aria-pressed="selectedId===row.id" :disabled="busy || disconnected" @click="selectProduct(row.id)">
             <!-- 未归组产品采用同样的精简展示，保留原身份和按编码搜索能力。 -->
               <strong>{{ row.material.name }}</strong><span class="tree-product-meta"><span class="tree-kind">{{ productKindLabels[row.kind] }}</span><span v-if="row.can_produce===false">已停用</span><span v-if="row.configuration_name && row.configuration_name !== row.material.name">{{ row.configuration_name }}</span></span>
           </AppButton></li>
-        </ul><p v-else-if="isExpanded(null)" class="tree-empty muted">{{ hasMore ? '子机型尚未加载，可继续加载目录' : '暂无匹配的未归组子机型' }}</p></li>
+        </ul><p v-else class="tree-empty muted">{{ hasMore ? '子机型尚未加载，可继续加载目录' : '暂无匹配的未归组子机型' }}</p>
+        </div></div>
+        </Transition></li>
       </ul>
       <p v-if="!loading && !error && !children.length && !hasMore" class="tree-empty muted">{{ canManage ? '暂无子机型，可先新建系列，再建立子机型。' : '暂无匹配子机型，请调整搜索条件。' }}</p>
       <!-- 失败暂停自动请求，保留已加载节点并提供明确重试，避免触底后无限重发。 -->
@@ -217,7 +234,7 @@ header h3 { margin:0; font-size:14px; }
 .series-label strong,.series-label small { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .series-label strong { font-size:13px; line-height:18px; }
 .series-label small { font-size:11px; line-height:15px; }
-.series-chevron { width:12px; height:12px; color:var(--workspace-field-muted); transition:transform 160ms ease; }
+.series-chevron { width:12px; height:12px; color:var(--workspace-field-muted); transition:transform 220ms cubic-bezier(.16,1,.3,1); }
 .series-chevron.is-collapsed { transform:rotate(-90deg); }
 .series-folder { width:16px; height:16px; color:var(--workspace-field-muted); }
 /* 只压低 SVG 的静态颜色，按钮本身沿用 error 主题；悬停和键盘聚焦时恢复其语义色。 */
@@ -235,6 +252,12 @@ strong { font-size:13px; overflow-wrap:anywhere; }
 .tree-series-row.is-current .series-folder,.tree-series-row.is-current .series-chevron { color:inherit; }
 /* 主项与子项留出 10px 垂直间距，归组和未归组沿用相同缩进与层级线。 */
 .tree-children { margin:10px 0 8px 15px; padding-left:10px; border-left:1px solid var(--workspace-field-border); }
+/* 与工作台导航同样使用网格轨道展开自然高度，间距随内容一起收回，不限制子项数量。 */
+.tree-branch { display:grid; grid-template-rows:1fr; opacity:1; }
+.tree-branch-content { min-height:0; overflow:hidden; }
+.tree-branch-enter-active,.tree-branch-leave-active { transition:grid-template-rows 220ms cubic-bezier(.16,1,.3,1),opacity 180ms ease; }
+.tree-branch-enter-from,.tree-branch-leave-to { grid-template-rows:0fr; opacity:0; }
+.tree-branch-leave-active { pointer-events:none; }
 .tree-model { margin-bottom:4px; border:1px solid transparent; }
 .tree-model.is-active { border-color:var(--workspace-field-accent); background:var(--app-accent-tint); color:var(--workspace-field-accent); }
 .tree-empty { margin:10px 12px; font-size:12px; line-height:1.7; }
@@ -245,5 +268,7 @@ footer { padding-top:10px; border-top:1px solid var(--workspace-field-border); }
 .tree-load-state p { margin:0; line-height:1.6; }
 .tree-reload-actions { display:flex; align-items:center; gap:10px; }
 @media(max-width:760px) { .product-tree { height:min(440px,65vh); min-height:280px; } }
-@media(prefers-reduced-motion:reduce) { .series-chevron { transition:none; } }
+@media(prefers-reduced-motion:reduce) {
+  .series-chevron,.tree-branch-enter-active,.tree-branch-leave-active { transition:none; }
+}
 </style>

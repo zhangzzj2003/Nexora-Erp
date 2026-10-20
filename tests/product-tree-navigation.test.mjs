@@ -15,7 +15,9 @@ const rows=[product(1,1,'A 系列整机'),product(2,2,'B 系列整机'),product(
 // 保留真实树模板及响应式状态，只替换控件绘制；原生按钮和导航节点支持持续点击、滚动及追加。
 async function fixture(t,extra={}) {
   const filename=resolve('src/renderer/src/views/workspace/catalog/ProductTreeSidebar.vue')
+  // 自定义渲染器没有浏览器样式系统；保留 Vue 过渡生命周期，CSS 中间帧另由浏览器验收。
   const content=compileScript(parse(readFileSync(filename,'utf8'),{filename}).descriptor,{id:'product-tree-navigation',inlineTemplate:true}).content
+    .replace('Transition as _Transition','BaseTransition as _Transition')
   const moduleId=normalizePath(filename)+'.client.ts'
   const server=await createServer({configFile:false,plugins:[{name:'product-tree-navigation',enforce:'pre',resolveId(id){
     if(id===moduleId)return id
@@ -257,4 +259,20 @@ test('显式定位未归组与删除当前系列始终只保留一个或零个�
  f.props.models=f.props.models.filter(row=>row.id!==4);await settle()
  assert.ok(f.nodes().filter(node=>node.props.class==='tree-series').every(node=>node.props['aria-expanded']===false))
  assert.equal(f.props.selectedId,2,'删除目录节点不擅自更改当前产品')
+})
+
+test('收起后拒绝残留子项点击，快速切换后只展开最终主项',async t=>{
+ const f=await fixture(t),oldChild=f.button('B 系列整机')
+ f.click(f.button('系列1'));await settle()
+ f.click(oldChild);await settle()
+ assert.deepEqual(f.events,[['series',1]],'收起中的旧按钮不能抢走右侧产品')
+ for(const label of ['系列2','未归组产品 / 半成品','系列1','系列1','系列2']){
+  f.click(f.button(label));await settle()
+ }
+ assert.equal(f.button('系列2').props['aria-expanded'],true)
+ assert.equal(f.button('系列1').props['aria-expanded'],false)
+ assert.equal(f.button('未归组产品 / 半成品').props['aria-expanded'],false)
+ assert.ok(f.button('B 系列整机'))
+ assert.equal(f.button('A 系列整机'),undefined)
+ assert.equal(f.button('PCB 半成品'),undefined)
 })
