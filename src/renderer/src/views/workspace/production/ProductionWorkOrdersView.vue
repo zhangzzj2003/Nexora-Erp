@@ -18,7 +18,7 @@ import WorkspaceSummaryFilters from '../../../components/workspace/WorkspaceSumm
 import WorkspaceSearchFilters from '../../../components/workspace/WorkspaceSearchFilters.vue';
 import { useProductionRecords } from '../../../composables/use-production-records';
 import type { WorkspaceTableColumn } from "../../../utils/table-columns";
-import { computed, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from 'vue-router';
 import { routeByKey } from '../../../router/workspace-routes';
 // 首屏物料区必须同步注册加载屏障，避免父弹窗展开后才插入正文。
@@ -27,11 +27,14 @@ import { storeToRefs } from "pinia";
 import { usePiniaAppStore } from "../../../store/app-store";
 
 // 页面复用共享工单与操作，来源跳转不改变已有单据。
+import ProductionDemandDialog from './ProductionDemandDialog.vue';
+import { groupProductionDemands } from './production-demand-groups';
+
 const store = usePiniaAppStore();
 const {
   busy,
   connectionLost,
-  workOrders,
+  workOrders, productionPlanDemands, productionPlanDemandReady, productionPlanDemandError,
 } = storeToRefs(store);
 const {
   can,
@@ -40,10 +43,23 @@ const {
   cancelWorkOrder,
 } = store;
 
+// 角标表示机型种数，不混加不同产品的件数；读取失败保留明确的待核对提示。
+const showDemands = ref(false);
+const demandCount = computed(() => groupProductionDemands(productionPlanDemands.value).length);
+async function openDemands(): Promise<void> {
+  if (busy.value || connectionLost.value || !can('production_plan.view')) return;
+  showDemands.value = true;
+  await store.loadProductionPlanDemands();
+}
+watch([() => `${store.server?.id}:${store.server?.fingerprint}:${store.user?.id}:${store.user?.permissions.join('|')}`,
+  connectionLost, () => store.activeTab, workOrders], () => {
+  if (connectionLost.value || !can('production_plan.view')) { showDemands.value = false; return; }
+  if (store.activeTab === 'workOrders') void store.loadProductionPlanDemands();
+}, { immediate: true });
 // 普通工单只能从批准计划生成；此页面专注执行与追溯，不再提供产品和数量自由输入。
 async function openPlans(id?: number): Promise<void> {
   if (busy.value || connectionLost.value || !can('production_plan.view')) return;
-  store.closeDocumentApproval();
+  showDemands.value = false; store.closeDocumentApproval();
   await router.push({ path: routeByKey('productionPlans').path, query: id ? { document_id: id } : {} });
 }
 const { recordQuery, recordFilters, recordSummaries, recordFilterFields, filteredRecords, resetRecordFilters } = useProductionRecords(
@@ -175,6 +191,7 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
       </template>
     </DocumentApprovalDialog>
     <ProductionAssociationDialog origin-key="production-association" />
+    <ProductionDemandDialog v-model:show="showDemands" @view-plan="openPlans" />
     <p class="muted">普通生产工单由已批准的生产计划分批生成；返工工单由已审批的不合格品处置生成。</p>
     <!-- 统计统一进入页面标题右侧，与其他入库保持相同位置。 -->
     <Teleport to="#workspace-page-summary" defer>
@@ -189,15 +206,13 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
       :min-table-width="1100"
     >
       <template #actions>
-        <AppButton
-          v-if="can('production_plan.view')"
-          type="button"
-          :disabled="busy || connectionLost"
-          @click="openPlans()"
-          variant="primary"
-        >
-          从生产计划生成
-        </AppButton>
+        <span v-if="can('production_plan.view')" class="production-demand-entry">
+          <AppButton type="button" :disabled="busy || connectionLost" variant="primary"
+            :aria-label="`从生产计划生成${productionPlanDemandReady ? `，${demandCount} 种机型待生成` : '，待生产数量待核对'}`"
+            @click.capture="captureDialogOrigin('production-demands', $event)" @click="openDemands">从生产计划生成</AppButton>
+          <span v-if="productionPlanDemandReady && demandCount > 0" class="production-demand-badge" aria-hidden="true" :title="`${demandCount} 种机型待生成工单`">{{ demandCount > 99 ? '99+' : demandCount }}</span>
+          <span v-else-if="productionPlanDemandError" class="production-demand-badge" aria-hidden="true" title="待生产需求读取失败，点击刷新核对">!</span>
+        </span>
       </template>
       <template #filters>
         <WorkspaceSearchFilters v-model:query="recordQuery" v-model:filters="recordFilters" :fields="recordFilterFields"
@@ -256,7 +271,8 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
             <span v-else>{{ item.production_schedule.production_plan_document_no || '#' + item.production_schedule.production_plan_id }}</span>
             · {{ item.production_schedule.start_date }} 至 {{ item.production_schedule.end_date }}
           </span>
-          <span v-else-if="!item.rework_disposition_id" class="muted">历史工单（无生产计划关联）</span>
+          <span v-if="item.production_schedule?.production_requirements" class="production-requirements">生产要求：{{ item.production_schedule.production_requirements }}</span>
+          <span v-if="!item.production_schedule && !item.rework_disposition_id" class="muted">历史工单（无生产计划关联）</span>
           <span v-if="item.rework_disposition_id"
             >返工来源 {{ item.rework_reference }} · 原完工 #{{
               item.rework_completion_id
@@ -320,4 +336,8 @@ watch([() => route?.query.document_id, () => store.user?.id, () => workOrders.va
 <style scoped>
 /* 本页移除概览说明后收紧卡片与列表间距，其他业务页面继续使用公共间距。 */
 .production-work-orders { gap: 12px; }
+/* 角标固定在入口右上角，数字和无障碍名称同时表达待生产数量。 */
+.production-demand-entry { position: relative; display: inline-flex; }
+.production-demand-badge { position: absolute; right: -8px; top: -9px; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; display: flex; justify-content: center; align-items: center; background: var(--danger, #bd414a); color: white; font-size: 12px; font-weight: 700; pointer-events: none; }
+.production-requirements { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

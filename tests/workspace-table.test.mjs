@@ -166,9 +166,10 @@ test('新增入口打开弹窗，失败时保留草稿', () => {
     assert.match(source, /@click="(?:edit\(\)|openEditor\(\)|startCreate|showForm = true|createOpen = true|customerOpen = true)"/, path)
     assert.match(source, /submitCreateDialog\(|if \(await saveMaterial/, path)
   }
-  // 工单改为从批准计划生成，不再属于可以自由输入产品的新增弹窗。
+  // 工单入口打开待生产需求弹窗，只能从批准计划来源选择生成。
   const orders = readFileSync(new URL('production/ProductionWorkOrdersView.vue', viewRoot), 'utf8')
-  assert.match(orders, /@click="openPlans\(\)"/)
+  assert.match(orders, /@click="openDemands"/)
+  assert.match(orders, /<ProductionDemandDialog v-model:show="showDemands"/)
   assert.doesNotMatch(orders, /createOpen = true|submitCreateDialog\(/)
 })
 

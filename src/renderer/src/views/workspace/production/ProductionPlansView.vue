@@ -58,6 +58,7 @@ const columns = [{ key: 'plan', title: '计划编号', width: '230' }, { key: 'r
   { key: 'actions', title: '操作', width: '130' }]
 // 只读明细按字段分列；下达操作集中在明细标题区，不再占用每一行。
 const lineColumns = [{ key: 'sku', title: '产品编号', width: '180' }, { key: 'product', title: '产品名称', width: '240' },
+  { key: 'requirements', title: '生产要求', width: '260' },
   { key: 'dates', title: '排期', width: '190' }, { key: 'priority', title: '优先级', width: '110' },
   { key: 'quantity', title: '计划产量', width: '110' }, { key: 'release', title: '已下达 / 未下达', width: '160' },
   { key: 'progress', title: '报工 / 合格 / 不合格', width: '200' }]
@@ -207,7 +208,7 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
     </WorkspaceTable>
     <ProductionPlanEditor v-model:show="editor" @saved="showDetail = true" />
     <WorkspaceDocumentDialog :show="showDetail" :ready="!pending && !!detail" :load-error="error" origin-key="production-plan-detail"
-      :title="detail ? `生产计划 · ${documentLabel(detail)}` : '生产计划详情'" :data="detail?.lines ?? []" :columns="lineColumns" :min-table-width="1190"
+      :title="detail ? `生产计划 · ${documentLabel(detail)}` : '生产计划详情'" :data="detail?.lines ?? []" :columns="lineColumns" :min-table-width="1450"
       read-only :show-add="false" :busy="busy" lines-title="产品排期与进度" @update:show="value => { if (!value) closeDetail() }" @invalidated="closeDetail">
       <template #basicInfo>
         <template v-if="detail"><div class="document-detail-field"><span>计划名称</span><strong>{{ detail.reference }}</strong></div>
@@ -228,6 +229,7 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
       </template></template>
       <template #cell-sku="{ row }">{{ row.sku }}</template>
       <template #cell-product="{ row }"><strong>{{ row.name }}</strong><span class="plan-line muted">BOM V{{ row.bom_version }} · {{ row.warehouse_name }}</span><span class="plan-line muted">{{ row.sales_order_id ? `销售来源 ${relatedDocumentLabel(row, 'sales_order')}` : '自主备货 / 手工计划' }}</span></template>
+      <template #cell-requirements="{ row }"><span class="plan-requirements">{{ row.production_requirements || '未填写，需核对' }}</span></template>
       <template #cell-dates="{ row }">{{ row.start_date }}<span class="plan-line">至 {{ row.end_date }}</span><span v-if="row.overdue" class="plan-overdue">已延期</span></template>
       <template #cell-priority="{ row }"><AppStatusTag :label="planPriority[row.priority]" :tone="planPriorityTone[row.priority]" /></template>
       <template #cell-quantity="{ row }">{{ row.quantity }} {{ row.unit }}</template>
@@ -258,6 +260,7 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
           :options="releasableLines.map(line => ({ value: line.id, label: `${line.sku} · ${line.name} · 未下达 ${line.unreleased_quantity} ${line.unit}` }))"
           @update:model-value="value => openRelease(releasableLines.find(line => line.id === value))" /></label>
         <p v-if="command === 'release' && releaseLine">{{ releaseLine.sku }} · {{ releaseLine.name }} · 未下达 {{ releaseLine.unreleased_quantity }} {{ releaseLine.unit }}</p>
+        <p v-if="command === 'release' && releaseLine" class="plan-requirements">生产要求：{{ releaseLine.production_requirements || '未填写，请先核对 Logo、颜色、包装等要求' }}</p>
         <p v-if="command === 'cancel'">取消后停止未下达安排，并从物料需求计划中移除这部分预计供需；已生成工单继续保留并独立执行。</p>
         <label v-if="command === 'release' && release">本批下达数量<AppInput v-model="release.quantity" type="number" hide-number-controls min="0.001" step="0.001" max="1000000" required :disabled="busy" /></label>
         <label>操作依据<AppInput v-model.trim="reason" required maxlength="500" :disabled="busy" /></label>
@@ -269,6 +272,7 @@ watch(connectionLost, lost => { resetDialogs(); if (!lost) void store.loadProduc
 </template>
 <style scoped>
 /* 复用工作台色彩与公共表格，长单据由公共详情窗口负责滚动和分页。 */
+.plan-requirements { white-space: pre-wrap; overflow-wrap: anywhere; }
 .plan-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .plan-line { display: block; margin-top: 5px; font-size: 12px; }
 .plan-overdue { display: block; margin-top: 5px; color: var(--danger, #bd414a); font-size: 12px; }

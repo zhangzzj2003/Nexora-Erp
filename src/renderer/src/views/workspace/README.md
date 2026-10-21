@@ -47,7 +47,7 @@
 | `finance/` | `SubledgerOpeningsView.vue` | 历史未结单据逐组合核对、独立审核启用、资金历史及 CSV |
 | `finance/` | `FinancialSourcesView.vue` | 查看应收应付的业务来源明细 |
 | `finance/` | `InventoryValuationView.vue` | 查看移动平均库存金额、待核价来源和核价修订历史 |
-| `production/` | `ProductionPlansView.vue`、`ProductionPlanEditor.vue`、`production-plan-display.ts` | 独立多产品生产计划、销售来源与日历排期、公共单据审批、分批工单及进度延期；复用物料选择与公共单据窗口，跨页状态由 `production-plan-actions.ts` 管理，规则见 `docs/production-planning.md` |
+| `production/` | `ProductionPlansView.vue`、`ProductionPlanEditor.vue`、`ProductionDemandDialog.vue`、`production-demand-groups.ts`、`production-plan-display.ts` | 独立多产品生产计划、销售来源与日历排期、公共单据审批、分批工单及进度延期；工单入口按机型汇总待生产需求、按生产要求分组并保留各计划来源；复用物料选择与公共单据窗口，跨页状态由 `production-plan-actions.ts` 管理，规则见 `docs/production-planning.md` |
 | `production/` | `ProductionWorkOrdersView.vue` | 复用仓库单据弹窗，在产品明细表选择产品、启用 BOM 版本及产量；建立和下达工单，核对有效领用、待签与待发；按工单直接创建完工草稿或查看完工记录 |
 | `production/` | `MaterialIssuesView.vue` | 处理生产领料，逐行选择来源仓批次确认并展示固定证据或旧确认差额 |
 | `production/` | `MaterialReturnsView.vue` | 处理生产退料，核对原领料批次或登记退料新批次并展示固定证据 |

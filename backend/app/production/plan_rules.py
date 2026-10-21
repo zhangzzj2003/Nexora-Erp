@@ -146,7 +146,10 @@ def approval_snapshot(db: Session, identifier: int) -> dict:
     return {'reference': plan.reference, 'note': plan.note, 'reason': plan.reason,
         'source_author_ids': sorted(authors),
         **({'mrp_conversion_ids': [row.id for row in conversions]} if conversions else {}),
-        'lines': [model_data(line) for line in plan_lines(db, identifier)]}
+        # 空要求不进入快照，保证升级前已批准的计划仍能核对原指纹。
+        'lines': [{key: value for key, value in model_data(line).items()
+                   if key != 'production_requirements' or value}
+                  for line in plan_lines(db, identifier)]}
 
 
 def release_rows(db: Session, identifier: int) -> list[dict]:

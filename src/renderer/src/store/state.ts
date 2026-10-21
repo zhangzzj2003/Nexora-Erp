@@ -184,6 +184,11 @@ export function createAppState() {
   const qualityEdit = ref<{id:number;version:number} | null>(null)
   const qualityForm = ref<QualityDraft>({completion_id:0,reference:'',kind:'scrap',quantity:'1',loss_treatment:'',
     defect:'',action_note:'',warehouse_id:1,materials:[],reason:''})
+  // 待生产需求单独缓存，刷新角标不打断计划编辑和详情。
+  const productionPlanDemands = ref<ProductionPlanDetail[]>([])
+  const productionPlanDemandLoading = ref(false)
+  const productionPlanDemandError = ref('')
+  const productionPlanDemandReady = ref(false)
   const productionPlans = ref<ProductionPlan[]>([])
   const productionPlanOptions = ref<ProductionPlanOptions | null>(null)
   const productionPlanDetail = ref<ProductionPlanDetail | null>(null)
@@ -661,6 +666,7 @@ export function createAppState() {
     warningOverview,warningDetail,warningEvents,warningEventsLoading,warningEventsError,
     warningAlert,warningLoading,warningError,warningWarehouseId,warningEditing,warningForm,
     equipmentOverview,equipmentDetail,equipmentLoading,equipmentError,equipmentEdit,equipmentForms,
+    productionPlanDemands, productionPlanDemandLoading, productionPlanDemandError, productionPlanDemandReady,
     productionPlans, productionPlanOptions, productionPlanDetail, productionPlanForm, productionPlanEdit, productionPlanLoading, productionPlanError,
     mrpPlans, mrpOptions, mrpDetail, mrpCheck, mrpChanges, mrpPolicyChanges, mrpForm, mrpLoading, mrpError,
     crmOptions, crmOverview, crmForecast, crmDetail, crmChanges, crmOwnerChanges, crmForms, crmEdit, crmLoading, crmError,

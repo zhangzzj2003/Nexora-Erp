@@ -1234,12 +1234,15 @@ def _document_summary(db: Session, document_type: str, content: dict) -> list[di
                 order = db.get(SalesOrder, sale.sales_order_id)
                 sales_source = f"销售来源 {order.document_no or '#' + str(order.id)}"
                 value += f"；{sales_source}"
+            if line.get('production_requirements'):
+                value += f"；生产要求：{line['production_requirements']}"
             # 分列字段从同一送审快照派生，不改写原审批正文；保留文本供旧客户端完整查看。
             summary.append({'label': '计划产品', 'material_id': bom['material_id'], 'value': value,
                 'production_plan_line': {'sku': bom['sku'], 'name': bom['name'], 'unit': bom['unit'],
                     'quantity': line['quantity'], 'bom_version': bom['version'],
                     'start_date': line['start_date'], 'end_date': line['end_date'],
-                    'warehouse_name': warehouse.name, 'priority': line['priority'], 'sales_source': sales_source}})
+                    'warehouse_name': warehouse.name, 'priority': line['priority'], 'sales_source': sales_source,
+                    'production_requirements': line.get('production_requirements', '')}})
         return summary
     if document_type == 'MrpPlan':
         import json
@@ -1345,6 +1348,9 @@ def _document_summary(db: Session, document_type: str, content: dict) -> list[di
             job = db.get(MaintenanceJob, identifier)
             summary.append({'label': '维护工单', 'value': job.document_no or f'#{job.id}'})
     if document_type == 'WorkOrder':
+        # 主管在工单审批时也能核对原计划固定的定制要求。
+        if content.get('production_plan_source', {}).get('production_requirements'):
+            summary.append({'label': '生产要求', 'value': content['production_plan_source']['production_requirements']})
         if content.get('production_plan_source'):
             schedule = content['production_plan_source']
             summary.append({'label': '生产计划与排期', 'value':

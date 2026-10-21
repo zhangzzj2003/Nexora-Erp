@@ -933,6 +933,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       const resource = action==='closeCrmActivity' ? 'activities' : action==='reopenCrmOpportunity' ? 'opportunities' : 'quotes'
       return { method:'POST',path:`/api/v1/crm/${resource}/${positiveId(payload,'id')}/${command}`,body }
     }
+    case 'productionPlanDemands': return { method: 'GET', path: '/api/v1/production/plans/pending-demands' }
     case 'productionPlans': return { method: 'GET', path: '/api/v1/production/plans' }
     case 'productionPlanOptions': return { method: 'GET', path: '/api/v1/production/plans/options' }
     case 'productionPlanDetail': return { method: 'GET', path: `/api/v1/production/plans/${positiveId(payload, 'id')}` }
@@ -1810,7 +1811,7 @@ export async function callBackend(action: keyof ErpOperations, payload: unknown)
     }
     throw new Error(typeof detail === 'string' ? detail : `请求失败（HTTP ${response.status}）`)
   }
-  if (['productionPlans', 'productionPlanOptions', 'productionPlanDetail', 'createProductionPlan',
+  if (['productionPlanDemands', 'productionPlans', 'productionPlanOptions', 'productionPlanDetail', 'createProductionPlan',
     'updateProductionPlan', 'cancelProductionPlan', 'releaseProductionPlan'].includes(action)) {
     validateProductionPlanResult(action as keyof ProductionPlanOperations, data,
       ['productionPlanDetail', 'updateProductionPlan', 'cancelProductionPlan', 'releaseProductionPlan'].includes(action) ? positiveId(payload, 'id') : undefined)

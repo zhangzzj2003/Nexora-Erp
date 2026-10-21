@@ -45,7 +45,7 @@ def test_upgrade_preserves_historical_issue_and_requires_new_approval_for_old_dr
     migrate()
     migrate()
     with sqlite3.connect(database_path()) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 108
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 109
         assert db.execute('SELECT historical_direct FROM material_issues WHERE id=?', (posted_issue['id'],)).fetchone()[0] == 1
         assert db.execute('SELECT historical_direct FROM material_issues WHERE id=?', (pending_issue['id'],)).fetchone()[0] == 0
         assert db.execute('SELECT COUNT(*) FROM material_receipts').fetchone()[0] == 0

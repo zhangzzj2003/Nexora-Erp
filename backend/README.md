@@ -74,11 +74,13 @@ python3 -m app.server --data-dir /tmp/nexora-dev-data --name '开发服务端' -
 
 工单 `WorkOrder`、领料 `MaterialIssue`、退料 `MaterialReturn` 和完工 `ProductionCompletion` 已接入统一审批。工单批准后才下达；领退料批准后在原事务内重核净领料、余额和可选批次。完工必须先质检，再独立批准；质检人持有当前步骤按钮权限时可审批自己填写的结果，确认时仍重核目标产量与净领料。生产计划和返工生成的工单独立送审，从原计划/处置审计恢复编制、提交和转换人员，不能因换人转单而洗掉作者身份。领退料及完工冲销另行批准固定原因；普通操作不要求批次，选择批次时仍沿原分配校验、执行或回滚。当前 37 类审批入口已接入，生产关联查询已提供，安装服务验收单独核对。
 
-## 生产计划（数据库 v107 / v108）
+## 生产计划（数据库 v107 / v108 / v109）
 
 `app/production/plans.py` 提供独立 `/api/v1/production/plans` 编制、查询、修改、分批下达和取消接口；`plan_rules.py` 固定正文、销售额度及有效报工进度，`plan_sources.py` 衔接 MRP 和工单排期。`ProductionPlan` 复用共用审批；仅未下达部分进入计划供需，已转工单仍独立审批和执行。新增四张 ORM 表及 `production_plan.*` 权限，迁移原子回滚且保留全部历史单据。字段、终止余额、延期、权限及兼容边界见 [生产计划](../docs/production-planning.md)。
 
 v108 收口普通工单来源：旧 `POST /api/v1/work-orders` 返回 409，只能由批准的生产计划分批生成；MRP 制造建议转生产计划草稿，返工继续由批准的处置单生成。历史工单及转单记录保留，不补造计划关联。
+
+v109 增加计划行 `production_requirements` 与只读 `/api/v1/production/plans/pending-demands` 查询，用于工单入口的待生产角标和分组弹窗。要求随计划和工单审批固定；历史空值不改变原批准指纹，详见[待生产入口与生产要求](../docs/production-planning.md#待生产入口与生产要求v109)。
 
 ## 产品系列与子机型生命周期
 

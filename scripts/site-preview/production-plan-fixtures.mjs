@@ -7,11 +7,12 @@ const records = [planFixture(), { ...planFixture(), id: 2, document_no: 'SCJH-20
 const options = planOptionsFixture()
 options.sales_lines = [{ id: 10, sales_order_id: 10, sales_order_document_no: 'XS-20261019-000010', reference: '客户交付批次',
   material_id: 1, quantity: '200.000', remaining_quantity: '200.000', available_quantity: '200.000' }]
-export const productionPlanPreviewOperations = ['productionPlans', 'productionPlanOptions', 'productionPlanDetail',
+export const productionPlanPreviewOperations = ['productionPlanDemands', 'productionPlans', 'productionPlanOptions', 'productionPlanDetail',
   'createProductionPlan', 'updateProductionPlan', 'releaseProductionPlan', 'cancelProductionPlan']
 export const productionPlanPreviewPermissions = ['production_plan.view', 'production_plan.create', 'production_plan.submit',
   'production_plan.review', 'production_plan.verify', 'production_plan.approve', 'production_plan.release', 'production_plan.cancel', 'work_order.create']
 export function productionPlanPreviewResponse(operation, payload) {
+  if (operation === 'productionPlanDemands') return structuredClone(records.filter(row => row.status !== 'cancelled' && ['approved', 'executed'].includes(row.approval.status) && row.lines.some(line => Number(line.unreleased_quantity) > 0)))
   if (operation === 'productionPlans') return structuredClone(records)
   if (operation === 'productionPlanOptions') return structuredClone(options)
   if (operation === 'createProductionPlan') {
@@ -37,7 +38,7 @@ export function productionPlanPreviewResponse(operation, payload) {
     summary: [{ label: '计划名称', value: row.reference }, { label:'编制依据', value:row.reason }, { label:'备注', value:row.note || '—' },
       ...row.lines.map(line => ({ label: '计划产品', material_id:line.material_id, material:{id:line.material_id,sku:line.sku,name:'当前资料名称',unit:line.unit,specification:'隔离验收规格'},
         value: `${line.sku} · ${line.name} × ${line.quantity} ${line.unit}；BOM V${line.bom_version}；${line.start_date} 至 ${line.end_date}；${line.warehouse_name}`,
-        production_plan_line:{sku:line.sku,name:line.name,unit:line.unit,quantity:line.quantity,bom_version:line.bom_version,
+        production_plan_line:{production_requirements:line.production_requirements ?? '',sku:line.sku,name:line.name,unit:line.unit,quantity:line.quantity,bom_version:line.bom_version,
           start_date:line.start_date,end_date:line.end_date,warehouse_name:line.warehouse_name,priority:line.priority,sales_source:'自主备货 / 手工计划'} }))] }
   }
   if (operation === 'releaseProductionPlan') {

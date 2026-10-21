@@ -5,11 +5,13 @@ import { productionPlanBody } from '../../../../shared/production-plan-api.ts'
 import { displayError } from '../../utils/formatters.ts'
 
 export function createProductionPlanActions(state: AppState, perform: (action: () => Promise<unknown>, success: string) => Promise<void>) {
-  let owner = 0, reads = 0, details = 0
+  let owner = 0, reads = 0, details = 0, demands = 0
   const can = (permission: string) => state.user.value?.permissions.includes(permission) ?? false
   const available = () => !!window.nexora && !state.connectionLost.value
   function clearProductionPlanDetail(): void { details++; state.productionPlanDetail.value = null }
   function clearRead(): void {
+    demands++; state.productionPlanDemands.value = []; state.productionPlanDemandReady.value = false
+    state.productionPlanDemandLoading.value = false; state.productionPlanDemandError.value = ''
     reads++; clearProductionPlanDetail(); state.productionPlans.value = []; state.productionPlanOptions.value = null
     state.productionPlanLoading.value = false; state.productionPlanError.value = ''
   }
@@ -22,6 +24,24 @@ export function createProductionPlanActions(state: AppState, perform: (action: (
     owner++; clearRead(); resetProductionPlanForm()
   }, { flush: 'sync' })
   watch(state.connectionLost, () => { owner++; clearRead() }, { flush: 'sync' })
+  async function loadProductionPlanDemands(): Promise<boolean> {
+    if (!available() || !can('production_plan.view')) return false
+    const ticket = ++demands, session = owner
+    state.productionPlanDemandLoading.value = true; state.productionPlanDemandError.value = ''
+    try {
+      const result = await window.nexora!.callApi('productionPlanDemands', undefined)
+      // 换号、断线及后发刷新使旧请求失效，旧角标不能泄露到新会话。
+      if (ticket !== demands || session !== owner) return false
+      state.productionPlanDemands.value = result; state.productionPlanDemandReady.value = true
+      return true
+    } catch (cause) {
+      if (ticket === demands && session === owner) {
+        state.productionPlanDemands.value = []; state.productionPlanDemandReady.value = false
+        state.productionPlanDemandError.value = displayError(cause)
+      }
+      return false
+    } finally { if (ticket === demands && session === owner) state.productionPlanDemandLoading.value = false }
+  }
   async function loadProductionPlans(): Promise<boolean> {
     if (!available() || !can('production_plan.view')) return false
     const ticket = ++reads, session = owner
@@ -89,7 +109,7 @@ export function createProductionPlanActions(state: AppState, perform: (action: (
     state.productionPlanEdit.value = { id: plan.id, version: plan.version }
     return true
   }
-  return { loadProductionPlans, loadProductionPlanDetail, clearProductionPlanDetail, resetProductionPlanForm,
+  return { loadProductionPlanDemands, loadProductionPlans, loadProductionPlanDetail, clearProductionPlanDetail, resetProductionPlanForm,
     refreshProductionPlanApproval, saveProductionPlan, editProductionPlan,
     cancelProductionPlan: (plan: ProductionPlan, reason: string) => write('production_plan.cancel',
       () => window.nexora!.callApi('cancelProductionPlan', { id: plan.id, version: plan.version, reason }), '生产计划已取消，原记录保留。'),

@@ -9,6 +9,7 @@ export type ProductionPlanPriority = 'normal' | 'high' | 'urgent'
 export interface ProductionPlanLineInput {
   bom_id: number; warehouse_id: number; sales_order_line_id: number | null; quantity: string
   start_date: string; end_date: string; priority: ProductionPlanPriority
+  production_requirements?: string
 }
 export interface ProductionPlanInput { reference: string; note: string; reason: string; lines: ProductionPlanLineInput[] }
 export interface ProductionPlanBom {
@@ -49,6 +50,7 @@ export interface ProductionPlanReleaseInput {
   id: number; version: number; approval_version: number; line_id: number; quantity: string; reason: string; request_id: string
 }
 export interface ProductionPlanOperations {
+  productionPlanDemands: { input: undefined; output: ProductionPlanDetail[] }
   productionPlans: { input: undefined; output: ProductionPlan[] }
   productionPlanOptions: { input: undefined; output: ProductionPlanOptions }
   productionPlanDetail: { input: { id: number }; output: ProductionPlanDetail }
@@ -65,6 +67,11 @@ function object(value: unknown): Record<string, unknown> {
 export function productionPlanId(value: unknown): number {
   if (!Number.isSafeInteger(value) || Number(value) <= 0) throw Error('生产计划编号或版本无效')
   return value as number
+}
+// 要求独立提示长度与类型问题，避免误报成计划名称或操作依据。
+function requirementText(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 500) throw Error('生产要求须为不超过 500 字的文字')
+  return value.trim()
 }
 function text(value: unknown, limit: number, required = true): string {
   if (typeof value !== 'string' || value.length > limit || required && !value.trim()) throw Error('请填写有效的计划名称或操作依据')
@@ -90,7 +97,8 @@ export function productionPlanBody(value: unknown): ProductionPlanInput {
       if (line.warehouse_id === 0) throw Error('请选择完工目标仓库')
       if (end < start || (Date.parse(end) - Date.parse(start)) / 86400000 > 730) throw Error('完工日须在开工日起 730 天内')
       if (!['normal', 'high', 'urgent'].includes(String(line.priority))) throw Error('请选择有效优先级')
-      return { bom_id: productionPlanId(line.bom_id), warehouse_id: productionPlanId(line.warehouse_id),
+      return { ...(line.production_requirements !== undefined ? { production_requirements: requirementText(line.production_requirements) } : {}),
+        bom_id: productionPlanId(line.bom_id), warehouse_id: productionPlanId(line.warehouse_id),
         sales_order_line_id: line.sales_order_line_id === null ? null : productionPlanId(line.sales_order_line_id),
         quantity: productionPlanQuantity(line.quantity), start_date: start, end_date: end, priority: line.priority as ProductionPlanPriority }
     }) }
@@ -123,6 +131,7 @@ export function validateProductionPlanResult(action: keyof ProductionPlanOperati
     for (const entry of row.lines) {
       const line = object(entry), id = productionPlanId(line.id)
       if (ids.has(id) || line.plan_id !== row.id || typeof line.overdue !== 'boolean') throw Error('生产计划明细归属不一致')
+      if (line.production_requirements !== undefined) requirementText(line.production_requirements)
       ids.add(id); productionPlanId(line.bom_id); productionPlanId(line.material_id); productionPlanId(line.warehouse_id)
       productionPlanDate(line.start_date); productionPlanDate(line.end_date); productionPlanQuantity(line.quantity)
       for (const key of ['released_quantity', 'unreleased_quantity', 'reported_quantity', 'accepted_quantity', 'rejected_quantity', 'remaining_quantity']) productionPlanQuantity(line[key], true)
@@ -133,6 +142,17 @@ export function validateProductionPlanResult(action: keyof ProductionPlanOperati
       productionPlanId(release.id); productionPlanId(release.work_order_id); productionPlanQuantity(release.quantity)
       if (release.plan_id !== row.id || !ids.has(Number(release.line_id)) || typeof release.work_order_status !== 'string') throw Error('计划下达记录归属不一致')
     }
+  }
+  if (action === 'productionPlanDemands') {
+    if (!Array.isArray(value)) throw Error('待生产需求响应不完整，请升级服务端')
+    const ids = new Set<number>()
+    for (const entry of value) {
+      validatePlan(entry, true)
+      const plan = entry as ProductionPlanDetail
+      if (ids.has(plan.id) || plan.status === 'cancelled' || !['approved', 'executed'].includes(plan.approval.status)) throw Error('待生产计划状态不正确')
+      ids.add(plan.id)
+    }
+    return
   }
   if (action === 'productionPlans') {
     if (!Array.isArray(value)) throw Error('生产计划列表格式不匹配')

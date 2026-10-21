@@ -57,4 +57,6 @@ def work_order_schedule(db, identifier: int) -> dict | None:
         return None
     line, plan = row
     return {'production_plan_id': plan.id, 'production_plan_document_no': plan.document_no,
+        # 只有明确记录的要求进入工单来源快照，旧工单的审批指纹保持不变。
+        **({'production_requirements': line.production_requirements} if line.production_requirements else {}),
         'plan_line_id': line.id, 'start_date': line.start_date, 'end_date': line.end_date, 'priority': line.priority}

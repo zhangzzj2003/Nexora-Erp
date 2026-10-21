@@ -915,7 +915,7 @@ export interface WorkOrderLine {
 // 工单组件需求在建单时固定，旧 BOM 停用也不会改变已下达工单。
 export interface WorkOrder extends NumberedDocument {
   // 仅新生产计划生成的工单带排期来源，历史工单不补造计划。
-  production_schedule?: { production_plan_id: number; production_plan_document_no: string | null; plan_line_id: number; start_date: string; end_date: string; priority: string }
+  production_schedule?: { production_requirements?: string; production_plan_id: number; production_plan_document_no: string | null; plan_line_id: number; start_date: string; end_date: string; priority: string }
   // 本单独立审批；旧响应缺失时界面不允许执行。
   approval?: DocumentApprovalState
   id: number

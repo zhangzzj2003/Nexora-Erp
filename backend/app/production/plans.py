@@ -33,6 +33,13 @@ class PlanLineInput(BaseModel):
     start_date: str
     end_date: str
     priority: Literal['normal', 'high', 'urgent'] = 'normal'
+    # 自由文本兼容 Logo、颜色、包装及其他定制要求，作为批准正文的一部分。
+    production_requirements: str = Field(default='', max_length=500)
+
+    @field_validator('production_requirements')
+    @classmethod
+    def clean_requirements(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator('quantity')
     @classmethod
@@ -141,6 +148,21 @@ def options(_: dict = Depends(require('production_plan.view'))) -> dict:
 def list_plans(_: dict = Depends(require('production_plan.view'))) -> list[dict]:
     with orm_session() as db:
         return [plan_data(db, row) for row in db.scalars(select(ProductionPlan).order_by(ProductionPlan.id.desc()))]
+
+
+@router.get('/pending-demands')
+def pending_demands(_: dict = Depends(require('production_plan.view'))) -> list[dict]:
+    # 只统计已批准且有未生成余额的计划；已取消工单释放的额度重新出现。
+    with orm_session() as db:
+        result = []
+        for plan in db.scalars(select(ProductionPlan).where(ProductionPlan.status != 'cancelled').order_by(ProductionPlan.id)):
+            case = approval.find_case(db, 'ProductionPlan', plan.id)
+            if case is None or case.status not in ('approved', 'executed'):
+                continue
+            data = plan_data(db, plan, detail=True)
+            if any(Decimal(line['unreleased_quantity']) > 0 for line in data['lines']):
+                result.append(data)
+        return result
 
 
 @router.get('/{identifier}')

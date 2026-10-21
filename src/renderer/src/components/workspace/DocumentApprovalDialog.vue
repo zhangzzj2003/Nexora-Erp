@@ -47,6 +47,7 @@ const planLines = computed(() => record.value?.document_type === 'ProductionPlan
 // 仅完整结构化快照采用分列，旧服务摘要继续原文展示，避免按分隔符猜测产品名称。
 const columns = computed(() => planLines.value ? [
   { key: 'sku', title: '产品编号', width: '180' }, { key: 'product', title: '产品名称', width: '240' },
+  { key: 'requirements', title: '生产要求', width: '260' },
   { key: 'bom', title: 'BOM 版本', width: '110' }, { key: 'quantity', title: '计划产量', width: '120' },
   { key: 'dates', title: '排期', width: '190' }, { key: 'warehouse', title: '完工仓库', width: '140' },
   { key: 'priority', title: '优先级', width: '110' }
@@ -69,7 +70,7 @@ const columns = computed(() => planLines.value ? [
     :data="target ? layout.lines : []"
     :columns="columns"
     :show-lines="!!target && layout.showLines"
-    :min-table-width="planLines ? 1090 : 580"
+    :min-table-width="planLines ? 1350 : 580"
     :lines-title="record?.document_type === 'ProductionPlan' ? '计划产品' : '物料明细'"
     :title="`${title}${target?.intent === 'reverse' ? (['OpeningBalance', 'SubledgerOpening'].includes(target.document_type) ? ' · 撤销审批' : ' · 冲销审批') : ''}${record?.document_no ? ` · ${record.document_no}` : ''}`"
     @update:show="
@@ -123,6 +124,8 @@ const columns = computed(() => planLines.value ? [
     <template #cell-product="{ row }">
       <WorkspaceMaterialName v-if="row.production_plan_line" :name="row.production_plan_line.name" :secondary="row.production_plan_line.sales_source" :material-id="row.material_id" :material="row.material" />
     </template>
+    <!-- 展示送审时固定的要求，不能用当前客户或物料资料覆盖。 -->
+    <template #cell-requirements="{ row }"><span style="white-space: pre-wrap; overflow-wrap: anywhere">{{ row.production_plan_line?.production_requirements || '未填写，需核对' }}</span></template>
     <template #cell-bom="{ row }">BOM V{{ row.production_plan_line?.bom_version }}</template>
     <template #cell-quantity="{ row }">{{ row.production_plan_line?.quantity }} {{ row.production_plan_line?.unit }}</template>
     <template #cell-dates="{ row }">{{ row.production_plan_line?.start_date }}<br />至 {{ row.production_plan_line?.end_date }}</template>

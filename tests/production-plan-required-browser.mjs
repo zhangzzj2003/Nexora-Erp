@@ -21,7 +21,7 @@ try {
   for (const theme of ['dark','light']) {
     await page.goto(`http://127.0.0.1:8791/scripts/site-preview/index.html?qa=productionPlans&theme=${theme}#/workspace/work-orders?create_from_bom=1`)
     const view=page.locator('.production-work-orders')
-    await view.getByRole('button',{name:'从生产计划生成',exact:true}).waitFor()
+    await view.getByRole('button',{name:/^从生产计划生成/}).waitFor()
     assert.equal(await view.getByRole('button',{name:'新建生产工单',exact:true}).count(),0)
     await view.getByText('历史工单（无生产计划关联）',{exact:true}).waitFor()
     await page.screenshot({path:`/private/tmp/nexora-plan-required-orders-${theme}.png`})

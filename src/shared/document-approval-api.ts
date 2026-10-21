@@ -111,6 +111,7 @@ export interface DocumentApprovalEvent {
 }
 // 审批明细来自服务端固定快照，不能用当前计划或物料档案替换送审名称、数量和排期。
 export interface ProductionPlanApprovalLine {
+  production_requirements?: string
   sku: string; name: string; unit: string; quantity: string; bom_version: number
   start_date: string; end_date: string; warehouse_name: string
   priority: 'normal' | 'high' | 'urgent'; sales_source: string
@@ -221,6 +222,7 @@ export function validateDocumentApprovalRecord(value: unknown): asserts value is
     if (entry.material !== undefined) validateMaterialMetadata(entry.material,entry.material_id)
     if (entry.production_plan_line !== undefined) {
       const line = record(entry.production_plan_line)
+      if (line.production_requirements !== undefined && (typeof line.production_requirements !== 'string' || line.production_requirements.length > 500)) throw Error('服务端生产要求格式不正确')
       // 新字段可缺省以兼容旧服务；出现时必须完整且仅属于计划产品。
       if (row.document_type !== 'ProductionPlan' || entry.label !== '计划产品' || !positive(entry.material_id)
           || ['sku', 'name', 'unit', 'warehouse_name', 'sales_source'].some(key => typeof line[key] !== 'string' || !String(line[key]).trim() || String(line[key]).length > 1000)

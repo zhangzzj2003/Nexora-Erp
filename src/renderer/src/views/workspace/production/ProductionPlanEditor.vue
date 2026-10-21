@@ -20,6 +20,7 @@ const { productionPlanForm: form, productionPlanOptions: options, productionPlan
 const disabled = computed(() => busy.value || connectionLost.value || !store.can('production_plan.create'))
 // 产品资料与配方版本分列，版本选择仍绑定同一行的 bom_id。
 const columns = [{ key: 'product', title: '生产产品', width: '280' }, { key: 'bom', title: 'BOM 版本', width: '200' }, { key: 'sales', title: '销售来源', width: '220' },
+  { key: 'requirements', title: '生产要求', width: '280' },
   { key: 'quantity', title: '计划产量', width: '150' }, { key: 'dates', title: '计划开工 / 完工', width: '200' },
   { key: 'warehouse', title: '完工仓库', width: '160' }, { key: 'priority', title: '优先级', width: '130' }, { key: 'actions', title: '操作', width: '80' }]
 const priorities = Object.entries(planPriority).map(([value, label]) => ({ value, label }))
@@ -48,7 +49,7 @@ async function save(): Promise<void> {
 <template>
   <!-- 新增 BOM 列后适当加宽计划弹窗；窄屏保留公共横向滚动，关闭仍保留输入。 -->
   <WorkspaceDocumentDialog :show="show" :ready="!!options" :load-error="error" origin-key="production-plan-editor"
-    :title="edit ? '编辑生产计划' : '新建生产计划'" :data="form.lines" :columns="columns" :min-table-width="1420"
+    :title="edit ? '编辑生产计划' : '新建生产计划'" :data="form.lines" :columns="columns" :min-table-width="1700"
     :style="{ width: 'min(1480px, calc(100vw - 32px))' }"
     :busy="busy" :disabled="disabled" :submit-disabled="!!problem || !options" :add-disabled="form.lines.length >= 100"
     lines-title="生产安排" add-label="添加产品" empty-text="添加产品后，安排产量、开工日与完工日。"
@@ -72,6 +73,8 @@ async function save(): Promise<void> {
         :options="(options?.boms ?? []).filter(bom => bom.material_id === materialId(row)).map(bom => ({ value: bom.id, label: `BOM V${bom.version} · 基准 ${bom.base_quantity} ${bom.unit}` }))" />
     </template>
     <template #cell-sales="{ row }"><WorkspaceSelect v-model="row.sales_order_line_id" :options="salesOptions(row)" aria-label="计划销售来源" :disabled="disabled || !materialId(row)" /></template>
+    <!-- 要求随每条计划送审，不从客户名或物料名称猜测，标准款也应明确填写。 -->
+    <template #cell-requirements="{ row }"><AppInput v-model.trim="row.production_requirements" type="textarea" :rows="2" maxlength="500" aria-label="生产要求" placeholder="如：甲公司 Logo；黑色；中性包装。无定制请填写标准款。" :disabled="disabled" /></template>
     <template #cell-quantity="{ row }"><AppInput v-model="row.quantity" type="number" hide-number-controls min="0.001" max="1000000" step="0.001" required aria-label="计划产量" :disabled="disabled" /></template>
     <template #cell-dates="{ row }"><div class="stack plan-dates">
       <MrpDate v-model="row.start_date" :min="options?.today" aria-label="计划开工日" :disabled="disabled" />

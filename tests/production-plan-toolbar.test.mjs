@@ -107,7 +107,7 @@ test('生产计划复用筛选操作区和标题统计，重置筛选保留草�
   const detailHtml = full.html.slice(full.html.indexOf('class="tested-detail"'))
   assert.doesNotMatch(full.html.slice(0,full.html.indexOf('class="tested-detail"')), /单据审批/)
   assert.match(detailHtml, /class="detail-actions"[\s\S]*单据审批/)
-  assert.deepEqual([...detailHtml.matchAll(/data-detail-column="([^"]+)"/g)].map(match => match[1]), ['sku','product','dates','priority','quantity','release','progress'])
+  assert.deepEqual([...detailHtml.matchAll(/data-detail-column="([^"]+)"/g)].map(match => match[1]), ['sku','product','requirements','dates','priority','quantity','release','progress'])
   assert.match(detailHtml, /data-detail-column="priority"[\s\S]*app-status-tag--pending/)
   const multi = planFixture(), line = multi.lines[0]
   multi.lines.push({...line,id:2,sku:'CTRL-002',quantity:'20.000',unreleased_quantity:'20.000'}, {...line,id:3,unreleased_quantity:'0.000'}, {...line,id:4,plan_id:99})

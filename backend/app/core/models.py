@@ -188,6 +188,8 @@ class ProductionPlanLine(Base):
     start_date: Mapped[str] = mapped_column(Text, nullable=False)
     end_date: Mapped[str] = mapped_column(Text, nullable=False)
     priority: Mapped[str] = mapped_column(Text, nullable=False)
+    # 每条安排独立固定定制要求，空值表示未记录，不能当作标准款。
+    production_requirements: Mapped[str] = mapped_column(Text, nullable=False, default='', server_default='')
     # 固定产品身份、BOM 版本及组件用量，资料改名不改写已批准的生产依据。
     bom_json: Mapped[str] = mapped_column(Text, nullable=False)
 
