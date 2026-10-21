@@ -278,7 +278,7 @@ test('报价、售后、质检和设备详情统一名称摘要，缺缓存仍�
   f.store.crmDetail={kind:'quote',record:{id:7,reference:'QUOTE-7',version:1,status:'draft',party:{customer_name:'原客户'},
     review_blocked:[],lines:[{...structuredClone(line),unit_price:'12.50',line_total:'26.56'}]}}
   let html=await f.render('quote'),body=rows(table(html,'固定报价明细'))[0]
-  assertParameters(cell(body,'material'));assert.match(text(body),/OLD-PCB · 历史物料名称/)
+  assertParameters(cell(body,'material'));assert.match(text(body),/OLD-PCB\s+(?:·\s*)?历史物料名称/)
   assert.equal(text(cell(body,'quantity')),'2.125');assert.equal(text(cell(body,'unit_price')),'12.50')
   f.store.crmOptions=null;html=await f.render('quote')
   assert.match(text(html),/历史物料名称|详细资料暂不可用/);assert.doesNotMatch(text(html),/FR-4/)

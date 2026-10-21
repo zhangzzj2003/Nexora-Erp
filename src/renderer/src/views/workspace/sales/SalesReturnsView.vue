@@ -2,7 +2,8 @@
 import { useSalesDraftEditor } from '../../../composables/use-sales-draft-editor'
 import { canReviseSalesDraft, newSalesFilters, matchesSalesFilters } from '../../../utils/sales-documents'
 import type { SalesDraftType } from '../../../../../shared/sales-draft-api'
-import SalesRecordFilters from './SalesRecordFilters.vue'
+import SalesDocumentList from './SalesDocumentList.vue'
+import SalesDocumentDetail from './SalesDocumentDetail.vue'
 import {defineAsyncComponent} from 'vue'
 // 修订历史按需加载，日常列表不提前初始化弹窗和历史读取。
 const SalesDraftHistory = defineAsyncComponent(()=>import('./SalesDraftHistory.vue'))
@@ -25,15 +26,12 @@ import AppButton from "../../../components/app/AppButton.vue";
 import WorkspaceSelect from "../../../components/workspace/WorkspaceSelect.vue";
 // 单据统一使用固定关闭区、基础信息和物料明细表格。
 import { documentRows } from "../../../utils/document-rows";
-import type { WorkspaceTableColumn } from "../../../utils/table-columns";
 import WorkspaceDocumentDialog from "../../../components/workspace/WorkspaceDocumentDialog.vue";
-import WorkspaceTable from "../../../components/workspace/WorkspaceTable.vue";
 import DocumentApprovalDialog from "../../../components/workspace/DocumentApprovalDialog.vue";
 // 全部批次单据共享标题、固定操作区与数量核对表。
 import WorkspaceLotDialog from "../../../components/workspace/WorkspaceLotDialog.vue";
 import WorkspaceLotLineEditor from "../../../components/workspace/WorkspaceLotLineEditor.vue";
 import {
-  recordColumns,
   matchesRecordQuery,
 } from "../../../utils/workspace-records";
 import { computed, ref, watch } from "vue";
@@ -78,13 +76,21 @@ const {
   reverseSalesReturn,
 } = store;
 
+// 编号与查看先进入业务详情；审批保持独立入口，避免审批步骤遮住物料与金额。
+const selectedId = ref<number | null>(null);
+const businessDetail = computed(() => salesReturns.value.find(row => row.id === selectedId.value) ?? null);
+function openBusinessDetail(row: SalesReturn): void {
+  if (busy.value || connectionLost.value || !can('sales.view')) return;
+  selectedId.value = row.id;
+}
+watch(() => `${store.server?.id}:${store.server?.fingerprint}:${store.user?.id}:${store.user?.permissions.join('|')}:${connectionLost.value}`, () => { selectedId.value = null; });
 // 修订表单使用副本，原新建草稿继续保留在 Pinia 中。
 const {open:createOpen, form:workingForm, target:editTarget, reason:revisionReason,
   isolated:isolatedForm, beginEdit, beginCreate} = useSalesDraftEditor(salesReturnForm);
 const historyTarget = ref<{type:SalesDraftType; id:number} | null>(null);
 const filters = ref(newSalesFilters());
 function editRecord(row: SalesReturn): void {
-  if (beginEdit(row, {shipment_id:row.shipment_id, warehouse_id:row.warehouse_id, reason:row.reason, lines:row.lines.map(line=>({shipment_line_id:line.shipment_line_id,quantity:line.quantity}))})) store.closeDocumentApproval();
+  if (beginEdit(row, {shipment_id:row.shipment_id, warehouse_id:row.warehouse_id, reason:row.reason, lines:row.lines.map(line=>({shipment_line_id:line.shipment_line_id,quantity:line.quantity}))})) { selectedId.value = null; store.closeDocumentApproval(); }
 }
 const selectedSalesReturnShipment = computed(()=>shipments.value.find(row=>row.id===workingForm.value.shipment_id));
 function selectReturnSource(): void {
@@ -109,11 +115,7 @@ const detailItem = computed(() =>
 const detailIntent = computed(
   () => store.documentApprovalTarget?.intent ?? "execute",
 );
-// 操作列只保留统一查看入口，业务操作按钮全部移入详情页脚。
-const columns: readonly WorkspaceTableColumn[] = [
-  ...recordColumns.filter((column) => column.key !== "actions"),
-  { key: "actions", title: "查看", width: "72", align: "center" },
-];
+
 
 const activeReturnId = ref(0);
 const lotOptions = ref<SalesReturnLotOptions | null>(null);
@@ -333,6 +335,87 @@ async function reverseApproved(identifier: number): Promise<void> {
 
 <template>
   <section class="stack">
+    <SalesDocumentDetail :materials="store.materials" :record="businessDetail" kind="return" title="销售退货" :busy="busy" :disabled="connectionLost" :local-time="localTime" @close="selectedId=null">
+      <template #actions>
+        <AppButton v-if="businessDetail" size="small" :disabled="busy || connectionLost" @click.capture="captureDialogOrigin('document-approval',$event)"
+          @click="store.openDocumentApproval({document_type:'SalesReturn',document_id:businessDetail.id,intent:'execute'})">单据审批</AppButton>
+
+        <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
+        <template v-if="businessDetail">
+          <AppButton size="small" v-if="can('sales_return.create') && canReviseSalesDraft(businessDetail)" :disabled="busy || connectionLost"
+            @click.capture="captureDialogOrigin('SalesReturnsView:form', $event)" @click="editRecord(businessDetail)">修订草稿</AppButton>
+          <AppButton size="small" v-if="(businessDetail.draft_version ?? 0) > 0" :disabled="busy || connectionLost"
+            @click="historyTarget={type:'SalesReturn',id:businessDetail.id}">修订记录</AppButton>
+          <span v-if="businessDetail.status==='draft' && businessDetail.draft_edit_block_reason" class="muted">{{ businessDetail.draft_edit_block_reason }}</span>
+          <AppButton size="small"
+            tone="success"
+            v-if="
+              businessDetail.status === 'draft' &&
+              businessDetail.approval?.status === 'approved' &&
+              can('sales_return.post')
+            "
+            type="button"
+            variant="primary"
+            :disabled="busy || connectionLost"
+            @click="postSalesReturn(businessDetail.id)"
+            >确认退货</AppButton
+          >
+          <AppButton size="small"
+            tone="info"
+            v-if="
+              businessDetail.status === 'draft' &&
+              businessDetail.approval?.status === 'approved' &&
+              can('sales_return.post')
+            "
+            type="button"
+            variant="secondary"
+            :disabled="busy || connectionLost"
+            @click.capture="captureDialogOrigin('SalesReturnsView:lot', $event)" @click="startLotPost(businessDetail)"
+            >指定实物批次（可选）</AppButton
+          >
+          <AppButton size="small"
+            tone="warning"
+            v-if="
+              businessDetail.status === 'draft' &&
+              !['submitted', 'approved'].includes(
+                businessDetail.approval?.status ?? '',
+              ) &&
+              can('sales_return.cancel')
+            "
+            type="button"
+            variant="secondary"
+            :disabled="busy || connectionLost"
+            @click="cancelSalesReturn(businessDetail.id)"
+            >取消</AppButton
+          >
+          <!-- 冲销完成后仍可查批准人员和固定原因，查询入口沿用本单查看权限。 -->
+          <AppButton size="small"
+            tone="error"
+            v-if="
+              businessDetail.status === 'posted' &&
+              (businessDetail.reversal_id || can('sales_return.reverse'))
+            "
+            type="button"
+            variant="secondary"
+            :disabled="busy || connectionLost"
+            @click.capture="captureDialogOrigin('document-approval', $event)" @click="
+              store.openDocumentApproval({
+                document_type: 'SalesReturn',
+                document_id: businessDetail.id,
+                intent: 'reverse',
+              })
+            "
+            >{{
+              businessDetail.reversal_id ? "冲销审批记录" : "冲销审批"
+            }}</AppButton
+          >
+
+
+        </template>
+
+      </template>
+    </SalesDocumentDetail>
+
     <!-- 业务操作统一在详情页脚办理；审批控件与关闭由公共弹窗承载。 -->
     <DocumentApprovalDialog origin-key="document-approval">
       <template #footerActions>
@@ -554,14 +637,9 @@ async function reverseApproved(identifier: number): Promise<void> {
         </AppButton></template
       >
     </WorkspaceDocumentDialog>
-    <!-- 主标题由工作台提供，列表复用仓库管理的筛选区、状态和单元格布局。 -->
-    <WorkspaceTable
-      :show-title="false"
-      title="销售退货"
-      :data="filteredRecords"
-      :columns="columns"
-      :min-table-width="1100"
-    >
+    <!-- 列表复用生产计划的概览、查询、状态与分页，完整履约明细集中在详情。 -->
+    <SalesDocumentList kind="return" title="销售退货" :records="salesReturns" :filtered="filteredRecords" :customers="customers"
+      v-model:query="recordQuery" v-model:filters="filters" :disabled="busy || connectionLost" :local-time="localTime" @view="openBusinessDetail">
       <template #actions>
         <AppButton
           v-if="can('sales_return.create')"
@@ -573,116 +651,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           新建销售退货单
         </AppButton>
       </template>
-      <template #filters>
-        <label>
-          搜索销售退货
-          <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
-        </label>
-        <SalesRecordFilters v-model="filters" :customers="customers" :statuses="['draft','submitted','approved','rejected','withdrawn','posted','cancelled','reversed']" @clear="recordQuery=''" />
-      </template>
-
-      <template #cell-document="{ row: item }">
-        <div>
-          <!-- 单号直接打开只读详情，与操作列「查看」并存两个入口。 -->
-          <strong
-            ><AppButton
-              type="button"
-              variant="text"
-              :disabled="busy || connectionLost"
-              :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-              @click.capture="captureDialogOrigin('document-approval', $event)" @click="
-                store.openDocumentApproval({
-                  document_type: 'SalesReturn',
-                  document_id: item.id,
-                  intent: 'execute',
-                })
-              "
-              >{{ documentLabel(item) }}</AppButton
-            >
-            · {{ item.customer_name }} · {{ item.warehouse_name }}</strong
-          >
-          <p class="muted">
-            {{ localTime(item.created_at) }} · 原出库单
-            {{ relatedDocumentLabel(item, "shipment") }} · {{ item.reason }} ·
-            创建人 {{ item.created_by_name }} · {{ item.status === 'posted' ? '退货金额' : '预估金额' }} ¥{{
-              item.total_amount
-            }}
-            <span v-if="item.reversal_id">
-              · 冲销 #{{ item.reversal_id }}（{{ item.reversal_reason }} ·
-              {{ item.reversed_by_name }}）
-            </span>
-          </p>
-        </div>
-      </template>
-      <template #cell-status="{ row: item }">
-        <span class="pill" :class="item.status">
-          {{
-            item.reversal_id
-              ? "已冲销"
-              : item.status === "posted"
-                ? "已退货入库"
-                : item.status === "cancelled"
-                  ? "已取消"
-                  : approvalLabels[item.approval?.status ?? "draft"]
-          }}
-        </span>
-      </template>
-      <template #cell-details="{ row: item }">
-        <div class="workspace-record-lines">
-          <span v-for="line in item.lines" :key="line.id">
-            {{ line.material_name }} × {{ line.quantity }} {{ line.unit }} · ¥{{
-              line.line_total
-            }}
-            <small
-              v-if="item.status === 'posted' && line.physical_lots?.length"
-              class="return-lot-proof"
-            >
-              实物批次：{{
-                line.physical_lots
-                  .map(
-                    (lot) =>
-                      `${lot.code}（${lot.quantity}；${physicalLotKindLabel(lot.source_kind)}）`,
-                  )
-                  .join("、")
-              }}
-            </small>
-            <small v-else-if="item.status === 'posted'" class="return-lot-proof"
-              >普通确认未指定实物批次，数量在批次核对页显示为差额。</small
-            >
-          </span>
-        </div>
-      </template>
-      <template #cell-actions="{ row: item }">
-        <!-- 行内只保留查看入口，业务操作统一移入详情页脚。 -->
-        <AppButton
-          type="button"
-          variant="secondary"
-          size="small"
-          :disabled="busy || connectionLost"
-          :aria-label="`查看单据 ${documentLabel(item)} 详情`"
-          @click.capture="captureDialogOrigin('document-approval', $event)" @click="
-            store.openDocumentApproval({
-              document_type: 'SalesReturn',
-              document_id: item.id,
-              intent: 'execute',
-            })
-          "
-          >查看</AppButton
-        >
-      </template>
-      <template #empty>
-        <strong>{{
-          (recordQuery || filters.status || filters.customer || filters.from || filters.to) ? "没有匹配的记录" : "暂无销售退货记录"
-        }}</strong>
-        <span>
-          {{
-            recordQuery
-              ? "可调整单号、名称或物料关键词后重新搜索。"
-              : "业务记录生成后，可在这里查看明细与处理状态。"
-          }}
-        </span>
-      </template>
-    </WorkspaceTable>
+    </SalesDocumentList>
     <!-- 批次登记统一使用公共弹窗和明细表，各业务仍保留原确认与校验逻辑。 -->
     <WorkspaceLotDialog origin-key="SalesReturnsView:lot" @invalidated="closeLotPost()"
       v-if="can('sales_return.post')"

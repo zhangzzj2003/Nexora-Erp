@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { salesAmountSummary, salesLineAmount } from '../../../utils/sales-documents'
-import { uppercaseMoney } from '../../../utils/money-summary'
+import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import { documentRows } from '../../../utils/document-rows'
 import { storeToRefs } from 'pinia'
 import { NInputNumber } from 'naive-ui'
 import type { CrmKind } from '../../../../../shared/crm-api'
@@ -30,6 +31,9 @@ const opportunities=computed(()=>[{label:props.kind==='quote'?'选择开放商�
   ...(overview.value?.opportunities??[]).filter(row=>props.kind==='quote' ? !['won','lost'].includes(row.stage) : row.customer_id===customer.value).map(row=>({label:`${row.title} · ${row.customer_name}`,value:row.id}))])
 const materials=computed(()=>[{label:'选择物料',value:0,disabled:true},...(options.value?.materials??[]).map(row=>({label:`${row.sku} · ${row.name}`,value:row.id}))])
 const isEdit=computed(()=>!!edit.value)
+// 表格继续引用原草稿行，删除与切换不会丢失未保存报价。
+const quoteRows=computed(()=>documentRows(forms.value.quote.lines))
+const quoteColumns=[{key:'material',title:'物料 / 资料',width:'350'},{key:'unit',title:'单位',width:'80'},{key:'quantity',title:'数量',width:'140'},{key:'price',title:'单价（元）',width:'150'},{key:'amount',title:'金额（元）',width:'140',align:'right' as const},{key:'actions',title:'操作',width:'90'}]
 const amountSummary=computed(()=>salesAmountSummary(forms.value.quote.lines))
 watch(customer,()=>{
   if(props.kind==='contact')return
@@ -46,14 +50,16 @@ async function save(): Promise<void> {
 }
 </script>
 <template>
-  <section class="crm-editor" :class="dialog ? 'crm-editor--dialog' : 'card'" :aria-label="`${isEdit ? '修订' : '新建'}${crmKindLabel[kind]}`">
+  <section class="crm-editor" :class="dialog ? 'crm-editor--dialog sales-editor-shell' : 'card'" :aria-label="`${isEdit ? '修订' : '新建'}${crmKindLabel[kind]}`">
     <div v-if="!dialog" class="section-heading"><h2>{{ isEdit ? '修订' : '新建' }}{{ crmKindLabel[kind] }}</h2><AppButton :disabled="busy" @click="emit('close')">返回列表</AppButton></div>
+    <form @submit.prevent="save">
+      <div class="sales-editor-body">
     <p v-if="kind==='quote'">人民币报价不含税费和折扣计算。提交时固定客户、联系人和物料资料；之后按角色当前步骤权限办理审批。</p>
     <p v-if="kind==='quote' && opportunities.length===1 && !isEdit">暂无开放商机，须先建立销售商机才能编制报价。<AppButton v-if="store.can('crm_opportunity.manage')" variant="text" :disabled="disabled" @click="emit('createOpportunity')">建立销售商机</AppButton></p>
     <p v-else-if="kind==='opportunity'">逐条填写成交概率；留空表示未评估，不计入加权预测。预估金额和预测金额不代表订单、收入或收款。“已转单”由批准报价转订单后自动登记。</p>
     <p v-else-if="kind==='activity'">这里只登记待办和实际跟进结果，不会发送邮件、短信或提醒。结束后原记录保留，更正可另建跟进。</p>
-    <form @submit.prevent="save">
-      <div v-if="kind==='contact'" class="form-grid">
+
+      <div v-if="kind==='contact'" class="form-grid sales-editor-basic">
         <label>客户<WorkspaceSelect v-model="forms.contact.customer_id" :options="customers" required :disabled="disabled || isEdit" /></label>
         <label>联系人姓名<AppInput v-model.trim="forms.contact.name" required maxlength="120" :disabled="disabled" /></label>
         <label>职务<AppInput v-model.trim="forms.contact.job_title" maxlength="120" :disabled="disabled" /></label>
@@ -63,7 +69,7 @@ async function save(): Promise<void> {
         <label v-if="isEdit">联系人状态<WorkspaceSelect v-model="forms.contact.is_active" :options="[{label:'启用',value:true},{label:'停用',value:false}]" :disabled="disabled" /></label>
         <label class="crm-wide">备注<AppInput v-model.trim="forms.contact.note" maxlength="1000" :disabled="disabled" /></label>
       </div>
-      <div v-else-if="kind==='activity'" class="form-grid">
+      <div v-else-if="kind==='activity'" class="form-grid sales-editor-basic">
         <label>客户<WorkspaceSelect v-model="forms.activity.customer_id" :options="customers" required :disabled="disabled" /></label>
         <label>联系人<WorkspaceSelect v-model="forms.activity.contact_id" :options="contacts" :disabled="disabled" /></label>
         <label>关联商机<WorkspaceSelect v-model="forms.activity.opportunity_id" :options="opportunities" :disabled="disabled" /></label>
@@ -72,7 +78,7 @@ async function save(): Promise<void> {
         <label>跟进期限<CrmDate v-model="forms.activity.due_date" :disabled="disabled" /></label>
         <label class="crm-wide">跟进安排<AppInput v-model.trim="forms.activity.note" maxlength="1000" :disabled="disabled" /></label>
       </div>
-      <div v-else-if="kind==='opportunity'" class="form-grid">
+      <div v-else-if="kind==='opportunity'" class="form-grid sales-editor-basic">
         <label>客户<WorkspaceSelect v-model="forms.opportunity.customer_id" :options="customers" required :disabled="disabled || isEdit" /></label>
         <label>联系人<WorkspaceSelect v-model="forms.opportunity.contact_id" :options="contacts" :disabled="disabled" /></label>
         <label>商机名称<AppInput v-model.trim="forms.opportunity.title" required maxlength="160" :disabled="disabled" /></label>
@@ -84,37 +90,38 @@ async function save(): Promise<void> {
         <label>商机说明<AppInput v-model.trim="forms.opportunity.note" maxlength="1000" :disabled="disabled" /></label>
       </div>
       <template v-else>
-        <div class="form-grid">
+        <div class="form-grid sales-editor-basic">
           <label>所属商机<WorkspaceSelect v-model="forms.quote.opportunity_id" :options="opportunities" required :disabled="disabled || isEdit" /></label>
           <label>报价编号<AppInput v-model.trim="forms.quote.reference" required maxlength="100" :disabled="disabled" /></label>
           <label>联系人<WorkspaceSelect v-model="forms.quote.contact_id" :options="contacts" :disabled="disabled" /></label>
           <label>报价有效期<CrmDate v-model="forms.quote.valid_until" :disabled="disabled" /></label>
           <label class="crm-wide">交货及商务条款<AppInput v-model.trim="forms.quote.terms" maxlength="1000" :disabled="disabled" /></label>
         </div>
-        <h3>报价明细</h3>
-        <div v-for="(line,index) in forms.quote.lines" :key="index" class="crm-quote-line">
-          <label>物料 {{ index+1 }}<WorkspaceMaterialSelect use="can_sell" :materials="options?.materials ?? []" v-model="line.material_id" :options="materials" required :disabled="disabled" /></label>
-          <label>数量 {{ index+1 }}<AppInput v-model.trim="line.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="disabled" /></label>
-          <label>单价 {{ index+1 }}（元）<AppInput v-model.trim="line.unit_price" type="number" min="0" max="1000000000" step="0.0001" required :disabled="disabled" /></label>
-          <p>本行金额 ¥{{ salesLineAmount(line) || '待完善' }}</p>
-          <AppButton :disabled="disabled || forms.quote.lines.length===1" :aria-label="`删除报价第 ${index+1} 行`" @click="forms.quote.lines.splice(index,1)">删除行</AppButton>
-        </div>
-        <p class="crm-total">报价合计 <strong>¥{{ amountSummary.total ?? '待完善' }}</strong> · {{ uppercaseMoney(amountSummary.total) }}</p>
+        <WorkspaceTable title="报价明细" :data="quoteRows" :columns="quoteColumns" :min-table-width="1000" :amount-total="amountSummary.total" actions-placement="heading">
+          <template #actions><AppButton :disabled="disabled || forms.quote.lines.length>=100" @click="forms.quote.lines.push({material_id:0,quantity:'1',unit_price:'0'})">添加物料</AppButton></template>
+          <template #cell-material="{row:{line,index}}"><WorkspaceMaterialSelect use="can_sell" :materials="options?.materials ?? []" v-model="line.material_id" :options="materials" :aria-label="`第 ${index+1} 行物料`" required :disabled="disabled" /></template>
+          <template #cell-unit="{row:{line}}">{{options?.materials.find(row=>row.id===line.material_id)?.unit??'—'}}</template>
+          <template #cell-quantity="{row:{line,index}}"><AppInput v-model.trim="line.quantity" :aria-label="`第 ${index+1} 行数量`" type="number" min="0.001" max="1000000" step="0.001" required :disabled="disabled" /></template>
+          <template #cell-price="{row:{line,index}}"><AppInput v-model.trim="line.unit_price" :aria-label="`第 ${index+1} 行单价`" type="number" min="0" max="1000000000" step="0.0001" required :disabled="disabled" /></template>
+          <template #cell-amount="{row:{line}}">{{salesLineAmount(line)||'待完善'}}</template>
+          <template #cell-actions="{row:{index}}"><AppButton size="small" :disabled="disabled || forms.quote.lines.length===1" :aria-label="`删除报价第 ${index+1} 行`" @click="forms.quote.lines.splice(index,1)">移除</AppButton></template>
+        </WorkspaceTable>
         <p v-if="amountSummary.zeroCount" class="muted">有 {{ amountSummary.zeroCount }} 行零单价，请确认是否为赠品或不收费项目。</p>
-        <AppButton :disabled="disabled || forms.quote.lines.length>=100" @click="forms.quote.lines.push({material_id:0,quantity:'1',unit_price:'0'})">增加明细</AppButton>
       </template>
       <label v-if="isEdit && edit">修订原因<AppInput v-model.trim="edit.reason" required maxlength="500" :disabled="disabled" /></label>
       <p v-if="failure" role="alert">{{ failure }}</p>
       <p v-if="error" role="alert">{{ error }} 输入及修订原因已保留，请修正后重试；版本冲突时先重新读取记录。</p>
-      <div class="crm-toolbar"><AppButton v-if="dialog" type="button" :disabled="busy" @click="emit('close')">取消</AppButton>
+      <p v-if="!options?.customers.length" class="muted">暂无客户资料。<AppButton v-if="store.can('customer.manage')" variant="text" :disabled="busy" @click="store.navigateToRoute('customers')">前往客户资料</AppButton></p>
+      </div>
+      <div class="crm-toolbar sales-editor-footer"><AppButton v-if="dialog" type="button" :disabled="busy" @click="emit('close')">取消</AppButton>
         <AppButton type="submit" variant="primary" :disabled="disabled">{{ busy ? '正在保存…' : isEdit ? '保存修订' : `保存${crmKindLabel[kind]}` }}</AppButton>
-        <span v-if="!options?.customers.length" class="muted">暂无客户资料。</span><AppButton v-if="store.can('customer.manage')" variant="text" :disabled="busy" @click="store.navigateToRoute('customers')">前往客户资料</AppButton></div>
+        </div>
     </form>
   </section>
 </template>
 <style scoped>
 /* 弹窗传送到 body 后不再位于 CRM 页内，局部样式保证表单间距及窄窗布局。 */
-.crm-editor--dialog form { display: grid; gap: 18px; }
+.crm-editor--dialog form { display:flex; flex-direction:column; gap:0; min-height:0; }
 .crm-editor--dialog .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .crm-editor--dialog .crm-wide { grid-column: 1 / -1; }
 .crm-editor--dialog .crm-toolbar { justify-content: flex-end; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

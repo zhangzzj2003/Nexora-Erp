@@ -34,6 +34,7 @@ test("销售订单出库退货先审批，上游批准不代替本单，普通�
             id.endsWith("/store/app-store")
           )
             return "\0sales-approval-store";
+          if (id.endsWith("/AppModal.vue")) return "\0sales-detail-modal";
           if (id.endsWith("/AppButton.vue")) return "\0sales-approval-button";
           if (id.endsWith("/DocumentApprovalDialog.vue"))
             return "\0sales-approval-dialog";
@@ -41,12 +42,13 @@ test("销售订单出库退货先审批，上游批准不代替本单，普通�
             return "\0sales-approval-table";
         },
         load(id) {
+          if (id === "\0sales-detail-modal") return `import {h} from 'vue';export default {props:['show'],setup:(p,{slots})=>()=>p.show?h('section',slots.default?.()):null}`;
           if (id === "\0sales-approval-store") return storeModule;
           if (id === "\0sales-approval-button") return buttonModule;
           if (id === "\0sales-approval-dialog")
             return `export default {render(){return this.$slots.footerActions?.()??null}}`;
           if (id === "\0sales-approval-table")
-            return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return()=>h('section',(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row}))))}})`;
+            return `import {defineComponent,h} from 'vue';export default defineComponent({props:['data','columns'],setup(p,{slots}){return()=>h('section',[slots.actions?.(),...(p.data??[]).flatMap(row=>p.columns.map(c=>slots['cell-'+c.key]?.({row})))])}})`;
         },
       },
       vue(),
@@ -135,15 +137,17 @@ test("销售订单出库退货先审批，上游批准不代替本单，普通�
     const { default: View } = await server.ssrLoadModule(
       "/src/renderer/src/views/workspace/sales/" + file + ".vue",
     );
-    let bindings;
+    let bindings, detailId = null;
     const RealView = {
       ...View,
       setup(p, context) {
         bindings = View.setup(p, context);
+        bindings.selectedId.value = detailId;
         return bindings;
       },
     };
-    const render = async () => {
+    const render = async (id = null) => {
+      detailId = id;
       buttons.length = 0;
       return renderToString(
         createSSRApp({ render: () => h(RealView) }).use(pinia),
@@ -165,10 +169,15 @@ test("销售订单出库退货先审批，上游批准不代替本单，普通�
         const found = buttons.find((b) => b.label === entry);
         assert.ok(found, `${file} · ${entry}`);
         await found.click();
-        assert.deepEqual(calls[0], [
-          "approval",
-          { document_type: kind, document_id: 1, intent: "execute" },
-        ]);
+        // 查看只选中业务详情；用户明确点击审批后才请求审批记录。
+        assert.equal(bindings.selectedId.value, 1);
+        assert.equal(calls.length, 0);
+        const detailHtml = await render(1);
+        assert.match(detailHtml, /基础信息/);
+        await buttons.find(b => b.label === '单据审批').click();
+        assert.deepEqual(calls[0], ['approval', {document_type:kind, document_id:1, intent:'execute'}]);
+        store.documentApprovalTarget = null;
+        await render();
       }
       // 打开详情后页脚仍按本单审批状态显隐业务按钮，上游批准不放行本单。
       store.documentApprovalTarget = {

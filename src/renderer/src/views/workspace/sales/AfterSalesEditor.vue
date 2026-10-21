@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // 来源选择显示正式出库编号，旧响应仍由公共格式化函数兼容。
 import {relatedDocumentLabel} from '../../../../../shared/document-numbering'
+import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import {documentRows} from '../../../utils/document-rows'
 import {computed,watch} from 'vue'
 import {storeToRefs} from 'pinia'
 import {usePiniaAppStore} from '../../../store/app-store'
@@ -14,6 +16,9 @@ withDefaults(defineProps<{dialog?:boolean}>(),{dialog:false})
 const emit=defineEmits<{close:[];saved:[]}>()
 const store=usePiniaAppStore()
 const {afterSalesForm:form,afterSalesEdit:edit,afterSalesOverview:overview,busy,error,connectionLost}=storeToRefs(store)
+// 耗材表继续直接使用售后草稿行，数量与仓库约束不随布局改变。
+const partRows=computed(()=>documentRows(form.value.parts))
+const partColumns=[{key:'material',title:'耗材 / 资料',width:'400'},{key:'quantity',title:'整单使用数量',width:'180'},{key:'actions',title:'操作',width:'100'}]
 const original=computed(()=>overview.value?.sources.find(row=>row.shipment_line_id===form.value.shipment_line_id))
 const sources=computed(()=>(overview.value?.sources??[]).map(row=>({label:`出库 ${relatedDocumentLabel(row,'shipment')} · ${row.customer_name} · ${row.sku} · 剩余 ${row.remaining_quantity} ${row.unit}`,value:row.shipment_line_id})))
 const materials=computed(()=>(overview.value?.materials??[]).map(row=>({label:`${row.sku} · ${row.name}（${row.unit}）`,value:row.id})))
@@ -33,11 +38,12 @@ watch(()=>form.value.shipment_line_id,(lineId,previous)=>{
 async function save():Promise<void>{if(await store.saveAfterSalesCase())emit('saved')}
 </script>
 <template>
-  <section class="after-editor" aria-label="编制售后申请">
+  <section class="after-editor" :class="{'sales-editor-shell':dialog}" aria-label="编制售后申请">
     <div v-if="!dialog" class="after-toolbar"><h3>{{ edit?`修订售后 #${edit.id} · v${edit.version}`:'编制售后申请' }}</h3><AppButton :disabled="busy" @click="emit('close')">返回记录</AppButton></div>
-    <p>关联原出库数量，填写客户诉求、明确办理方案与客户同意依据；提交后按角色当前步骤权限办理审批。</p>
     <form @submit.prevent="save">
-      <div class="form-grid">
+      <div class="sales-editor-body">
+      <p>关联原出库数量，填写客户诉求、明确办理方案与客户同意依据；提交后按角色当前步骤权限办理审批。</p>
+      <div class="form-grid sales-editor-basic">
         <label class="after-wide">原出库明细<WorkspaceSelect v-model="form.shipment_line_id" :options="sources" :disabled="!!edit || busy || connectionLost" required /></label>
         <p v-if="original" class="after-wide">{{ original.customer_name }} · {{ original.sku }} · 原出库 {{ original.quantity }} {{ original.unit }}，可办理 {{ original.remaining_quantity }} {{ original.unit }}。</p>
         <label>售后依据编号<AppInput v-model.trim="form.reference" maxlength="100" required :disabled="busy" /></label>
@@ -64,18 +70,18 @@ async function save():Promise<void>{if(await store.saveAfterSalesCase())emit('sa
         <label class="after-wide">客户同意方案与价格的依据<AppInput v-model.trim="form.customer_acceptance" maxlength="400" required :disabled="busy" /></label>
       </div>
       <section v-if="form.kind==='repair'" aria-label="维修公司耗材">
-        <div class="after-toolbar"><h3>公司维修耗材</h3><AppButton :disabled="busy || form.parts.length>=100" @click="form.parts.push({material_id:0,quantity:'1'})">添加耗材</AppButton></div>
-        <p v-if="!form.parts.length">不使用公司材料时保持为空；客户物品本身不作为公司耗材出库。</p>
         <label v-if="form.parts.length">公司耗材出库仓<WorkspaceSelect v-model="form.warehouse_id" :options="warehouses" required :disabled="busy" /></label>
-        <div v-for="(line,index) in form.parts" :key="index" class="after-material">
-          <label>耗材 {{ index+1 }}<WorkspaceMaterialSelect :materials="overview?.materials ?? []" v-model="line.material_id" :options="materials" required :disabled="busy" /></label>
-          <label>整单使用数量<AppInput v-model="line.quantity" type="number" min="0.001" step="0.001" max="1000000" required :disabled="busy" /></label>
-          <AppButton :disabled="busy" :aria-label="`移除耗材 ${index+1}`" @click="form.parts.splice(index,1)">移除</AppButton>
-        </div>
+        <WorkspaceTable title="公司维修耗材" actions-placement="heading" :data="partRows" :columns="partColumns" :min-table-width="680" empty-text="不使用公司材料时保持为空，客户物品本身不作为公司耗材出库。">
+          <template #actions><AppButton :disabled="busy || form.parts.length>=100" @click="form.parts.push({material_id:0,quantity:'1'})">添加耗材</AppButton></template>
+          <template #cell-material="{row:{line,index}}"><WorkspaceMaterialSelect :materials="overview?.materials ?? []" v-model="line.material_id" :options="materials" :aria-label="`第 ${index+1} 行耗材`" required :disabled="busy" /></template>
+          <template #cell-quantity="{row:{line,index}}"><AppInput v-model="line.quantity" :aria-label="`第 ${index+1} 行整单使用数量`" type="number" min="0.001" step="0.001" max="1000000" required :disabled="busy" /></template>
+          <template #cell-actions="{row:{index}}"><AppButton size="small" :disabled="busy" :aria-label="`移除耗材 ${index+1}`" @click="form.parts.splice(index,1)">移除</AppButton></template>
+        </WorkspaceTable>
       </section>
       <label>{{ edit?'修订原因':'建立原因' }}<AppInput v-model.trim="form.reason" maxlength="200" required :disabled="busy" /></label>
       <p v-if="error" role="alert">{{ error }} 输入已保留；复核原出库数量或刷新最新版本后重试。</p>
-      <div class="after-editor-actions"><AppButton v-if="dialog" type="button" :disabled="busy" @click="emit('close')">取消</AppButton>
+      </div>
+      <div class="after-editor-actions sales-editor-footer"><AppButton v-if="dialog" type="button" :disabled="busy" @click="emit('close')">取消</AppButton>
       <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !original || (form.kind==='repair' && !['free','charge'].includes(form.charge_mode))">{{ busy?'正在保存…':'保存售后草稿' }}</AppButton></div>
     </form>
   </section>

@@ -43,7 +43,7 @@ async function fixture(t) {
       if(/\/(CustomerRelationsView|CrmEditor)\.vue$/.test(id))return code.replace("'naive-ui'","'virtual:contact-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:contact-modal'")
     },resolveId(id,importer){
       if(id==='virtual:contact-modal')return '\0contact-modal'
-      if(!importer?.includes('/views/workspace/sales/'))return
+      if(!importer?.includes('/src/renderer/'))return
       if(id.endsWith('/store/app-store'))return '\0contact-store'
       if(id.endsWith('/AppButton.vue'))return '\0contact-button'
       if(id.endsWith('/AppInput.vue'))return '\0contact-input'
@@ -164,4 +164,22 @@ test('跟进商机和报价沿用公共弹窗，背景列表不进入惰性模�
     assert.doesNotMatch(html,/<template[\s>]/)
     assert.doesNotMatch(html,/返回列表|class="crm-editor card"/)
   }
+})
+
+// 视觉概览使用完整页签快照，切换筛选只能改变列表，不能清除原有表单。
+test('CRM 分类统计、关键词和客户筛选组合，切换页签重置状态但保留草稿',async t=>{
+  const {store,allowed,View,render}=await fixture(t)
+  store.crmOverview.contacts.push({id:2,name:'旧联系人',customer_id:4,customer_name:'客户甲',phone:'200',email:'old@example.invalid',is_active:0,created_by_name:'销售员'})
+  store.crmForms.contact.name='正在填写的联系人'
+  const {setup}=await render(View,{},page=>page.selectMode('contact'))
+  assert.equal(setup.counts.value.find(row=>row.key==='').count,2)
+  setup.summary.value='inactive';setup.query.value='old@example.invalid';setup.customer.value=4
+  assert.deepEqual(setup.records.value.map(row=>row.id),[2])
+  assert.equal(setup.counts.value.find(row=>row.key==='').count,2)
+  setup.customer.value=9;assert.equal(setup.records.value.length,0)
+  setup.selectMode('quote');assert.equal(setup.summary.value,'');assert.equal(setup.query.value,'')
+  assert.equal(store.crmForms.contact.name,'正在填写的联系人')
+  allowed.add('crm_activity.manage');setup.summary.value='attention';setup.query.value='旧报价'
+  setup.newRecord('activity')
+  assert.equal(setup.mode.value,'activity');assert.equal(setup.summary.value,'');assert.equal(setup.query.value,'')
 })

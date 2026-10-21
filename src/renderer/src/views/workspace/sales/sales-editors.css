@@ -1,0 +1,10 @@
+/* 长表单沿用公共单据的固定标题、可滚动正文和固定页脚，只作用于销售编辑弹窗。 */
+.n-modal.n-card.sales-editor-dialog > .n-card-content { display:flex; flex-direction:column; min-height:0; overflow:clip; padding:0; }
+.sales-editor-host,.sales-editor-shell,.sales-editor-shell > form { display:flex; flex-direction:column; flex:1; min-height:0; }
+.sales-editor-shell > form { gap:0; }
+.sales-editor-body { display:grid; gap:18px; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:24px; }
+.sales-editor-body > p { margin:0; color:var(--workspace-field-muted); font-size:12px; line-height:1.7; }
+.sales-editor-shell .sales-editor-footer { display:flex; flex-shrink:0; justify-content:flex-end; flex-wrap:wrap; gap:10px; margin:0 24px 24px; padding-top:18px; border-top:1px solid var(--workspace-field-border); }
+.sales-editor-basic { padding:20px; border:1px solid var(--workspace-field-border); border-radius:14px; background:var(--app-modal-surface); }
+.sales-editor-basic > p { margin:0; color:var(--workspace-field-muted); font-size:12px; line-height:1.7; }
+@media(max-width:650px){.sales-editor-body{padding:16px}.sales-editor-basic{padding:16px}.sales-editor-shell .sales-editor-footer{margin:0 16px 16px}}

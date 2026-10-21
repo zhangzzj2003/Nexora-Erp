@@ -28,11 +28,13 @@ test('销售出库显示固定批次、旧单差额和指定批次确认入口',
     resolveId(id,importer){
       if(importer?.includes('/views/workspace/sales/SalesShipmentsView')
           && id.endsWith('/store/app-store'))return '\0shipment-view-store'
+      if(id.endsWith('/AppModal.vue'))return '\0shipment-detail-modal'
       if(id.endsWith('/DocumentApprovalDialog.vue'))return '\0sales-proof-approval-dialog'
       if(id.endsWith('/WorkspaceTable.vue'))return '\0shipment-view-table'
       if(id.endsWith('/WorkspaceSelect.vue'))return '\0shipment-view-select'
       if(id.endsWith('/AppButton.vue'))return '\0shipment-view-button'
     },load(id){
+      if(id==='\0shipment-detail-modal')return `import {h} from 'vue';export default {props:['show'],setup:(p,{slots})=>()=>p.show?h('section',slots.default?.()):null}`
       if(id==='\0sales-proof-approval-dialog')return `export default {render(){return this.$slots.footerActions?.()??null}}`
       if(id==='\0shipment-view-store')return storeModule
       if(id==='\0shipment-view-button')return buttonModule
@@ -53,12 +55,15 @@ test('销售出库显示固定批次、旧单差额和指定批次确认入口',
   store.shipments=[shipment,{...shipment,id:3,lines:[{...line,physical_lots:[]}]},
     {...shipment,id:4,status:'draft',approval:{status:'approved'},lines:[{...line,physical_lots:[]}]}]
   const {default:Component}=await server.ssrLoadModule('/src/renderer/src/views/workspace/sales/SalesShipmentsView.vue')
-  const render=async()=>{buttons.length=0;return renderToString(createSSRApp({render:()=>h(Component)}).use(pinia))}
-  const html=await render()
+  let bindings
+  const render=async(id=null)=>{buttons.length=0;const View={...Component,setup(p,ctx){bindings=Component.setup(p,ctx);bindings.selectedId.value=id;return bindings}};return renderToString(createSSRApp({render:()=>h(View)}).use(pinia))}
+  // 真实批次与旧单差额在详情中分别核对；列表只保留物料摘要。
+  const html=await render(2)+await render(3)
   assert.match(html,/LEGACY-W1-M3/)
   assert.match(html,/历史未识别/)
   assert.match(html,/普通确认未指定实物批次/)
   assert.equal((html.match(/普通确认未指定实物批次/g)??[]).length,1)
+  await render()
   // 出库与选批按钮不再出现在列表行内。
   assert.ok(!buttons.some(button=>['确认出库','指定实物批次（可选）'].includes(button.label)))
   // 行内只保留单号和「查看」两个入口，点击都打开同一详情。
@@ -67,7 +72,8 @@ test('销售出库显示固定批次、旧单差额和指定批次确认入口',
     const button=buttons.find(item=>item.label===entry)
     assert.ok(button,entry)
     await button.click()
-    assert.deepEqual(calls.at(-1),['approval',{document_type:'Shipment',document_id:2,intent:'execute'}])
+    assert.equal(bindings.selectedId.value,2)
+    assert.equal(calls.length,0)
   }
   // 指定批次确认入口移入详情页脚，批准后的草稿才能出库。
   store.documentApprovalTarget={document_type:'Shipment',document_id:4,intent:'execute'}

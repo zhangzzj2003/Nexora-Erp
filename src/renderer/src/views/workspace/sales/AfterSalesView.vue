@@ -1,6 +1,13 @@
 <script setup lang="ts">
 // 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
+import './sales-editors.css'
+import SalesSectionTabs from './SalesSectionTabs.vue'
+import AppStatusTag from '../../../components/app/AppStatusTag.vue'
+import WorkspaceSearchFilters from '../../../components/workspace/WorkspaceSearchFilters.vue'
+import WorkspaceSummaryFilters from '../../../components/workspace/WorkspaceSummaryFilters.vue'
+import type {AppStatusTone} from '../../../components/app/AppStatusTag.vue'
+import {useLocalPagination} from '../../../composables/use-local-pagination'
 import AppModal from '../../../components/app/AppModal.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import {
@@ -70,9 +77,24 @@ const responsibilityOutcome = ref<AfterSalesResponsibilityOutcome | "">(""),
 const disabled = computed(
   () => busy.value || loading.value || preparing.value || connectionLost.value,
 );
+const summary=ref('')
+const searchFilters=ref({})
+// 来源按是否仍可办理划分；记录按办理阶段划分，统计不受关键词影响。
+function caseGroup(row:AfterSalesEvidence):string {
+  return row.status==='closed'?'completed':['cancelled','reversed'].includes(row.status)?'inactive':['draft','submitted','approved','rejected'].includes(row.status)?'pending':'active'
+}
+function caseTone(row:AfterSalesEvidence):AppStatusTone {
+  return row.status==='reversed'?'reversed':row.status==='rejected'?'danger':({completed:'success',inactive:'neutral',pending:'pending',active:'info'} as const)[caseGroup(row) as 'completed'|'inactive'|'pending'|'active']
+}
+const counts=computed(()=>mode.value==='sources' ? [
+  {key:'',label:'全部来源',count:overview.value?.sources.length??0,hint:'全部可见的原出库明细'},
+  {key:'available',label:'可办理',count:overview.value?.sources.filter(row=>Number(row.remaining_quantity)>0).length??0,hint:'仍有未退回且未占用数量'},
+  {key:'used',label:'已用完',count:overview.value?.sources.filter(row=>Number(row.remaining_quantity)<=0).length??0,hint:'当前无剩余可办理数量'},
+] : [{key:'',label:'全部售后'}, {key:'pending',label:'待处理'}, {key:'active',label:'办理中'}, {key:'completed',label:'已结案'}, {key:'inactive',label:'取消 / 更正'}]
+  .map(group=>({...group,count:overview.value?.cases.filter(row=>!group.key||caseGroup(row)===group.key).length??0,hint:'全部可见售后记录，不随关键词筛选改变',tone:group.key==='completed'?'success' as const:group.key==='pending'?'pending' as const:'neutral' as const})))
 const sources = computed(() =>
   (overview.value?.sources ?? []).filter((row) =>
-    [
+    (!summary.value || (summary.value==='available'?Number(row.remaining_quantity)>0:Number(row.remaining_quantity)<=0)) && [
       documentSearch(row),
       row.shipment_id,
       row.sales_order_id,
@@ -87,7 +109,7 @@ const sources = computed(() =>
 );
 const records = computed(() =>
   (overview.value?.cases ?? []).filter((row) =>
-    [
+    (!summary.value || caseGroup(row)===summary.value) && [
       documentSearch(row),
       row.reference,
       row.frozen_source.customer_name,
@@ -101,18 +123,20 @@ const records = computed(() =>
       .includes(query.value.trim().toLowerCase()),
   ),
 );
-const sourceColumns = [
-  { key: "source", title: "客户 / 原出库" },
-  { key: "goods", title: "物品" },
-  { key: "quantity", title: "原出库 / 剩余可办理" },
-  { key: "actions", title: "操作" },
-];
-const recordColumns: readonly WorkspaceTableColumn[] = [
-  { key: "source", title: "依据 / 客户" },
-  { key: "plan", title: "方式 / 数量" },
-  { key: "stage", title: "办理阶段" },
-  { key: "actions", title: "查看", width: "72", align: "center" },
-];
+const filterKey=computed(()=>JSON.stringify([mode.value,query.value,summary.value]))
+const sourcePages=useLocalPagination(sources,filterKey), recordPages=useLocalPagination(records,filterKey)
+const sourceColumns:readonly WorkspaceTableColumn[]=[
+  {key:'document',title:'原出库单',width:'220'}, {key:'customer_name',title:'客户',width:'200'},
+  {key:'sku',title:'物料编码',width:'170'}, {key:'material_name',title:'物料名称',width:'220'},
+  {key:'quantity',title:'出库数量',width:'130',align:'right'}, {key:'remaining_quantity',title:'剩余可办理',width:'140',align:'right'},
+  {key:'unit',title:'单位',width:'80'}, {key:'order',title:'销售订单',width:'220'}, {key:'actions',title:'操作',width:'120'},
+]
+const recordColumns:readonly WorkspaceTableColumn[]=[
+  {key:'document',title:'售后单号',width:'220'}, {key:'customer',title:'客户',width:'200'}, {key:'kind',title:'办理方式',width:'120'},
+  {key:'stage',title:'办理阶段',width:'170'}, {key:'material',title:'物料名称',width:'220'}, {key:'quantity',title:'办理数量',width:'130',align:'right'},
+  {key:'fee',title:'维修服务费（元）',width:'170',align:'right'}, {key:'reference',title:'售后依据',width:'200'},
+  {key:'created_by_name',title:'创建人',width:'130'}, {key:'actions',title:'操作',width:'100',align:'center'},
+]
 const actions = (row: AfterSalesEvidence) =>
   afterSalesActions(row, user.value?.permissions ?? [], user.value?.id ?? 0);
 function newRecord(id: number): void {
@@ -282,7 +306,7 @@ async function executeResponsibility(): Promise<void> {
 }
 function selectMode(value: "sources" | "records"): void {
   if (busy.value) return;
-  mode.value = value;
+  mode.value = value; summary.value = '';
   editor.value = false;
   query.value = "";
   store.clearAfterSalesDetail();
@@ -313,31 +337,17 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
 </script>
 <template>
   <section class="stack after-workspace">
-    <div class="after-toolbar">
-      <AppButton
-        :variant="mode === 'sources' ? 'primary' : 'secondary'"
-        :disabled="busy"
-        @click="selectMode('sources')"
-        >原出库来源</AppButton
-      ><AppButton
-        :variant="mode === 'records' ? 'primary' : 'secondary'"
-        :disabled="busy"
-        @click="selectMode('records')"
-        >售后记录</AppButton
-      ><!-- 编辑或查询面板仍保留原有公共读取入口。 -->
-      <template v-if="editor && store.can('after_sales.create')"><AppButton :disabled="disabled" @click="store.loadAfterSales()">{{
-        loading ? "正在读取…" : "刷新来源与记录"
-      }}</AppButton></template>
-    </div>
+    <Teleport defer to="#workspace-page-summary"><WorkspaceSummaryFilters v-model="summary" :options="counts" /></Teleport>
+    <SalesSectionTabs :model-value="mode" :disabled="busy" label="售后列表分类" :options="[{key:'sources',label:'原出库来源'},{key:'records',label:'售后记录'}]" @update:model-value="selectMode" />
     <p v-if="connectionLost" role="alert">
       服务端连接中断，旧证据及动作已失效。同账号未保存输入保留，恢复连接后刷新并核对版本。
     </p>
     <p v-if="failure" role="alert">{{ failure }} 请刷新来源与记录后重试。</p>
     <!-- 编辑表单与来源列表分开，关闭只收起弹窗，未保存输入仍由原 store 保留。 -->
-    <AppModal preset="card" :show="editor || editorPending" :ready="!editorPending" :busy="busy" :load-error="failure"
-      :title="store.afterSalesEdit ? '修订售后申请' : '编制售后申请'" :style="{width:'min(1100px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}"
+    <AppModal class="sales-editor-dialog" preset="card" :show="editor || editorPending" :ready="!editorPending" :busy="busy" :load-error="failure"
+      :title="store.afterSalesEdit ? '修订售后申请' : '编制售后申请'" :style="{width:'min(1100px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)'}"
       @update:show="value=>{if(!value){editor=false;editorPending=false}}" @invalidated="editor=false;editorPending=false">
-      <div class="after-workspace">
+      <div class="after-workspace sales-editor-host">
     <AfterSalesEditor dialog
       v-if="editor && store.can('after_sales.create')"
       @close="editor = false"
@@ -353,7 +363,7 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
         title="售后出库来源"
         :show-title="false"
         :columns="sourceColumns"
-        :data="sources"
+        :data="sourcePages.rows.value" :pagination="{page:sourcePages.page.value,pageSize:sourcePages.pageSize.value,total:sourcePages.total.value}" @page-change="sourcePages.changePage"
         :min-table-width="1000"
         :loading="loading"
       >
@@ -363,31 +373,12 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
           loading ? "正在读取…" : "刷新来源与记录"
         }}</AppButton>
         </template>
-        <template #filters
-            ><label
-              >搜索原出库<AppInput
-                v-model="query"
-                placeholder="客户、订单、出库或物料" /></label
-          ></template>
-        <template #cell-source="{ row }"
-          ><strong>{{ row.customer_name }}</strong
-          ><span class="after-secondary"
-            >出库 {{ relatedDocumentLabel(row, "shipment") }} · 订单
-            {{ relatedDocumentLabel(row, "sales_order") }}</span
-          ></template
-        >
-        <template #cell-goods="{ row }"
-          >{{ row.sku }} · {{ row.material_name }}</template
-        >
-        <template #cell-quantity="{ row }"
-          >原出库 {{ row.quantity }} {{ row.unit
-          }}<span class="after-secondary"
-            >未退回且未占用 {{ row.remaining_quantity }} {{ row.unit }}</span
-          ></template
-        >
+        <template #filters><WorkspaceSearchFilters v-model:query="query" v-model:filters="searchFilters" search-label="搜索原出库" search-placeholder="客户、订单、出库或物料" :reset-disabled="!query&&!summary" @reset="query='';summary=''" /></template>
+        <template #cell-document="{row}">{{relatedDocumentLabel(row,'shipment')}}</template>
+        <template #cell-order="{row}">{{relatedDocumentLabel(row,'sales_order')}}</template>
         <template #cell-actions="{ row }"
           ><AppButton
-            v-if="store.can('after_sales.create')"
+            v-if="store.can('after_sales.create')" size="small"
             :disabled="disabled || Number(row.remaining_quantity) <= 0"
             @click="newRecord(row.shipment_line_id)"
             >编制售后</AppButton
@@ -402,7 +393,7 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
         title="售后记录"
         :show-title="false"
         :columns="recordColumns"
-        :data="records"
+        :data="recordPages.rows.value" :pagination="{page:recordPages.page.value,pageSize:recordPages.pageSize.value,total:recordPages.total.value}" @page-change="recordPages.changePage"
         :min-table-width="1100"
         :loading="loading"
       >
@@ -412,44 +403,14 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
           loading ? "正在读取…" : "刷新来源与记录"
         }}</AppButton>
         </template>
-        <template #filters
-            ><label
-              >搜索售后<AppInput
-                v-model="query"
-                placeholder="售后编号、客户、物料、方式或阶段" /></label
-          ></template>
-        <template #cell-source="{ row }"
-          ><strong
-            ><!-- 单号直接打开证据面板，与操作列「查看」并存两个入口。 -->
-            <AppButton
-              type="button"
-              variant="text"
-              :disabled="disabled"
-              :aria-label="`查看单据 ${documentLabel(row)} 详情`"
-              @click="store.loadAfterSalesDetail(row.id)"
-              >{{ documentLabel(row) }}</AppButton
-            >
-            · {{ row.reference }}</strong
-          ><span class="after-secondary"
-            >{{ row.frozen_source.customer_name }} · 出库
-            {{ relatedDocumentLabel(row, "shipment", row.frozen_source) }}</span
-          ></template
-        >
-        <template #cell-plan="{ row }"
-          >{{ afterSalesKind[row.kind as keyof typeof afterSalesKind] }}
-          {{ row.quantity }} {{ row.frozen_source.unit
-          }}<span v-if="row.kind === 'repair'" class="after-secondary">{{
-            row.charge_mode === "free"
-              ? "明确免费维修"
-              : `整单服务费 ${row.fee_amount} 元`
-          }}</span></template
-        >
-        <template #cell-stage="{ row }"
-          >{{ afterSalesStatus[row.status as keyof typeof afterSalesStatus]
-          }}<span class="after-secondary"
-            >v{{ row.version }} · {{ row.created_by_name }}</span
-          ></template
-        >
+        <template #filters><WorkspaceSearchFilters v-model:query="query" v-model:filters="searchFilters" search-label="搜索售后" search-placeholder="单号、客户、物料或阶段" :reset-disabled="!query&&!summary" @reset="query='';summary=''" /></template>
+        <template #cell-document="{row}"><AppButton variant="text" :disabled="disabled" :aria-label="`查看单据 ${documentLabel(row)} 详情`" @click.capture="captureDialogOrigin('after-sales-detail',$event)" @click="store.loadAfterSalesDetail(row.id)">{{documentLabel(row)}}</AppButton></template>
+        <template #cell-customer="{row}">{{row.frozen_source.customer_name}}</template>
+        <template #cell-material="{row}">{{row.frozen_source.material_name}}</template>
+        <template #cell-kind="{row}">{{afterSalesKind[row.kind as keyof typeof afterSalesKind]}}</template>
+        <template #cell-quantity="{row}">{{row.quantity}} {{row.frozen_source.unit}}</template>
+        <template #cell-fee="{row}">{{row.kind==='repair'?(row.charge_mode==='free'?'免费':row.fee_amount):'—'}}</template>
+        <template #cell-stage="{row}"><AppStatusTag :label="afterSalesStatus[row.status as keyof typeof afterSalesStatus]" :tone="caseTone(row)" /></template>
         <!-- 行内只保留查看入口，阶段操作统一移入下方证据面板操作区。 -->
         <template #cell-actions="{ row }"
           ><AppButton
@@ -458,7 +419,7 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
             size="small"
             :disabled="disabled"
             :aria-label="`查看单据 ${documentLabel(row)} 详情`"
-            @click="store.loadAfterSalesDetail(row.id)"
+            @click.capture="captureDialogOrigin('after-sales-detail',$event)" @click="store.loadAfterSalesDetail(row.id)"
             >查看</AppButton
           ></template
         >
@@ -467,15 +428,14 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
         >
       </WorkspaceTable>
       <!-- 售后证据和阶段操作集中在详情弹窗，不再堆叠在列表下方。 -->
-      <AppModal preset="card" title="售后详情与办理" :show="!!detail && !editor && !editorPending" :busy="busy" :style="{width:'min(1200px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}"
+      <AppModal origin-key="after-sales-detail" preset="card" title="售后详情" :show="!!detail && !editor && !editorPending" :busy="busy" :style="{width:'min(1200px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}"
         @update:show="value=>{if(!value)store.clearAfterSalesDetail()}" @invalidated="store.clearAfterSalesDetail()">
         <div class="after-workspace stack">
-      <AfterSalesEvidenceView v-if="detail" :row="detail" />
       <!-- 操作色与详情一致：更正/驳回为红色、取消为橙色、执行为绿色、编辑为蓝色。 -->
       <!-- 证据面板统一承载该售后单的阶段操作，行内不再堆叠按钮。 -->
-      <div v-if="detail" class="after-toolbar">
-        <AppButton
-          tone="info"
+      <div v-if="detail" class="section-heading after-detail-heading"><h3>基本资料</h3><div class="after-toolbar">
+        <AppButton size="small"
+
           v-if="
             store.can('after_sales.create') &&
             ['draft', 'rejected'].includes(detail.status)
@@ -483,8 +443,8 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
           :disabled="disabled"
           @click="editRecord(detail.id)"
           >修订</AppButton
-        ><AppButton
-          tone="info"
+        ><AppButton size="small"
+
           :disabled="disabled"
           @click.capture="captureDialogOrigin('document-approval', $event)" @click="
             store.openDocumentApproval({
@@ -494,7 +454,7 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
             })
           "
           >单据审批</AppButton
-        ><AppButton
+        ><AppButton size="small"
           tone="error"
           v-if="detail.status === 'closed' && store.can('after_sales.reverse')"
           :disabled="disabled"
@@ -506,7 +466,7 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
             })
           "
           >结案更正审批</AppButton
-        ><AppButton
+        ><AppButton size="small"
           :tone="
             action === 'reverse' || action === 'reject'
               ? 'error'
@@ -520,7 +480,8 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
           @click.capture="captureDialogOrigin('AfterSalesView:command', $event)" @click="prepare(detail.id, action)"
           >{{ afterSalesCommand[action] }}</AppButton
         >
-      </div>
+      </div></div>
+      <AfterSalesEvidenceView v-if="detail" :row="detail" hide-heading />
       <AfterSalesLaborCost
         v-if="detail?.kind === 'repair' && store.can('after_sales.cost')"
         :row="detail"
@@ -810,6 +771,10 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
   </section>
 </template>
 <style scoped>
+/* 详情标题与小号操作同排，完整业务资料紧随其后。 */
+.after-detail-heading {flex-wrap:wrap;gap:12px}
+.after-detail-heading h3 {font-size:15px;margin:0}
+
 .after-workspace {
   --after-secondary: #50667d;
 }
@@ -834,7 +799,6 @@ onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
 .after-workspace :deep(.vxe-table--viewport-wrapper) {
   overflow: clip;
 }
-.after-workspace :deep(.after-editor form),
 .after-operation {
   display: grid;
   gap: 18px;

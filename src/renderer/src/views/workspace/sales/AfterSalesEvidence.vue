@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 详情中的物料身份与摘要统一绘制，参数只取本领域已经授权读取的资料。
+import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import WorkspaceMaterialName from '../../../components/workspace/WorkspaceMaterialName.vue'
 // 页面只展示服务端保存的单号，原内部 ID 继续用于业务操作。
 import { documentLabel, relatedDocumentLabel } from '../../../../../shared/document-numbering'
@@ -8,15 +9,17 @@ import type {AfterSalesEvidence} from '../../../../../shared/after-sales-api'
 import {usePiniaAppStore} from '../../../store/app-store'
 import AppCollapseItem from '../../../components/app/AppCollapseItem.vue'
 import {afterSalesKind,afterSalesStatus,afterSalesChanges,afterSalesCommand,afterSalesResponsibility,repairFeeState} from './after-sales-display'
-defineProps<{row:AfterSalesEvidence;compact?:boolean}>()
+defineProps<{row:AfterSalesEvidence;compact?:boolean;hideHeading?:boolean}>()
 const store=usePiniaAppStore()
 </script>
 <template>
   <section class="after-evidence" :aria-label="`售后 ${row.reference} 的证据`">
-    <h3>{{ documentLabel(row) }} · {{ row.reference }} · {{ afterSalesStatus[row.status] }} · v{{ row.version }}</h3>
+    <div v-if="!hideHeading" class="section-heading"><h3>基本资料</h3><AppStatusTag :label="afterSalesStatus[row.status]" :tone="row.status==='closed'?'success':row.status==='reversed'?'reversed':row.status==='rejected'?'danger':row.status==='draft'||row.status==='cancelled'?'neutral':'pending'" /></div>
     <dl class="after-facts">
-      <div><dt>客户与原单</dt><dd>{{ row.frozen_source.customer_name }} · 销售订单 {{ relatedDocumentLabel(row, 'sales_order', row.frozen_source) }} · 出库 {{ relatedDocumentLabel(row, 'shipment', row.frozen_source) }} / 明细 #{{ row.shipment_line_id }}</dd></div>
-      <div><dt>物品与本次数量</dt><dd><WorkspaceMaterialName :name="`${row.frozen_source.sku} · ${row.frozen_source.material_name}`" :material-id="row.frozen_source.material_id" :material="store.afterSalesOverview?.materials.find(item => item.id === row.frozen_source.material_id)" /> · {{ afterSalesKind[row.kind] }} {{ row.quantity }} {{ row.frozen_source.unit }}</dd></div>
+      <div v-if="hideHeading"><dt>办理阶段</dt><dd><AppStatusTag :label="afterSalesStatus[row.status]" :tone="row.status==='closed'?'success':row.status==='reversed'?'reversed':row.status==='draft'||row.status==='cancelled'?'neutral':'pending'" /></dd></div>
+      <div><dt>售后单号</dt><dd>{{documentLabel(row)}}</dd></div><div><dt>售后依据</dt><dd>{{row.reference}}</dd></div><div><dt>客户</dt><dd>{{row.frozen_source.customer_name}}</dd></div>
+      <div><dt>销售订单</dt><dd>{{relatedDocumentLabel(row,'sales_order',row.frozen_source)}}</dd></div><div><dt>原出库单</dt><dd>{{relatedDocumentLabel(row,'shipment',row.frozen_source)}}</dd></div><div><dt>办理方式</dt><dd>{{afterSalesKind[row.kind]}}</dd></div>
+      <div><dt>物料编码</dt><dd>{{row.frozen_source.sku}}</dd></div><div><dt>物料名称</dt><dd><WorkspaceMaterialName :name="row.frozen_source.material_name" :material-id="row.frozen_source.material_id" :material="store.afterSalesOverview?.materials.find(item=>item.id===row.frozen_source.material_id)" /></dd></div><div><dt>办理数量</dt><dd>{{row.quantity}} {{row.frozen_source.unit}}</dd></div>
       <div><dt>客户诉求</dt><dd>{{ row.complaint }}</dd></div><div><dt>办理方案</dt><dd>{{ row.solution }}</dd></div>
       <div><dt>客户同意依据</dt><dd>{{ row.customer_acceptance }}</dd></div><div><dt>原出库效力</dt><dd>{{ row.current_source_valid?'当前有效':'当前来源已更正，请核对历史' }}</dd></div>
       <div><dt>保修期限核对</dt><dd v-if="row.warranty_days!==null">出库日 {{ row.frozen_source.posted_at.slice(0,10) }} · {{ row.warranty_days }} 天 · 截止 {{ row.warranty_expires_on }}；申请日 {{ row.warranty_applied_on }} · {{ row.warranty_status==='within_period'?'期限内':row.warranty_status==='expired'?'已过期':'日期待核对' }}</dd><dd v-else>未确认保修条款</dd></div>
@@ -60,7 +63,11 @@ const store=usePiniaAppStore()
 <style scoped>
 .after-evidence{--after-secondary:#50667d;overflow-wrap:anywhere}
 :global(:root[data-theme='dark'] .after-evidence){--after-secondary:#9aadc5}
-.after-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:18px 0}
+/* 售后沿用单据详情的三列信息面板，较长依据可换行，窄窗按两列或一列排列。 */
+.after-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px 24px;margin:18px 0;padding:20px;border:1px solid var(--workspace-field-border);border-radius:14px;background:var(--app-modal-surface)}
+@media(max-width:850px){.after-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.after-facts{grid-template-columns:1fr}}
+
 .after-facts dt{color:var(--after-secondary);font-size:12px;margin-bottom:6px}
 .after-facts dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
 .after-links{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}

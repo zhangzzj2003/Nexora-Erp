@@ -21,10 +21,12 @@ test('销售退货显示回仓批次证据与旧单据差额', async t => {
     resolveId(id, importer) {
       if (importer?.includes('/views/workspace/sales/SalesReturnsView')
           && id.endsWith('/store/app-store')) return '\0return-view-store'
+      if(id.endsWith('/AppModal.vue'))return '\0return-detail-modal'
       if(id.endsWith('/DocumentApprovalDialog.vue'))return '\0sales-proof-approval-dialog'
       if (id.endsWith('/WorkspaceTable.vue')) return '\0return-view-table'
       if (id.endsWith('/WorkspaceSelect.vue')) return '\0return-view-select'
     }, load(id) {
+      if(id==='\0return-detail-modal')return `import {h} from 'vue';export default {props:['show'],setup:(p,{slots})=>()=>p.show?h('section',slots.default?.()):null}`
       if(id==='\0sales-proof-approval-dialog')return `export default {render:()=>null}`
       if (id === '\0return-view-store') return storeModule
       if (id === '\0return-view-table') return `import {defineComponent,h} from 'vue';export default defineComponent({props:{data:Array},setup(props,{slots}){return ()=>h('section',[
@@ -46,7 +48,12 @@ test('销售退货显示回仓批次证据与旧单据差额', async t => {
   store.salesReturns = [record, {...record, id: 3, lines: [{...line, physical_lots: []}]}]
   const {default: Component} = await server.ssrLoadModule(
     '/src/renderer/src/views/workspace/sales/SalesReturnsView.vue')
-  const html = await renderToString(createSSRApp({render: () => h(Component)}).use(pinia))
+  // 批次从列表移入分列详情，逐张打开并验证仍保留原证据。
+  let html=''
+  for(const row of store.salesReturns){
+    const View={...Component,setup(p,ctx){const state=Component.setup(p,ctx);state.openBusinessDetail(row);return state}}
+    html+=await renderToString(createSSRApp({render:()=>h(View)}).use(pinia))
+  }
   assert.match(html, /SR2-L7-P1/)
   assert.match(html, /退货新批次/)
   assert.match(html, /普通确认未指定实物批次/)
