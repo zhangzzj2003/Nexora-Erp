@@ -60,7 +60,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspaceRouteKey, string
   materialPlanning: '按日期汇总需求和预计供给，合并共享组件并扣库存，固定计算结果，独立审核后转采购申请或工单草稿。',
   qualityDisposition: '按原质检数量安排报废或返工，明确成本处理，独立审核后确认。返工沿用来源成本，重新检验合格后才入可用库存。',
   equipmentMaintenance: '维护设备台账与周期计划，独立审核后由指定人员执行、登记停机与报工，再独立验收。耗材由仓库确认，外委费用为声明记录。',
-  customerRelations: '维护客户联系人和跟进，推进销售商机。报价经独立审核后，按客户接受依据转销售订单草稿。',
+  customerRelations: '管理客户、安排跟进、编制报价。',
   users: '管理账号、姓名、工号和手机号，分配角色、切换账号状态及重置密码。',
   permissionCatalog: '名称用于页面展示；内部代码用于服务端授权，不能修改。',
   settings: '查看当前连接、修改账号密码并管理本机服务。',

@@ -117,9 +117,11 @@ def record_data(db: Session, kind: str, record) -> dict:
         # 报价正文始终来自冻结快照，实时信息只用于动作提示。
         result['customer_name'] = result['party']['customer_name']
         result['contact_name'] = result['party']['contact_name']
-        result['opportunity_title'] = db.get(CrmOpportunity, record.opportunity_id).title
-        result['opportunity_version'] = db.get(CrmOpportunity, record.opportunity_id).version
-        result['opportunity_stage'] = db.get(CrmOpportunity, record.opportunity_id).stage
+        # 直接客户报价没有商机，不生成虚构的商机名称或版本。
+        opportunity = db.get(CrmOpportunity, record.opportunity_id) if record.opportunity_id is not None else None
+        result['opportunity_title'] = opportunity.title if opportunity else ''
+        result['opportunity_version'] = opportunity.version if opportunity else None
+        result['opportunity_stage'] = opportunity.stage if opportunity else None
         result['contact_active'] = not contact_id or bool(db.get(CrmContact, contact_id).is_active)
         result['expired'] = record.valid_until < today()
         result['sales_order_status'] = db.get(SalesOrder, record.sales_order_id).status if record.sales_order_id else None

@@ -180,7 +180,7 @@ def test_104_upgrade_adds_only_defaults_and_preserves_audits_stock_and_mrp_finge
     with orm_session() as db:
         assert fingerprint(collect(db)) == before
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 110
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 111
         assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
 

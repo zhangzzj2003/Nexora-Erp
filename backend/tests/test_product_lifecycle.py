@@ -403,6 +403,6 @@ def test_105_upgrade_adds_soft_delete_columns_without_rewriting_existing_evidenc
     assert req('GET', '/stock').json() == before_stock
     assert next(item for item in req('GET', '/work-orders').json() if item['id'] == order['id']) == order
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 110
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 111
         assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []

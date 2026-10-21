@@ -320,9 +320,9 @@ def _migrate_sales_closure(db: sqlite3.Connection) -> None:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 110:
+        if version > 111:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
-        if version < 110:
+        if version < 111:
             # 销售状态与旧库存、资金约束需重建表；迁移完成前核对外键，业务会话仍强制开启约束。
             db.execute('PRAGMA foreign_keys = OFF')
         if version == 0:
@@ -3428,3 +3428,24 @@ def migrate() -> None:
             if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
                 raise RuntimeError('销售余量终止迁移后外键检查失败')
             db.execute('PRAGMA user_version = 110')
+
+        if version < 111:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            # 仅放宽商机关联的必填约束，原字段、编号、报价明细、审批和审计全部原样保留。
+            source = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='crm_quotes'").fetchone()
+            if source is not None:
+                statement, count = re.subn(r'opportunity_id INTEGER NOT NULL', 'opportunity_id INTEGER', source[0], count=1)
+                if count:
+                    statement = re.sub(r'CREATE TABLE\s+"?crm_quotes"?', 'CREATE TABLE crm_quotes_optional_opportunity', statement, count=1, flags=re.I)
+                    dependents = [row[0] for row in db.execute("""SELECT sql FROM sqlite_master
+                        WHERE tbl_name='crm_quotes' AND type IN ('index','trigger') AND sql IS NOT NULL""")]
+                    db.execute(statement)
+                    db.execute('INSERT INTO crm_quotes_optional_opportunity SELECT * FROM crm_quotes')
+                    db.execute('DROP TABLE crm_quotes')
+                    db.execute('ALTER TABLE crm_quotes_optional_opportunity RENAME TO crm_quotes')
+                    for statement in dependents:
+                        db.execute(statement)
+            if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
+                raise RuntimeError('直接客户报价迁移后外键检查失败')
+            db.execute('PRAGMA user_version = 111')

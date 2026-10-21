@@ -12,7 +12,7 @@ export const crmAuditLabel: Record<string,string> = {create:'建立记录',edit:
 
 export function quoteActions(quote: CrmQuote, permissions: string[], _userId: number): (CrmQuoteAction|'convert')[] {
   const result: (CrmQuoteAction|'convert')[]=[]
-  const open=!['won','lost'].includes(quote.opportunity_stage)
+  const open=!['won','lost'].includes(quote.opportunity_stage??'')
   const valid=open && !quote.expired && quote.contact_active
   // 送审与审核统一在审批弹窗处理；转单必须同时取得本单批准和原领域授权。
   if(quote.status==='approved' && quote.approval?.status==='approved' && valid && permissions.includes('crm_quote.convert') && permissions.includes('sales_order.create'))result.push('convert')
@@ -51,7 +51,7 @@ export function crmFormError(kind: CrmKind, forms: CrmForms): string {
     return dateFieldError(item.expected_close_date,{required:true,min:'1900-01-01',max:'2199-12-31'}) ? '请填写有效的预计成交日。' : ''
   }
   const item=forms.quote
-  if(!item.opportunity_id || !item.reference.trim())return '请选择开放的商机并填写报价编号。'
+  if(!item.customer_id || !item.reference.trim())return '请选择客户并填写报价编号。'
   if(dateFieldError(item.valid_until,{required:true,min:'1900-01-01',max:'2199-12-31'}))return '请填写有效的报价有效期，服务端另行核对是否过期。'
   if(!item.lines.length || item.lines.length>100 || item.lines.some(line=>!line.material_id || !amountValid(line.quantity,1_000_000,3) || Number(line.quantity)<=0 || !amountValid(line.unit_price,1_000_000_000,4)))return '报价须有 1 至 100 行，数量为正、最多三位小数，单价非负、最多四位小数。'
   return new Set(item.lines.map(line=>line.material_id)).size!==item.lines.length ? '同一报价不能重复选择物料。' : ''

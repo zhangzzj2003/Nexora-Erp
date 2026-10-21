@@ -13,7 +13,7 @@ import { canVisitRoute,routeByKey } from '../src/renderer/src/router/workspace-r
 
 const permissions=['crm.view','crm_contact.manage','crm_activity.manage','crm_opportunity.manage','crm_quote.create','crm_quote.submit','crm_quote.convert','sales_order.create']
 const quote={id:1,version:3,status:'approved',approval:{status:'approved'},opportunity_version:2,opportunity_stage:'qualified',review_blocked:[1],expired:false,contact_active:true}
-const quoteInput={opportunity_id:1,contact_id:null,reference:'Q-1',valid_until:'2030-01-31',terms:'确认后交货',lines:[{material_id:1,quantity:'1.005',unit_price:'0.9999'}]}
+const quoteInput={customer_id:22,opportunity_id:1,contact_id:null,reference:'Q-1',valid_until:'2030-01-31',terms:'确认后交货',lines:[{material_id:1,quantity:'1.005',unit_price:'0.9999'}]}
 const overview={contacts:[],activities:[],opportunities:[],quotes:[]}
 const options={customers:[],owners:[],materials:[]}
 const importRows=[{customer_id:4,name:'王女士',job_title:'采购',phone:'100',email:'',note:'重点客户'}]
@@ -166,7 +166,7 @@ test('CRM 入口不被普通销售查看权限放开，审核和转单按实际�
 test('表单约束拒绝非法日期、精度、重复行和不完整归属',()=>{
   const forms=emptyCrmForms();forms.quote=structuredClone(quoteInput)
   assert.equal(crmFormError('quote',forms),'')
-  for(const patch of [{valid_until:'2030-02-30'},{reference:' '},{opportunity_id:0},
+  for(const patch of [{valid_until:'2030-02-30'},{reference:' '},{customer_id:0},
     {lines:[{...quoteInput.lines[0],quantity:'0'}]},{lines:[{...quoteInput.lines[0],unit_price:'1e3'}]},
     {lines:[{...quoteInput.lines[0],unit_price:'0.00001'}]},{lines:[quoteInput.lines[0],quoteInput.lines[0]]}]){
     assert.ok(crmFormError('quote',{...forms,quote:{...quoteInput,...patch}}))

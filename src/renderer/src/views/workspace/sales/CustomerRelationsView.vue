@@ -3,6 +3,8 @@
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
 import './sales-editors.css'
 import SalesSectionTabs from './SalesSectionTabs.vue'
+import CrmCustomerHub from './CrmCustomerHub.vue'
+import { selectCrmFormCustomer } from './crm-customers'
 import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import WorkspaceSearchFilters from '../../../components/workspace/WorkspaceSearchFilters.vue'
 import WorkspaceSummaryFilters from '../../../components/workspace/WorkspaceSummaryFilters.vue'
@@ -30,6 +32,8 @@ import { crmKindLabel,crmQuoteLabel,crmActivityLabel,crmStageLabel,crmCommandLab
 
 const store=usePiniaAppStore()
 const {crmOverview:overview,crmForecast:forecast,crmOptions:options,crmDetail:detail,crmError:failure,crmLoading:loading,crmForms:forms,crmOwnerChanges:ownerChanges,busy,user,connectionLost,error}=storeToRefs(store)
+// 主入口按客户、跟进、报价组织，商机仍可从客户详情进入。
+const showingCustomers=ref(true)
 const mode=ref<CrmKind>('activity');const editor=ref<CrmKind|null>(null);const customer=ref(0);const query=ref('')
 const contactImportOpen=ref(false)
 const opportunityImportOpen=ref(false)
@@ -87,23 +91,31 @@ const columns=computed<WorkspaceTableColumn[]>(()=>[
     {key:'deadline',title:mode.value==='quote'?'有效期至':mode.value==='activity'?'跟进期限':'预计成交日',width:'160'},
   ]), {key:'actions',title:'操作',width:'100',align:'center'},
 ])
-function selectMode(value:CrmKind):void{if(busy.value)return;mode.value=value;summary.value='';editor.value=null;store.clearCrmDetail();query.value=''}
+function selectMode(value:CrmKind):void{if(busy.value)return;showingCustomers.value=false;mode.value=value;summary.value='';editor.value=null;store.clearCrmDetail();query.value=''}
+function selectSection(value:'customer'|CrmKind):void {
+  if(busy.value)return
+  if(value==='customer'){showingCustomers.value=true;store.clearCrmDetail()}
+  else {customer.value=0;selectMode(value)}
+}
+function showCustomerRecords(kind:CrmKind,id:number):void{selectMode(kind);customer.value=id}
+function assignOwner(id:number):void{ownerCustomer.value=id;ownerModal.value=true}
+function newCustomerRecord(kind:CrmKind,id:number):void{newRecord(kind,{customer_id:id})}
 function closeEditor():void {
   contactPending.value=false; pendingEditorKind.value=null
   // 弹窗关闭只收起视图，Pinia 中的草稿继续保留；保存期间禁止关闭。
   if(!busy.value)editor.value=null
 }
-function newRecord(kind:CrmKind, source?:CrmContact|CrmOpportunity):void {
+function newRecord(kind:CrmKind, source?:CrmContact|CrmOpportunity|{customer_id:number}):void {
   if(!store.can(permission(kind)) || disabled.value)return
   // 从联系人或商机发起其他业务时，不能沿用上一类资料的状态筛选。
-  if(mode.value!==kind){summary.value='';query.value=''}
-  store.startNewCrm(kind);editor.value=kind;mode.value=kind;store.clearCrmDetail()
+  if(!showingCustomers.value && mode.value!==kind){summary.value='';query.value='';mode.value=kind}
+  store.startNewCrm(kind);editor.value=kind;store.clearCrmDetail()
   const selectedCustomer=source?.customer_id??customer.value
-  if(kind!=='quote' && selectedCustomer)forms.value[kind].customer_id=selectedCustomer
+  if(selectedCustomer)selectCrmFormCustomer(forms.value,kind,selectedCustomer)
   if(kind==='activity'){
     forms.value.activity.owner_id ||= user.value?.id??0
     if(source && 'stage' in source){forms.value.activity.opportunity_id=source.id;forms.value.activity.contact_id=source.contact_id}
-    else if(source)forms.value.activity.contact_id=source.id
+    else if(source && 'is_active' in source)forms.value.activity.contact_id=source.id
   }
   if(kind==='opportunity')forms.value.opportunity.owner_id ||= user.value?.id??0
   if(kind==='quote' && source && 'stage' in source){forms.value.quote.opportunity_id=source.id;forms.value.quote.contact_id=source.contact_id}
@@ -119,7 +131,8 @@ async function editRecord(kind:Exclude<CrmKind,'activity'>, id:number):Promise<v
   try{if(await store.editCrm(kind,id) && contactPending.value)editor.value=kind}finally{preparing.value=false;contactPending.value=false;pendingEditorKind.value=null}
 }
 function canEdit(row:CrmRecord):boolean{
-  return mode.value!=='activity' && store.can(permission(mode.value)) && ('lines' in row?['draft','rejected'].includes(row.status) && !['won','lost'].includes(row.opportunity_stage):'stage' in row?row.stage!=='won':true)
+  const kind:CrmKind='lines' in row?'quote':'stage' in row?'opportunity':'due_date' in row?'activity':'contact'
+  return kind!=='activity' && store.can(permission(kind)) && ('lines' in row?['draft','rejected'].includes(row.status) && !['won','lost'].includes(row.opportunity_stage??''):'stage' in row?row.stage!=='won':true)
 }
 function quoteCommands(row:CrmRecord):(CrmQuoteAction|'convert')[]{return 'lines' in row?quoteActions(row,user.value?.permissions??[],user.value?.id??0):[]}
 function canReopen(row:CrmRecord):boolean{return 'stage' in row && ['won','lost'].includes(row.stage) && row.orders.every(item=>item.status==='cancelled') && store.can('crm_opportunity.manage')}
@@ -155,17 +168,19 @@ onUnmounted(()=>store.clearCrmDetail())
 </script>
 <template>
   <section class="stack crm-workspace">
-    <Teleport defer to="#workspace-page-summary"><WorkspaceSummaryFilters v-model="summary" :options="counts" /></Teleport>
-    <!-- 页签只负责切换资料种类，新建和导入统一留在表格操作区。 -->
-    <SalesSectionTabs :model-value="mode" :disabled="busy" label="客户关系分类" :options="(['contact','activity','opportunity','quote'] as const).map(key=>({key,label:crmKindLabel[key]}))" @update:model-value="selectMode" />
+    <Teleport v-if="!showingCustomers" defer to="#workspace-page-summary"><WorkspaceSummaryFilters v-model="summary" :options="counts" /></Teleport>
+    <!-- 日常只展示三个入口；联系人和可选商机从客户详情展开。 -->
+    <SalesSectionTabs :model-value="showingCustomers || mode==='opportunity' || mode==='contact'?'customer':mode" :disabled="busy" label="客户关系分类" :options="[{key:'customer',label:'客户'},{key:'activity',label:'跟进'},{key:'quote',label:'报价'}]" @update:model-value="selectSection" />
     <p v-if="connectionLost" role="alert">服务端连接中断，当前资料和可执行动作已失效。未保存的输入保留，恢复连接后重新读取再保存。</p>
     <p v-if="failure" role="alert">{{ failure }} 请刷新资料后重试。</p>
 
+    <CrmCustomerHub v-if="showingCustomers" :disabled="disabled" @create="newCustomerRecord" @detail="store.loadCrmDetail" @records="showCustomerRecords" @assign="assignOwner" @import="contactImportOpen=true" />
+    <template v-else>
+      <div v-if="mode==='opportunity'" class="section-heading"><h2>{{ options?.customers.find(row=>row.id===customer)?.name || '客户' }} · 商机管理</h2><AppButton :disabled="busy" @click="selectSection('customer')">返回客户</AppButton></div>
       <WorkspaceTable :title="crmKindLabel[mode]" :show-title="false" :columns="columns" :data="pageRows" :pagination="{page,pageSize,total}" @page-change="changePage" :min-table-width="1250" :loading="loading">
         <!-- 列表功能统一放入公共筛选栏右侧，权限和事件沿用原按钮。 -->
         <template #actions>
           <AppButton :disabled="disabled" @click="store.loadCrm()">{{ loading?'正在读取…':'刷新资料' }}</AppButton>
-          <AppButton v-if="store.can('customer.assign')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('CustomerRelationsView:owner', $event)" @click="ownerModal=true">分配客户负责人</AppButton>
           <AppButton v-if="mode==='contact' && store.can('crm_contact.manage')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('ContactImportDialog:import', $event)" @click="contactImportOpen=true">导入联系人 CSV</AppButton>
           <AppButton v-if="mode==='opportunity' && store.can('crm_opportunity.manage')" :disabled="disabled || !options" @click.capture="captureDialogOrigin('OpportunityImportDialog:import', $event)" @click="opportunityImportOpen=true">导入商机 CSV</AppButton>
           <AppButton variant="primary" v-if="store.can(permission(mode))" :disabled="disabled || !options" @click.capture="captureDialogOrigin('CustomerRelationsView:contact', $event)" @click="newRecord(mode)">新建{{ crmKindLabel[mode] }}</AppButton>
@@ -186,16 +201,17 @@ onUnmounted(()=>store.clearCrmDetail())
       <p>已评估预估金额 {{ forecast.estimated_amount }} 元 · 加权预计金额 <strong>{{ forecast.weighted_amount }} 元</strong>（人民币，逐项四舍五入到分）</p>
       <p v-if="!forecast.rated_count" class="muted">暂无已评估的开放商机，请在商机修订中填写成交概率。</p>
     </section>
+    </template>
       <AppModal origin-key="crm-business-detail" preset="card" :title="detail?`${crmKindLabel[detail.kind]}详情`: '客户关系详情'" :show="!!detail && !editor && !contactPending && !command && !commandPending" :busy="busy"
         :style="{width:'min(1150px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}" @update:show="value=>{if(!value)store.clearCrmDetail()}" @invalidated="store.clearCrmDetail()">
-        <div class="crm-workspace"><CrmEvidence><template #actions><template v-if="detail">          <AppButton v-if="canEdit(detail.record)" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:contact', $event)" @click="editRecord(mode as Exclude<CrmKind,'activity'>,detail.record.id)">修订</AppButton>
-          <AppButton v-if="mode==='contact' && (detail.record as CrmContact).is_active && store.can('crm_activity.manage')" size="small" :disabled="disabled" @click="newRecord('activity',detail.record as CrmContact)">安排跟进</AppButton>
-          <AppButton v-if="mode==='opportunity' && !['won','lost'].includes((detail.record as CrmOpportunity).stage) && store.can('crm_quote.create')" size="small" :disabled="disabled" @click="newRecord('quote',detail.record as CrmOpportunity)">编制报价</AppButton>
-          <AppButton v-if="mode==='opportunity' && store.can('crm_activity.manage')" size="small" :disabled="disabled" @click="newRecord('activity',detail.record as CrmOpportunity)">安排跟进</AppButton>
+        <div class="crm-workspace"><CrmEvidence><template #actions><template v-if="detail">          <AppButton v-if="canEdit(detail.record)" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:contact', $event)" @click="editRecord(detail.kind as Exclude<CrmKind,'activity'>,detail.record.id)">修订</AppButton>
+          <AppButton v-if="detail.kind==='contact' && (detail.record as CrmContact).is_active && store.can('crm_activity.manage')" size="small" :disabled="disabled" @click="newRecord('activity',detail.record as CrmContact)">安排跟进</AppButton>
+          <AppButton v-if="detail.kind==='opportunity' && !['won','lost'].includes((detail.record as CrmOpportunity).stage) && store.can('crm_quote.create')" size="small" :disabled="disabled" @click="newRecord('quote',detail.record as CrmOpportunity)">编制报价</AppButton>
+          <AppButton v-if="detail.kind==='opportunity' && store.can('crm_activity.manage')" size="small" :disabled="disabled" @click="newRecord('activity',detail.record as CrmOpportunity)">安排跟进</AppButton>
           <AppButton v-if="canReopen(detail.record)" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:command', $event)" @click="openCommand('opportunity',detail.record.id,'reopen')">重开商机</AppButton>
-          <template v-if="mode==='activity' && (detail.record as CrmActivity).status==='planned' && store.can('crm_activity.manage')"><AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:command', $event)" @click="openCommand('activity',detail.record.id,'complete')">完成跟进</AppButton><AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:command', $event)" @click="openCommand('activity',detail.record.id,'cancelActivity')">取消跟进</AppButton></template>
+          <template v-if="detail.kind==='activity' && (detail.record as CrmActivity).status==='planned' && store.can('crm_activity.manage')"><AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:command', $event)" @click="openCommand('activity',detail.record.id,'complete')">完成跟进</AppButton><AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:command', $event)" @click="openCommand('activity',detail.record.id,'cancelActivity')">取消跟进</AppButton></template>
           <!-- 每张报价拥有自己的审批步骤；原提交/审核动作不再走无审批版本的接口。 -->
-          <AppButton v-if="mode==='quote'" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="store.openDocumentApproval({document_type:'CrmQuote',document_id:detail.record.id,intent:'execute'})">单据审批</AppButton>
+          <AppButton v-if="detail.kind==='quote'" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('document-approval', $event)" @click="store.openDocumentApproval({document_type:'CrmQuote',document_id:detail.record.id,intent:'execute'})">单据审批</AppButton>
           <AppButton v-for="action in quoteCommands(detail.record)" :key="action" size="small" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:command', $event)" @click="openCommand('quote',detail.record.id,action)">{{ crmCommandLabel[action] }}</AppButton>
 </template></template></CrmEvidence></div>
       </AppModal>

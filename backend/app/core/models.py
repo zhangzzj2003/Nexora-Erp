@@ -65,7 +65,8 @@ class CrmQuote(Base):
     document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'crm_quotes'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    opportunity_id: Mapped[int] = mapped_column(Integer, ForeignKey('crm_opportunities.id'), nullable=False)
+    # 直接客户报价不强制建立商机，已有商机关联继续保留。
+    opportunity_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('crm_opportunities.id'))
     customer_id: Mapped[int] = mapped_column(Integer, ForeignKey('customers.id'), nullable=False)
     contact_id: Mapped[int | None] = mapped_column(Integer, ForeignKey('crm_contacts.id'))
     reference: Mapped[str] = mapped_column(Text, nullable=False)

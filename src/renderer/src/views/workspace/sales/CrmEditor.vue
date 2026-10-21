@@ -17,18 +17,20 @@ import { crmFormError, crmKindLabel, crmStageLabel } from './crm-display'
 
 // 同一表单可在页内或弹窗使用，校验、修订原因及保存逻辑保持一致。
 const props=withDefaults(defineProps<{kind: CrmKind;dialog?:boolean}>(),{dialog:false})
-const emit=defineEmits<{saved:[];close:[];createOpportunity:[]}>()
+const emit=defineEmits<{saved:[];close:[]}>()
 const store=usePiniaAppStore()
 const {crmForms:forms,crmEdit:edits,crmOptions:options,crmOverview:overview,busy,connectionLost,crmLoading:loading,error}=storeToRefs(store)
 const edit=computed(()=>edits.value[props.kind])
 const failure=ref('')
 const disabled=computed(()=>busy.value || loading.value || connectionLost.value || !options.value)
-const customer=computed(()=>props.kind==='quote' ? overview.value?.opportunities.find(item=>item.id===forms.value.quote.opportunity_id)?.customer_id ?? 0 : forms.value[props.kind].customer_id)
+const customer=computed(()=>forms.value[props.kind].customer_id)
 const customers=computed(()=>[{label:'选择客户',value:0,disabled:true},...(options.value?.customers??[]).map(row=>({label:row.name,value:row.id}))])
 const owners=computed(()=>[{label:'选择负责人',value:0,disabled:true},...(options.value?.owners??[]).map(row=>({label:row.name,value:row.id}))])
 const contacts=computed(()=>[{label:'未指定联系人',value:null},...(overview.value?.contacts??[]).filter(row=>row.customer_id===customer.value && row.is_active).map(row=>({label:row.name,value:row.id}))])
-const opportunities=computed(()=>[{label:props.kind==='quote'?'选择开放商机':'不关联商机',value:props.kind==='quote'?0:null,disabled:props.kind==='quote'},
-  ...(overview.value?.opportunities??[]).filter(row=>props.kind==='quote' ? !['won','lost'].includes(row.stage) : row.customer_id===customer.value).map(row=>({label:`${row.title} · ${row.customer_name}`,value:row.id}))])
+// 客户先确定业务范围；商机仅作为可选关联，不能串入其他客户的项目。
+const opportunities=computed(()=>[{label:'不关联商机',value:null},
+  ...(overview.value?.opportunities??[]).filter(row=>row.customer_id===customer.value && (props.kind!=='quote' || !['won','lost'].includes(row.stage))).map(row=>({label:row.title,value:row.id}))])
+const showOpportunity=ref(false)
 const materials=computed(()=>[{label:'选择物料',value:0,disabled:true},...(options.value?.materials??[]).map(row=>({label:`${row.sku} · ${row.name}`,value:row.id}))])
 const isEdit=computed(()=>!!edit.value)
 // 表格继续引用原草稿行，删除与切换不会丢失未保存报价。
@@ -39,7 +41,11 @@ watch(customer,()=>{
   if(props.kind==='contact')return
   const form=forms.value[props.kind]
   if(!contacts.value.some(row=>row.value===form.contact_id))form.contact_id=null
-  if(props.kind==='activity' && !opportunities.value.some(row=>row.value===forms.value.activity.opportunity_id))forms.value.activity.opportunity_id=null
+  // 回调内先固定表单类型，避免客户切换后保留跨客户商机。
+  if(props.kind==='activity' || props.kind==='quote'){
+    const linkedForm=forms.value[props.kind]
+    if(!opportunities.value.some(row=>row.value===linkedForm.opportunity_id))linkedForm.opportunity_id=null
+  }
 })
 watch(()=>props.kind,()=>{failure.value=''})
 async function save(): Promise<void> {
@@ -54,9 +60,8 @@ async function save(): Promise<void> {
     <div v-if="!dialog" class="section-heading"><h2>{{ isEdit ? '修订' : '新建' }}{{ crmKindLabel[kind] }}</h2><AppButton :disabled="busy" @click="emit('close')">返回列表</AppButton></div>
     <form @submit.prevent="save">
       <div class="sales-editor-body">
-    <p v-if="kind==='quote'">人民币报价不含税费和折扣计算。提交时固定客户、联系人和物料资料；之后按角色当前步骤权限办理审批。</p>
-    <p v-if="kind==='quote' && opportunities.length===1 && !isEdit">暂无开放商机，须先建立销售商机才能编制报价。<AppButton v-if="store.can('crm_opportunity.manage')" variant="text" :disabled="disabled" @click="emit('createOpportunity')">建立销售商机</AppButton></p>
-    <p v-else-if="kind==='opportunity'">逐条填写成交概率；留空表示未评估，不计入加权预测。预估金额和预测金额不代表订单、收入或收款。“已转单”由批准报价转订单后自动登记。</p>
+    <p v-if="kind==='quote'">填写客户、有效期和报价明细，保存后可提交审批。金额为人民币，暂不含税费与折扣。</p>
+    <p v-if="kind==='opportunity'">逐条填写成交概率；留空表示未评估，不计入加权预测。预估金额和预测金额不代表订单、收入或收款。“已转单”由批准报价转订单后自动登记。</p>
     <p v-else-if="kind==='activity'">这里只登记待办和实际跟进结果，不会发送邮件、短信或提醒。结束后原记录保留，更正可另建跟进。</p>
 
       <div v-if="kind==='contact'" class="form-grid sales-editor-basic">
@@ -72,7 +77,7 @@ async function save(): Promise<void> {
       <div v-else-if="kind==='activity'" class="form-grid sales-editor-basic">
         <label>客户<WorkspaceSelect v-model="forms.activity.customer_id" :options="customers" required :disabled="disabled" /></label>
         <label>联系人<WorkspaceSelect v-model="forms.activity.contact_id" :options="contacts" :disabled="disabled" /></label>
-        <label>关联商机<WorkspaceSelect v-model="forms.activity.opportunity_id" :options="opportunities" :disabled="disabled" /></label>
+
         <label>跟进事项<AppInput v-model.trim="forms.activity.subject" required maxlength="160" :disabled="disabled" /></label>
         <label>负责人<WorkspaceSelect v-model="forms.activity.owner_id" :options="owners" required :disabled="disabled" /></label>
         <label>跟进期限<CrmDate v-model="forms.activity.due_date" :disabled="disabled" /></label>
@@ -91,7 +96,7 @@ async function save(): Promise<void> {
       </div>
       <template v-else>
         <div class="form-grid sales-editor-basic">
-          <label>所属商机<WorkspaceSelect v-model="forms.quote.opportunity_id" :options="opportunities" required :disabled="disabled || isEdit" /></label>
+          <label>客户<WorkspaceSelect v-model="forms.quote.customer_id" :options="customers" required :disabled="disabled || isEdit" /></label>
           <label>报价编号<AppInput v-model.trim="forms.quote.reference" required maxlength="100" :disabled="disabled" /></label>
           <label>联系人<WorkspaceSelect v-model="forms.quote.contact_id" :options="contacts" :disabled="disabled" /></label>
           <label>报价有效期<CrmDate v-model="forms.quote.valid_until" :disabled="disabled" /></label>
@@ -107,6 +112,11 @@ async function save(): Promise<void> {
           <template #cell-actions="{row:{index}}"><AppButton size="small" :disabled="disabled || forms.quote.lines.length===1" :aria-label="`删除报价第 ${index+1} 行`" @click="forms.quote.lines.splice(index,1)">移除</AppButton></template>
         </WorkspaceTable>
         <p v-if="amountSummary.zeroCount" class="muted">有 {{ amountSummary.zeroCount }} 行零单价，请确认是否为赠品或不收费项目。</p>
+      </template>
+      <!-- 日常跟进和报价无需商机；有项目关联时主动展开，历史关联始终可见。 -->
+      <template v-if="kind==='activity' || kind==='quote'">
+        <AppButton v-if="!showOpportunity && !forms[kind].opportunity_id && opportunities.length>1" variant="text" :disabled="disabled" @click="showOpportunity=true">关联商机（可选）</AppButton>
+        <label v-if="showOpportunity || forms[kind].opportunity_id">关联商机<WorkspaceSelect v-model="forms[kind].opportunity_id" :options="opportunities" :disabled="disabled || isEdit" /></label>
       </template>
       <label v-if="isEdit && edit">修订原因<AppInput v-model.trim="edit.reason" required maxlength="500" :disabled="disabled" /></label>
       <p v-if="failure" role="alert">{{ failure }}</p>

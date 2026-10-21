@@ -13,7 +13,7 @@ test('报价列表使用本单审批，原批准不能放行转单，撤回与�
     transform(code,id){if(id.endsWith('/CustomerRelationsView.vue'))return code.replace("'naive-ui'","'virtual:quote-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:quote-modal'")},
     resolveId(id,importer){
       if(id==='virtual:quote-modal')return '\0quote-modal'
-      if(importer?.includes('/CustomerRelationsView.vue') && id.endsWith('/store/app-store'))return '\0quote-store'
+      if(importer?.includes('/src/renderer/') && id.endsWith('/store/app-store'))return '\0quote-store'
       if(id.endsWith('/CrmEvidence.vue'))return '\0quote-evidence'
       if(id.endsWith('/AppButton.vue'))return '\0quote-button'
       if(id.endsWith('/WorkspaceTable.vue'))return '\0quote-table'
@@ -42,7 +42,7 @@ test('报价列表使用本单审批，原批准不能放行转单，撤回与�
     expired:false,contact_active:true,opportunity_stage:'qualified',opportunity_version:1,opportunity_title:'设备商机',review_blocked:[1],
     party:{customer_name:'客户',contact_name:'',phone:'',email:''},total_amount:'2',valid_until:'2030-01-31',terms:'固定商务条款',lines:[]}
   let bindings
-  const RealView={...View,setup(p,ctx){bindings=View.setup(p,ctx);bindings.mode.value='quote';return bindings}}
+  const RealView={...View,setup(p,ctx){bindings=View.setup(p,ctx);bindings.mode.value='quote';bindings.showingCustomers.value=false;return bindings}}
   const render=async()=>{buttons.length=0;return renderToString(createSSRApp({render:()=>h(RealView)}).use(pinia))}
   for(const approval of [undefined,{status:'draft'},{status:'submitted'},{status:'withdrawn'}]){
     store.crmDetail=null

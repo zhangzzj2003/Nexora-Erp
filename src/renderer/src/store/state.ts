@@ -206,7 +206,7 @@ export function createAppState() {
   const crmForms = ref<CrmForms>({contact:{customer_id:0,name:'',job_title:'',phone:'',email:'',note:'',is_active:true},
     opportunity:{customer_id:0,contact_id:null,title:'',owner_id:0,stage:'prospect',estimated_amount:'0.00',probability_percent:null,expected_close_date:'',note:''},
     activity:{customer_id:0,contact_id:null,opportunity_id:null,subject:'',owner_id:0,due_date:'',note:''},
-    quote:{opportunity_id:0,contact_id:null,reference:'',valid_until:'',terms:'',lines:[{material_id:0,quantity:'1',unit_price:'0'}]}})
+    quote:{customer_id:0,opportunity_id:null,contact_id:null,reference:'',valid_until:'',terms:'',lines:[{material_id:0,quantity:'1',unit_price:'0'}]}})
   const crmEdit = ref<Partial<Record<CrmKind, CrmEditTarget>>>({})
   const crmLoading = ref(false)
   const crmError = ref('')

@@ -38,7 +38,9 @@ class QuoteLineInput(StrictInput):
 
 
 class QuoteInput(StrictInput):
-    opportunity_id: int = Field(strict=True, gt=0)
+    # 旧客户端仍可仅传商机；直接报价必须明确客户。
+    customer_id: int | None = Field(default=None, strict=True, gt=0)
+    opportunity_id: int | None = Field(default=None, strict=True, gt=0)
     contact_id: int | None = Field(default=None, strict=True, gt=0)
     reference: str = Field(min_length=1, max_length=100)
     valid_until: str
@@ -52,7 +54,7 @@ class QuoteEdit(QuoteInput, VersionInput):
 
 
 class QuoteConversion(VersionInput):
-    opportunity_version: int = Field(strict=True, gt=0, le=2_147_483_647)
+    opportunity_version: int | None = Field(default=None, strict=True, gt=0, le=2_147_483_647)
     acceptance_reference: str = Field(min_length=1, max_length=120)
 
 
@@ -65,7 +67,8 @@ def freeze_party(db, record):
 
 
 def write_quote(db, record, payload, user):
-    require_open_opportunity(db,record.opportunity_id,user)
+    if record.opportunity_id is not None:
+        require_open_opportunity(db,record.opportunity_id,user)
     if payload.valid_until < today():
         raise HTTPException(422,'报价有效期不可早于当前业务日')
     if len({line.material_id for line in payload.lines}) != len(payload.lines):
@@ -96,8 +99,14 @@ def write_quote(db, record, payload, user):
 @router.post('', status_code=201)
 def create_quote(payload: QuoteInput, user: dict = Depends(require('crm_quote.create'))):
     with orm_session(write=True) as db:
-        opportunity = require_open_opportunity(db,payload.opportunity_id,user)
-        record = CrmQuote(opportunity_id=opportunity.id,customer_id=opportunity.customer_id,
+        opportunity = require_open_opportunity(db,payload.opportunity_id,user) if payload.opportunity_id is not None else None
+        customer_id = payload.customer_id if payload.customer_id is not None else opportunity.customer_id if opportunity else None
+        if customer_id is None:
+            raise HTTPException(422, '请选择报价客户')
+        require_customer(db,customer_id,user)
+        if opportunity and opportunity.customer_id != customer_id:
+            raise HTTPException(422, '关联商机须属于报价客户')
+        record = CrmQuote(opportunity_id=payload.opportunity_id,customer_id=customer_id,
             status='draft',version=1,created_by=user['id'])
         try:
             write_quote(db,record,payload,user)
@@ -113,8 +122,8 @@ def edit_quote(identifier: int, payload: QuoteEdit, user: dict = Depends(require
         record = get_record(db,'quote',identifier,payload.version,user)
         if record.status not in ('draft','rejected'):
             raise HTTPException(409,'只有草稿或驳回的报价可以修订')
-        if record.opportunity_id != payload.opportunity_id:
-            raise HTTPException(409,'报价的所属商机不可修改')
+        if record.opportunity_id != payload.opportunity_id or (payload.customer_id is not None and record.customer_id != payload.customer_id):
+            raise HTTPException(409,'报价的客户与商机关联不可修改')
         approval.record_author(db, 'CrmQuote', identifier, user['id'])
         before = raw_data(db,'quote',record)
         try:
@@ -135,7 +144,8 @@ def prepare_approval_action(db, record, action, user, reason):
         raise HTTPException(422, '报价送审与审核须填写操作依据')
     before = raw_data(db, 'quote', record)
     if action in ('submit', 'approve'):
-        require_open_opportunity(db, record.opportunity_id, user)
+        if record.opportunity_id is not None:
+            require_open_opportunity(db, record.opportunity_id, user)
         require_contact(db, record.customer_id, record.contact_id)
         if record.valid_until < today():
             raise HTTPException(409, '报价已过期，请撤回并修订有效期')
@@ -207,13 +217,20 @@ def convert(identifier: int, payload: QuoteConversion, user: dict = Depends(requ
             raise HTTPException(409,'只有已批准且未转单的报价可以转单')
         approval_case = approval.require_approved(db, 'CrmQuote', identifier,
             current_snapshot(db, 'CrmQuote', identifier), user['id'])
-        opportunity = get_record(db,'opportunity',record.opportunity_id,payload.opportunity_version,user)
-        require_open_opportunity(db,opportunity.id,user)
+        # 有商机的报价仍强制校验商机版本，不能以空版本绕过并发保护。
+        opportunity = None
+        if record.opportunity_id is not None:
+            if payload.opportunity_version is None:
+                raise HTTPException(422, '关联商机的转单须提供商机版本')
+            opportunity = get_record(db,'opportunity',record.opportunity_id,payload.opportunity_version,user)
+            require_open_opportunity(db,opportunity.id,user)
+        elif payload.opportunity_version is not None:
+            raise HTTPException(422, '直接客户报价不应提供商机版本')
         require_contact(db,record.customer_id,record.contact_id)
         if record.valid_until < today():
             raise HTTPException(409,'报价已过期，请建立新报价并重新审核')
         before = raw_data(db,'quote',record)
-        opportunity_before = raw_data(db,'opportunity',opportunity)
+        opportunity_before = raw_data(db,'opportunity',opportunity) if opportunity else None
         order = create_sales_order_in_session(db,SalesOrderInput(customer_id=record.customer_id,
             reference=record.reference, lines=[dict(material_id=line['material_id'],
                 quantity=line['quantity'], unit_price=line['unit_price']) for line in before['lines']]),user['id'])
@@ -223,9 +240,10 @@ def convert(identifier: int, payload: QuoteConversion, user: dict = Depends(requ
         record.converted_by = user['id']
         record.converted_at = func.current_timestamp()
         record.version += 1
-        opportunity.stage = 'won'
-        opportunity.version += 1
+        if opportunity:
+            opportunity.stage = 'won'
+            opportunity.version += 1
+            audit(db,'opportunity',opportunity,'convert',opportunity_before,payload.reason,user['id'])
         audit(db,'quote',record,'convert',before,payload.reason,user['id'])
-        audit(db,'opportunity',opportunity,'convert',opportunity_before,payload.reason,user['id'])
         approval.mark_executed(db, approval_case, user['id'])
         return record_data(db,'quote',record)

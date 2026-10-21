@@ -11,7 +11,7 @@ export function emptyCrmForms(): CrmForms {
   return { contact: {customer_id:0,name:'',job_title:'',phone:'',email:'',note:'',is_active:true},
     opportunity: {customer_id:0,contact_id:null,title:'',owner_id:0,stage:'prospect',estimated_amount:'0.00',probability_percent:null,expected_close_date:'',note:''},
     activity: {customer_id:0,contact_id:null,opportunity_id:null,subject:'',owner_id:0,due_date:'',note:''},
-    quote: {opportunity_id:0,contact_id:null,reference:'',valid_until:'',terms:'',lines:[{material_id:0,quantity:'1',unit_price:'0'}]} }
+    quote: {customer_id:0,opportunity_id:null,contact_id:null,reference:'',valid_until:'',terms:'',lines:[{material_id:0,quantity:'1',unit_price:'0'}]} }
 }
 
 export function createCrmActions(state: AppState, perform: (run: () => Promise<unknown>, message: string) => Promise<void>) {
@@ -194,8 +194,8 @@ export function createCrmActions(state: AppState, perform: (run: () => Promise<u
         expected_close_date:opportunity.expected_close_date,note:opportunity.note}
     }else {
       const quote=row as CrmQuote
-      if(!['draft','rejected'].includes(quote.status) || ['won','lost'].includes(quote.opportunity_stage))return false
-      state.crmForms.value.quote={opportunity_id:quote.opportunity_id,contact_id:quote.contact_id,reference:quote.reference,
+      if(!['draft','rejected'].includes(quote.status) || ['won','lost'].includes(quote.opportunity_stage??''))return false
+      state.crmForms.value.quote={customer_id:quote.customer_id,opportunity_id:quote.opportunity_id,contact_id:quote.contact_id,reference:quote.reference,
         valid_until:quote.valid_until,terms:quote.terms,lines:quote.lines.map(({material_id,quantity,unit_price})=>({material_id,quantity,unit_price}))}
     }
     state.crmEdit.value[kind]={kind,id,version:row.version,reason:''};state.error.value='';return true

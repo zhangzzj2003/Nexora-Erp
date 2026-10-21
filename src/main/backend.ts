@@ -902,7 +902,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       const fields = action==='saveCrmContact' ? ['customer_id','name','job_title','phone','email','note','is_active']
         : action==='saveCrmOpportunity' ? ['customer_id','contact_id','title','owner_id','stage','estimated_amount','probability_percent','expected_close_date','note']
         : action==='createCrmActivity' ? ['customer_id','contact_id','opportunity_id','subject','owner_id','due_date','note']
-        : ['opportunity_id','contact_id','reference','valid_until','terms']
+        : ['customer_id','opportunity_id','contact_id','reference','valid_until','terms']
       const body: Record<string, unknown> = Object.fromEntries(fields.map(key=>[key,source[key]]))
       for (const field of ['customer_id','owner_id','opportunity_id','contact_id']) {
         if (fields.includes(field) && (source[field] != null || ['customer_id','owner_id'].includes(field))) body[field]=positiveId(payload,field)
@@ -930,7 +930,8 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
       if (typeof command !== 'string' || !allowed.includes(command)) throw new Error('不允许的客户关系操作')
       const body: Record<string, unknown> = { version: positiveId(payload,'version'), reason: source.reason }
       if (action==='convertCrmQuote') {
-        body.opportunity_version=positiveId(payload,'opportunity_version');body.acceptance_reference=source.acceptance_reference
+        // 仅直接客户报价允许空商机版本；有关联时仍由服务端核对最新版本。
+        body.opportunity_version=source.opportunity_version==null?null:positiveId(payload,'opportunity_version');body.acceptance_reference=source.acceptance_reference
       }
       const resource = action==='closeCrmActivity' ? 'activities' : action==='reopenCrmOpportunity' ? 'opportunities' : 'quotes'
       return { method:'POST',path:`/api/v1/crm/${resource}/${positiveId(payload,'id')}/${command}`,body }

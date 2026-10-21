@@ -34,7 +34,7 @@ function auditLines(source:Record<string,unknown>): {material_name:string; quant
           <div><dt>单据编号</dt><dd>{{documentLabel(quote)}}</dd></div><div><dt>报价编号</dt><dd>{{quote.reference}}</dd></div>
           <div><dt>状态</dt><dd><AppStatusTag :label="crmQuoteLabel[quote.status]" :tone="quote.status==='approved'||quote.status==='converted'?'success':quote.status==='rejected'?'danger':quote.status==='submitted'?'pending':'neutral'" /></dd></div>
           <div><dt>客户</dt><dd>{{quote.party.customer_name}}</dd></div><div><dt>联系人</dt><dd>{{quote.party.contact_name||'未指定'}}</dd></div><div><dt>联系电话</dt><dd>{{quote.party.phone||'未填写'}}</dd></div>
-          <div><dt>邮箱</dt><dd>{{quote.party.email||'未填写'}}</dd></div><div><dt>有效期至</dt><dd>{{quote.valid_until}}</dd></div><div><dt>所属商机</dt><dd>{{quote.opportunity_title}}</dd></div>
+          <div><dt>邮箱</dt><dd>{{quote.party.email||'未填写'}}</dd></div><div><dt>有效期至</dt><dd>{{quote.valid_until}}</dd></div><div v-if="quote.opportunity_id"><dt>关联商机</dt><dd>{{quote.opportunity_title}}</dd></div>
           <div class="crm-detail-wide"><dt>交货及商务条款</dt><dd>{{quote.terms||'未填写'}}</dd></div>
         </dl>
         <p v-if="quote.expired" role="alert">报价已过期，不能提交、批准或转单。草稿可修订有效期；已批准报价须另建并重新审核。</p>

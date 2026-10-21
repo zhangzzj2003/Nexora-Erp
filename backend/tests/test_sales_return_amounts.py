@@ -145,7 +145,7 @@ def test_migration_keeps_legacy_amount_and_new_return_absorbs_residual(context):
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 110
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 111
         assert db.execute('SELECT settlement_amount FROM sales_return_lines').fetchone()[0] is None
     assert fingerprints() == before
     second = execute('SalesReturn', 'sales-returns', draft(shipment)['id'])
