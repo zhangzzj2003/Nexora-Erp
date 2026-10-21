@@ -44,8 +44,8 @@ export function matchesSalesFilters(row: {status: string; created_at: string; re
   if (filters.customer !== null && customerId !== filters.customer) return false
   if (!filters.from && !filters.to) return true
   // 日期筛选按当前设备显示日期，与页面时间保持一致，不直接截取 UTC 日期。
-  const timestamp = row.created_at.includes('T') ? row.created_at : row.created_at.replace(' ', 'T') + 'Z'
-  const date = new Date(timestamp)
+  const timestamp = row.created_at.replace(' ', 'T')
+  const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(timestamp) ? timestamp : timestamp + 'Z')
   if (!Number.isFinite(date.getTime())) return false
   const day = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
   return (!filters.from || day >= filters.from) && (!filters.to || day <= filters.to)

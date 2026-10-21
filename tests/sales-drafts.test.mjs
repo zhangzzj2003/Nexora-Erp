@@ -55,6 +55,9 @@ test('销售筛选区分审批、执行和冲销，日期按显示时区处理',
   try {
     const row={status:'posted',created_at:'2026-10-20 23:30:00',reversal_id:1}
     assert.equal(matchesSalesFilters(row,2,{...newSalesFilters(),status:'reversed',customer:2,from:'2026-10-21',to:'2026-10-21'}),true)
+    // 服务端时间带 T 但未带时区时仍为 UTC，与页面 localTime 保持一致。
+    assert.equal(matchesSalesFilters({...row,created_at:'2026-10-20T23:30:00'},2,
+      {...newSalesFilters(),from:'2026-10-21',to:'2026-10-21'}),true)
     assert.equal(matchesSalesFilters(row,2,{...newSalesFilters(),status:'posted'}),false)
     assert.equal(matchesSalesFilters(row,2,{...newSalesFilters(),customer:3}),false)
     assert.equal(matchesSalesFilters({...row,status:'draft',reversal_id:null,approval:{status:'approved'}},2,

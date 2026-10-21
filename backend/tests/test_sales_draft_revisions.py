@@ -106,6 +106,7 @@ def test_quote_converted_draft_can_complete_warranty_without_rewriting_quote(see
     quote = approved_quote(seeded, body)
     converted = quote_action(client, admin, quote, 'convert', acceptance_reference='客户确认',
                              opportunity_version=opportunity['version'])
+    original_quote = client.get(f"/api/v1/crm/records/quote/{quote['id']}", headers=admin).json()
     order = next(row for row in client.get('/api/v1/sales-orders', headers=admin).json()
                  if row['id'] == converted['sales_order_id'])
     response = client.put(f"/api/v1/sales-orders/{order['id']}", headers=admin, json={
@@ -116,6 +117,7 @@ def test_quote_converted_draft_can_complete_warranty_without_rewriting_quote(see
     assert response.status_code == 200, response.text
     assert all(line['warranty_days'] == 365 for line in response.json()['lines'])
     assert response.json()['total_amount'] == order['total_amount']
+    assert client.get(f"/api/v1/crm/records/quote/{quote['id']}", headers=admin).json() == original_quote
     approve_document(client, admin, 'SalesOrder', order['id'])
     assert client.post(f"/api/v1/sales-orders/{order['id']}/confirm", headers=admin).status_code == 200
 
