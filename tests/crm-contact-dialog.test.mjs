@@ -203,3 +203,18 @@ test('客户、跟进、报价三个入口，客户内新建和修订不跳到�
   setup.selectSection('quote');assert.equal(setup.mode.value,'quote')
   setup.selectSection('customer');assert.equal(setup.showingCustomers.value,true)
 })
+
+// 逾期待办仍包含在待跟进中，客户入口与跟进入口的数量不能互相矛盾。
+test('待跟进筛选同时包含正常和逾期待办，已完成不混入',async t=>{
+  const {store,View,render}=await fixture(t)
+  store.crmOverview.activities=[
+    {id:1,customer_id:4,subject:'逾期跟进',due_date:'2029-01-01',status:'planned',overdue:true},
+    {id:2,customer_id:4,subject:'正常跟进',due_date:'2030-01-01',status:'planned',overdue:false},
+    {id:3,customer_id:4,subject:'完成跟进',due_date:'2029-01-01',status:'completed',overdue:false},
+  ]
+  const {setup}=await render(View,{},page=>page.selectSection('activity'))
+  assert.equal(setup.counts.value.find(row=>row.key==='active').count,2)
+  assert.equal(setup.counts.value.find(row=>row.key==='attention').count,1)
+  setup.summary.value='active';assert.deepEqual(setup.records.value.map(row=>row.id),[1,2])
+  setup.summary.value='attention';assert.deepEqual(setup.records.value.map(row=>row.id),[1])
+})

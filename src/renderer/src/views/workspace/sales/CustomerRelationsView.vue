@@ -64,6 +64,12 @@ function groupFor(row:CrmRecord):string {
   if('due_date' in row)return row.status==='completed'?'completed':row.status==='cancelled'?'inactive':row.overdue?'attention':'active'
   return row.status==='converted'?'completed':row.status==='cancelled'?'inactive':row.expired||row.status==='rejected'?'attention':'active'
 }
+// 逾期仍属于待跟进；概览与客户页使用相同待办口径。
+function matchesSummary(row:CrmRecord,key:string):boolean {
+  if(!key)return true
+  if(key==='active' && 'due_date' in row)return row.status==='planned'
+  return groupFor(row)===key
+}
 function statusTone(row:CrmRecord):AppStatusTone {
   return ({active:'info',inactive:'neutral',completed:'success',attention:'danger'} as const)[groupFor(row) as 'active'|'inactive'|'completed'|'attention']
 }
@@ -72,11 +78,11 @@ const counts=computed(()=>[
   ...(mode.value==='activity'||mode.value==='quote'?[{key:'attention',label:mode.value==='activity'?'已逾期':'需关注'}]:[]),
   ...(mode.value!=='contact'?[{key:'completed',label:mode.value==='activity'?'已完成':'已转单'}]:[]),
   {key:'inactive',label:mode.value==='contact'?'已停用':mode.value==='opportunity'?'已丢单':'已取消'},
-].map(group=>({...group,count:allRecords.value.filter(row=>!group.key||groupFor(row)===group.key).length,
+].map(group=>({...group,count:allRecords.value.filter(row=>matchesSummary(row,group.key)).length,
   hint:group.key==='attention'&&mode.value==='quote'?'已过期或被驳回的非终结报价':'当前页签全部可见记录，不随客户和关键词筛选改变',
   tone:group.key==='attention'?'danger' as const:group.key==='completed'?'success' as const:'neutral' as const})))
 const searchFilters=computed({get:()=>({customer:customer.value}),set:value=>{customer.value=value.customer}})
-const records=computed(()=>allRecords.value.filter(row=>(!customer.value || row.customer_id===customer.value) && (!summary.value||groupFor(row)===summary.value) && [documentSearch(row),rowTitle(row),row.customer_name,row.contact_name,
+const records=computed(()=>allRecords.value.filter(row=>(!customer.value || row.customer_id===customer.value) && (matchesSummary(row,summary.value)) && [documentSearch(row),rowTitle(row),row.customer_name,row.contact_name,
   'owner_name' in row?row.owner_name:'',rowStatus(row),'phone' in row?row.phone:'','email' in row?row.email:''].join(' ').toLowerCase().includes(query.value.toLowerCase().trim()))
   .sort((a,b)=>mode.value==='activity' ? Number('overdue' in b && b.overdue)-Number('overdue' in a && a.overdue) : 0))
 const filterKey=computed(()=>JSON.stringify([mode.value,query.value,customer.value,summary.value]))

@@ -7,6 +7,7 @@ import AppStatusTag from '../../../components/app/AppStatusTag.vue'
 import WorkspaceSearchFilters from '../../../components/workspace/WorkspaceSearchFilters.vue'
 import WorkspaceSummaryFilters from '../../../components/workspace/WorkspaceSummaryFilters.vue'
 import WorkspaceTable from '../../../components/workspace/WorkspaceTable.vue'
+import type { WorkspaceTableColumn } from '../../../utils/table-columns'
 import { useLocalPagination } from '../../../composables/use-local-pagination'
 import { usePiniaAppStore } from '../../../store/app-store'
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
@@ -39,10 +40,11 @@ const records = computed(() => customers.value.filter(row =>
   [row.name, row.owner_name, ...row.contacts.flatMap(contact => [contact.name, contact.phone, contact.email])]
     .join(' ').toLowerCase().includes(query.value.trim().toLowerCase())))
 const { rows, page, pageSize, total, changePage } = useLocalPagination(records, computed(() => `${query.value}:${summary.value}`))
-const columns = [
-  { key: 'name', title: '客户名称', width: '260' }, { key: 'owner_name', title: '负责人', width: '130' },
-  { key: 'contact_count', title: '联系人', width: '100' }, { key: 'pending', title: '待跟进', width: '150' },
-  { key: 'next', title: '下次跟进', width: '260' }, { key: 'actions', title: '操作', width: '100' },
+// 客户列表缩减宽度，窄窗中固定操作列，避免“查看”被横向滚动遮住。
+const columns: WorkspaceTableColumn[] = [
+  { key: 'name', title: '客户名称', width: '220' }, { key: 'owner_name', title: '负责人', width: '120' },
+  { key: 'contact_count', title: '联系人', width: '90' }, { key: 'pending', title: '待跟进', width: '150' },
+  { key: 'next', title: '下次跟进', width: '230' }, { key: 'actions', title: '操作', width: '90', fixed: 'right' },
 ]
 const activityRows = computed(() => [...(selected.value?.activities ?? [])].sort((a, b) =>
   Number(b.status === 'planned') - Number(a.status === 'planned') || b.id - a.id))
@@ -50,7 +52,7 @@ const activityRows = computed(() => [...(selected.value?.activities ?? [])].sort
 <template>
   <section class="stack crm-customers">
     <Teleport defer to="#workspace-page-summary"><WorkspaceSummaryFilters v-model="summary" :options="counts" @update:model-value="selectedId=0" /></Teleport>
-    <WorkspaceTable v-if="!selected" title="客户" :show-title="false" :columns="columns" :data="rows" :min-table-width="1000" :loading="loading" :pagination="{page,pageSize,total}" @page-change="changePage">
+    <WorkspaceTable v-if="!selected" title="客户" :show-title="false" :columns="columns" :data="rows" :min-table-width="900" :loading="loading" :pagination="{page,pageSize,total}" @page-change="changePage">
       <template #filters><WorkspaceSearchFilters v-model:query="query" :filters="{}" search-label="搜索客户" search-placeholder="客户、联系人或电话" :reset-disabled="!query && !summary" @reset="query='';summary=''" /></template>
       <template #actions>
         <AppButton :disabled="disabled" @click="store.loadCrm()">刷新</AppButton>
@@ -73,13 +75,13 @@ const activityRows = computed(() => [...(selected.value?.activities ?? [])].sort
           <AppButton v-if="store.can('crm_quote.create')" variant="primary" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:contact',$event)" @click="emit('create','quote',selected.id)">新建报价</AppButton>
         </div>
       </section>
-      <WorkspaceTable title="联系人" :data="selected.contacts" :columns="[{key:'name',title:'姓名',width:'180'},{key:'job_title',title:'职务',width:'140'},{key:'phone',title:'电话',width:'180'},{key:'email',title:'邮箱',width:'220'},{key:'status',title:'状态',width:'100'},{key:'actions',title:'操作',width:'100'}]" :min-table-width="900" actions-placement="heading">
+      <WorkspaceTable title="联系人" :data="selected.contacts" :columns="[{key:'name',title:'姓名',width:'180'},{key:'job_title',title:'职务',width:'140'},{key:'phone',title:'电话',width:'180'},{key:'email',title:'邮箱',width:'220'},{key:'status',title:'状态',width:'100'},{key:'actions',title:'操作',width:'100',fixed:'right'}]" :min-table-width="900" actions-placement="heading">
         <template #actions><AppButton v-if="store.can('crm_contact.manage')" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:contact',$event)" @click="emit('create','contact',selected.id)">添加联系人</AppButton></template>
         <template #cell-status="{row}"><AppStatusTag :label="row.is_active?'启用':'停用'" :tone="row.is_active?'success':'neutral'" /></template>
         <template #cell-actions="{row}"><AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('crm-business-detail',$event)" @click="emit('detail','contact',row.id)">查看</AppButton></template>
         <template #empty>尚未添加联系人。</template>
       </WorkspaceTable>
-      <WorkspaceTable title="跟进记录" :data="activityRows" :columns="[{key:'subject',title:'跟进事项',width:'300'},{key:'owner_name',title:'负责人',width:'130'},{key:'due_date',title:'期限',width:'160'},{key:'status',title:'状态',width:'130'},{key:'actions',title:'操作',width:'100'}]" :min-table-width="850" actions-placement="heading">
+      <WorkspaceTable title="跟进记录" :data="activityRows" :columns="[{key:'subject',title:'跟进事项',width:'300'},{key:'owner_name',title:'负责人',width:'130'},{key:'due_date',title:'期限',width:'160'},{key:'status',title:'状态',width:'130'},{key:'actions',title:'操作',width:'100',fixed:'right'}]" :min-table-width="850" actions-placement="heading">
         <template #actions><AppButton v-if="store.can('crm_activity.manage')" :disabled="disabled" @click.capture="captureDialogOrigin('CustomerRelationsView:contact',$event)" @click="emit('create','activity',selected.id)">安排跟进</AppButton></template>
         <template #cell-status="{row}"><AppStatusTag :label="row.overdue?'已逾期':crmActivityLabel[row.status as keyof typeof crmActivityLabel]" :tone="row.overdue?'danger':row.status==='completed'?'success':'neutral'" /></template>
         <template #cell-actions="{row}"><AppButton size="small" :disabled="disabled" @click.capture="captureDialogOrigin('crm-business-detail',$event)" @click="emit('detail','activity',row.id)">查看</AppButton></template>
