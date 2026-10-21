@@ -467,7 +467,7 @@ async function reverseApproved(identifier: number): Promise<void> {
         /></label>
         <div class="document-basic-extra">
           <p class="muted">
-            退货关联原出库明细；确认后新增入库流水，不修改原出库记录。金额按原销售单价计算，应收调整将在财务模块处理。
+            退货关联原出库明细，确认后新增入库流水并调整应收。草稿金额为预估，确认时按原出库累计退货数量分摊尾差；实际退款需另行登记。
           </p>
         </div>
       </template>
@@ -562,7 +562,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           <p class="muted">
             {{ localTime(item.created_at) }} · 原出库单
             {{ relatedDocumentLabel(item, "shipment") }} · {{ item.reason }} ·
-            创建人 {{ item.created_by_name }} · 原价金额 ¥{{
+            创建人 {{ item.created_by_name }} · {{ item.status === 'posted' ? '退货金额' : '预估金额' }} ¥{{
               item.total_amount
             }}
             <span v-if="item.reversal_id">

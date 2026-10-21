@@ -409,7 +409,7 @@ def test_v106_migration_is_additive_idempotent_and_audit_immutable(context):
     migrate()
     migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 109
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 110
         assert {name: db.execute(f'SELECT * FROM "{name}"').fetchall() for name in table_names} == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
         assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'

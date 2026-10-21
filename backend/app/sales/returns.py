@@ -4,7 +4,7 @@ from app.core.document_responses import NumberedRoute
 from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.engine import RowMapping
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -35,6 +35,7 @@ from app.inventory.lot_inputs import PhysicalLotPartInput
 from app.access.security import require
 from app.sales.customer_scope import (visible_customer_ids, require_visible_shipment,
     require_visible_return)
+from app.sales.return_amounts import return_amount, settlement_for_return
 
 UserRu = aliased(User)
 UserU = aliased(User)
@@ -240,6 +241,7 @@ def sales_return_data(db: Session, return_id: int) -> dict:
             Material.name.label("material_name"),
             Material.unit,
             SalesReturnLine.quantity,
+            SalesReturnLine.settlement_amount,
             SalesOrderLine.unit_price,
         )
         .select_from(SalesReturnLine)
@@ -249,9 +251,7 @@ def sales_return_data(db: Session, return_id: int) -> dict:
         .where((SalesReturnLine.sales_return_id == return_id))
         .order_by(SalesReturnLine.id)
     ).mappings():
-        line_total = (Decimal(item["quantity"]) * Decimal(item["unit_price"])).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
+        line_total = return_amount(item['quantity'], item['unit_price'], item['settlement_amount'])
         total += line_total
         lots = [{"id": lot.id, "code": lot.code, "source_kind": lot.source_kind,
                  "quantity": format(Decimal(allocation.quantity), 'f'),
@@ -263,7 +263,9 @@ def sales_return_data(db: Session, return_id: int) -> dict:
                             StockMovement.source_type == 'sales_return',
                             StockMovement.source_id == return_id,
                             StockMovement.source_line_id == item['id']).order_by(PhysicalLotAllocation.id))]
-        lines.append({**dict(item), "line_total": str(line_total), "physical_lots": lots})
+        # 固定金额是内部过账事实，对外继续使用既有行金额字段。
+        detail = {key: value for key, value in item.items() if key != 'settlement_amount'}
+        lines.append({**detail, "line_total": str(line_total), "physical_lots": lots})
     return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'SalesReturn', return_id)),
             'reversal_approval': approval.case_data(approval.find_case(db, 'SalesReturn', return_id, 'reverse')), "lines": lines, "total_amount": str(total)}
 
@@ -404,6 +406,10 @@ def post_sales_return(return_id: int, payload: SalesReturnPostInput | None = Non
         # 批准与原业务写入共用事务，数量和库存仍由原领域重新核对。
         approved = approval.require_approved(db, 'SalesReturn', return_id, sales_return_snapshot(db, return_id), user['id'])
         for line in lines:
+            # 与库存、审批执行共用写事务，后续批次校验失败时固定金额也整体回滚。
+            settled = settlement_for_return(db, line['shipment_line_id'], Decimal(line['quantity']))
+            db.execute(update(SalesReturnLine).where(SalesReturnLine.id == line['id'])
+                       .values(settlement_amount=settled))
             # 原出库保留负向流水；退回的实物作为新来源入所选仓库。
             movement = StockMovement(
                 warehouse_id=sale_return['warehouse_id'],

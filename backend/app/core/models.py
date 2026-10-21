@@ -1457,6 +1457,8 @@ class SalesReturnLine(Base):
     sales_return_id: Mapped[int] = mapped_column(Integer, nullable=False)
     shipment_line_id: Mapped[int] = mapped_column(Integer, nullable=False)
     quantity: Mapped[str] = mapped_column(Text, nullable=False)
+    # 仅新确认退货固定应收冲减额；空值代表沿用历史逐行舍入口径。
+    settlement_amount: Mapped[str | None] = mapped_column(Text)
 
 class AfterSalesCase(Base):
     # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。

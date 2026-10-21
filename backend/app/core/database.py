@@ -301,7 +301,7 @@ def _migrate_plan_required(db: sqlite3.Connection) -> None:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 109:
+        if version > 110:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 98:
             # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
@@ -3374,3 +3374,12 @@ def migrate() -> None:
             if 'production_requirements' not in columns:
                 db.execute("ALTER TABLE production_plan_lines ADD COLUMN production_requirements TEXT NOT NULL DEFAULT ''")
             db.execute('PRAGMA user_version = 109')
+
+        if version < 110:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            # 只扩展确认时固定的退货金额；历史金额与已过账凭证均不补算或改写。
+            columns = {row[1] for row in db.execute('PRAGMA table_info(sales_return_lines)')}
+            if columns and 'settlement_amount' not in columns:
+                db.execute('ALTER TABLE sales_return_lines ADD COLUMN settlement_amount TEXT')
+            db.execute('PRAGMA user_version = 110')

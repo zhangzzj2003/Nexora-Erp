@@ -2,6 +2,7 @@
 
 from app.core.document_responses import NumberedRoute
 from app.purchase.pricing import purchase_amount
+from app.sales.return_amounts import return_amount
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -92,6 +93,15 @@ def amount(quantity: str, unit_price: str | None, sign: int) -> str | None:
 
 
 def entry(row: dict, kind: str, source_type: str, sign: int) -> dict:
+    if row.get('settlement_amount') is not None:
+        # 退货冲销反向还原原固定金额，之后新增退货不得改变既有凭证来源。
+        settled = return_amount(row['quantity'], row['unit_price'], row['settlement_amount'])
+        entry_amount = str(settled * sign if settled else settled)
+    elif row.get('pricing_mode') == 'total':
+        entry_amount = str(purchase_amount(row['quantity'], row['unit_price'], row.get('order_quantity'),
+            row.get('order_total'), row.get('pricing_mode')) * sign)
+    else:
+        entry_amount = amount(row['quantity'], row['unit_price'], sign)
     return {
         "key": f"{source_type}:{row['source_line_id']}",
         "kind": kind,
@@ -105,9 +115,7 @@ def entry(row: dict, kind: str, source_type: str, sign: int) -> dict:
         "sku": row["sku"],
         "quantity": row["quantity"],
         "unit_price": row["unit_price"],
-        "amount": (str(purchase_amount(row["quantity"], row["unit_price"], row.get("order_quantity"),
-            row.get("order_total"), row.get("pricing_mode")) * sign)
-            if row.get("pricing_mode") == "total" else amount(row["quantity"], row["unit_price"], sign)),
+        "amount": entry_amount,
         "currency": "CNY",
         "posted_by": row["posted_by"],
         "posted_at": row["posted_at"],
@@ -125,6 +133,7 @@ def sales_sources(db: Session, *, returned: bool, reversed: bool) -> list[dict]:
         (source.created_by if reversed else source.posted_by).label('posted_by'),
         (source.created_at if reversed else source.posted_at).label('posted_at')).select_from(line)
     if returned:
+        stmt = stmt.add_columns(SalesReturnLine.settlement_amount)
         stmt = stmt.join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
         stmt = stmt.join(ShipmentLine, ShipmentLine.id == SalesReturnLine.shipment_line_id)
     else:

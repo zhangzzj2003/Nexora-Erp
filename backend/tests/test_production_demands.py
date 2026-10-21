@@ -69,7 +69,7 @@ def test_v108_migration_preserves_approved_plan_fingerprint(context):
         db.execute('PRAGMA user_version=108')
     migrate(); migrate()
     with connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 109
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 110
         assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
     current = client.get(BASE + f'/{row["id"]}', headers=admin).json()
     assert current['lines'][0]['production_requirements'] == ''
