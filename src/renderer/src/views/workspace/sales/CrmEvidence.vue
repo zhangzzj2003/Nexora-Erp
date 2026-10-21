@@ -39,7 +39,7 @@ function auditLines(source:Record<string,unknown>): {material_name:string; quant
         <p>{{ quote.terms || '未填写商务条款' }}</p>
         <p v-if="quote.sales_order_id">已转销售订单 {{ relatedDocumentLabel(quote, 'sales_order') }} · {{ quote.sales_order_status==='cancelled' ? '原订单已取消，原报价不能再次转单' : '须继续原订单确认与出库流程' }} · 客户接受依据：{{ quote.acceptance_reference }}</p>
         <AppButton v-if="['approved','converted'].includes(quote.status)" :disabled="busy" @click="store.exportCrmQuotePdf(quote)">导出固定报价 PDF</AppButton>
-        <AppButton v-if="quote.sales_order_id && store.can('sales.view')" @click="store.navigateToRoute('sales')">打开销售订单列表</AppButton>
+        <AppButton v-if="quote.sales_order_id && store.can('sales.view')" @click="store.salesNavigation={action:'openOrder',sourceId:quote.sales_order_id!}; store.navigateToRoute('sales')">查看关联销售订单</AppButton>
       </template>
       <dl v-else class="crm-facts"><template v-for="row in snapshot" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></template></dl>
     </section>

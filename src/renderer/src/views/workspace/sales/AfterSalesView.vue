@@ -49,6 +49,7 @@ const {
 } = storeToRefs(store);
 const mode = ref<"sources" | "records">("sources"),
   editor = ref(false),
+  editorPending = ref(false),
   query = ref(""),
   preparing = ref(false),
   reason = ref(""),
@@ -91,6 +92,7 @@ const records = computed(() =>
       row.reference,
       row.frozen_source.customer_name,
       row.frozen_source.sku,
+      row.frozen_source.material_name,
       afterSalesKind[row.kind],
       afterSalesStatus[row.status],
     ]
@@ -118,11 +120,11 @@ function newRecord(id: number): void {
 }
 async function editRecord(id: number): Promise<void> {
   if (disabled.value) return;
-  preparing.value = true;
+  preparing.value = true; editorPending.value = true;
   try {
-    if (await store.editAfterSalesCase(id)) editor.value = true;
+    if (await store.editAfterSalesCase(id) && editorPending.value) editor.value = true;
   } finally {
-    preparing.value = false;
+    preparing.value = false; editorPending.value = false;
   }
 }
 // 打开意图与业务结果分离，准备期间可取消，取消后不再采纳本次结果。
@@ -292,7 +294,7 @@ watch(
     command.value = null;
     laborCommand.value = null;
     responsibilityCommand.value = null;
-    editor.value = false;
+    editor.value = false; editorPending.value = false;
     if (!connectionLost.value && store.can("after_sales.view"))
       void store.loadAfterSales();
   },
@@ -307,7 +309,7 @@ watch(connectionLost, () => {
 onMounted(() => {
   void store.loadAfterSales();
 });
-onUnmounted(() => store.clearAfterSalesDetail());
+onUnmounted(() => {editorPending.value=false;store.clearAfterSalesDetail()});
 </script>
 <template>
   <section class="stack after-workspace">
@@ -331,7 +333,12 @@ onUnmounted(() => store.clearAfterSalesDetail());
       服务端连接中断，旧证据及动作已失效。同账号未保存输入保留，恢复连接后刷新并核对版本。
     </p>
     <p v-if="failure" role="alert">{{ failure }} 请刷新来源与记录后重试。</p>
-    <AfterSalesEditor
+    <!-- 编辑表单与来源列表分开，关闭只收起弹窗，未保存输入仍由原 store 保留。 -->
+    <AppModal preset="card" :show="editor || editorPending" :ready="!editorPending" :busy="busy" :load-error="failure"
+      :title="store.afterSalesEdit ? '修订售后申请' : '编制售后申请'" :style="{width:'min(1100px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}"
+      @update:show="value=>{if(!value){editor=false;editorPending=false}}" @invalidated="editor=false;editorPending=false">
+      <div class="after-workspace">
+    <AfterSalesEditor dialog
       v-if="editor && store.can('after_sales.create')"
       @close="editor = false"
       @saved="
@@ -339,7 +346,8 @@ onUnmounted(() => store.clearAfterSalesDetail());
         mode = 'records';
       "
     />
-    <template v-else>
+      </div>
+    </AppModal>
       <WorkspaceTable
         v-if="mode === 'sources'"
         title="售后出库来源"
@@ -458,6 +466,10 @@ onUnmounted(() => store.clearAfterSalesDetail());
           >尚无售后记录。选择原出库编制申请，提交后独立审核。</template
         >
       </WorkspaceTable>
+      <!-- 售后证据和阶段操作集中在详情弹窗，不再堆叠在列表下方。 -->
+      <AppModal preset="card" title="售后详情与办理" :show="!!detail && !editor && !editorPending" :busy="busy" :style="{width:'min(1200px,calc(100vw - 32px))',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}"
+        @update:show="value=>{if(!value)store.clearAfterSalesDetail()}" @invalidated="store.clearAfterSalesDetail()">
+        <div class="after-workspace stack">
       <AfterSalesEvidenceView v-if="detail" :row="detail" />
       <!-- 操作色与详情一致：更正/驳回为红色、取消为橙色、执行为绿色、编辑为蓝色。 -->
       <!-- 证据面板统一承载该售后单的阶段操作，行内不再堆叠按钮。 -->
@@ -550,7 +562,8 @@ onUnmounted(() => store.clearAfterSalesDetail());
           >更正工时 {{ documentLabel(entry) }}</AppButton
         >
       </div>
-    </template>
+        </div>
+      </AppModal>
     <DocumentApprovalDialog origin-key="document-approval" title="售后方案审批" />
     <AppModal :busy="busy" origin-key="AfterSalesView:command" @invalidated="commandPending = false; command = null" :ready="!commandPending && !!command" :load-error="failure"
       :show="commandPending || !!command"

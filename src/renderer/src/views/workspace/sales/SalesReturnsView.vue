@@ -1,4 +1,12 @@
 <script setup lang="ts">
+import { useSalesDraftEditor } from '../../../composables/use-sales-draft-editor'
+import { canReviseSalesDraft, newSalesFilters, matchesSalesFilters } from '../../../utils/sales-documents'
+import type { SalesDraftType } from '../../../../../shared/sales-draft-api'
+import SalesRecordFilters from './SalesRecordFilters.vue'
+import {defineAsyncComponent} from 'vue'
+// 修订历史按需加载，日常列表不提前初始化弹窗和历史读取。
+const SalesDraftHistory = defineAsyncComponent(()=>import('./SalesDraftHistory.vue'))
+
 // 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
 // 详情页脚按类型与 ID 双重定位，避免跨页面同号单据串单。
@@ -28,7 +36,7 @@ import {
   recordColumns,
   matchesRecordQuery,
 } from "../../../utils/workspace-records";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { usePiniaAppStore } from "../../../store/app-store";
 import { submitCreateDialog } from "../../../utils/create-dialog";
@@ -53,22 +61,46 @@ const {
   busy,
   connectionLost,
   warehouses,
+  customers,
+  salesOrders,
   shipments,
   salesReturns,
   salesReturnReversalReasons,
   salesReturnForm,
-  selectedSalesReturnShipment,
 } = storeToRefs(store);
 const {
   can,
   localTime,
-  chooseSalesReturnShipment,
   createSalesReturn,
   loadAvailableSalesReturnLots,
   postSalesReturn,
   cancelSalesReturn,
   reverseSalesReturn,
 } = store;
+
+// 修订表单使用副本，原新建草稿继续保留在 Pinia 中。
+const {open:createOpen, form:workingForm, target:editTarget, reason:revisionReason,
+  isolated:isolatedForm, beginEdit, beginCreate} = useSalesDraftEditor(salesReturnForm);
+const historyTarget = ref<{type:SalesDraftType; id:number} | null>(null);
+const filters = ref(newSalesFilters());
+function editRecord(row: SalesReturn): void {
+  if (beginEdit(row, {shipment_id:row.shipment_id, warehouse_id:row.warehouse_id, reason:row.reason, lines:row.lines.map(line=>({shipment_line_id:line.shipment_line_id,quantity:line.quantity}))})) store.closeDocumentApproval();
+}
+const selectedSalesReturnShipment = computed(()=>shipments.value.find(row=>row.id===workingForm.value.shipment_id));
+function selectReturnSource(): void {
+  workingForm.value.lines = selectedSalesReturnShipment.value?.lines.filter(line=>Number(line.returnable_quantity)>0)
+    .map(line=>({shipment_line_id:line.id,quantity:line.returnable_quantity})) ?? [];
+  if(selectedSalesReturnShipment.value)workingForm.value.warehouse_id=selectedSalesReturnShipment.value.warehouse_id;
+}
+
+watch(()=>[store.salesNavigation,store.activeTab] as const, ([request,route])=>{
+  if(route!=='salesReturns' || request?.action!=='createReturn')return;
+  store.salesNavigation=null;
+  const source=shipments.value.find(row=>row.id===request.sourceId && row.status==='posted' && !row.reversal_id);
+  if(!source){error.value='原出库单已变化，请刷新后重试。';return;}
+  beginCreate({shipment_id:source.id,warehouse_id:source.warehouse_id,reason:'',
+    lines:source.lines.filter(line=>Number(line.returnable_quantity)>0).map(line=>({shipment_line_id:line.id,quantity:line.returnable_quantity}))});
+}, {immediate:true});
 
 // 详情弹窗由审批目标驱动；页脚业务按钮按当前单据与意图（执行/冲销）展示。
 const detailItem = computed(() =>
@@ -238,19 +270,21 @@ async function confirmLotPost(): Promise<void> {
 }
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
-const createOpen = ref(false);
+
 async function submitCreate(): Promise<void> {
-  await submitCreateDialog(
-    createSalesReturn,
-    { busy, error, notice },
-    createOpen,
-  );
+  if (editTarget.value) {
+    const current = editTarget.value;
+    if (await store.reviseSalesDraft('reviseSalesReturn', {...workingForm.value, returnId:current.id,
+      expected_version:current.version,revision_reason:revisionReason.value})) createOpen.value = false;
+    return;
+  }
+  await submitCreateDialog(()=>createSalesReturn(isolatedForm.value ?? undefined), {busy,error,notice}, createOpen);
 }
 // 只筛选当前列表快照，原有单据状态与跨页面草稿保持不变。
 const recordQuery = ref("");
 const filteredRecords = computed(() =>
   salesReturns.value.filter((item) =>
-    matchesRecordQuery(recordQuery.value, [
+    matchesSalesFilters(item, salesOrders.value.find(order=>order.id===item.sales_order_id)?.customer_id, filters.value) && matchesRecordQuery(recordQuery.value, [
       documentSearch(item),
       item.id,
       item.customer_name,
@@ -263,7 +297,7 @@ const filteredRecords = computed(() =>
 );
 // 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
 const salesReturnFormRows = computed(() =>
-  documentRows(salesReturnForm.value.lines),
+  documentRows(workingForm.value.lines),
 );
 const salesReturnFormColumns = [
   { key: "material", title: "原出库物料", width: "300" },
@@ -304,6 +338,11 @@ async function reverseApproved(identifier: number): Promise<void> {
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
+          <AppButton v-if="can('sales_return.create') && canReviseSalesDraft(detailItem)" :disabled="busy || connectionLost"
+            @click.capture="captureDialogOrigin('SalesReturnsView:form', $event)" @click="editRecord(detailItem)">修订草稿</AppButton>
+          <AppButton v-if="(detailItem.draft_version ?? 0) > 0" :disabled="busy || connectionLost"
+            @click="historyTarget={type:'SalesReturn',id:detailItem.id}">修订记录</AppButton>
+          <span v-if="detailItem.status==='draft' && detailItem.draft_edit_block_reason" class="muted">{{ detailItem.draft_edit_block_reason }}</span>
           <AppButton
             tone="success"
             v-if="
@@ -402,17 +441,18 @@ async function reverseApproved(identifier: number): Promise<void> {
         </template>
       </template>
     </DocumentApprovalDialog>
+    <SalesDraftHistory v-if="historyTarget" v-model="historyTarget" />
     <!-- 共用基础信息与物料表格布局；行对象仍指向原 Pinia 草稿，保留业务字段和来源约束。 -->
     <WorkspaceDocumentDialog origin-key="SalesReturnsView:form" @invalidated="createOpen = false"
       v-if="can('sales_return.create')"
       v-model:show="createOpen"
-      title="新建销售退货单"
+      :title="editTarget ? '修订销售退货单' : '新建销售退货单'"
       :data="salesReturnFormRows"
       :columns="salesReturnFormColumns"
       :busy="busy"
       :disabled="connectionLost"
-      :submit-disabled="!salesReturnForm.lines.length || !warehouses.length"
-      submit-label="保存草稿"
+      :submit-disabled="!workingForm.lines.length || !warehouses.length"
+      :submit-label="editTarget ? '保存修订' : '保存草稿'"
       :min-table-width="800"
       :show-add="false"
       empty-text="请先选择来源单据，系统将载入可处理的物料明细。"
@@ -422,9 +462,9 @@ async function reverseApproved(identifier: number): Promise<void> {
         ><label
           >原出库单<WorkspaceSelect
             :disabled="busy || connectionLost"
-            v-model="salesReturnForm.shipment_id"
+            v-model="workingForm.shipment_id"
             required
-            @change="chooseSalesReturnShipment"
+            @change="selectReturnSource"
             :options="[
               { label: '选择可退货的出库单', value: 0, disabled: true },
               ...shipments
@@ -450,7 +490,7 @@ async function reverseApproved(identifier: number): Promise<void> {
         ><label
           >退回仓库<WorkspaceSelect
             :disabled="busy || connectionLost"
-            v-model="salesReturnForm.warehouse_id"
+            v-model="workingForm.warehouse_id"
             required
             :options="[
               ...warehouses.map((item) => ({
@@ -461,10 +501,11 @@ async function reverseApproved(identifier: number): Promise<void> {
         ><label
           >退货原因<AppInput
             :disabled="busy || connectionLost"
-            v-model.trim="salesReturnForm.reason"
+            v-model.trim="workingForm.reason"
             required
             maxlength="200"
         /></label>
+        <label v-if="editTarget">修订原因<AppInput v-model.trim="revisionReason" required maxlength="200" :disabled="busy || connectionLost" /></label>
         <div class="document-basic-extra">
           <p class="muted">
             退货关联原出库明细，确认后新增入库流水并调整应收。草稿金额为预估，确认时按原出库累计退货数量分摊尾差；实际退款需另行登记。
@@ -506,7 +547,7 @@ async function reverseApproved(identifier: number): Promise<void> {
         <AppButton size="small"
           :disabled="busy || connectionLost"
           type="button"
-          @click="salesReturnForm.lines.splice(index, 1)"
+          @click="workingForm.lines.splice(index, 1)"
           variant="secondary"
         >
           移除
@@ -537,6 +578,7 @@ async function reverseApproved(identifier: number): Promise<void> {
           搜索销售退货
           <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
+        <SalesRecordFilters v-model="filters" :customers="customers" :statuses="['draft','submitted','approved','rejected','withdrawn','posted','cancelled','reversed']" @clear="recordQuery=''" />
       </template>
 
       <template #cell-document="{ row: item }">
@@ -630,7 +672,7 @@ async function reverseApproved(identifier: number): Promise<void> {
       </template>
       <template #empty>
         <strong>{{
-          recordQuery ? "没有匹配的记录" : "暂无销售退货记录"
+          (recordQuery || filters.status || filters.customer || filters.from || filters.to) ? "没有匹配的记录" : "暂无销售退货记录"
         }}</strong>
         <span>
           {{

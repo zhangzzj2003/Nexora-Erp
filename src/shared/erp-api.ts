@@ -1,3 +1,4 @@
+import type { SalesDraftState, SalesDraftType, SalesDraftChange, SalesRevisionInput } from './sales-draft-api'
 import type { ProductionPlanOperations } from './production-plan-api'
 import type { ProductProfile, ProductPage, ProductQuery, ProductInput, ProductUpdate, ProductModel, ProductModelInput, ProductChange } from './product-api'
 import type { MaterialFlowOperations } from './material-flow-api'
@@ -1169,7 +1170,7 @@ export interface SalesOrderLine extends ReceiptLine {
   remaining_quantity: string
   line_total: string
 }
-export interface SalesOrder extends NumberedDocument {
+export interface SalesOrder extends NumberedDocument, SalesDraftState {
   // 服务端返回独立审批进度，旧响应缺失时页面禁止确认。
   approval?: DocumentApprovalState
   id: number
@@ -1224,7 +1225,7 @@ export interface SalesOrderContractAttachmentList {
   can_modify: boolean
   items: SalesOrderContractAttachment[]
 }
-export interface Shipment extends NumberedDocument {
+export interface Shipment extends NumberedDocument, SalesDraftState {
   // 服务端返回独立审批进度，旧响应缺失时页面禁止确认。
   approval?: DocumentApprovalState
   reversal_approval?: DocumentApprovalState
@@ -1254,14 +1255,14 @@ export interface ShipmentLine extends ReceiptLine {
   returnable_quantity: string
   physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
-// 退货明细固定关联原出库行，金额沿用原销售单价，由服务端计算。
+// 退货明细固定关联原出库行，草稿显示预估金额，确认后使用服务端分摊并固定的金额。
 export interface SalesReturnLine extends ReceiptLine {
   shipment_line_id: number
   unit_price: string
   line_total: string
   physical_lots: (ReceiptPhysicalLot & {source_kind: string})[]
 }
-export interface SalesReturn extends NumberedDocument {
+export interface SalesReturn extends NumberedDocument, SalesDraftState {
   // 服务端返回独立审批进度，旧响应缺失时页面禁止确认。
   approval?: DocumentApprovalState
   reversal_approval?: DocumentApprovalState
@@ -1725,16 +1726,20 @@ export interface ErpOperations extends ProductionPlanOperations, MaterialFlowOpe
   addSalesContractAttachment: { input: { orderId: number; revisionId: number; file_name: string; content_base64: string; reason: string }; output: SalesOrderContractAttachment }
   reverseSalesContractAttachment: { input: { orderId: number; revisionId: number; attachmentId: number; reason: string }; output: SalesOrderContractAttachment }
   createSalesOrder: { input: { customer_id: number; reference: string; lines: { material_id: number; quantity: string; unit_price: string; warranty_days: number | null; warranty_basis: string }[] }; output: SalesOrder }
+  reviseSalesOrder: { input: ErpOperations['createSalesOrder']['input'] & SalesRevisionInput & { orderId: number }; output: SalesOrder }
+  salesDraftChanges: { input: { documentType: SalesDraftType; documentId: number }; output: SalesDraftChange[] }
   confirmSalesOrder: { input: { orderId: number }; output: SalesOrder }
   cancelSalesOrder: { input: { orderId: number }; output: SalesOrder }
   shipments: { input: undefined; output: Shipment[] }
   availableShipmentLots: { input: {shipmentId: number}; output: ShipmentLotOptions }
   createShipment: { input: { sales_order_id: number; warehouse_id: number; reference: string; lines: { material_id: number; quantity: string }[] }; output: Shipment }
+  reviseShipment: { input: ErpOperations['createShipment']['input'] & SalesRevisionInput & { shipmentId: number }; output: Shipment }
   postShipment: { input: { shipmentId: number; lines?: ShipmentLotLineInput[] }; output: Shipment }
   cancelShipment: { input: { shipmentId: number }; output: Shipment }
   reverseShipment: { input: { shipmentId: number; reason: string }; output: Shipment }
   salesReturns: { input: undefined; output: SalesReturn[] }
   createSalesReturn: { input: { shipment_id: number; warehouse_id: number; reason: string; lines: { shipment_line_id: number; quantity: string }[] }; output: SalesReturn }
+  reviseSalesReturn: { input: ErpOperations['createSalesReturn']['input'] & SalesRevisionInput & { returnId: number }; output: SalesReturn }
   availableSalesReturnLots: { input: { returnId: number }; output: SalesReturnLotOptions }
   postSalesReturn: { input: { returnId: number; lines?: SalesReturnLotLineInput[] }; output: SalesReturn }
   cancelSalesReturn: { input: { returnId: number }; output: SalesReturn }

@@ -410,6 +410,8 @@ export function createAppState() {
   const transfers = ref<Transfer[]>([])
   const stocktakes = ref<Stocktake[]>([])
   const customers = ref<Customer[]>([])
+  // 跨页开单只传来源，目标页使用独立表单，不覆盖已填写的新建草稿。
+  const salesNavigation = ref<{action:'createShipment'|'createReturn'|'openOrder'; sourceId:number} | null>(null)
   const salesOrders = ref<SalesOrder[]>([])
   const shipments = ref<Shipment[]>([])
   const salesReturns = ref<SalesReturn[]>([])
@@ -819,6 +821,7 @@ export function createAppState() {
     stocktakes,
     customers,
     salesOrders,
+    salesNavigation,
     shipments,
     salesReturns,
     selectedWarehouseId,

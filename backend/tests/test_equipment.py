@@ -454,7 +454,7 @@ def test_v52_upgrade_is_idempotent_and_preserves_old_business(erp,remove_equipme
         assert db.execute('SELECT * FROM stock_movements ORDER BY id').fetchall()==before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'equipment.%'").fetchone()[0]==13
-    assert len(Base.metadata.tables)== 218
+    assert len(Base.metadata.tables)== 219
 
 
 def test_v52_migration_failure_does_not_leave_partial_tables(erp,remove_equipment_schema,monkeypatch):

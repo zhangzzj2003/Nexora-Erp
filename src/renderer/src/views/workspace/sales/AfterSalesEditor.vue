@@ -7,6 +7,8 @@ import AppInput from '../../../components/app/AppInput.vue'
 import WorkspaceSelect from '../../../components/workspace/WorkspaceSelect.vue'
 // 物料资料统一展示，候选范围和联动规则仍由当前业务决定。
 import WorkspaceMaterialSelect from '../../../components/workspace/WorkspaceMaterialSelect.vue'
+// 弹窗已有固定标题和关闭区，内嵌使用时仍保留原页头。
+withDefaults(defineProps<{dialog?:boolean}>(),{dialog:false})
 const emit=defineEmits<{close:[];saved:[]}>()
 const store=usePiniaAppStore()
 const {afterSalesForm:form,afterSalesEdit:edit,afterSalesOverview:overview,busy,error,connectionLost}=storeToRefs(store)
@@ -30,8 +32,8 @@ async function save():Promise<void>{if(await store.saveAfterSalesCase())emit('sa
 </script>
 <template>
   <section class="after-editor" aria-label="编制售后申请">
-    <div class="after-toolbar"><h3>{{ edit?`修订售后 #${edit.id} · v${edit.version}`:'编制售后申请' }}</h3><AppButton :disabled="busy" @click="emit('close')">返回记录</AppButton></div>
-    <p>关联原出库数量，填写客户诉求、明确办理方案与客户同意依据；提交后由另一账号独立审核。</p>
+    <div v-if="!dialog" class="after-toolbar"><h3>{{ edit?`修订售后 #${edit.id} · v${edit.version}`:'编制售后申请' }}</h3><AppButton :disabled="busy" @click="emit('close')">返回记录</AppButton></div>
+    <p>关联原出库数量，填写客户诉求、明确办理方案与客户同意依据；提交后按角色当前步骤权限办理审批。</p>
     <form @submit.prevent="save">
       <div class="form-grid">
         <label class="after-wide">原出库明细<WorkspaceSelect v-model="form.shipment_line_id" :options="sources" :disabled="!!edit || busy || connectionLost" required /></label>
@@ -71,7 +73,13 @@ async function save():Promise<void>{if(await store.saveAfterSalesCase())emit('sa
       </section>
       <label>{{ edit?'修订原因':'建立原因' }}<AppInput v-model.trim="form.reason" maxlength="200" required :disabled="busy" /></label>
       <p v-if="error" role="alert">{{ error }} 输入已保留；复核原出库数量或刷新最新版本后重试。</p>
-      <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !original || (form.kind==='repair' && !['free','charge'].includes(form.charge_mode))">{{ busy?'正在保存…':'保存售后草稿' }}</AppButton>
+      <div class="after-editor-actions"><AppButton v-if="dialog" type="button" :disabled="busy" @click="emit('close')">取消</AppButton>
+      <AppButton type="submit" variant="primary" :disabled="busy || connectionLost || !original || (form.kind==='repair' && !['free','charge'].includes(form.charge_mode))">{{ busy?'正在保存…':'保存售后草稿' }}</AppButton></div>
     </form>
   </section>
 </template>
+
+<style scoped>
+/* 底部动作与销售单据一致靠右，窄窗自动换行。 */
+.after-editor-actions {display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px}
+</style>

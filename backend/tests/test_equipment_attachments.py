@@ -97,5 +97,5 @@ def test_v76_upgrade_retains_existing_records(erp):
         assert db.execute('SELECT name FROM equipment_assets WHERE id=?',
             (asset['id'],)).fetchone()[0] == asset['name']
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='equipment.attachment'").fetchone()[0] == 3
-    assert len(Base.metadata.tables) == 218
+    assert len(Base.metadata.tables) == 219
     assert api('POST', path('asset', asset['id']), payload(), status=201)['id'] > 0

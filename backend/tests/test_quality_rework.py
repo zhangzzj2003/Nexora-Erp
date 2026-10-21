@@ -359,7 +359,7 @@ def test_v50_upgrade_preserves_records_and_static_models(quality_erp,remove_qual
         assert db.execute('PRAGMA user_version').fetchone()[0] == 110
         assert db.execute('SELECT * FROM work_orders').fetchall() == before
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
-        assert len(Base.metadata.tables) == 218
+        assert len(Base.metadata.tables) == 219
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'quality.%'").fetchone()[0] == 9
     assert api('GET',ROOT)['cases'][0]['work_order_id'] == original['id']
 

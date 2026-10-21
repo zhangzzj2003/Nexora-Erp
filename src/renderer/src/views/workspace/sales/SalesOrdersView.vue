@@ -1,4 +1,12 @@
 <script setup lang="ts">
+import { useSalesDraftEditor } from '../../../composables/use-sales-draft-editor'
+import { canReviseSalesDraft, newSalesFilters, matchesSalesFilters, salesAmountSummary, salesLineAmount } from '../../../utils/sales-documents'
+import type { SalesDraftType } from '../../../../../shared/sales-draft-api'
+import SalesRecordFilters from './SalesRecordFilters.vue'
+import {defineAsyncComponent} from 'vue'
+// 修订历史按需加载，日常列表不提前初始化弹窗和历史读取。
+const SalesDraftHistory = defineAsyncComponent(()=>import('./SalesDraftHistory.vue'))
+
 // 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
 import { captureDialogOrigin } from '../../../utils/dialog-origin'
 import AppModal from '../../../components/app/AppModal.vue'
@@ -64,6 +72,15 @@ const {
   cancelSalesOrder,
 } = store;
 
+// 修订表单使用副本，原新建草稿继续保留在 Pinia 中。
+const {open:createOpen, form:workingForm, target:editTarget, reason:revisionReason,
+  isolated:isolatedForm, beginEdit, beginCreate} = useSalesDraftEditor(salesForm);
+const historyTarget = ref<{type:SalesDraftType; id:number} | null>(null);
+const filters = ref(newSalesFilters());
+function editRecord(row: SalesOrder): void {
+  if (beginEdit(row, {customer_id:row.customer_id, reference:row.reference, lines:row.lines.map(line=>({material_id:line.material_id,quantity:line.quantity,unit_price:line.unit_price,warranty_days:line.warranty_days,warranty_basis:line.warranty_basis}))})) store.closeDocumentApproval();
+}
+
 // 详情弹窗由审批目标驱动；页脚业务按钮按当前单据与意图（执行/冲销）展示。
 const detailItem = computed(() =>
   findDocumentApprovalItem(store.documentApprovalTarget, "SalesOrder", salesOrders.value),
@@ -78,7 +95,7 @@ const columns: readonly WorkspaceTableColumn[] = [
 ];
 
 // 保存失败时保留弹窗和草稿，方便直接修正后重试。
-const createOpen = ref(false);
+
 const contractOpen = ref(false);
 const contractLoading = ref(false);
 const contractOrder = ref<SalesOrder | null>(null);
@@ -122,10 +139,25 @@ async function openContract(order: SalesOrder): Promise<void> {
     contractLoading.value = false;
   }
 }
+const contractEditable = computed(()=>{
+  const latest = salesOrders.value.find(row=>row.id===contractOrder.value?.id);
+  return !!latest && latest.status!=='cancelled' && !(latest.status==='draft' &&
+    ['submitted','approved'].includes(latest.approval?.status ?? ''));
+});
+function createShipmentFromOrder(row: SalesOrder): void {
+  store.closeDocumentApproval();
+  store.salesNavigation = {action:'createShipment',sourceId:row.id};
+  store.navigateToRoute('shipments');
+}
+watch(()=>[store.salesNavigation,store.activeTab] as const, ([request,route])=>{
+  if(route!=='sales' || request?.action!=='openOrder') return;
+  store.salesNavigation=null;
+  void store.openDocumentApproval({document_type:'SalesOrder',document_id:request.sourceId,intent:'execute'});
+}, {immediate:true});
 async function submitContract(): Promise<void> {
   const order = contractOrder.value;
   const current = contract.value;
-  if (!order || !current) return;
+  if (!order || !current || !contractEditable.value) return;
   const saved = await reviseSalesOrderContract(
     order.id,
     current.version,
@@ -140,11 +172,13 @@ async function submitContract(): Promise<void> {
   }
 }
 async function submitCreate(): Promise<void> {
-  await submitCreateDialog(
-    createSalesOrder,
-    { busy, error, notice },
-    createOpen,
-  );
+  if (editTarget.value) {
+    const current = editTarget.value;
+    if (await store.reviseSalesDraft('reviseSalesOrder', {...workingForm.value, orderId:current.id,
+      expected_version:current.version,revision_reason:revisionReason.value})) createOpen.value = false;
+    return;
+  }
+  await submitCreateDialog(()=>createSalesOrder(isolatedForm.value ?? undefined), {busy,error,notice}, createOpen);
 }
 // 导航前关闭弹窗，订单草稿继续保存在共享状态中，返回后可继续填写。
 function openCustomers(): void {
@@ -155,7 +189,7 @@ function openCustomers(): void {
 const recordQuery = ref("");
 const filteredRecords = computed(() =>
   salesOrders.value.filter((item) =>
-    matchesRecordQuery(recordQuery.value, [
+    matchesSalesFilters(item, item.customer_id, filters.value) && matchesRecordQuery(recordQuery.value, [
       documentSearch(item),
       item.id,
       item.customer_name,
@@ -166,12 +200,14 @@ const filteredRecords = computed(() =>
   ),
 );
 // 保留每个草稿行的引用，表格编辑不会改写成另一套临时表单。
-const salesFormRows = computed(() => documentRows(salesForm.value.lines));
+const salesFormRows = computed(() => documentRows(workingForm.value.lines));
+const amountSummary = computed(()=>salesAmountSummary(workingForm.value.lines));
 const salesFormColumns = [
   { key: "material", title: "物料 / 资料", width: "470" },
   { key: "unit", title: "单位", width: "70" },
   { key: "quantity", title: "数量", width: "150" },
   { key: "unitPrice", title: "单价（元）", width: "150" },
+  { key: "lineTotal", title: "金额（元）", width: "140" },
   { key: "warrantyDays", title: "约定保修天数", width: "150" },
   { key: "warrantyBasis", title: "合同或承诺依据", width: "220" },
   { key: "actions", title: "操作", width: "90" },
@@ -186,7 +222,7 @@ const approvalLabels = {
   executed: "已执行",
 };
 // 资料展示绑定原草稿行引用，删除中间行不会展开到另一项物料。
-const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => salesForm.value.lines)
+const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => workingForm.value.lines)
 </script>
 
 <template>
@@ -196,6 +232,12 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
+          <AppButton v-if="can('shipment.create') && ['confirmed','partially_shipped'].includes(detailItem.status)" :disabled="busy || connectionLost" @click="createShipmentFromOrder(detailItem)">创建出库单</AppButton>
+          <AppButton v-if="can('sales_order.create') && canReviseSalesDraft(detailItem)" :disabled="busy || connectionLost"
+            @click.capture="captureDialogOrigin('SalesOrdersView:form', $event)" @click="editRecord(detailItem)">修订草稿</AppButton>
+          <AppButton v-if="(detailItem.draft_version ?? 0) > 0" :disabled="busy || connectionLost"
+            @click="historyTarget={type:'SalesOrder',id:detailItem.id}">修订记录</AppButton>
+          <span v-if="detailItem.status==='draft' && detailItem.draft_edit_block_reason" class="muted">{{ detailItem.draft_edit_block_reason }}</span>
           <AppButton
             tone="info"
             v-if="detailIntent === 'execute'"
@@ -238,6 +280,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
         </template>
       </template>
     </DocumentApprovalDialog>
+    <SalesDraftHistory v-if="historyTarget" v-model="historyTarget" />
     <AppModal :busy="busy" origin-key="SalesOrdersView:contract" @invalidated="contractOpen = false" :ready="!contractLoading && !!contract" :load-error="error"
       v-model:show="contractOpen"
       preset="card"
@@ -262,9 +305,10 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
           <p v-if="contract.version === 0">
             尚未登记合同正文。旧订单不追认未知条款。
           </p>
+          <p v-if="contractOrder.status==='draft' && !contractEditable" class="muted">单据正在审批或已批准，请先撤回审批，再修订合同正文。</p>
           <form
             v-if="
-              can('sales_order.confirm') && contractOrder.status !== 'cancelled'
+              can('sales_order.confirm') && contractEditable
             "
             class="contract-form"
             @submit.prevent="submitContract"
@@ -338,17 +382,18 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
     <WorkspaceDocumentDialog origin-key="SalesOrdersView:form" @invalidated="createOpen = false"
       v-if="can('sales_order.create')"
       v-model:show="createOpen"
-      title="新建销售订单"
+      :title="editTarget ? '修订销售订单' : '新建销售订单'"
       :data="salesFormRows"
       :columns="salesFormColumns"
+      :amount-total="amountSummary.total"
       :busy="busy"
       :disabled="connectionLost"
       :submit-disabled="!customers.length || !materials.length"
-      submit-label="保存草稿"
+      :submit-label="editTarget ? '保存修订' : '保存草稿'"
       :min-table-width="1000"
-      :add-disabled="salesForm.lines.length >= 100"
+      :add-disabled="workingForm.lines.length >= 100"
       @add-material="
-        salesForm.lines.push({
+        workingForm.lines.push({
           material_id: 0,
           quantity: '1',
           unit_price: '0',
@@ -362,7 +407,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
         ><label
           >客户<WorkspaceSelect
             :disabled="busy || connectionLost"
-            v-model="salesForm.customer_id"
+            v-model="workingForm.customer_id"
             required
             :options="[
               { label: '选择客户'.trim(), value: 0, disabled: true },
@@ -374,10 +419,12 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
         ><label
           >参考单号（可选）<AppInput
             :disabled="busy || connectionLost"
-            v-model.trim="salesForm.reference"
+            v-model.trim="workingForm.reference"
             maxlength="100"
         /></label>
+        <label v-if="editTarget">修订原因<AppInput v-model.trim="revisionReason" required maxlength="200" :disabled="busy || connectionLost" /></label>
         <div class="document-basic-extra">
+          <p v-if="amountSummary.zeroCount" class="muted">有 {{ amountSummary.zeroCount }} 行单价为零，请确认是否为赠品或不收费项目。</p>
           <div class="form-actions">
             <span v-if="!customers.length" class="muted"
               >暂无客户，请先建立客户资料。</span
@@ -435,6 +482,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
             step="0.0001"
             required /></label
       ></template>
+      <template #cell-lineTotal="{row:{line}}">{{ salesLineAmount(line) || '待完善' }}</template>
       <template #cell-warrantyDays="{ row: { line, index } }"
         ><label
           >约定保修天数（可留空）<AppInput
@@ -462,8 +510,8 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
         ><!-- 移除沿用主线完整点击区域，保留原有禁用与删行规则。 -->
         <AppButton size="small"
           type="button"
-          :disabled="busy || connectionLost || salesForm.lines.length === 1"
-          @click="salesForm.lines.splice(index, 1)"
+          :disabled="busy || connectionLost || workingForm.lines.length === 1"
+          @click="workingForm.lines.splice(index, 1)"
           variant="secondary"
         >
           移除
@@ -497,6 +545,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
           搜索销售订单
           <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
+        <SalesRecordFilters v-model="filters" :customers="customers" :statuses="['draft','submitted','approved','rejected','withdrawn','confirmed','partially_shipped','shipped','cancelled']" @clear="recordQuery=''" />
       </template>
 
       <template #cell-document="{ row: item }">
@@ -578,7 +627,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => sa
       </template>
       <template #empty>
         <strong>{{
-          recordQuery ? "没有匹配的记录" : "暂无销售订单记录"
+          (recordQuery || filters.status || filters.customer || filters.from || filters.to) ? "没有匹配的记录" : "暂无销售订单记录"
         }}</strong>
         <span>
           {{

@@ -124,7 +124,9 @@ test("售后方案批准后才显示办理，结案更正独立审批且撤回�
       warehouses: [],
     };
     store.afterSalesDetail = null;
-    await render();
+    const html = await render();
+    // 记录必须直接渲染，不能包在浏览器不会显示的普通 template 中。
+    assert.doesNotMatch(html, /<template[\s>]/);
     assert.ok(
       !buttons.some((b) =>
         ["提交方案", "批准方案", "驳回申请", "登记维修收件"].includes(b.label),

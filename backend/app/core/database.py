@@ -3382,4 +3382,17 @@ def migrate() -> None:
             columns = {row[1] for row in db.execute('PRAGMA table_info(sales_return_lines)')}
             if columns and 'settlement_amount' not in columns:
                 db.execute('ALTER TABLE sales_return_lines ADD COLUMN settlement_amount TEXT')
+            # 修订历史独立追加，旧草稿从版本零开始，不伪造历史修改人。
+            db.execute('''CREATE TABLE IF NOT EXISTS sales_draft_changes (
+                id INTEGER PRIMARY KEY,
+                document_type TEXT NOT NULL,
+                document_id INTEGER NOT NULL,
+                version INTEGER NOT NULL,
+                before_json TEXT NOT NULL,
+                after_json TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                changed_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(document_type, document_id, version)
+            )''')
             db.execute('PRAGMA user_version = 110')

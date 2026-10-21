@@ -10,7 +10,7 @@ const storeModule = `import {ref} from 'vue';import {defineStore} from 'pinia';
 export const usePiniaAppStore=defineStore('sales-return-view',()=>{
 const salesReturns=ref([]);return {
 salesReturns,error:ref(''),notice:ref(''),busy:ref(false),connectionLost:ref(false),
-warehouses:ref([]),shipments:ref([]),salesReturnReversalReasons:ref({}),
+warehouses:ref([]),shipments:ref([]),customers:ref([]),salesOrders:ref([]),salesReturnReversalReasons:ref({}),
 salesReturnForm:ref({shipment_id:0,warehouse_id:1,reason:'',lines:[]}),
 selectedSalesReturnShipment:ref(null),can:()=>true,localTime:value=>value,
 chooseSalesReturnShipment(){},createSalesReturn(){},loadAvailableSalesReturnLots(){},

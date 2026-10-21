@@ -1451,6 +1451,21 @@ class PurchaseOrderLine(Base):
     line_total: Mapped[str | None] = mapped_column(Text)
 
 
+class SalesDraftChange(Base):
+    """销售草稿的追加式修订记录，同时作为并发修改的版本依据。"""
+    __tablename__ = 'sales_draft_changes'
+    __table_args__ = (UniqueConstraint('document_type', 'document_id', 'version'),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_type: Mapped[str] = mapped_column(Text, nullable=False)
+    document_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    before_json: Mapped[str] = mapped_column(Text, nullable=False)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_by: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
 class SalesReturnLine(Base):
     __tablename__ = 'sales_return_lines'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

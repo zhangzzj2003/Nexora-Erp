@@ -364,7 +364,7 @@ def test_v96_upgrade_is_atomic_preserves_all_ledger_facts_and_only_grants_builti
         assert not db.execute('PRAGMA foreign_key_check').fetchone()
         assert {row[0] for row in db.execute("SELECT role_code FROM role_permissions WHERE permission_code='subledger_order_settlement.view'")} == {'admin', 'finance'}
         assert db.execute("SELECT COUNT(*) FROM document_approval_policies WHERE document_type='SubledgerOrderSettlement'").fetchone()[0] == 1
-    assert len(Base.metadata.tables) == 218
+    assert len(Base.metadata.tables) == 219
 
 
 def test_legacy_order_chain_captures_all_proofs_and_protects_indirect_changes(cross):

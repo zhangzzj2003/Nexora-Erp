@@ -38,6 +38,8 @@ state.warehouses.value=[{id:1,name:'主仓库'}];state.suppliers.value=[{id:1,na
 state.customers=ref([{id:1,name:'客户'}])
 for(const key of ${JSON.stringify(views.map(v=>v[1]).concat('requestConversionForm'))})state[key]=ref({requestId:31,supplier_id:1,warehouse_id:1,from_warehouse_id:1,to_warehouse_id:2,customer_id:1,purchase_order_id:31,receipt_id:31,shipment_id:31,work_order_id:31,material_issue_id:31,product_material_id:2,base_quantity:'1',reference:'原参考号',note:'原说明',reason:'原原因',lines:[{material_id:1,component_material_id:1,quantity:'1',counted_quantity:'0',unit_price:'2.5000',line_total:'2.50',pricing_mode:'unit_price',warranty_days:30,warranty_basis:'合同',purchase_order_line_id:31,purchase_request_line_id:31,receipt_line_id:31,shipment_line_id:31,work_order_line_id:31,material_issue_line_id:31,accepted_quantity:'1',rejected_quantity:'0',rejection_reason:''}]})
 const source={id:31,document_no:'PR-20261007-000031',status:'approved',lines:[{id:31,material_name:'来源物料',material_id:1,remaining_quantity:'3',returnable_quantity:'4'}]}
+// 销售退货直接从当前表单引用对应出库单，保留真实来源查找路径。
+state.shipments.value=[source]
 state.purchaseRequests.value=[source];state.purchaseOrders.value=[{...source,status:"confirmed"}]
 for(const key of ['selectedPurchaseReturnReceipt','selectedSalesReturnShipment','selectedIssueOrder','selectedReturnIssue'])state[key]=ref(source)
 export const useAppStore=()=>state
@@ -73,6 +75,8 @@ test('十四个物料单据页面共用表格弹窗，新增和删除直接修�
   const server=await createServer({configFile:false,plugins:[{
     name:'material-document-fixtures',enforce:'pre',
     transform(code,id){
+      // 销售页面的开关已提取到共享编辑器，展开真实组合逻辑后继续验证原草稿引用。
+      if(id.endsWith('/use-sales-draft-editor.ts')) return code.replace('const open = ref(false)', 'const open = ref(true)')
       if(id.includes('/views/workspace/') || id.endsWith('/WorkspaceDocumentDialog.vue')) {
         return code.replace(/const (showForm|createOpen|conversionOpen) = ref\(false\)/g,'const $1 = ref(true)')
           .replace("'naive-ui'","'virtual:material-document-modal'").replace(/(['"])[^'"]*AppModal\.vue\1/g, "'virtual:material-document-modal'")

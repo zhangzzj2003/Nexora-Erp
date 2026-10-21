@@ -398,4 +398,4 @@ def test_v70_upgrade_keeps_bank_data_and_adds_reconciliation_schema(monkeypatch,
             'ledger_account_id', 'opening_balance', 'effective_date', 'version'}
         assert db.execute("SELECT COUNT(*) FROM permissions WHERE code LIKE 'bank_reconciliation.%'").fetchone()[0] == 7
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
-    assert len(Base.metadata.tables) == 218
+    assert len(Base.metadata.tables) == 219

@@ -36,6 +36,7 @@ from app.access.security import require
 from app.sales.customer_scope import (visible_customers, visible_customer_ids,
     require_visible_customer, require_visible_order, require_visible_shipment)
 from app.sales.customer_names import duplicate_candidates, visible_name_rows
+from app.sales.drafts import draft_metadata
 
 UserRu = aliased(User)
 UserU = aliased(User)
@@ -231,7 +232,8 @@ def sales_order_data(db: Session, order_id: int) -> dict:
                 "line_total": str(line_total),
             }
         )
-    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'SalesOrder', order_id)), "lines": lines, "total_amount": str(total)}
+    return {**dict(row), **draft_metadata(db, 'SalesOrder', order_id, row['status']),
+            'approval': approval.case_data(approval.find_case(db, 'SalesOrder', order_id)), "lines": lines, "total_amount": str(total)}
 
 
 def shipment_data(db: Session, shipment_id: int) -> dict:
@@ -317,7 +319,8 @@ def shipment_data(db: Session, shipment_id: int) -> dict:
                 ),
             }
         )
-    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'Shipment', shipment_id)),
+    return {**dict(row), **draft_metadata(db, 'Shipment', shipment_id, row['status']),
+            'approval': approval.case_data(approval.find_case(db, 'Shipment', shipment_id)),
             'reversal_approval': approval.case_data(approval.find_case(db, 'Shipment', shipment_id, 'reverse')), "lines": result_lines}
 
 
@@ -455,7 +458,7 @@ def list_sales_orders(user: dict = Depends(require("sales.view"))) -> list[dict]
         return [sales_order_data(db, order_id) for order_id in ids]
 
 
-def create_sales_order_in_session(db: Session, payload: SalesOrderInput, user_id: int) -> dict:
+def validate_sales_order_input(db: Session, payload: SalesOrderInput) -> None:
     if len({line.material_id for line in payload.lines}) != len(payload.lines):
         raise HTTPException(422, "一张销售订单不能重复选择同一物料")
     if (
@@ -477,6 +480,10 @@ def create_sales_order_in_session(db: Session, payload: SalesOrderInput, user_id
             raise HTTPException(422, "物料不存在")
     for line in payload.lines:
         require_product_use(db, line.material_id, 'can_sell')
+
+
+def create_sales_order_in_session(db: Session, payload: SalesOrderInput, user_id: int) -> dict:
+    validate_sales_order_input(db, payload)
     cursor = add_model(
         db,
         SalesOrder(

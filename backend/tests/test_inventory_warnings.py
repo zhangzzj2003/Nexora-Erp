@@ -210,7 +210,7 @@ def test_v54_upgrade_preserves_business_and_is_idempotent(erp,remove_inventory_w
         assert db.execute('SELECT * FROM material_changes ORDER BY id').fetchall()==changes_before
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
         assert db.execute("SELECT COUNT(*) FROM role_permissions WHERE permission_code='inventory_warning.manage'").fetchone()[0]==2
-    assert len(Base.metadata.tables)== 218
+    assert len(Base.metadata.tables)== 219
 
 
 @pytest.mark.parametrize('old_version',[53,54])

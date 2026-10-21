@@ -1,3 +1,4 @@
+import { salesRevisionFields, salesDraftType } from '../shared/sales-draft-api.ts'
 import { productionPlanBody, productionPlanCommand, productionPlanId, validateProductionPlanResult } from '../shared/production-plan-api.ts'
 import type { ProductionPlanOperations } from '../shared/production-plan-api'
 import { productBody, productModelBody, productModelDeleteBody, productQueryBody, productBomBody, validateProductResult } from '../shared/product-api.ts'
@@ -1665,6 +1666,11 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
         expected_version:source.expected_version,body:source.body.trim(),
         acceptance_reference:source.acceptance_reference.trim(),reason:source.reason.trim()}}
     }
+    case 'salesDraftChanges': {
+      const source = payload as ErpOperations['salesDraftChanges']['input']
+      return {method: 'GET', path: `/api/v1/sales-drafts/${salesDraftType(source?.documentType)}/${positiveId(source, 'documentId')}/changes`}
+    }
+    case 'reviseSalesOrder':
     case 'createSalesOrder': {
       const source=payload as ErpOperations['createSalesOrder']['input']
       if(!source || typeof source.reference!=='string' || source.reference.length>100 ||
@@ -1681,14 +1687,30 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
         return {material_id:positiveId(line,'material_id'),quantity:line.quantity,unit_price:line.unit_price,
           warranty_days:days,warranty_basis:basis.trim()}
       })
-      return {method:'POST',path:'/api/v1/sales-orders',body:{customer_id:positiveId(source,'customer_id'),
-        reference:source.reference,lines}}
+      // 修订和新建共用明细白名单，历史版本和修订原因另行校验。
+      return {method:action==='reviseSalesOrder'?'PUT':'POST',path:action==='reviseSalesOrder'
+        ? `/api/v1/sales-orders/${positiveId(source,'orderId')}` : '/api/v1/sales-orders',body:{
+        ...(action==='reviseSalesOrder'?salesRevisionFields(source):{}),
+        customer_id:positiveId(source,'customer_id'),reference:source.reference,lines}}
     }
     case 'confirmSalesOrder': return { method: 'POST', path: `/api/v1/sales-orders/${positiveId(payload, 'orderId')}/confirm` }
     case 'cancelSalesOrder': return { method: 'POST', path: `/api/v1/sales-orders/${positiveId(payload, 'orderId')}/cancel` }
     case 'shipments': return { method: 'GET', path: '/api/v1/shipments' }
     case 'availableShipmentLots': return {method: 'GET',
       path: `/api/v1/shipments/${positiveId(payload, 'shipmentId')}/available-lots`}
+    case 'reviseShipment': {
+      const source = payload as ErpOperations['reviseShipment']['input']
+      const fields = salesRevisionFields(source)
+      if (typeof source.reference !== 'string' || source.reference.length > 100 || !Array.isArray(source.lines) ||
+          source.lines.length < 1 || source.lines.length > 100) throw Error('出库草稿输入无效')
+      const lines = source.lines.map(line => {
+        if (typeof line?.quantity !== 'string' || line.quantity.length > 40) throw Error('出库数量无效')
+        return {material_id: positiveId(line, 'material_id'), quantity: line.quantity}
+      })
+      return {method:'PUT',path:`/api/v1/shipments/${positiveId(source,'shipmentId')}`,body:{...fields,
+        sales_order_id:positiveId(source,'sales_order_id'),warehouse_id:positiveId(source,'warehouse_id'),
+        reference:source.reference,lines}}
+    }
     case 'createShipment': return { method: 'POST', path: '/api/v1/shipments', body: payload }
     case 'postShipment': {
       const shipmentId=positiveId(payload,'shipmentId')
@@ -1704,6 +1726,19 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
     }
     // 退货只能调用固定路径，单据编号先校验再拼接，避免渲染层指定任意 URL。
     case 'salesReturns': return { method: 'GET', path: '/api/v1/sales-returns' }
+    case 'reviseSalesReturn': {
+      const source = payload as ErpOperations['reviseSalesReturn']['input']
+      const fields = salesRevisionFields(source)
+      if (typeof source.reason !== 'string' || !source.reason.trim() || source.reason.length > 200 ||
+          !Array.isArray(source.lines) || source.lines.length < 1 || source.lines.length > 100)
+        throw Error('退货草稿输入无效')
+      const lines = source.lines.map(line => {
+        if (typeof line?.quantity !== 'string' || line.quantity.length > 40) throw Error('退货数量无效')
+        return {shipment_line_id:positiveId(line,'shipment_line_id'),quantity:line.quantity}
+      })
+      return {method:'PUT',path:`/api/v1/sales-returns/${positiveId(source,'returnId')}`,body:{...fields,
+        shipment_id:positiveId(source,'shipment_id'),warehouse_id:positiveId(source,'warehouse_id'),reason:source.reason.trim(),lines}}
+    }
     case 'createSalesReturn': return { method: 'POST', path: '/api/v1/sales-returns', body: payload }
     case 'availableSalesReturnLots': return {method: 'GET',
       path: `/api/v1/sales-returns/${positiveId(payload, 'returnId')}/available-lots`}

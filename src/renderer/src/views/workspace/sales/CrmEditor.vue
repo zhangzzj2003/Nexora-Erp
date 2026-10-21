@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { salesAmountSummary, salesLineAmount } from '../../../utils/sales-documents'
+import { uppercaseMoney } from '../../../utils/money-summary'
 import { storeToRefs } from 'pinia'
 import { NInputNumber } from 'naive-ui'
 import type { CrmKind } from '../../../../../shared/crm-api'
@@ -28,6 +30,7 @@ const opportunities=computed(()=>[{label:props.kind==='quote'?'选择开放商�
   ...(overview.value?.opportunities??[]).filter(row=>props.kind==='quote' ? !['won','lost'].includes(row.stage) : row.customer_id===customer.value).map(row=>({label:`${row.title} · ${row.customer_name}`,value:row.id}))])
 const materials=computed(()=>[{label:'选择物料',value:0,disabled:true},...(options.value?.materials??[]).map(row=>({label:`${row.sku} · ${row.name}`,value:row.id}))])
 const isEdit=computed(()=>!!edit.value)
+const amountSummary=computed(()=>salesAmountSummary(forms.value.quote.lines))
 watch(customer,()=>{
   if(props.kind==='contact')return
   const form=forms.value[props.kind]
@@ -45,7 +48,7 @@ async function save(): Promise<void> {
 <template>
   <section class="crm-editor" :class="dialog ? 'crm-editor--dialog' : 'card'" :aria-label="`${isEdit ? '修订' : '新建'}${crmKindLabel[kind]}`">
     <div v-if="!dialog" class="section-heading"><h2>{{ isEdit ? '修订' : '新建' }}{{ crmKindLabel[kind] }}</h2><AppButton :disabled="busy" @click="emit('close')">返回列表</AppButton></div>
-    <p v-if="kind==='quote'">人民币报价不含税费和折扣计算。提交时固定客户、联系人和物料资料；之后须由未参与编制的账号独立审核。</p>
+    <p v-if="kind==='quote'">人民币报价不含税费和折扣计算。提交时固定客户、联系人和物料资料；之后按角色当前步骤权限办理审批。</p>
     <p v-if="kind==='quote' && opportunities.length===1 && !isEdit">暂无开放商机，须先建立销售商机才能编制报价。<AppButton v-if="store.can('crm_opportunity.manage')" variant="text" :disabled="disabled" @click="emit('createOpportunity')">建立销售商机</AppButton></p>
     <p v-else-if="kind==='opportunity'">逐条填写成交概率；留空表示未评估，不计入加权预测。预估金额和预测金额不代表订单、收入或收款。“已转单”由批准报价转订单后自动登记。</p>
     <p v-else-if="kind==='activity'">这里只登记待办和实际跟进结果，不会发送邮件、短信或提醒。结束后原记录保留，更正可另建跟进。</p>
@@ -93,8 +96,11 @@ async function save(): Promise<void> {
           <label>物料 {{ index+1 }}<WorkspaceMaterialSelect use="can_sell" :materials="options?.materials ?? []" v-model="line.material_id" :options="materials" required :disabled="disabled" /></label>
           <label>数量 {{ index+1 }}<AppInput v-model.trim="line.quantity" type="number" min="0.001" max="1000000" step="0.001" required :disabled="disabled" /></label>
           <label>单价 {{ index+1 }}（元）<AppInput v-model.trim="line.unit_price" type="number" min="0" max="1000000000" step="0.0001" required :disabled="disabled" /></label>
+          <p>本行金额 ¥{{ salesLineAmount(line) || '待完善' }}</p>
           <AppButton :disabled="disabled || forms.quote.lines.length===1" :aria-label="`删除报价第 ${index+1} 行`" @click="forms.quote.lines.splice(index,1)">删除行</AppButton>
         </div>
+        <p class="crm-total">报价合计 <strong>¥{{ amountSummary.total ?? '待完善' }}</strong> · {{ uppercaseMoney(amountSummary.total) }}</p>
+        <p v-if="amountSummary.zeroCount" class="muted">有 {{ amountSummary.zeroCount }} 行零单价，请确认是否为赠品或不收费项目。</p>
         <AppButton :disabled="disabled || forms.quote.lines.length>=100" @click="forms.quote.lines.push({material_id:0,quantity:'1',unit_price:'0'})">增加明细</AppButton>
       </template>
       <label v-if="isEdit && edit">修订原因<AppInput v-model.trim="edit.reason" required maxlength="500" :disabled="disabled" /></label>
@@ -111,7 +117,7 @@ async function save(): Promise<void> {
 .crm-editor--dialog form { display: grid; gap: 18px; }
 .crm-editor--dialog .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .crm-editor--dialog .crm-wide { grid-column: 1 / -1; }
-.crm-editor--dialog .crm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.crm-editor--dialog .crm-toolbar { justify-content: flex-end; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 @media (max-width: 650px) {
   .crm-editor--dialog .form-grid { grid-template-columns: minmax(0, 1fr); }
 }

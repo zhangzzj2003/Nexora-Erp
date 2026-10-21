@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { createSSRApp, h, ref, toRaw } from 'vue'
 import { createPinia } from 'pinia'
 import { renderToString } from '@vue/server-renderer'
+import {setup as setupSsrStyles} from '@css-render/vue3-ssr'
 import { createMemoryHistory } from 'vue-router'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -64,7 +65,10 @@ test('独立客户页显示名单并约束新增操作，销售订单页不再�
   const store = usePiniaAppStore(pinia)
   const render = async file => {
     const { default: View } = await server.ssrLoadModule('/src/renderer/src/views/workspace/' + file)
-    return renderToString(createSSRApp({ render: () => h(View) }).use(pinia))
+    // 日期筛选使用 Naive UI 浮层，SSR 样式适配器避免测试读取浏览器 document。
+    const app = createSSRApp({ render: () => h(View) }).use(pinia)
+    setupSsrStyles(app)
+    return renderToString(app)
   }
   const customers = 'catalog/CustomersView.vue'
   const readonlyHtml = await render(customers)

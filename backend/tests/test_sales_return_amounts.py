@@ -139,6 +139,7 @@ def test_migration_keeps_legacy_amount_and_new_return_absorbs_residual(context):
     before = fingerprints()
     # 还原升级前结构，检验迁移只增列，不补算旧单或改写来源凭证。
     with sqlite3.connect(path) as db:
+        db.execute('DROP TABLE sales_draft_changes')
         db.execute('ALTER TABLE sales_return_lines DROP COLUMN settlement_amount')
         db.execute('PRAGMA user_version = 109')
     migrate()
@@ -189,6 +190,7 @@ def test_migration_failure_rolls_back_column_and_version(context, monkeypatch):
 
     _, _, path, *_ = context
     with sqlite3.connect(path) as db:
+        db.execute('DROP TABLE sales_draft_changes')
         db.execute('ALTER TABLE sales_return_lines DROP COLUMN settlement_amount')
         db.execute('PRAGMA user_version = 109')
     original = database.connection
@@ -208,3 +210,4 @@ def test_migration_failure_rolls_back_column_and_version(context, monkeypatch):
     with original() as db:
         assert db.execute('PRAGMA user_version').fetchone()[0] == 109
         assert 'settlement_amount' not in {row[1] for row in db.execute('PRAGMA table_info(sales_return_lines)')}
+        assert not list(db.execute('PRAGMA table_info(sales_draft_changes)'))

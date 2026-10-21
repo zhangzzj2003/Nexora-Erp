@@ -36,6 +36,7 @@ from app.access.security import require
 from app.sales.customer_scope import (visible_customer_ids, require_visible_shipment,
     require_visible_return)
 from app.sales.return_amounts import return_amount, settlement_for_return
+from app.sales.drafts import draft_metadata
 
 UserRu = aliased(User)
 UserU = aliased(User)
@@ -266,7 +267,8 @@ def sales_return_data(db: Session, return_id: int) -> dict:
         # 固定金额是内部过账事实，对外继续使用既有行金额字段。
         detail = {key: value for key, value in item.items() if key != 'settlement_amount'}
         lines.append({**detail, "line_total": str(line_total), "physical_lots": lots})
-    return {**dict(row), 'approval': approval.case_data(approval.find_case(db, 'SalesReturn', return_id)),
+    return {**dict(row), **draft_metadata(db, 'SalesReturn', return_id, row['status']),
+            'approval': approval.case_data(approval.find_case(db, 'SalesReturn', return_id)),
             'reversal_approval': approval.case_data(approval.find_case(db, 'SalesReturn', return_id, 'reverse')), "lines": lines, "total_amount": str(total)}
 
 

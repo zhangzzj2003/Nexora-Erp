@@ -268,7 +268,7 @@ def test_v99_upgrade_is_atomic_retryable_and_does_not_modify_legacy_evidence(sub
         assert db.execute('PRAGMA user_version').fetchone()[0] == 110
         assert db.execute('SELECT snapshot_json FROM document_approval_cases WHERE document_type=\'SubledgerOpening\'').fetchone()[0] == original
         assert db.execute("SELECT count(*) FROM role_permissions WHERE permission_code='subledger_opening.attachment'").fetchone()[0] == 2
-    assert len(Base.metadata.tables) == 218
+    assert len(Base.metadata.tables) == 219
     assert subledger[0].post(path(record),json=payload(record)).status_code == 201
 
 

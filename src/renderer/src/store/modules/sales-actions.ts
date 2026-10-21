@@ -1,3 +1,6 @@
+import type { ErpOperations, Stock } from '../../../../shared/erp-api'
+import type { SalesDraftType, SalesDraftChange } from '../../../../shared/sales-draft-api'
+import { captureSession } from '../session-state.ts'
 import { materialUseIssue } from '../../utils/material-use.ts'
 import type { AppState } from '../state'
 import type {ShipmentLotLineInput,ShipmentLotOptions} from '../../../../shared/shipment-lot-api'
@@ -57,16 +60,17 @@ export function createSalesActions(
     return completion.result ?? null
   }
 
-  async function createSalesOrder(): Promise<void> {
+  async function createSalesOrder(input?: ErpOperations['createSalesOrder']['input']): Promise<void> {
     if (!window.nexora) return
+    const form = input ?? salesForm.value
     await perform(async () => {
-      const issue = materialUseIssue(salesForm.value.lines, state.materials.value, 'can_sell')
+      const issue = materialUseIssue(form.lines, state.materials.value, 'can_sell')
       if (issue) throw new Error(issue)
       // 销售单价和数量只从表单读取，服务端独立计算订单金额与出库进度。
       await window.nexora!.callApi('createSalesOrder', {
-        customer_id: salesForm.value.customer_id,
-        reference: salesForm.value.reference,
-        lines: salesForm.value.lines.map((line) => ({
+        customer_id: form.customer_id,
+        reference: form.reference,
+        lines: form.lines.map((line) => ({
           material_id: line.material_id,
           quantity: line.quantity,
           unit_price: line.unit_price,
@@ -74,7 +78,7 @@ export function createSalesActions(
           warranty_basis: line.warranty_basis
         }))
       })
-      salesForm.value = {
+      if (!input) salesForm.value = {
         customer_id: 0,
         reference: '',
         lines: [{ material_id: 0, quantity: '1', unit_price: '0', warranty_days: null, warranty_basis: '' }]
@@ -204,21 +208,22 @@ export function createSalesActions(
       })) ?? [{ material_id: 0, quantity: '1' }]
   }
 
-  async function createShipment(): Promise<void> {
+  async function createShipment(input?: ErpOperations['createShipment']['input']): Promise<void> {
     if (!window.nexora) return
+    const form = input ?? shipmentForm.value
     await perform(async () => {
       await window.nexora!.callApi('createShipment', {
-        sales_order_id: shipmentForm.value.sales_order_id,
-        warehouse_id: shipmentForm.value.warehouse_id,
-        reference: shipmentForm.value.reference,
-        lines: shipmentForm.value.lines.map((line) => ({
+        sales_order_id: form.sales_order_id,
+        warehouse_id: form.warehouse_id,
+        reference: form.reference,
+        lines: form.lines.map((line) => ({
           material_id: line.material_id,
           quantity: line.quantity
         }))
       })
-      shipmentForm.value = {
+      if (!input) shipmentForm.value = {
         sales_order_id: 0,
-        warehouse_id: shipmentForm.value.warehouse_id,
+        warehouse_id: form.warehouse_id,
         reference: '',
         lines: [{ material_id: 0, quantity: '1' }]
       }
@@ -278,18 +283,19 @@ export function createSalesActions(
     if (shipment) salesReturnForm.value.warehouse_id = shipment.warehouse_id
   }
 
-  async function createSalesReturn(): Promise<void> {
-    if (!window.nexora || !salesReturnForm.value.lines.length) return
+  async function createSalesReturn(input?: ErpOperations['createSalesReturn']['input']): Promise<void> {
+    const form = input ?? salesReturnForm.value
+    if (!window.nexora || !form.lines.length) return
     await perform(async () => {
       await window.nexora!.callApi('createSalesReturn', {
-        shipment_id: salesReturnForm.value.shipment_id,
-        warehouse_id: salesReturnForm.value.warehouse_id,
-        reason: salesReturnForm.value.reason,
-        lines: salesReturnForm.value.lines.map((line) => ({ ...line }))
+        shipment_id: form.shipment_id,
+        warehouse_id: form.warehouse_id,
+        reason: form.reason,
+        lines: form.lines.map((line) => ({ ...line }))
       })
-      salesReturnForm.value = {
+      if (!input) salesReturnForm.value = {
         shipment_id: 0,
-        warehouse_id: salesReturnForm.value.warehouse_id,
+        warehouse_id: form.warehouse_id,
         reason: '',
         lines: []
       }
@@ -334,7 +340,45 @@ export function createSalesActions(
     }, `销售退货单 #${returnId} 已冲销，库存与应收已追加更正记录。`)
   }
 
+  async function reviseSalesDraft<K extends 'reviseSalesOrder' | 'reviseShipment' | 'reviseSalesReturn'>(
+    action: K, input: ErpOperations[K]['input']
+  ): Promise<boolean> {
+    const permission = {reviseSalesOrder:'sales_order.create', reviseShipment:'shipment.create',
+      reviseSalesReturn:'sales_return.create'}[action]
+    if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes(permission)) return false
+    const owns = captureSession(state)
+    let saved = false
+    await perform(async () => {
+      if (!owns() || state.connectionLost.value) throw Error('会话已变化，请重新打开草稿。')
+      await window.nexora!.callApi(action, input)
+      saved = true
+    }, '草稿修订已保存，原版本已保留；请核对后重新提交审批。')
+    // 写入成功与列表刷新分开判断，刷新失败也不能让用户重复保存同一修订。
+    return saved && owns()
+  }
+
+  async function loadSalesDraftChanges(documentType: SalesDraftType, documentId: number): Promise<SalesDraftChange[]> {
+    if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('sales.view'))
+      throw Error('当前会话无法查看修订历史。')
+    const owns = captureSession(state)
+    const rows = await window.nexora.callApi('salesDraftChanges', {documentType, documentId})
+    if (!owns() || state.connectionLost.value) throw Error('会话已变化，请重新查看修订历史。')
+    return rows
+  }
+
+  async function loadShipmentStock(warehouseId: number): Promise<Stock[]> {
+    if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('inventory.view'))
+      throw Error('当前账号没有库存查看权限。')
+    const owns = captureSession(state)
+    const rows = await window.nexora.callApi('stock', {warehouseId})
+    if (!owns() || state.connectionLost.value) throw Error('会话已变化，请重新读取仓库库存。')
+    return rows
+  }
+
   return {
+    reviseSalesDraft,
+    loadSalesDraftChanges,
+    loadShipmentStock,
     createCustomer,
     importCustomerNames,
     createSalesOrder,
