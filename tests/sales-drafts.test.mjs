@@ -109,3 +109,35 @@ test('修订写入成功但刷新失败仍返回成功，换实例后的读取�
   finish([{id:9}])
   await assert.rejects(loading,/会话已变化/)
 })
+
+test('终止交付 IPC 核对逐行实绩并只发送固定字段',async t=>{
+  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original})
+  let sent
+  globalThis.fetch=async(url,options)=>{
+    if(new URL(url).pathname.endsWith('/login'))return new Response(JSON.stringify({token:'test',user:{id:1}}),{status:200})
+    sent={path:new URL(url).pathname,body:JSON.parse(options.body)}
+    return new Response(JSON.stringify({status:'closed'}),{status:200})
+  }
+  await callBackend('login',{})
+  const input={orderId:9,reason:' 客户同意 ',expected_lines:[{line_id:4,shipped_quantity:'1.250',hidden:true}],hidden:true}
+  await callBackend('closeSalesOrder',input)
+  assert.deepEqual(sent,{path:'/api/v1/sales-orders/9/close',body:{reason:'客户同意',expected_lines:[{line_id:4,shipped_quantity:'1.250'}]}})
+  await assert.rejects(callBackend('closeSalesOrder',{...input,reason:' '}),/终止原因/)
+  await assert.rejects(callBackend('closeSalesOrder',{...input,expected_lines:[{line_id:4,shipped_quantity:'NaN'}]}),/实绩/)
+  await assert.rejects(callBackend('closeSalesOrder',{...input,expected_lines:[...input.expected_lines,...input.expected_lines]}),/重复/)
+})
+
+test('终止成功与刷新失败分开，权限撤回后不能继续提交',async t=>{
+  const original=globalThis.window;t.after(()=>{globalThis.window=original})
+  const scope=effectScope();t.after(()=>scope.stop())
+  const state={server:ref({id:'a',fingerprint:'a'}),user:ref({id:1,roles:['admin'],permissions:['sales.view','sales_order.cancel']}),
+    connectionLost:ref(false),busy:ref(false),error:ref(''),notice:ref('')}
+  let calls=0,actions
+  globalThis.window={nexora:{callApi:async()=>{calls++;return {status:'closed'}}}}
+  scope.run(()=>{initializeSessionState(state);actions=createSalesActions(state,async action=>{await action();state.error.value='刷新失败'})})
+  assert.equal(await actions.closeSalesOrder({orderId:1,reason:'客户同意',expected_lines:[]}),true)
+  state.user.value.permissions=[]
+  assert.equal(await actions.closeSalesOrder({orderId:1,reason:'客户同意',expected_lines:[]}),false)
+  assert.equal(calls,1)
+  assert.equal(matchesSalesFilters({status:'closed',created_at:'2026-10-21'},1,{...newSalesFilters(),status:'closed'}),true)
+})

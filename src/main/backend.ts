@@ -1,3 +1,4 @@
+import { salesCloseFields } from '../shared/sales-closure-api.ts'
 import { salesRevisionFields, salesDraftType } from '../shared/sales-draft-api.ts'
 import { productionPlanBody, productionPlanCommand, productionPlanId, validateProductionPlanResult } from '../shared/production-plan-api.ts'
 import type { ProductionPlanOperations } from '../shared/production-plan-api'
@@ -1694,6 +1695,7 @@ function operation(action: keyof ErpOperations, payload: unknown): { method: str
         customer_id:positiveId(source,'customer_id'),reference:source.reference,lines}}
     }
     case 'confirmSalesOrder': return { method: 'POST', path: `/api/v1/sales-orders/${positiveId(payload, 'orderId')}/confirm` }
+    case 'closeSalesOrder': return {method:'POST', path:`/api/v1/sales-orders/${positiveId(payload,'orderId')}/close`, body:salesCloseFields(payload)}
     case 'cancelSalesOrder': return { method: 'POST', path: `/api/v1/sales-orders/${positiveId(payload, 'orderId')}/cancel` }
     case 'shipments': return { method: 'GET', path: '/api/v1/shipments' }
     case 'availableShipmentLots': return {method: 'GET',

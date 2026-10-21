@@ -195,6 +195,19 @@ export function createSalesActions(
     )
   }
 
+  async function closeSalesOrder(input: ErpOperations['closeSalesOrder']['input']): Promise<boolean> {
+    if (!window.nexora || state.connectionLost.value || !state.user.value?.permissions.includes('sales_order.cancel')) return false
+    const owns = captureSession(state)
+    let saved = false
+    await perform(async () => {
+      if (!owns() || state.connectionLost.value) throw Error('会话已变化，请重新核对订单。')
+      await window.nexora!.callApi('closeSalesOrder', input)
+      saved = true
+    }, '剩余交付已终止，原订单、出库和财务记录保留。')
+    // 终止已成功时，即使刷新失败也关闭确认框，避免用户重复操作。
+    return saved && owns()
+  }
+
   function chooseShipmentOrder(): void {
     const order = salesOrders.value.find(
       (item) => item.id === shipmentForm.value.sales_order_id
@@ -390,6 +403,7 @@ export function createSalesActions(
     saveSalesContractAttachment,
     confirmSalesOrder,
     cancelSalesOrder,
+    closeSalesOrder,
     chooseShipmentOrder,
     createShipment,
     loadAvailableShipmentLots,

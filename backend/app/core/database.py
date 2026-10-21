@@ -298,13 +298,32 @@ def _migrate_plan_required(db: sqlite3.Connection) -> None:
         WHERE code='mrp.convert' AND label='将物料计划转为申请或工单'""")
 
 
+def _migrate_sales_closure(db: sqlite3.Connection) -> None:
+    # SQLite 的状态 CHECK 不能增量放宽，原样复制字段、索引和触发器，保留所有入向外键。
+    source = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='sales_orders'").fetchone()
+    if source is None or "'closed'" in source[0]:
+        return
+    statement, count = re.subn(r"('partially_shipped',\s*'shipped',\s*'cancelled')", r"\1, 'closed'", source[0], count=1)
+    if count != 1:
+        raise RuntimeError('销售订单状态约束不符合预期，未执行迁移')
+    statement = re.sub(r'CREATE TABLE\s+"?sales_orders"?', 'CREATE TABLE sales_orders_closure_upgrade', statement, count=1, flags=re.I)
+    dependents = [row[0] for row in db.execute("""SELECT sql FROM sqlite_master
+        WHERE tbl_name='sales_orders' AND type IN ('index','trigger') AND sql IS NOT NULL""")]
+    db.execute(statement)
+    db.execute('INSERT INTO sales_orders_closure_upgrade SELECT * FROM sales_orders')
+    db.execute('DROP TABLE sales_orders')
+    db.execute('ALTER TABLE sales_orders_closure_upgrade RENAME TO sales_orders')
+    for item in dependents:
+        db.execute(item)
+
+
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
         if version > 110:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
-        if version < 98:
-            # 库存流水与资金表需替换内联唯一约束；迁移完成前统一检查外键，不在业务会话关闭约束。
+        if version < 110:
+            # 销售状态与旧库存、资金约束需重建表；迁移完成前核对外键，业务会话仍强制开启约束。
             db.execute('PRAGMA foreign_keys = OFF')
         if version == 0:
             # 整个初始迁移放在一个事务中，避免中途失败留下半套表。
@@ -3382,6 +3401,11 @@ def migrate() -> None:
             columns = {row[1] for row in db.execute('PRAGMA table_info(sales_return_lines)')}
             if columns and 'settlement_amount' not in columns:
                 db.execute('ALTER TABLE sales_return_lines ADD COLUMN settlement_amount TEXT')
+            _migrate_sales_closure(db)
+            # 历史订单不补造终止事件；同一未发布版本只追加可空字段。
+            order_columns = {row[1] for row in db.execute('PRAGMA table_info(sales_orders)')}
+            if order_columns and 'closure_json' not in order_columns:
+                db.execute('ALTER TABLE sales_orders ADD COLUMN closure_json TEXT')
             # 修订历史独立追加，旧草稿从版本零开始，不伪造历史修改人。
             db.execute('''CREATE TABLE IF NOT EXISTS sales_draft_changes (
                 id INTEGER PRIMARY KEY,
@@ -3395,4 +3419,12 @@ def migrate() -> None:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(document_type, document_id, version)
             )''')
+            if order_columns:
+                db.execute("""CREATE TRIGGER IF NOT EXISTS sales_order_closure_immutable
+                    BEFORE UPDATE OF closure_json, status ON sales_orders
+                    WHEN OLD.closure_json IS NOT NULL AND
+                        (NEW.closure_json IS NOT OLD.closure_json OR NEW.status <> 'closed')
+                    BEGIN SELECT RAISE(ABORT, '销售余量终止证据不可修改'); END""")
+            if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
+                raise RuntimeError('销售余量终止迁移后外键检查失败')
             db.execute('PRAGMA user_version = 110')

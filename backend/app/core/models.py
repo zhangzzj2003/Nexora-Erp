@@ -1620,6 +1620,8 @@ class CustomerOwnerChange(Base):
 
 
 class SalesOrder(Base):
+    # 余量终止只记录一次固定证据，不改写原合同数量、金额或出库历史。
+    closure_json: Mapped[str | None] = mapped_column(Text)
     # 独立业务单号由服务端分配；未完成首次设置的历史记录暂为空。
     document_no: Mapped[str | None] = mapped_column(Text, unique=True)
     __tablename__ = 'sales_orders'

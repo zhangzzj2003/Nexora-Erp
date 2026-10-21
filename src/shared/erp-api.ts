@@ -1177,7 +1177,9 @@ export interface SalesOrder extends NumberedDocument, SalesDraftState {
   customer_id: number
   customer_name: string
   reference: string
-  status: 'draft' | 'confirmed' | 'partially_shipped' | 'shipped' | 'cancelled'
+  // 新服务端显式返回 null 表示尚未终止，旧服务端缺字段时隐藏终止入口。
+  closure?: import('./sales-closure-api').SalesOrderClosure | null
+  status: 'draft' | 'confirmed' | 'partially_shipped' | 'shipped' | 'cancelled' | 'closed'
   created_by: number
   created_by_name: string
   confirmed_by: number | null
@@ -1730,6 +1732,7 @@ export interface ErpOperations extends ProductionPlanOperations, MaterialFlowOpe
   salesDraftChanges: { input: { documentType: SalesDraftType; documentId: number }; output: SalesDraftChange[] }
   confirmSalesOrder: { input: { orderId: number }; output: SalesOrder }
   cancelSalesOrder: { input: { orderId: number }; output: SalesOrder }
+  closeSalesOrder: { input: import('./sales-closure-api').SalesOrderCloseInput & { orderId: number }; output: SalesOrder }
   shipments: { input: undefined; output: Shipment[] }
   availableShipmentLots: { input: {shipmentId: number}; output: ShipmentLotOptions }
   createShipment: { input: { sales_order_id: number; warehouse_id: number; reference: string; lines: { material_id: number; quantity: string }[] }; output: Shipment }

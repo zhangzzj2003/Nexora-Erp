@@ -6,6 +6,7 @@ from sqlalchemy import select, update, func, literal
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.exc import IntegrityError
 from decimal import Decimal, ROUND_HALF_UP
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -178,6 +179,7 @@ def sales_order_data(db: Session, order_id: int) -> dict:
                 SalesOrder.customer_id,
                 SalesOrder.reference,
                 SalesOrder.status,
+                SalesOrder.closure_json,
                 SalesOrder.created_by,
                 SalesOrder.confirmed_by,
                 SalesOrder.cancelled_by,
@@ -228,11 +230,13 @@ def sales_order_data(db: Session, order_id: int) -> dict:
                 "shipped_quantity": str(shipped),
                 "returned_quantity": str(returned),
                 "net_delivered_quantity": str(shipped - returned),
-                "remaining_quantity": str(quantity - shipped),
+                "remaining_quantity": "0" if row["status"] == "closed" else str(quantity - shipped),
                 "line_total": str(line_total),
             }
         )
-    return {**dict(row), **draft_metadata(db, 'SalesOrder', order_id, row['status']),
+    result = dict(row)
+    result['closure'] = json.loads(result.pop('closure_json')) if row['closure_json'] else None
+    return {**result, **draft_metadata(db, 'SalesOrder', order_id, row['status']),
             'approval': approval.case_data(approval.find_case(db, 'SalesOrder', order_id)), "lines": lines, "total_amount": str(total)}
 
 
@@ -354,6 +358,9 @@ def checked_order_lines(db: Session, order_id: int, lines: list[tuple[int, Decim
 
 
 def update_order_shipment_status(db: Session, order_id: int) -> None:
+    # 后续退货或冲销仍更正实绩，但不能重新打开已经终止的交付承诺。
+    if db.get(SalesOrder, order_id).status == "closed":
+        return
     lines = (
         db.execute(
             select(SalesOrderLine.id, SalesOrderLine.quantity)

@@ -5,6 +5,7 @@ import type { SalesDraftType } from '../../../../../shared/sales-draft-api'
 import SalesRecordFilters from './SalesRecordFilters.vue'
 import {defineAsyncComponent} from 'vue'
 // 修订历史按需加载，日常列表不提前初始化弹窗和历史读取。
+const SalesOrderClosureDialog = defineAsyncComponent(()=>import('./SalesOrderClosureDialog.vue'))
 const SalesDraftHistory = defineAsyncComponent(()=>import('./SalesDraftHistory.vue'))
 
 // 来源绑定在真实触发入口，键盘点击与鼠标点击共用同一回程位置。
@@ -77,6 +78,13 @@ const {open:createOpen, form:workingForm, target:editTarget, reason:revisionReas
   isolated:isolatedForm, beginEdit, beginCreate} = useSalesDraftEditor(salesForm);
 const historyTarget = ref<{type:SalesDraftType; id:number} | null>(null);
 const filters = ref(newSalesFilters());
+const closureTarget = ref<SalesOrder | null>(null);
+function openClosure(row: SalesOrder): void {
+  // 固定打开时的逐行实绩，保存时服务端再次核对，刷新不会悄悄改变用户确认的数量。
+  error.value = "";
+  closureTarget.value = JSON.parse(JSON.stringify(row)) as SalesOrder;
+  store.closeDocumentApproval();
+}
 function editRecord(row: SalesOrder): void {
   if (beginEdit(row, {customer_id:row.customer_id, reference:row.reference, lines:row.lines.map(line=>({material_id:line.material_id,quantity:line.quantity,unit_price:line.unit_price,warranty_days:line.warranty_days,warranty_basis:line.warranty_basis}))})) store.closeDocumentApproval();
 }
@@ -232,6 +240,9 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => wo
       <template #footerActions>
         <!-- 操作色表达业务含义：冲销红色、取消橙色、确认绿色、查看与编辑蓝色。 -->
         <template v-if="detailItem">
+          <AppButton v-if="can('sales_order.cancel') && detailItem.status === 'partially_shipped' && detailItem.closure === null"
+            tone="warning" :disabled="busy || connectionLost" @click="openClosure(detailItem)">终止剩余交付</AppButton>
+          <AppButton v-if="detailItem.closure" :disabled="busy" @click="openClosure(detailItem)">终止记录</AppButton>
           <AppButton v-if="can('shipment.create') && ['confirmed','partially_shipped'].includes(detailItem.status)" :disabled="busy || connectionLost" @click="createShipmentFromOrder(detailItem)">创建出库单</AppButton>
           <AppButton v-if="can('sales_order.create') && canReviseSalesDraft(detailItem)" :disabled="busy || connectionLost"
             @click.capture="captureDialogOrigin('SalesOrdersView:form', $event)" @click="editRecord(detailItem)">修订草稿</AppButton>
@@ -280,6 +291,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => wo
         </template>
       </template>
     </DocumentApprovalDialog>
+    <SalesOrderClosureDialog v-if="closureTarget" v-model="closureTarget" />
     <SalesDraftHistory v-if="historyTarget" v-model="historyTarget" />
     <AppModal :busy="busy" origin-key="SalesOrdersView:contract" @invalidated="contractOpen = false" :ready="!contractLoading && !!contract" :load-error="error"
       v-model:show="contractOpen"
@@ -545,7 +557,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => wo
           搜索销售订单
           <AppInput v-model="recordQuery" placeholder="单号、名称或物料" />
         </label>
-        <SalesRecordFilters v-model="filters" :customers="customers" :statuses="['draft','submitted','approved','rejected','withdrawn','confirmed','partially_shipped','shipped','cancelled']" @clear="recordQuery=''" />
+        <SalesRecordFilters v-model="filters" :customers="customers" :statuses="['draft','submitted','approved','rejected','withdrawn','confirmed','partially_shipped','shipped','closed','cancelled']" @clear="recordQuery=''" />
       </template>
 
       <template #cell-document="{ row: item }">
@@ -584,6 +596,7 @@ const { activeLine, showLine, setCompact } = useDocumentMaterialDetails(() => wo
               confirmed: "待出库",
               partially_shipped: "部分出库",
               shipped: "全部出库",
+              closed: "剩余交付已终止",
               cancelled: "已取消",
             }[item.status]
           }}

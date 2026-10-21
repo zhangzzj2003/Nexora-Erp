@@ -34,7 +34,7 @@ export interface SalesRecordFilters {status: string; customer: number | null; fr
 export const newSalesFilters = (): SalesRecordFilters => ({status:'', customer:null, from:'', to:''})
 export const salesStatusLabels: Record<string, string> = {
   draft:'未送审草稿', submitted:'审批中', approved:'已批准，待执行', rejected:'已驳回', withdrawn:'已撤回',
-  confirmed:'待出库', partially_shipped:'部分出库', shipped:'全部出库', posted:'已确认', cancelled:'已取消', reversed:'已冲销'
+  confirmed:'待出库', partially_shipped:'部分出库', shipped:'全部出库', posted:'已确认', cancelled:'已取消', closed:'剩余交付已终止', reversed:'已冲销'
 }
 export function matchesSalesFilters(row: {status: string; created_at: string; reversal_id?: number | null;
   approval?: {status: string}}, customerId: number | undefined, filters: SalesRecordFilters): boolean {
