@@ -471,14 +471,14 @@ async function reverseApproved(identifier: number): Promise<void> {
                 .filter(
                   (entry) =>
                     entry.status === 'posted' &&
+                    !entry.reversal_id &&
                     entry.lines.some(
                       (line) => Number(line.returnable_quantity) > 0,
                     ),
                 )
                 .map((item) => ({
                   label: (
-                    ' #' +
-                    item.id +
+                    documentLabel(item) +
                     ' · ' +
                     item.customer_name +
                     ' · ' +

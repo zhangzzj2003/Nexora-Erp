@@ -39,7 +39,8 @@ state.customers=ref([{id:1,name:'客户'}])
 for(const key of ${JSON.stringify(views.map(v=>v[1]).concat('requestConversionForm'))})state[key]=ref({requestId:31,supplier_id:1,warehouse_id:1,from_warehouse_id:1,to_warehouse_id:2,customer_id:1,purchase_order_id:31,receipt_id:31,shipment_id:31,work_order_id:31,material_issue_id:31,product_material_id:2,base_quantity:'1',reference:'原参考号',note:'原说明',reason:'原原因',lines:[{material_id:1,component_material_id:1,quantity:'1',counted_quantity:'0',unit_price:'2.5000',line_total:'2.50',pricing_mode:'unit_price',warranty_days:30,warranty_basis:'合同',purchase_order_line_id:31,purchase_request_line_id:31,receipt_line_id:31,shipment_line_id:31,work_order_line_id:31,material_issue_line_id:31,accepted_quantity:'1',rejected_quantity:'0',rejection_reason:''}]})
 const source={id:31,document_no:'PR-20261007-000031',status:'approved',lines:[{id:31,material_name:'来源物料',material_id:1,remaining_quantity:'3',returnable_quantity:'4'}]}
 // 销售退货直接从当前表单引用对应出库单，保留真实来源查找路径。
-state.shipments.value=[source]
+state.shipments.value=[{...source,status:'posted',customer_name:'客户',warehouse_name:'主仓库'},
+ {...source,id:32,status:'posted',reversal_id:1,document_no:'SHP-REVERSED'}]
 state.purchaseRequests.value=[source];state.purchaseOrders.value=[{...source,status:"confirmed"}]
 for(const key of ['selectedPurchaseReturnReceipt','selectedSalesReturnShipment','selectedIssueOrder','selectedReturnIssue'])state[key]=ref(source)
 export const useAppStore=()=>state
@@ -168,6 +169,10 @@ test('十四个物料单据页面共用表格弹窗，新增和删除直接修�
     assert.doesNotMatch(html,/＋ 添加物料/,file)
     assert.match(html,/来源物料/,file)
   }
+  // 原出库选择直接显示正式编号，方便与来源单核对。
+  const returnForm=await render('sales/SalesReturnsView.vue')
+  assert.match(returnForm,/PR-20261007-000031/)
+  assert.doesNotMatch(returnForm,/SHP-REVERSED/)
   assert.match(await render('production/MaterialIssuesView.vue'),/max="3"/)
   assert.match(await render('production/MaterialReturnsView.vue'),/max="4"/)
   // 公共事件也检查忙碌及行数上限，不能通过直接触发点击绕过禁用按钮。

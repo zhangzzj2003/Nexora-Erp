@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 来源选择显示正式出库编号，旧响应仍由公共格式化函数兼容。
+import {relatedDocumentLabel} from '../../../../../shared/document-numbering'
 import {computed,watch} from 'vue'
 import {storeToRefs} from 'pinia'
 import {usePiniaAppStore} from '../../../store/app-store'
@@ -13,7 +15,7 @@ const emit=defineEmits<{close:[];saved:[]}>()
 const store=usePiniaAppStore()
 const {afterSalesForm:form,afterSalesEdit:edit,afterSalesOverview:overview,busy,error,connectionLost}=storeToRefs(store)
 const original=computed(()=>overview.value?.sources.find(row=>row.shipment_line_id===form.value.shipment_line_id))
-const sources=computed(()=>(overview.value?.sources??[]).map(row=>({label:`出库 #${row.shipment_id} · ${row.customer_name} · ${row.sku} · 剩余 ${row.remaining_quantity} ${row.unit}`,value:row.shipment_line_id})))
+const sources=computed(()=>(overview.value?.sources??[]).map(row=>({label:`出库 ${relatedDocumentLabel(row,'shipment')} · ${row.customer_name} · ${row.sku} · 剩余 ${row.remaining_quantity} ${row.unit}`,value:row.shipment_line_id})))
 const materials=computed(()=>(overview.value?.materials??[]).map(row=>({label:`${row.sku} · ${row.name}（${row.unit}）`,value:row.id})))
 const warehouses=computed(()=>(overview.value?.warehouses??[]).map(row=>({label:row.name,value:row.id})))
 const warrantyDays=computed({get:()=>form.value.warranty_days==null?'':String(form.value.warranty_days),
