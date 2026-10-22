@@ -44,7 +44,9 @@ export function createDocumentApprovalActions(state: AppState) {
     const row = state.approvalPolicies.value.find(item => item.document_type === type)
     if (!row) return false
     state.approvalPolicyDrafts.value[type] = {
-      document_type: type, version: row.version, steps: row.steps.map(step => ({ ...step, role: null, action: documentApprovalStepAction(step) }))
+      document_type: type, version: row.version, steps: row.steps.map(step => ({ ...step, role: null, action: documentApprovalStepAction(step) })),
+      ...(row.branches !== undefined ? { branches: row.branches.map(branch => ({ ...branch,
+        steps: branch.steps.map(step => ({ ...step, role: null, action: documentApprovalStepAction(step) })) })) } : {})
     }
     state.approvalPolicyError.value = ''
     return true
@@ -65,7 +67,8 @@ export function createDocumentApprovalActions(state: AppState) {
       reads++
       state.approvalPolicies.value = [...state.approvalPolicies.value.filter(row => row.document_type !== type), saved]
       state.approvalPolicyDrafts.value[type] = { document_type: type, version: saved.version,
-        steps: saved.steps.map(step => ({ ...step })) }
+        steps: saved.steps.map(step => ({ ...step })),
+        ...(saved.branches !== undefined ? { branches: saved.branches.map(branch => ({ ...branch, steps: branch.steps.map(step => ({ ...step })) })) } : {}) }
       state.notice.value = '审批步骤已保存，只影响之后重新送审的单据。'
       return true
     } catch (cause) {

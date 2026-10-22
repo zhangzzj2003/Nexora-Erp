@@ -49,4 +49,6 @@
 
 第 100 版新增历史原单附件及追加撤销两张静态模型表（`SubledgerAttachment`、`SubledgerAttachmentReversal`）；该版为 200 张模型表。文件绑定分户方案并固定原来源，审批兼容保留旧正文，列表不加载原字节，上传、更正、查询和下载使用 ORM，会话末尾校验日期锁。必要底层操作仅用于结构迁移及不可改写约束，见[票据附件规则](subledger-attachments.md)。
 
-第 101 版新增往来余额转账及不可覆盖审计两张静态 ORM 模型表（`ControlBalanceTransfer`、`ControlBalanceTransferChange`），并为历史资金及订单资金新增可空实际组合列；当前为 202 张静态模型表。真实组合投影、双重批准、原子过账、固定组合资金及反向更正见[往来余额转账](control-balance-transfers.md)，旧资金审批正文及来源指纹不回填。
+第 101 版新增往来余额转账及不可覆盖审计两张静态 ORM 模型表（`ControlBalanceTransfer`、`ControlBalanceTransferChange`），并为历史资金及订单资金新增可空实际组合列；当时为 202 张静态模型表。真实组合投影、双重批准、原子过账、固定组合资金及反向更正见[往来余额转账](control-balance-transfers.md)，旧资金审批正文及来源指纹不回填。
+
+第 112 版为既有 `DocumentApprovalPolicy`、`DocumentApprovalCase` 分别增加 `branches_json`、`routing_json`，不新增模型表。[金额审批分支](approval-amount-routing.md)的配置、选择、冻结和事件留痕均使用 ORM；底层 `ALTER TABLE` 仅用于同事务结构迁移，失败回滚两列和版本，旧审批正文及事件保持不变。

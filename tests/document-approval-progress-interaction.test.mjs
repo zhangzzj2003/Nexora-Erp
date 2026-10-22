@@ -37,10 +37,15 @@ test('点击节点及历次送审联动意见和依据，刷新及换单正确�
   })
   const event = (id,generation,action,step,name=null) => ({id,version:id,generation,action,step,step_name:name,actor_id:id,
     actor_name:`人员${id}`,reason:`意见${id}`,evidence:`现场${id}`,created_at:'2026-10-08T07:00:00Z'})
-  const record = reactive({document_type:'MaintenanceJob',document_id:1,intent:'execute',generation:2,version:4,
+  const route = (amount, name) => ({mode:'amount',basis:'订单逐行金额合计',amount,
+    branch:{name,min_amount:'0.00',max_amount:null}})
+  const record = reactive({document_type:'PurchaseOrder',document_id:1,intent:'execute',generation:2,version:4,
     business_status:'draft',status:'submitted',current_step:0,steps:[{name:'新批准',role:null}],
-    events:[event(1,1,'submit',0),event(2,1,'approve',0,'旧审核'),event(3,1,'withdraw',1),event(4,2,'submit',0)]})
-  const before = structuredClone({...record,events:record.events.map(row=>({...row})),steps:record.steps.map(row=>({...row}))})
+    routing:route('2000.00','本轮采购'),
+    events:[{...event(1,1,'submit',0),routing:route('25.00','历史采购')},event(2,1,'approve',0,'旧审核'),
+      event(3,1,'withdraw',1),{...event(4,2,'submit',0),routing:route('2000.00','本轮采购')}]})
+  const snapshot = () => JSON.parse(JSON.stringify(record))
+  const before = snapshot()
   const root=element('root'), app=renderer.createApp({render:()=>h(Progress,{record,roles:[],localTime:value=>value})})
   app.mount(root);t.after(()=>app.unmount())
   const flatten = node => [node,...node.children.flatMap(flatten)]
@@ -55,6 +60,7 @@ test('点击节点及历次送审联动意见和依据，刷新及换单正确�
   const selectedRow = () => nodeRows().find(node => String(node.props.class).includes('is-selected'))
   const currentRow = () => nodeRows().find(node => String(node.props.class).includes('is-current'))
   assert.match(text(panel()),/等待新批准处理/)
+  assert.match(text(root), /人民币 2000.00 元；命中“本轮采购”分支/)
   assert.equal(selectedRow(), currentRow())
   await click(node=>text(node).includes('查看最近记录'))
   assert.match(text(panel()),/送审 · 人员4/);assert.match(text(panel()),/意见4/);assert.match(text(panel()),/现场依据：现场4/)
@@ -65,19 +71,27 @@ test('点击节点及历次送审联动意见和依据，刷新及换单正确�
   assert.match(text(panel()),/撤回 · 人员3/)
   assert.equal(currentRow(), undefined)
   assert.doesNotMatch(text(root),/新批准/)
+  assert.match(text(root), /人民币 25.00 元；命中“历史采购”分支/)
+  assert.doesNotMatch(text(root), /2000.00|本轮采购/)
   await click(node=>node.props['aria-label']==='查看旧审核记录，已完成')
   assert.match(text(panel()),/旧审核 · 人员2/);assert.match(text(panel()),/意见2/)
   assert.doesNotMatch(text(panel()),/意见4/)
   await click(node=>text(node).includes('第 2 次送审'))
   assert.match(text(panel()),/等待新批准处理/)
+  assert.match(text(root), /人民币 2000.00 元；命中“本轮采购”分支/)
   assert.equal(selectedRow(), currentRow())
   // 相同版本的快照刷新保留选择；真实审批推进到执行则自动选中新待办。
   await click(node=>node.props['aria-label']==='查看送审记录，已送审')
   record.events=[...record.events];await nextTick();assert.match(text(panel()),/意见4/)
-  assert.deepEqual({...record,events:record.events.map(row=>({...row})),steps:record.steps.map(row=>({...row}))},before)
+  assert.deepEqual(snapshot(),before)
+  // 没有分支证据的升级前轮次不能借用本轮的金额。
+  delete record.events[0].routing
+  await click(node=>text(node).trim()==='第 1 次送审')
+  assert.doesNotMatch(text(root), /人民币|本轮采购/)
+  await click(node=>text(node).includes('第 2 次送审'))
   record.events.push(event(5,2,'approve',0,'新批准'));record.current_step=1;record.status='approved';record.version=5
   await nextTick();await nextTick();assert.match(text(panel()),/等待业务执行/)
   // 换单据不泄漏上一单的轮次和节点。
-  record.document_id=2;record.version=0;record.generation=0;record.current_step=0;record.status='draft';record.steps=[];record.events=[]
+  record.document_id=2;record.version=0;record.generation=0;record.current_step=0;record.status='draft';record.steps=[];record.events=[];delete record.routing
   await nextTick();await nextTick();assert.match(text(panel()),/等待提交审批/);assert.doesNotMatch(text(root),/人员4|第 1 次送审/)
 })

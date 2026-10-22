@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.access.security import user_details
 from app.core.approval_catalog import approval_type, approval_step_action
+from app.core.approval_routing import AMOUNT_BASES, resolve, validate_branches
 from app.core.models import (
     DocumentApprovalAuthor, DocumentApprovalCase, DocumentApprovalEvent,
     DocumentApprovalPolicy, DocumentApprovalPolicyChange, Role, User,
@@ -84,23 +85,28 @@ def policy(db: Session, document_type: str) -> DocumentApprovalPolicy:
 
 def policy_data(row: DocumentApprovalPolicy) -> dict:
     return {'document_type': row.document_type, 'version': row.version,
+            'branches': json.loads(row.branches_json), 'amount_basis': AMOUNT_BASES.get(row.document_type),
             'steps': json.loads(row.steps_json), 'configured_by': row.configured_by,
             'configured_at': row.configured_at}
 
 
 def save_policy(db: Session, document_type: str, steps: Sequence[Mapping],
-                version: int, user_id: int) -> dict:
+                version: int, user_id: int, *, branches: list | None = None) -> dict:
     write_transaction(db)
     if 'admin' not in actor(db, user_id)['roles']:
         raise HTTPException(403, '仅管理员可以配置单据审批步骤')
     row = policy(db, document_type)
     check_version(row.version, version)
     checked = validate_steps(db, steps)
-    before = row.steps_json
+    if branches is None and json.loads(row.branches_json):
+        raise HTTPException(409, '此模板包含金额分支，请使用支持条件分支的客户端保存')
+    routed = validate_branches(db, document_type, branches or [], validate_steps)
+    before = encoded({'steps': json.loads(row.steps_json), 'branches': json.loads(row.branches_json)})
     row.steps_json, row.version = encoded(checked), row.version + 1
+    row.branches_json = encoded(routed)
     row.configured_by, row.configured_at = user_id, now(db)
     db.add(DocumentApprovalPolicyChange(document_type=document_type, version=row.version,
-        before_json=before, after_json=row.steps_json, changed_by=user_id))
+        before_json=before, after_json=encoded({'steps': checked, 'branches': routed}), changed_by=user_id))
     db.flush()
     return policy_data(row)
 
@@ -144,7 +150,9 @@ def case_data(row: DocumentApprovalCase | None) -> dict:
                 'steps': [], 'policy_version': None, 'submitted_by': None,
                 'submitted_at': None, 'executed_by': None, 'executed_at': None}
     # 默认查询只返回流程状态；敏感单据快照由领域授权后的详情入口提供。
-    return {'version': row.version, 'status': row.status, 'generation': row.generation,
+    return {**({'routing': {key: value for key, value in json.loads(row.routing_json).items() if key != 'rules'}}
+                if row.routing_json else {}),
+            'version': row.version, 'status': row.status, 'generation': row.generation,
             'current_step': row.current_step, 'steps': json.loads(row.steps_json),
             'policy_version': row.policy_version, 'submitted_by': row.submitted_by,
             'submitted_at': row.submitted_at, 'executed_by': row.executed_by,
@@ -157,6 +165,8 @@ def append_event(db: Session, row: DocumentApprovalCase, action: str,
     # 事件保留全量快照；重新送审只改变当前状态，不覆盖历次批准的内容。
     state = {**case_data(row), 'snapshot': json.loads(row.snapshot_json),
              'authors': json.loads(row.authors_json), 'content_digest': row.content_digest}
+    if row.routing_json:
+        state['routing_evidence'] = json.loads(row.routing_json)
     if evidence:
         # 维护领域的现场依据与审批意见独立存证，不改变其他单据的数据契约。
         state['operation_evidence'] = evidence.strip()
@@ -197,17 +207,21 @@ def submit(db: Session, document_type: str, document_id: int, snapshot: Mapping,
         DocumentApprovalAuthor.document_type == document_type,
         DocumentApprovalAuthor.document_id == document_id).order_by(DocumentApprovalAuthor.user_id)))
     template = policy(db, document_type)
+    selected_steps, routing = resolve(document_type, snapshot, intent,
+        json.loads(template.steps_json), json.loads(template.branches_json))
+    steps_json = encoded(selected_steps)
+    routing_json = encoded(routing) if routing is not None else None
     submitted_at = now(db)
     if row is None:
         row = DocumentApprovalCase(document_type=document_type, document_id=document_id, intent=intent,
-            version=1, generation=1, policy_version=template.version, steps_json=template.steps_json,
+            version=1, generation=1, policy_version=template.version, steps_json=steps_json, routing_json=routing_json,
             snapshot_json=content, content_digest=content_digest, authors_json=encoded(all_authors),
             current_step=0, status='submitted', submitted_by=user_id, submitted_at=submitted_at, updated_at=submitted_at)
         db.add(row)
     else:
         row.version += 1
         row.generation += 1
-        row.policy_version, row.steps_json = template.version, template.steps_json
+        row.policy_version, row.steps_json, row.routing_json = template.version, steps_json, routing_json
         row.snapshot_json, row.content_digest, row.authors_json = content, content_digest, encoded(all_authors)
         row.current_step, row.status = 0, 'submitted'
         row.submitted_by, row.submitted_at = user_id, submitted_at

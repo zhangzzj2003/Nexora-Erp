@@ -94,7 +94,7 @@ def test_v111_preserves_quote_evidence_and_constraints(seeded):
     migrate()
     migrate()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 111
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 112
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
         assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
         assert {table: db.execute(f'SELECT * FROM {table}').fetchall() for table in tables} == before

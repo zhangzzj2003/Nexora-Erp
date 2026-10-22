@@ -17,6 +17,9 @@ const props = defineProps<{
 const selectedGeneration = ref(props.record.generation)
 const generations = computed(() => documentApprovalGenerations(props.record))
 const progress = computed(() => documentApprovalRound(props.record, selectedGeneration.value))
+// 历史轮次仅使用当时的送审证据，不能显示当前轮次的金额或分支。
+const routing = computed(() => progress.value.events.find(event => event.action === 'submit')?.routing
+  ?? (progress.value.isCurrent ? props.record.routing : undefined))
 const selectedKey = ref(documentApprovalDefaultNode(progress.value))
 const selectedNode = computed(() => progress.value.nodes.find(node => node.key === selectedKey.value))
 const latestNode = computed(() => {
@@ -62,6 +65,11 @@ watch(() => [selectedGeneration.value, selectedKey.value, props.record.current_s
       </AppButton>
     </div>
     <p class="approval-progress-summary" role="status" aria-live="polite">{{ executionHint && progress.isCurrent && ['approved', 'executed'].includes(record.status) ? executionHint : progress.summary }}</p>
+    <p v-if="routing" class="approval-progress-summary" aria-label="送审分支依据">
+      <template v-if="routing.mode === 'reverse_default'">本次更正使用默认步骤。</template>
+      <template v-else>{{ routing.basis }}：人民币 {{ routing.amount }} 元；{{ routing.branch ? `命中“${routing.branch.name}”分支` : '未命中金额区间，使用默认步骤' }}。</template>
+      规则和金额均为本次送审时固定的依据。
+    </p>
     <!-- 所有窗口都保留横向流程；独立滚动区域支持键盘，节点同时保留文字状态。 -->
     <div v-if="progress.nodes.length" ref="flowViewport" class="approval-flow-viewport" tabindex="0"
       role="region" aria-label="审批流程（可左右滚动）">

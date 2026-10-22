@@ -12,6 +12,16 @@ export const documentApprovalTypes = [
 export type DocumentApprovalType = typeof documentApprovalTypes[number]
 export type DocumentApprovalStepAction = 'review' | 'verify' | 'approve'
 export interface DocumentApprovalStep { name: string; role: string | null; action?: DocumentApprovalStepAction }
+export const amountApprovalTypes: readonly DocumentApprovalType[] = ['PurchaseRequest', 'PurchaseOrder', 'SalesOrder',
+  'CrmQuote', 'Journal', 'ProductionCostSettlement', 'PaymentRecord', 'SubledgerPayment',
+  'OrderSettlementTransfer', 'SubledgerSettlement', 'SubledgerOrderSettlement', 'ControlBalanceTransfer']
+export interface DocumentApprovalBranch {
+  name: string; min_amount: string; max_amount: string | null; steps: DocumentApprovalStep[]
+}
+export interface DocumentApprovalRouting {
+  mode: 'amount' | 'reverse_default'; basis: string; amount: string | null
+  branch: Omit<DocumentApprovalBranch, 'steps'> | null
+}
 // 兼容已固定的旧快照；新规则显式绑定动作，修改名称不会改变按钮授权。
 export function documentApprovalStepAction(step: DocumentApprovalStep): DocumentApprovalStepAction {
   return step.action ?? (step.name.includes('核准') || step.name.includes('复核') ? 'verify'
@@ -23,6 +33,8 @@ export interface DocumentApprovalPolicy {
   title: string
   version: number
   steps: DocumentApprovalStep[]
+  branches?: DocumentApprovalBranch[]
+  amount_basis?: string | null
   configured_by: number | null
   configured_at: string | null
 }
@@ -30,6 +42,7 @@ export interface DocumentApprovalPolicyInput {
   document_type: DocumentApprovalType
   version: number
   steps: DocumentApprovalStep[]
+  branches?: DocumentApprovalBranch[]
 }
 export interface DocumentApprovalOperations {
   documentApprovalPolicies: { input: undefined; output: DocumentApprovalPolicy[] }
@@ -65,18 +78,64 @@ function steps(value: unknown): DocumentApprovalStep[] {
   })
 }
 
+function cents(value: unknown): bigint {
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]{0,18})(\.[0-9]{1,2})?$/.test(value)) throw Error('金额界限须为非负金额文本，最多两位小数')
+  const [whole, fraction = ''] = value.split('.')
+  const amount = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'))
+  if (amount > 100000000000000000000n) throw Error('金额界限超过允许范围')
+  return amount
+}
+function branchRange(value: unknown): Omit<DocumentApprovalBranch, 'steps'> {
+  const row = record(value)
+  if (typeof row.name !== 'string' || !row.name.trim() || row.name.trim().length > 40) throw Error('金额分支名称无效')
+  const low = cents(row.min_amount)
+  if (row.max_amount !== null && cents(row.max_amount) <= low) throw Error('金额上限须大于下限')
+  return { name: row.name.trim(), min_amount: row.min_amount as string, max_amount: row.max_amount as string | null }
+}
+function branches(value: unknown, type: DocumentApprovalType): DocumentApprovalBranch[] {
+  if (!Array.isArray(value) || value.length > 5) throw Error('金额分支最多五个')
+  if (value.length && !amountApprovalTypes.includes(type)) throw Error('此类单据没有可用于审批分支的固定金额')
+  const checked: DocumentApprovalBranch[] = []
+  for (const item of value) {
+    const row = record(item), range = branchRange(row)
+    if (Object.keys(row).some(key => !['name', 'min_amount', 'max_amount', 'steps'].includes(key))) throw Error('金额分支字段无效')
+    if (checked.some(other => other.name === range.name)) throw Error('金额分支名称不能重复')
+    if (checked.some(other => (other.max_amount === null || cents(range.min_amount) < cents(other.max_amount))
+      && (range.max_amount === null || cents(other.min_amount) < cents(range.max_amount)))) throw Error('金额分支区间不能重叠')
+    checked.push({ ...range, steps: steps(row.steps) })
+  }
+  return checked
+}
+function routing(value: unknown): void {
+  const row = record(value)
+  if (!['amount', 'reverse_default'].includes(String(row.mode)) || typeof row.basis !== 'string'
+    || !row.basis.trim() || row.basis.length > 100) throw Error('审批分支依据无效')
+  if (row.mode === 'reverse_default') {
+    if (row.amount !== null || row.branch !== null) throw Error('更正审批须使用默认步骤')
+  } else {
+    const amount = cents(row.amount)
+    if (row.branch !== null) {
+      const range = branchRange(row.branch)
+      if (amount < cents(range.min_amount) || range.max_amount !== null && amount >= cents(range.max_amount)) throw Error('审批金额与命中区间不符')
+    }
+  }
+}
+
 export function documentApprovalPolicyBody(value: unknown): Omit<DocumentApprovalPolicyInput, 'document_type'> {
   const row = record(value)
-  documentApprovalType(row)
-  if (Object.keys(row).some(key => !['document_type', 'version', 'steps'].includes(key))
+  const type = documentApprovalType(row)
+  if (Object.keys(row).some(key => !['document_type', 'version', 'steps', 'branches'].includes(key))
     || !Number.isSafeInteger(row.version) || Number(row.version) < 1) throw new Error('审批模板版本或字段无效')
-  return { version: row.version as number, steps: steps(row.steps) }
+  return { version: row.version as number, steps: steps(row.steps),
+    ...(row.branches !== undefined ? { branches: branches(row.branches, type) } : {}) }
 }
 
 export function validateDocumentApprovalPolicy(value: unknown): asserts value is DocumentApprovalPolicy {
   const row = record(value)
   documentApprovalType(row)
   steps(row.steps)
+  if (row.branches !== undefined) branches(row.branches, row.document_type as DocumentApprovalType)
+  if (row.amount_basis !== undefined && row.amount_basis !== null && (typeof row.amount_basis !== 'string' || !row.amount_basis.trim() || row.amount_basis.length > 100)) throw Error('服务端金额依据无效')
   if (typeof row.title !== 'string' || !row.title.trim() || row.title.length > 100
     || !Number.isSafeInteger(row.version) || Number(row.version) < 1
     || !(row.configured_by === null || Number.isSafeInteger(row.configured_by) && Number(row.configured_by) > 0)
@@ -100,12 +159,14 @@ export type DocumentApprovalStatus = 'draft' | 'submitted' | 'approved' | 'rejec
 export type DocumentApprovalIntent = 'execute' | 'reverse'
 export type DocumentApprovalAction = 'submit' | 'approve' | 'reject' | 'withdraw'
 export interface DocumentApprovalState {
+  routing?: DocumentApprovalRouting
   version: number; status: DocumentApprovalStatus; generation: number; current_step: number
   steps: DocumentApprovalStep[]; policy_version: number | null
   submitted_by: number | null; submitted_at: string | null
   executed_by: number | null; executed_at: string | null
 }
 export interface DocumentApprovalEvent {
+  routing?: DocumentApprovalRouting
   id: number; version: number; generation: number; action: DocumentApprovalAction | 'execute'
   step: number; step_name: string | null; actor_id: number; actor_name: string; reason: string; evidence?: string; created_at: string
 }
@@ -164,6 +225,10 @@ function positive(value: unknown): boolean { return Number.isSafeInteger(value) 
 function date(value: unknown): boolean { return typeof value === 'string' && Number.isFinite(Date.parse(value)) }
 export function validateDocumentApprovalState(value: unknown): asserts value is DocumentApprovalState {
   const row = record(value)
+  if (row.routing !== undefined) {
+    if (row.status === 'draft') throw Error('未送审单据没有固定金额分支')
+    routing(row.routing)
+  }
   if (!['draft', 'submitted', 'approved', 'rejected', 'withdrawn', 'executed'].includes(String(row.status))
       || !Number.isSafeInteger(row.version) || Number(row.version) < 0
       || !Number.isSafeInteger(row.generation) || Number(row.generation) < 0
@@ -204,6 +269,8 @@ export function validateDocumentApprovalResponse(value: unknown): void {
 
 export function validateDocumentApprovalRecord(value: unknown): asserts value is DocumentApprovalRecord {
   const row = record(value)
+  if (row.routing !== undefined && (!amountApprovalTypes.includes(row.document_type as DocumentApprovalType)
+    || (record(row.routing).mode === 'reverse_default') !== (row.intent === 'reverse'))) throw Error('审批分支与单据类型或意图不符')
   documentApprovalTarget(row); validateDocumentApprovalState(row)
   if (!(row.document_no === null || typeof row.document_no === 'string' && !!row.document_no.trim())
       || typeof row.business_status !== 'string' || !row.business_status || row.business_status.length > 40
@@ -239,6 +306,11 @@ export function validateDocumentApprovalRecord(value: unknown): asserts value is
   let version = 0
   for (const item of row.events) {
     const event = record(item)
+    if (event.routing !== undefined) {
+      routing(event.routing)
+      if (!amountApprovalTypes.includes(row.document_type as DocumentApprovalType)
+        || (record(event.routing).mode === 'reverse_default') !== (row.intent === 'reverse')) throw Error('历史分支与单据类型或意图不符')
+    }
     if (event.evidence !== undefined && (row.document_type !== 'MaintenanceJob'
         || typeof event.evidence !== 'string' || event.evidence.length > 600)) throw Error('服务端维护审批现场依据无效')
     if (!positive(event.id) || !positive(event.generation) || Number(event.generation) > row.generation

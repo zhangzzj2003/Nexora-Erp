@@ -2695,6 +2695,7 @@ class DocumentApprovalPolicy(Base):
     document_type: Mapped[str] = mapped_column(Text, primary_key=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     steps_json: Mapped[str] = mapped_column(Text, nullable=False)
+    branches_json: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'[]'"))
     configured_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
     configured_at: Mapped[str | None] = mapped_column(Text)
 
@@ -2723,6 +2724,7 @@ class DocumentApprovalCase(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     generation: Mapped[int] = mapped_column(Integer, nullable=False)
     policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    routing_json: Mapped[str | None] = mapped_column(Text)
     steps_json: Mapped[str] = mapped_column(Text, nullable=False)
     snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
     content_digest: Mapped[str] = mapped_column(Text, nullable=False)

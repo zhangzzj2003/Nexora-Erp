@@ -67,6 +67,8 @@ Snapshot: **2026-10-08, physical lot data foundation**. Work in progress is not 
 | Business expansion | Planned | Finite-capacity scheduling, full quality, advanced after-sales, deeper CRM/equipment, HR and multiple organizations. |
 | Data and devices | Planned / acceptance pending | MySQL and offline sync are not implemented; cross-platform devices, unattended startup and recovery drills need acceptance. |
 
+[Amount-based approval routing (Chinese)](docs/approval-amount-routing.md) lets administrators configure disjoint amount ranges and separate step chains for 12 document types with fixed monetary evidence. Submission freezes the amount and selected chain. Unmatched amounts and reversal requests use the default chain; unknown prices cannot become zero. Upgrade both client and v112 service. Other conditions, parallel approval and timeout scheduling remain planned.
+
 Candidate sequencing and entry conditions are in the [expansion assessment (Chinese)](docs/erp-expansion-assessment.md). Build success does not replace device or business acceptance.
 
 ### Document numbering

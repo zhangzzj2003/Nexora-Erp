@@ -320,7 +320,7 @@ def _migrate_sales_closure(db: sqlite3.Connection) -> None:
 def migrate() -> None:
     with connection() as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 111:
+        if version > 112:
             raise RuntimeError(f"数据库版本 {version} 高于当前程序支持的版本")
         if version < 111:
             # 销售状态与旧库存、资金约束需重建表；迁移完成前核对外键，业务会话仍强制开启约束。
@@ -3449,3 +3449,16 @@ def migrate() -> None:
             if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
                 raise RuntimeError('直接客户报价迁移后外键检查失败')
             db.execute('PRAGMA user_version = 111')
+
+        if version < 112:
+            # 只追加金额分支与命中证据，旧模板、步骤、批准正文和事件保持原样。
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            for table, name, definition in (
+                ('document_approval_policies', 'branches_json', "TEXT NOT NULL DEFAULT '[]'"),
+                ('document_approval_cases', 'routing_json', 'TEXT'),
+            ):
+                columns = {row[1] for row in db.execute(f'PRAGMA table_info({table})')}
+                if columns and name not in columns:
+                    db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
+            db.execute('PRAGMA user_version = 112')

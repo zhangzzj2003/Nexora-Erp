@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from app.access.security import current_user
@@ -33,6 +33,23 @@ class ApprovalStepInput(BaseModel):
 class ApprovalPolicyInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     version: int = Field(ge=1, strict=True)
+    steps: list[ApprovalStepInput] = Field(min_length=1, max_length=5)
+    branches: list['ApprovalBranchInput'] | None = Field(default=None, max_length=5)
+
+    @field_validator('branches', mode='before')
+    @classmethod
+    def branches_not_null(cls, value):
+        # 旧客户端可省略；新客户端清空时必须显式给出空数组。
+        if value is None:
+            raise ValueError('金额分支不能为 null，请用空数组明确清空')
+        return value
+
+
+class ApprovalBranchInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    name: str = Field(min_length=1, max_length=40)
+    min_amount: str
+    max_amount: str | None
     steps: list[ApprovalStepInput] = Field(min_length=1, max_length=5)
 
 
@@ -62,7 +79,11 @@ def configure_policy(document_type: str, payload: ApprovalPolicyInput,
                      user: dict = Depends(current_user)) -> dict:
     with orm_session(write=True) as db:
         return {**save_policy(db, document_type, [step.model_dump(exclude_unset=True) | {'role': step.role} for step in payload.steps],
-                             payload.version, user['id']), 'title': approval_type(document_type).title}
+                             payload.version, user['id'], branches=None if payload.branches is None else [
+                                 branch.model_dump(exclude_unset=True) | {'steps': [
+                                     step.model_dump(exclude_unset=True) | {'role': step.role} for step in branch.steps]}
+                                 for branch in payload.branches]),
+                'title': approval_type(document_type).title}
 
 
 # 单据动作携带读取到的审批版本；不能用客户端传来的业务内容替换服务端快照。
@@ -151,7 +172,8 @@ def document_state(db, document_type: str, identifier: int, intent: str, user_id
                    'step_name': json.loads(event.state_json)['steps'][event.step]['name']
                        if event.action in ('approve', 'reject') else None,
                    'actor_name': name, 'reason': event.reason, 'created_at': event.created_at,
-                   **({'evidence': json.loads(event.state_json).get('operation_evidence', '')} if document_type == 'MaintenanceJob' else {})}
+                   **({'evidence': json.loads(event.state_json).get('operation_evidence', '')} if document_type == 'MaintenanceJob' else {}),
+                   **({'routing': json.loads(event.state_json)['routing']} if 'routing' in json.loads(event.state_json) else {})}
                   for event, name in db.execute(select(DocumentApprovalEvent, User.username)
                       .join(User, User.id == DocumentApprovalEvent.actor_id)
                       .where(DocumentApprovalEvent.case_id == row.id).order_by(DocumentApprovalEvent.id))]

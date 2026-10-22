@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { documentApprovalStepAction, documentApprovalStepLabels, type DocumentApprovalStepAction, type DocumentApprovalType } from '../../../../shared/document-approval-api'
+import { amountApprovalTypes, type DocumentApprovalType } from '../../../../shared/document-approval-api'
 import AppButton from '../app/AppButton.vue'
 import AppInput from '../app/AppInput.vue'
 import WorkspaceSelect from './WorkspaceSelect.vue'
+import ApprovalStepEditor from './ApprovalStepEditor.vue'
 import { usePiniaAppStore } from '../../store/app-store'
 
 // 只负责表单交互，模板读取、版本、保存与草稿全部由 Pinia 持有。
@@ -18,28 +19,22 @@ const draft = computed(() => drafts.value[selected.value])
 const saved = computed(() => policies.value.find(row => row.document_type === selected.value))
 const disabled = computed(() => busy.value || loading.value || connectionLost.value || !administrator.value)
 const typeOptions = computed(() => policies.value.map(row => ({ value: row.document_type, label: row.title })))
-// 按钮权限在职务与权限页面分配，审批模板仅定义每一步要执行的动作。
-const actionOptions = Object.entries(documentApprovalStepLabels).map(([value, label]) => ({ value, label }))
-function changeAction(index: number, value: string): void {
-  if (disabled.value || !draft.value || !actionOptions.some(option => option.value === value)) return
-  const step = draft.value.steps[index]
-  if (!step) return
-  const oldLabel = documentApprovalStepLabels[documentApprovalStepAction(step)]
-  step.action = value as DocumentApprovalStepAction
-  if (step.name === oldLabel) step.name = documentApprovalStepLabels[step.action]
-  // 新配置不再按固定职务排除其他持有同一按钮权限的角色。
-  step.role = null
-}
+// 同实例断线会清空远端规则缓存，已建立的金额草稿仍需可见；旧服务端未提供 branches 时不开放配置。
+const supportsAmount = computed(() => amountApprovalTypes.includes(selected.value)
+  && (!!saved.value?.amount_basis || draft.value?.branches !== undefined))
 
 async function reload(): Promise<void> {
   if (await loadApprovalPolicies()) editApprovalPolicy(selected.value)
 }
 function choose(): void { editApprovalPolicy(selected.value) }
-function addStep(): void {
-  if (!disabled.value && draft.value && draft.value.steps.length < 5) draft.value.steps.push({ name: '批准', role: null, action: 'approve' })
+function addBranch(): void {
+  if (disabled.value || !supportsAmount.value || !draft.value) return
+  draft.value.branches ??= []
+  if (draft.value.branches.length < 5) draft.value.branches.push({ name: '', min_amount: '0.00', max_amount: null,
+    steps: [{ name: '批准', role: null, action: 'approve' }] })
 }
-function removeStep(index: number): void {
-  if (!disabled.value && draft.value && draft.value.steps.length > 1) draft.value.steps.splice(index, 1)
+function removeBranch(index: number): void {
+  if (!disabled.value) draft.value?.branches?.splice(index, 1)
 }
 watch(() => [selected.value, saved.value?.version, disabled.value], () => {
   // 恢复登录时应用仍在加载其他业务；等全局忙碌结束后再建立草稿。
@@ -59,15 +54,27 @@ onMounted(() => { if (administrator.value) void reload() })
     <form class="stack" @submit.prevent="saveApprovalPolicy(selected)">
       <label>单据类型<WorkspaceSelect v-model="selected" :options="typeOptions" :disabled="disabled" @change="choose" /></label>
       <div v-if="draft" class="approval-steps">
-        <div v-for="(step, index) in draft.steps" :key="index" class="approval-step">
-          <span class="pill">{{ index + 1 }}</span>
-          <label>步骤名称<AppInput v-model="step.name" required maxlength="40" :disabled="disabled" /></label>
-          <label>审批操作<WorkspaceSelect :model-value="documentApprovalStepAction(step)" :options="actionOptions" :disabled="disabled"
-            @update:model-value="changeAction(index, $event)" /></label>
-          <AppButton :disabled="disabled || draft.steps.length === 1" @click="removeStep(index)">移除</AppButton>
-        </div>
+        <h3>默认步骤</h3>
+        <p class="muted">没有命中金额区间时使用以下步骤；冲销与撤销申请始终使用默认步骤。</p>
+        <ApprovalStepEditor v-model:steps="draft.steps" :disabled="disabled" />
+        <section v-if="supportsAmount" class="approval-branches" aria-label="金额条件分支">
+          <h3>金额条件分支</h3>
+          <p class="muted">按{{ saved?.amount_basis || '单据固定金额' }}（人民币）选择流程。下限包含，上限不包含；上限留空表示不设上限。区间不能重叠。</p>
+          <p v-if="!draft.branches?.length" class="muted">尚未设置金额分支，所有单据使用默认步骤。</p>
+          <fieldset v-for="(branch, index) in draft.branches" :key="index" class="approval-branch">
+            <legend>金额分支 {{ index + 1 }}</legend>
+            <div class="approval-range">
+              <label>分支名称<AppInput v-model="branch.name" required maxlength="40" :disabled="disabled" /></label>
+              <label>金额下限（包含）<AppInput v-model="branch.min_amount" required inputmode="decimal" :disabled="disabled" /></label>
+              <label>金额上限（不包含）<AppInput :model-value="branch.max_amount" inputmode="decimal" placeholder="不设上限" :disabled="disabled"
+                @update:model-value="branch.max_amount = $event?.trim() || null" /></label>
+            </div>
+            <ApprovalStepEditor v-model:steps="branch.steps" :disabled="disabled" />
+            <AppButton :disabled="disabled" tone="warning" @click="removeBranch(index)">移除金额分支</AppButton>
+          </fieldset>
+          <AppButton :disabled="disabled || (draft.branches?.length ?? 0) >= 5" @click="addBranch">增加金额分支</AppButton>
+        </section>
         <div class="approval-actions">
-          <AppButton :disabled="disabled || draft.steps.length >= 5" @click="addStep">增加步骤</AppButton>
           <AppButton type="submit" variant="primary" :disabled="disabled">保存审批规则</AppButton>
         </div>
         <p class="muted">送审时固定规则和内容；修改规则只影响之后重新送审的单据。</p>
@@ -82,11 +89,14 @@ onMounted(() => { if (administrator.value) void reload() })
 </template>
 
 <style scoped>
-/* 步骤顺序保持一致，窄窗口按行折叠，不挤压审批操作下拉与操作按钮。 */
+/* 分支沿用现有表单与分隔线，不再套入重复卡片。 */
 .approval-settings label { display: grid; gap: 8px; min-width: 0; }
 .approval-steps { display: grid; gap: 16px; }
-.approval-step { display: grid; grid-template-columns: auto minmax(140px, 1fr) minmax(220px, 1.5fr) auto; gap: 12px; align-items: end; }
-.approval-step > .pill { align-self: center; }
+.approval-branches { display: grid; gap: 16px; }
+.approval-branches > button, .approval-branch > button { justify-self: start; }
+.approval-branch { display: grid; gap: 20px; min-width: 0; margin: 0; padding: 20px 0; border: 0; border-top: 1px solid var(--workspace-field-border); }
+.approval-branch legend { padding: 0 8px 0 0; font-weight: 600; }
+.approval-range { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .approval-actions { display: flex; flex-wrap: wrap; gap: 12px; }
-@media (max-width: 850px) { .approval-step { grid-template-columns: auto minmax(0, 1fr); } .approval-step > label:nth-of-type(2) { grid-column: 2; } .approval-step > :last-child { grid-column: 2; justify-self: start; } }
+@media (max-width: 850px) { .approval-range { grid-template-columns: minmax(0, 1fr); } }
 </style>
